@@ -1,4 +1,4 @@
-import { DirectMessage, ServerChannel, Message } from '../types';
+import type { DirectMessage, ServerChannel, Message } from '../types';
 
 export const directMessages: Record<string, DirectMessage> = {
   '1': {
