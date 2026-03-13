@@ -2529,6 +2529,11 @@ input[type="range"] {
   opacity: 0.85;
 }
 
+/* Call window */
+.call-window {
+  height: 300px;
+}
+
 /* Settings welcome screen */
 .settings-welcome-screen {
   flex: 1;

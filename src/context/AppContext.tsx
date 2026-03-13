@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import type { AppState, ViewType } from '../types';
+import type {AppState, ViewType} from '../types';
 
 interface AppContextType extends AppState {
   setCurrentView: (view: ViewType) => void;
