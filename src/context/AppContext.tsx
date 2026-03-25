@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
 import type {AppState, ViewType} from '../types';
 
 interface AppContextType extends AppState {
@@ -11,6 +11,10 @@ interface AppContextType extends AppState {
   setLanguage: (lang: 'en' | 'ru') => void;
   toggleMobileSidebar: () => void;
   setCallActive: (active: boolean) => void;
+  setDemonstrationActive: (DemonstrationActive: boolean) => void;
+  setVideoActive: (VideoActive: boolean) => void;
+  setSpeakersActive: (SpeakersActive: Array<string>) => void;
+  setCallStatus: (status: 'active' | 'ringing' | 'connection' | 'inactive') => void;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -44,7 +48,11 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       theme: savedTheme,
       language: savedLanguage,
       isMobileSidebarOpen: false,
-      isCallActive: false
+      isCallActive: false,
+      isDemonstrationActive: false,
+      isVideoActive: false,
+      SpeakersActive: ["", ""],
+      callStatus: 'inactive',
     };
   });
 
@@ -113,6 +121,22 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     setState(prev => ({ ...prev, isCallActive: active }));
   };
 
+  const setDemonstrationActive = (DemonstrationActive: boolean) => {
+    setState(prev => ({ ...prev, isDemonstrationActive: DemonstrationActive }));
+  }
+
+  const setVideoActive = (VideoActive: boolean) => {
+    setState(prev => ({ ...prev, isVideoActive: VideoActive }));
+  }
+
+  const setSpeakersActive = (SpeakersActive: Array<string>) => {
+    setState(prev => ({ ...prev, SpeakersActive }));
+  }
+
+  const setCallStatus = (status: 'active' | 'ringing' | 'connection' | 'inactive') => {
+    setState(prev => ({ ...prev, callStatus: status }));
+  }
+
   return (
     <AppContext.Provider value={{
       ...state,
@@ -124,7 +148,11 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       toggleTheme,
       setLanguage,
       toggleMobileSidebar,
-      setCallActive
+      setCallActive,
+      setDemonstrationActive,
+      setVideoActive,
+      setSpeakersActive,
+      setCallStatus,
     }}>
       {children}
     </AppContext.Provider>

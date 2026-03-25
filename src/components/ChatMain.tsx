@@ -69,7 +69,7 @@ const ChatHeader: React.FC = () => {
         </div>
       </div>
       <div className="chat-header-actions">
-        <button className="icon-btn glass-btn" onClick={() => (setCallActive(true), console.log("true"))} title="Voice Call">
+        <button className="icon-btn glass-btn" onClick={() => (setCallActive(true))} title="Voice Call">
           <Phone size={20} />
         </button>
         <button className="icon-btn glass-btn" onClick={() => setCallActive(true)} title="Video Call">
