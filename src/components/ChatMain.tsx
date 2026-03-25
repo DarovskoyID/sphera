@@ -3,10 +3,7 @@ import { Phone, Video, Search, Menu, ArrowLeft, Plus, Smile, Send } from 'lucide
 import { useApp } from '../context/AppContext';
 import { directMessages, messages, serverChannels } from '../data/mockData';
 import { Settings } from './Settings';
-<<<<<<< HEAD
-=======
 import { CallWindow } from './CallWindow';
->>>>>>> ivan
 
 export const ChatMain: React.FC = () => {
   const { currentView, currentServer, currentChat, currentSettingsPage, toggleMobileSidebar } = useApp();
@@ -72,7 +69,7 @@ const ChatHeader: React.FC = () => {
         </div>
       </div>
       <div className="chat-header-actions">
-        <button className="icon-btn glass-btn" onClick={() => (setCallActive(true), console.log("true"))} title="Voice Call">
+        <button className="icon-btn glass-btn" onClick={() => (setCallActive(true))} title="Voice Call">
           <Phone size={20} />
         </button>
         <button className="icon-btn glass-btn" onClick={() => setCallActive(true)} title="Video Call">
