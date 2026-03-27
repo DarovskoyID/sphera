@@ -1,14 +1,19 @@
-import React, { useRef, useEffect, useState } from 'react';
+import { useRef, useEffect, useState } from 'react';
 import { useApp } from '../context/AppContext';
 
 export const CallWindow = () => {
   const {
+    isDemonstrationActive,
+    isVideoActive,
+    currentServerIP,
+    userIDonServer,
     setCallActive,
     setDemonstrationActive,
     setVideoActive,
     setCallStatus,
-    isDemonstrationActive,
-    isVideoActive
+    setUserIDonServer,
+    setCurrentServerIP,
+    
   } = useApp();
 
   const cameraVideoRef = useRef<HTMLVideoElement>(null);
@@ -19,10 +24,9 @@ export const CallWindow = () => {
   const screenStream = useRef<MediaStream | null>(null);
   const myIdRef = useRef<string | null>(null);
 
-  const [serverUrl, setServerUrl] = useState("http://localhost:8888");
-  const [myId, setMyId] = useState<string | null>(null);
+  //const [serverUrl, setServerUrl] = useState("http://localhost:8888");
+  //const [myId, setMyId] = useState<string | null>(null);
   const [peers, setPeers] = useState<Array<{ id: string; name: string }>>([]);
-  const [targetId, setTargetId] = useState<string | null>(null);
   const [remoteVideoStatus, setRemoteVideoStatus] = useState<string>('нет видео');
   const [localVideoStatus, setLocalVideoStatus] = useState<string>('нет видео');
 
@@ -67,11 +71,11 @@ export const CallWindow = () => {
     return true;
   };
 
-  const startScreen = async () => {
-    const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
-    screenStream.current = stream;
-    attachStreamToVideo(screenVideoRef.current, stream, () => {}, false);
-  };
+  // const startScreen = async () => {
+  //   const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+  //   screenStream.current = stream;
+  //   attachStreamToVideo(screenVideoRef.current, stream, () => {}, false);
+  // };
 
   const stopAllMedia = () => {
     cameraStream.current?.getTracks().forEach(t => t.stop());
@@ -158,18 +162,31 @@ export const CallWindow = () => {
     if (cameraVideoRef.current && cameraStream.current) {
       attachStreamToVideo(cameraVideoRef.current, cameraStream.current, setLocalVideoStatus, true);
     }
+    
+  }, [isVideoActive]);
+
+  // ==================== Отключение видео при isVideoActive = false ====================
+  useEffect(() => {
+    if (cameraStream.current) {
+      cameraStream.current.getVideoTracks().forEach(track => {
+        track.enabled = isVideoActive;
+      });
+    }
+    if (!isVideoActive) {
+      setLocalVideoStatus('видео отключено');
+    }
   }, [isVideoActive]);
 
   // ==================== Сигнализация ====================
   const sendSignal = async (to: string, data: any) => {
-    const id = myIdRef.current || myId;
+    const id = myIdRef.current || userIDonServer;
     if (!id) {
-      console.error('myId is not set');
+      console.error('userIDonServer is not set');
       return;
     }
     const payload = { ...data, from: id };
     try {
-      const response = await fetch(`${serverUrl}/message?peer_id=${id}&to=${to}`, { 
+      const response = await fetch(`${currentServerIP}/message?peer_id=${id}&to=${to}`, { 
         method: 'POST', 
         body: JSON.stringify(payload) 
       });
@@ -184,7 +201,6 @@ export const CallWindow = () => {
   };
 
   const callPeer = async (peerId: string) => {
-    setTargetId(peerId);
     targetIdRef.current = peerId;
     pendingCandidates.current = [];
 
@@ -209,7 +225,6 @@ export const CallWindow = () => {
     if (!pcRef.current || targetIdRef.current !== senderId) {
       pcRef.current = createPeerConnection(senderId);
       targetIdRef.current = senderId;
-      setTargetId(senderId);
       pendingCandidates.current = [];
     }
     const pc = pcRef.current;
@@ -261,7 +276,7 @@ export const CallWindow = () => {
 
   const waitForMessages = async (id: string) => {
     while (true) {
-      const res = await fetch(`${serverUrl}/wait?peer_id=${id}`);
+      const res = await fetch(`${currentServerIP}/wait?peer_id=${id}`);
       const text = await res.text();
       if (!text) continue;
 
@@ -284,7 +299,7 @@ export const CallWindow = () => {
   const signIn = async () => {
     try {
       const name = `user_${Math.floor(Math.random() * 1000)}`;
-      const res = await fetch(`${serverUrl}/sign_in?${name}`);
+      const res = await fetch(`${currentServerIP}/sign_in?${name}`);
       
       if (!res.ok) {
         console.error('Sign in failed:', res.status);
@@ -302,7 +317,7 @@ export const CallWindow = () => {
       
       const userId = lines[0].split(',')[1];
       myIdRef.current = userId;
-      setMyId(userId);
+      setUserIDonServer(userId);
       console.log('Signed in with ID:', userId);
 
       const peersList = lines.slice(1).map(line => {
@@ -324,7 +339,6 @@ export const CallWindow = () => {
     pcRef.current = null;
 
     targetIdRef.current = null;
-    setTargetId(null);
     pendingCandidates.current = [];
 
     stopAllMedia();
@@ -339,11 +353,18 @@ export const CallWindow = () => {
     setDemonstrationActive(false);
   };
 
+  useEffect(() => {
+    console.log(localVideoStatus);
+  }, [localVideoStatus]);
+  useEffect(() => {
+    console.log(remoteVideoStatus);
+  }, [remoteVideoStatus]);
+
   // ==================== UI ====================
   return (
     <div style={{ height: 350, background: 'black', display: 'flex', flexDirection: 'column' }}>
       <div style={{ color: 'white', padding: 10 }}>
-        <input value={serverUrl} onChange={e => setServerUrl(e.target.value)} />
+        <input value={currentServerIP} onChange={e => setCurrentServerIP(e.target.value)} />
         <button onClick={signIn}>Connect</button>
 
         <div>
@@ -351,13 +372,27 @@ export const CallWindow = () => {
             <button key={peer.id} onClick={() => callPeer(peer.id)}>Call {peer.name}</button>
           ))}
         </div>
-
-        <div style={{ fontSize: 12, color: 'lime' }}>Local: {localVideoStatus}</div>
-        <div style={{ fontSize: 12, color: 'yellow' }}>Remote: {remoteVideoStatus}</div>
       </div>
 
-      <div style={{ flex: 1, display: 'flex', justifyContent: 'center', gap: 20 }}>
-        {isVideoActive && <video ref={cameraVideoRef} autoPlay muted playsInline style={{ width: 300 }} />}
+      <div style={{ flex: 1, display: 'flex', justifyContent: 'center', gap: 20, alignItems: 'center' }}>
+        {isVideoActive ? (
+          <video ref={cameraVideoRef} autoPlay muted playsInline style={{ width: 300 }} />
+        ) : (
+          <div style={{
+            width: 200,
+            height: 200,
+            backgroundColor: '#00ff00',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            color: '#000',
+            fontWeight: 'bold',
+            fontSize: 16,
+            borderRadius: 8
+          }}>
+            📵 Видео отключено
+          </div>
+        )}
         
         {/* 🔹 Remote video: autoplay с muted=true для браузера, звук включаем после клика */}
         <video

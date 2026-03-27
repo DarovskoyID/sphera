@@ -46,7 +46,7 @@ export const ChatMain: React.FC = () => {
 };
 
 const ChatHeader: React.FC = () => {
-  const { isCallActive, currentView, currentChat, toggleMobileSidebar, setCallActive } = useApp();
+  const { isCallActive, currentView, currentChat, toggleMobileSidebar, setCallActive, setVideoActive } = useApp();
   
   const chat = currentChat ? directMessages[currentChat] : null;
 
@@ -72,7 +72,7 @@ const ChatHeader: React.FC = () => {
         <button className="icon-btn glass-btn" onClick={() => (setCallActive(true))} title="Voice Call">
           <Phone size={20} />
         </button>
-        <button className="icon-btn glass-btn" onClick={() => setCallActive(true)} title="Video Call">
+        <button className="icon-btn glass-btn" onClick={() => {setCallActive(true); setVideoActive(true)}} title="Video Call">
           <Video size={20} />
         </button>
         <button className="icon-btn glass-btn" title="Search">

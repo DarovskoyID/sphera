@@ -15,6 +15,8 @@ interface AppContextType extends AppState {
   setVideoActive: (VideoActive: boolean) => void;
   setSpeakersActive: (SpeakersActive: Array<string>) => void;
   setCallStatus: (status: 'active' | 'ringing' | 'connection' | 'inactive') => void;
+  setCurrentServerIP: (serverIP: string) => void;
+  setUserIDonServer: (userIDonServer: string) => void;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -53,6 +55,8 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       isVideoActive: false,
       SpeakersActive: ["", ""],
       callStatus: 'inactive',
+      currentServerIP: 'http://localhost:8888',
+      userIDonServer: null,
     };
   });
 
@@ -137,6 +141,14 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     setState(prev => ({ ...prev, callStatus: status }));
   }
 
+  const setCurrentServerIP = (serverIP: string) => {
+    setState(prev => ({ ...prev, currentServerIP: serverIP }));
+  }
+
+  const setUserIDonServer = (userIDonServer: string) => {
+    setState(prev => ({ ...prev, userIDonServer }));
+  }
+
   return (
     <AppContext.Provider value={{
       ...state,
@@ -153,6 +165,8 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       setVideoActive,
       setSpeakersActive,
       setCallStatus,
+      setCurrentServerIP,
+      setUserIDonServer,
     }}>
       {children}
     </AppContext.Provider>

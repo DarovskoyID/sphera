@@ -54,4 +54,10 @@ export interface AppState {
   language: 'en' | 'ru';
   isMobileSidebarOpen: boolean;
   isCallActive: boolean;
+  isDemonstrationActive: boolean;
+  isVideoActive: boolean;
+  callStatus: 'active' | 'ringing' | 'connection' | 'inactive';
+  SpeakersActive: Array<string>;
+  currentServerIP: string;
+  userIDonServer: string;
 }
