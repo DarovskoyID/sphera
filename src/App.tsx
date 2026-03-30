@@ -4,7 +4,6 @@ import { ServerSidebar } from './components/ServerSidebar';
 import { ChatSidebar } from './components/ChatSidebar';
 import { ChatMain } from './components/ChatMain';
 
-
 function AppContent() {
   const { mobileActivePanel, isMobileSidebarOpen, toggleMobileSidebar } = useApp();
 
@@ -17,14 +16,6 @@ function AppContent() {
       <ChatSidebar />
       <ChatMain />
     </div>
-  );
-}
-
-function App() {
-  return (
-    <AppProvider>
-      <AppContent />
-    </AppProvider>
   );
 }
 
