@@ -4,10 +4,10 @@ import { useApp } from '../context/AppContext';
 import { serverChannels } from '../data/mockData';
 
 export const ServerSidebar: React.FC = () => {
-  const { currentServer, setCurrentServer } = useApp();
+  const { currentServer, setCurrentServer, isMobileSidebarOpen } = useApp();
 
   return (
-    <aside className="server-sidebar">
+    <aside className={`server-sidebar ${isMobileSidebarOpen ? 'mobile-open' : ''}`}>
       <div className="server-list">
         <button
           className={`server-icon ${currentServer === 'settings' ? 'active' : ''}`}

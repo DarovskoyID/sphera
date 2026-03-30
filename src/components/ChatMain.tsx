@@ -6,14 +6,24 @@ import { Settings } from './Settings';
 import { CallWindow } from './CallWindow';
 
 export const ChatMain: React.FC = () => {
-  const { currentView, currentServer, currentChat, currentSettingsPage, toggleMobileSidebar } = useApp();
+  const { currentView, currentServer, currentChat, currentSettingsPage, toggleMobileSidebar, setMobileActivePanel } = useApp();
 
   if (currentView === 'settings') {
     if (!currentSettingsPage) {
-      return <SettingsView />;
+      return (
+        <main className="chat-main">
+          <SettingsView />
+        </main>
+      );
     }
     return (
       <main className="chat-main">
+        <header className="chat-header glass-panel settings-mobile-header">
+          <button className="icon-btn glass-btn mobile-back-btn" onClick={() => setMobileActivePanel('chat-list')} title="Back">
+            <ArrowLeft size={20} />
+          </button>
+          <h3>{currentSettingsPage}</h3>
+        </header>
         <Settings />
       </main>
     );
@@ -21,7 +31,11 @@ export const ChatMain: React.FC = () => {
 
   if (currentView === 'home') {
     if (!currentChat) {
-      return <WelcomeScreen />;
+      return (
+        <main className="chat-main">
+          <WelcomeScreen />
+        </main>
+      );
     }
     return (
       <main className="chat-main">
@@ -46,8 +60,8 @@ export const ChatMain: React.FC = () => {
 };
 
 const ChatHeader: React.FC = () => {
-  const { isCallActive, currentView, currentChat, toggleMobileSidebar, setCallActive, setVideoActive } = useApp();
-  
+  const { isCallActive, currentView, currentChat, toggleMobileSidebar, setCallActive, setVideoActive, setMobileActivePanel } = useApp();
+
   const chat = currentChat ? directMessages[currentChat] : null;
 
   if (!chat) return null;
@@ -55,7 +69,7 @@ const ChatHeader: React.FC = () => {
   return (
     <>
     {isCallActive ? <CallWindow /> : <header className="chat-header glass-panel">
-      <button className="icon-btn glass-btn mobile-settings-back-btn hidden" title="Back">
+      <button className="icon-btn glass-btn mobile-back-btn" onClick={() => setMobileActivePanel('chat-list')} title="Back">
         <ArrowLeft size={20} />
       </button>
       <div className="chat-header-info">
@@ -84,7 +98,7 @@ const ChatHeader: React.FC = () => {
       </div>
     </header>}
     </>
-    
+
   );
 };
 

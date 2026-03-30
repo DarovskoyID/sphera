@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
-import type {AppState, ViewType} from '../types';
+import type {AppState, ViewType, MobilePanel} from '../types';
 
 interface AppContextType extends AppState {
   setCurrentView: (view: ViewType) => void;
@@ -10,6 +10,7 @@ interface AppContextType extends AppState {
   toggleTheme: () => void;
   setLanguage: (lang: 'en' | 'ru') => void;
   toggleMobileSidebar: () => void;
+  setMobileActivePanel: (panel: MobilePanel) => void;
   setCallActive: (active: boolean) => void;
   setDemonstrationActive: (DemonstrationActive: boolean) => void;
   setVideoActive: (VideoActive: boolean) => void;
@@ -50,6 +51,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       theme: savedTheme,
       language: savedLanguage,
       isMobileSidebarOpen: false,
+      mobileActivePanel: 'chat-list',
       isCallActive: false,
       isDemonstrationActive: false,
       isVideoActive: false,
@@ -93,12 +95,14 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     setState(prev => ({
       ...prev,
       currentServer: serverId,
-      currentView: serverId === 'home' ? 'home' : serverId === 'settings' ? 'settings' : 'server'
+      currentView: serverId === 'home' ? 'home' : serverId === 'settings' ? 'settings' : 'server',
+      isMobileSidebarOpen: false,
+      mobileActivePanel: 'chat-list' as MobilePanel,
     }));
   };
 
   const setCurrentChat = (chatId: string) => {
-    setState(prev => ({ ...prev, currentChat: chatId }));
+    setState(prev => ({ ...prev, currentChat: chatId, mobileActivePanel: 'chat-view' as MobilePanel }));
   };
 
   const setCurrentChannel = (channel: string) => {
@@ -106,7 +110,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
   };
 
   const setCurrentSettingsPage = (page: string) => {
-    setState(prev => ({ ...prev, currentSettingsPage: page }));
+    setState(prev => ({ ...prev, currentSettingsPage: page, mobileActivePanel: 'chat-view' as MobilePanel }));
   };
 
   const toggleTheme = () => {
@@ -119,6 +123,10 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
 
   const toggleMobileSidebar = () => {
     setState(prev => ({ ...prev, isMobileSidebarOpen: !prev.isMobileSidebarOpen }));
+  };
+
+  const setMobileActivePanel = (panel: MobilePanel) => {
+    setState(prev => ({ ...prev, mobileActivePanel: panel }));
   };
 
   const setCallActive = (active: boolean) => {
@@ -160,6 +168,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       toggleTheme,
       setLanguage,
       toggleMobileSidebar,
+      setMobileActivePanel,
       setCallActive,
       setDemonstrationActive,
       setVideoActive,

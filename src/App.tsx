@@ -1,18 +1,29 @@
 import React from 'react';
-import { AppProvider } from './context/AppContext';
+import { AppProvider, useApp } from './context/AppContext';
 import { ServerSidebar } from './components/ServerSidebar';
 import { ChatSidebar } from './components/ChatSidebar';
 import { ChatMain } from './components/ChatMain';
 
 
+function AppContent() {
+  const { mobileActivePanel, isMobileSidebarOpen, toggleMobileSidebar } = useApp();
+
+  return (
+    <div className={`app-container mobile-panel-${mobileActivePanel}`}>
+      <ServerSidebar />
+      {isMobileSidebarOpen && (
+        <div className="mobile-overlay" onClick={toggleMobileSidebar} />
+      )}
+      <ChatSidebar />
+      <ChatMain />
+    </div>
+  );
+}
+
 function App() {
   return (
     <AppProvider>
-      <div className="app-container">
-        <ServerSidebar />
-        <ChatSidebar />
-        <ChatMain />
-      </div>
+      <AppContent />
     </AppProvider>
   );
 }

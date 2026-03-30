@@ -457,7 +457,7 @@ export const CallWindow = () => {
 
   // ==================== UI ====================
   return (
-    <div style={{ height: 350, background: 'black', display: 'flex', flexDirection: 'column' }}>
+    <div className="call-window" style={{ height: 350, background: 'black', display: 'flex', flexDirection: 'column' }}>
       <div style={{ color: 'white', padding: 10 }}>
         <input value={currentServerIP} onChange={e => setCurrentServerIP(e.target.value)} />
         <button onClick={signIn}>Connect</button>
