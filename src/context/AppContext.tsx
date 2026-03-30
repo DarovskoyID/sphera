@@ -56,7 +56,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       SpeakersActive: ["", ""],
       callStatus: 'inactive',
       currentServerIP: 'http://localhost:8888',
-      userIDonServer: null,
+      userIDonServer: '',
     };
   });
 
