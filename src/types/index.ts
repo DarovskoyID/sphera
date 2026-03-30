@@ -44,6 +44,8 @@ export interface ServerChannel {
 
 export type ViewType = 'home' | 'server' | 'settings';
 
+export type MobilePanel = 'chat-list' | 'chat-view';
+
 export interface AppState {
   currentView: ViewType;
   currentServer: string;
@@ -53,5 +55,12 @@ export interface AppState {
   theme: 'light' | 'dark';
   language: 'en' | 'ru';
   isMobileSidebarOpen: boolean;
+  mobileActivePanel: MobilePanel;
   isCallActive: boolean;
+  isDemonstrationActive: boolean;
+  isVideoActive: boolean;
+  callStatus: 'active' | 'ringing' | 'connection' | 'inactive';
+  SpeakersActive: Array<string>;
+  currentServerIP: string;
+  userIDonServer: string;
 }

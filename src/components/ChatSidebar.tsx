@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
-import { Sun, Moon, ArrowLeft, Search } from 'lucide-react';
+import { Sun, Moon, ArrowLeft, Search, Menu } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { directMessages, serverChannels } from '../data/mockData';
 
 export const ChatSidebar: React.FC = () => {
-  const { currentView, currentServer, currentChat, currentSettingsPage, setCurrentChat, setCurrentSettingsPage, toggleTheme, theme, isMobileSidebarOpen } = useApp();
+  const { currentView, currentServer, currentChat, currentSettingsPage, setCurrentChat, setCurrentSettingsPage, toggleTheme, theme, isMobileSidebarOpen, toggleMobileSidebar } = useApp();
   const [searchQuery, setSearchQuery] = useState('');
 
   const filteredChats = Object.values(directMessages).filter(chat =>
@@ -24,8 +24,8 @@ export const ChatSidebar: React.FC = () => {
   return (
     <aside className={`chat-sidebar ${isMobileSidebarOpen ? 'mobile-open' : ''}`}>
       <div className="chat-sidebar-header">
-        <button className="icon-btn glass-btn mobile-back-btn hidden" title="Back">
-          <ArrowLeft size={20} />
+        <button className="icon-btn glass-btn mobile-hamburger-btn" onClick={toggleMobileSidebar} title="Menu">
+          <Menu size={20} />
         </button>
         <h2>{sidebarTitle}</h2>
         <button className="icon-btn glass-btn" onClick={toggleTheme} title="Toggle Theme">
