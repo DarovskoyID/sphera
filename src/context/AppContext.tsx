@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef, type ReactNode } from 'react';
 import type {AppState, ViewType, MobilePanel} from '../types';
 
 interface AppContextType extends AppState {
@@ -18,6 +18,11 @@ interface AppContextType extends AppState {
   setCallStatus: (status: 'active' | 'ringing' | 'connection' | 'inactive') => void;
   setCurrentServerIP: (serverIP: string) => void;
   setUserIDonServer: (userIDonServer: string) => void;
+  setAuthToken: (token: string) => void;
+  signalingWs: React.MutableRefObject<WebSocket | null>;
+  sendSignal: (data: any) => void;
+  signalingPeers: Array<{ id: string; name: string }>;
+  onSignalingMessage: React.MutableRefObject<((msg: any) => void) | null>;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -41,6 +46,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     const savedServer = localStorage.getItem('messengerCurrentServer') || 'home';
     const savedChat = localStorage.getItem('messengerCurrentChat') || '1';
     const savedChannel = localStorage.getItem('messengerCurrentChannel') || 'general';
+    const savedToken = localStorage.getItem('authToken') || '';
 
     return {
       currentView: savedServer === 'home' ? 'home' : savedServer === 'settings' ? 'settings' : 'server',
@@ -57,10 +63,67 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       isVideoActive: false,
       SpeakersActive: ["", ""],
       callStatus: 'inactive',
-      currentServerIP: 'http://localhost:8888',
+      currentServerIP: 'http://localhost:8000',
       userIDonServer: '',
+      authToken: savedToken,
     };
   });
+
+  const signalingWs = useRef<WebSocket | null>(null);
+  const [signalingPeers, setSignalingPeers] = useState<Array<{ id: string; name: string }>>([]);
+  const onSignalingMessage = useRef<((msg: any) => void) | null>(null);
+
+  // Connect signaling WebSocket when call is active and authToken is set
+  useEffect(() => {
+    if (!state.authToken || !state.isCallActive) {
+      // Disconnect if call ended
+      if (signalingWs.current) {
+        signalingWs.current.close();
+        signalingWs.current = null;
+        setSignalingPeers([]);
+      }
+      return;
+    }
+
+    const wsUrl = state.currentServerIP.replace(/^http/, 'ws');
+    const ws = new WebSocket(`${wsUrl}/ws/signaling/?token=${state.authToken}`);
+
+    ws.onopen = () => {
+      console.log('Signaling WS connected');
+      signalingWs.current = ws;
+    };
+
+    ws.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+
+      if (data.type === 'peers') {
+        setSignalingPeers(data.peers);
+        return;
+      }
+
+      if (onSignalingMessage.current) {
+        onSignalingMessage.current(data);
+      }
+    };
+
+    ws.onclose = () => {
+      console.log('Signaling WS disconnected');
+      signalingWs.current = null;
+    };
+
+    return () => {
+      ws.close();
+      signalingWs.current = null;
+    };
+  }, [state.authToken, state.currentServerIP, state.isCallActive]);
+
+  const sendSignal = (data: any) => {
+    if (signalingWs.current?.readyState === WebSocket.OPEN) {
+      signalingWs.current.send(JSON.stringify(data));
+    } else {
+      console.error('Signaling WS not connected');
+    }
+  };
 
   useEffect(() => {
     if (state.theme === 'dark') {
@@ -135,27 +198,32 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
 
   const setDemonstrationActive = (DemonstrationActive: boolean) => {
     setState(prev => ({ ...prev, isDemonstrationActive: DemonstrationActive }));
-  }
+  };
 
   const setVideoActive = (VideoActive: boolean) => {
     setState(prev => ({ ...prev, isVideoActive: VideoActive }));
-  }
+  };
 
   const setSpeakersActive = (SpeakersActive: Array<string>) => {
     setState(prev => ({ ...prev, SpeakersActive }));
-  }
+  };
 
   const setCallStatus = (status: 'active' | 'ringing' | 'connection' | 'inactive') => {
     setState(prev => ({ ...prev, callStatus: status }));
-  }
+  };
 
   const setCurrentServerIP = (serverIP: string) => {
     setState(prev => ({ ...prev, currentServerIP: serverIP }));
-  }
+  };
 
   const setUserIDonServer = (userIDonServer: string) => {
     setState(prev => ({ ...prev, userIDonServer }));
-  }
+  };
+
+  const setAuthToken = (token: string) => {
+    localStorage.setItem('authToken', token);
+    setState(prev => ({ ...prev, authToken: token }));
+  };
 
   return (
     <AppContext.Provider value={{
@@ -176,6 +244,11 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       setCallStatus,
       setCurrentServerIP,
       setUserIDonServer,
+      setAuthToken,
+      signalingWs,
+      sendSignal,
+      signalingPeers,
+      onSignalingMessage,
     }}>
       {children}
     </AppContext.Provider>

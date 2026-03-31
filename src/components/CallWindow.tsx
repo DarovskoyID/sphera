@@ -5,16 +5,21 @@ export const CallWindow = () => {
   const {
     isDemonstrationActive,
     isVideoActive,
+    authToken,
     currentServerIP,
-    userIDonServer,
     setCallActive,
     setDemonstrationActive,
     setVideoActive,
     setCallStatus,
-    setUserIDonServer,
-    setCurrentServerIP,
-    
+    setAuthToken,
+    sendSignal,
+    signalingPeers,
+    onSignalingMessage,
   } = useApp();
+
+  const [authUsername, setAuthUsername] = useState('');
+  const [authPassword, setAuthPassword] = useState('');
+  const [authError, setAuthError] = useState('');
 
   const cameraVideoRef = useRef<HTMLVideoElement>(null);
   const screenVideoRef = useRef<HTMLVideoElement>(null);
@@ -22,11 +27,7 @@ export const CallWindow = () => {
 
   const cameraStream = useRef<MediaStream | null>(null);
   const screenStream = useRef<MediaStream | null>(null);
-  const myIdRef = useRef<string | null>(null);
 
-  //const [serverUrl, setServerUrl] = useState("http://localhost:8888");
-  //const [myId, setMyId] = useState<string | null>(null);
-  const [peers, setPeers] = useState<Array<{ id: string; name: string }>>([]);
   const [remoteVideoStatus, setRemoteVideoStatus] = useState<string>('нет видео');
   const [localVideoStatus, setLocalVideoStatus] = useState<string>('нет видео');
 
@@ -34,7 +35,6 @@ export const CallWindow = () => {
   const targetIdRef = useRef<string | null>(null);
   const pendingCandidates = useRef<RTCIceCandidate[]>([]);
 
-  // 🔹 Единый remote поток
   const remoteStreamRef = useRef<MediaStream | null>(null);
   const remoteScreenStreamRef = useRef<MediaStream | null>(null);
   const screenSenderRef = useRef<RTCRtpSender | null>(null);
@@ -89,8 +89,8 @@ export const CallWindow = () => {
 
         const offer = await pc.createOffer();
         await pc.setLocalDescription(offer);
-        sendSignal(targetId, { type: 'offer', sdp: offer });
-        sendSignal(targetId, { type: 'demo-toggle', enabled: true });
+        sendSignal({ type: 'offer', sdp: offer, to: targetId });
+        sendSignal({ type: 'demo-toggle', enabled: true, to: targetId });
       }
 
       stream.getVideoTracks()[0].onended = () => {
@@ -115,8 +115,8 @@ export const CallWindow = () => {
 
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
-      sendSignal(targetId, { type: 'offer', sdp: offer });
-      sendSignal(targetId, { type: 'demo-toggle', enabled: false });
+      sendSignal({ type: 'offer', sdp: offer, to: targetId });
+      sendSignal({ type: 'demo-toggle', enabled: false, to: targetId });
     }
   };
 
@@ -135,7 +135,7 @@ export const CallWindow = () => {
     const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
 
     pc.onicecandidate = (event) => {
-      if (event.candidate) sendSignal(remoteId, { type: 'candidate', candidate: event.candidate });
+      if (event.candidate) sendSignal({ type: 'candidate', candidate: event.candidate, to: remoteId });
     };
 
     pc.ontrack = (event) => {
@@ -143,8 +143,6 @@ export const CallWindow = () => {
 
       const remoteStream = event.streams[0];
 
-      // Distinguish camera vs screen by stream ID:
-      // camera tracks share the same stream, screen track comes on a different stream
       const isCameraStream = remoteStreamRef.current && remoteStream
         && remoteStreamRef.current.id === remoteStream.id;
       const isFirstTrack = !remoteStreamRef.current;
@@ -152,7 +150,6 @@ export const CallWindow = () => {
 
       if (isScreenTrack) {
         console.log('🖥️ Screen track received');
-        // Always create a fresh stream for screen to avoid stale tracks
         remoteScreenStreamRef.current = new MediaStream([event.track]);
 
         const screenEl = screenVideoRef.current;
@@ -173,7 +170,7 @@ export const CallWindow = () => {
         return;
       }
 
-      // Camera/audio track — use the actual stream from the event
+      // Camera/audio track
       if (!remoteStreamRef.current && remoteStream) {
         remoteStreamRef.current = remoteStream;
         console.log('Remote stream set, id:', remoteStream.id);
@@ -250,56 +247,19 @@ export const CallWindow = () => {
       stopScreen();
     }
   }, [isDemonstrationActive]);
-  // ==================== Сигнализация ====================
-  const sendSignal = async (to: string, data: any) => {
-    const id = myIdRef.current || userIDonServer;
-    if (!id) {
-      console.error('userIDonServer is not set');
-      return;
-    }
-    const payload = { ...data, from: id };
-    try {
-      const response = await fetch(`${currentServerIP}/message?peer_id=${id}&to=${to}`, { 
-        method: 'POST', 
-        body: JSON.stringify(payload) 
-      });
-      if (!response.ok) {
-        console.error('Failed to send signal:', response.status);
-      } else {
-        console.log('Signal sent successfully:', data.type);
-      }
-    } catch (error) {
-      console.error('Error sending signal:', error);
-    }
-  };
 
-  const callPeer = async (peerId: string) => {
-    targetIdRef.current = peerId;
-    pendingCandidates.current = [];
+  // ==================== Handle incoming signals from WebSocket ====================
+  const handleSignal = async (msg: any) => {
+    const senderId = msg.from;
+    if (!senderId) return;
 
-    if (!cameraStream.current?.active) {
-      const ok = await startCamera();
-      if (ok) setVideoActive(true);
-    }
-
-    if (cameraVideoRef.current && cameraStream.current) {
-      attachStreamToVideo(cameraVideoRef.current, cameraStream.current, setLocalVideoStatus, true);
-    }
-
-    const pc = createPeerConnection(peerId);
-    pcRef.current = pc;
-    
-    // ✅ ВАЖНО: добавляем локальные треки ДО создания offer
-    addLocalTracks(pc);
-
-    const offer = await pc.createOffer();
-    await pc.setLocalDescription(offer);
-
-    sendSignal(peerId, { type: 'offer', sdp: offer });
-  };
-
-  const handleSignal = async (msg: any, senderId: string) => {
-    if (!pcRef.current || targetIdRef.current !== senderId) {
+    // On new offer: always create a fresh peer connection
+    if (msg.type === 'offer') {
+      if (pcRef.current) pcRef.current.close();
+      pcRef.current = createPeerConnection(senderId);
+      targetIdRef.current = senderId;
+      pendingCandidates.current = [];
+    } else if (!pcRef.current || targetIdRef.current !== senderId) {
       pcRef.current = createPeerConnection(senderId);
       targetIdRef.current = senderId;
       pendingCandidates.current = [];
@@ -308,19 +268,16 @@ export const CallWindow = () => {
 
     if (msg.type === 'offer') {
       try {
-        // ✅ Устанавливаем удаленное описание (видео будет приходить от инициатора)
         await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
-        
-        // ✅ Получатель НЕ отправляет видео - создаём пустой ответ
+
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
 
-        sendSignal(senderId, { type: 'answer', sdp: answer });
-        
-        // Добавляем ожидающих кандидатов
+        sendSignal({ type: 'answer', sdp: answer, to: senderId });
+
         for (const c of pendingCandidates.current) await pc.addIceCandidate(c);
         pendingCandidates.current = [];
-        
+
         console.log('Answer sent successfully');
       } catch (e) {
         console.error('Offer handling error:', e);
@@ -328,9 +285,13 @@ export const CallWindow = () => {
 
     } else if (msg.type === 'answer') {
       try {
+        // Ignore answer if we're not expecting one (connection is stable)
+        if (pc.signalingState !== 'have-local-offer') {
+          console.warn('Ignoring stale answer, state:', pc.signalingState);
+          return;
+        }
         await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
-        
-        // Добавляем ожидающих кандидатов
+
         for (const c of pendingCandidates.current) await pc.addIceCandidate(c);
         pendingCandidates.current = [];
       } catch (e) {
@@ -362,67 +323,40 @@ export const CallWindow = () => {
     }
   };
 
-  const waitForMessages = async (id: string) => {
-    while (true) {
-      const res = await fetch(`${currentServerIP}/wait?peer_id=${id}`);
-      const text = await res.text();
-      if (!text) continue;
+  // Register signal handler on mount
+  useEffect(() => {
+    onSignalingMessage.current = handleSignal;
+    return () => {
+      onSignalingMessage.current = null;
+    };
+  });
 
-      const lines = text.split('\n').filter(Boolean);
+  // ==================== Call peer ====================
+  const callPeer = async (peerId: string) => {
+    targetIdRef.current = peerId;
+    pendingCandidates.current = [];
 
-      for (const line of lines) {
-        let msg;
-        try {
-          msg = JSON.parse(line);
-        } catch {
-          const [name, newId] = line.split(',');
-          setPeers(prev => prev.some(p => p.id === newId) ? prev : [...prev, { id: newId, name }]);
-          continue;
-        }
-        await handleSignal(msg, msg.from);
-      }
+    if (!cameraStream.current?.active) {
+      const ok = await startCamera();
+      if (ok) setVideoActive(true);
     }
+
+    if (cameraVideoRef.current && cameraStream.current) {
+      attachStreamToVideo(cameraVideoRef.current, cameraStream.current, setLocalVideoStatus, true);
+    }
+
+    const pc = createPeerConnection(peerId);
+    pcRef.current = pc;
+
+    addLocalTracks(pc);
+
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+
+    sendSignal({ type: 'offer', sdp: offer, to: peerId });
   };
 
-  const signIn = async () => {
-    try {
-      const name = (`user_${Math.floor(Math.random() * 1000)}`);
-      const res = await fetch(`${currentServerIP}/sign_in?${name}`);
-      
-      if (!res.ok) {
-        console.error('Sign in failed:', res.status);
-        setRemoteVideoStatus(`Ошибка сервера: ${res.status}`);
-        return;
-      }
-      
-      const text = await res.text();
-      const lines = text.split('\n').filter(Boolean);
-      
-      if (lines.length === 0) {
-        console.error('Empty response from server');
-        return;
-      }
-      
-      const userId = lines[0].split(',')[1];
-      myIdRef.current = userId;
-      setUserIDonServer(userId);
-      console.log('Signed in with ID:', userId);
-
-      const peersList = lines.slice(1).map(line => {
-        const [name, id] = line.split(',');
-        return { id, name };
-      });
-      setPeers(peersList);
-      console.log('Peers list updated:', peersList);
-
-      waitForMessages(userId);
-    } catch (error) {
-      console.error('Sign in error:', error);
-      setRemoteVideoStatus('Ошибка подключения к серверу');
-    }
-  };
-
-  const stopCall = async () => {
+  const stopCall = () => {
     pcRef.current?.close();
     pcRef.current = null;
 
@@ -442,10 +376,6 @@ export const CallWindow = () => {
     setCallStatus('inactive');
     setVideoActive(false);
     setDemonstrationActive(false);
-
-    const res = await fetch(`${currentServerIP}/sign_out?peer_id=${myIdRef.current}`);
-    console.log('Sign out response:', res.status);
-
   };
 
   useEffect(() => {
@@ -455,18 +385,63 @@ export const CallWindow = () => {
     console.log(remoteVideoStatus);
   }, [remoteVideoStatus]);
 
+  // ==================== Auth ====================
+  const handleAuth = async (mode: 'login' | 'register') => {
+    setAuthError('');
+    const url = mode === 'register'
+      ? `${currentServerIP}/api/auth/register/`
+      : `${currentServerIP}/api/auth/login/`;
+    const body = { username: authUsername, password: authPassword };
+
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setAuthError(JSON.stringify(data));
+        return;
+      }
+      setAuthToken(data.access);
+    } catch (e: any) {
+      setAuthError(e.message);
+    }
+  };
+
   // ==================== UI ====================
   return (
     <div className="call-window" style={{ height: 350, background: 'black', display: 'flex', flexDirection: 'column' }}>
       <div style={{ color: 'white', padding: 10 }}>
-        <input value={currentServerIP} onChange={e => setCurrentServerIP(e.target.value)} />
-        <button onClick={signIn}>Connect</button>
-
-        <div>
-          {peers.map(peer => (
-            <button key={peer.id} onClick={() => callPeer(peer.id)}>Call {peer.name}</button>
-          ))}
-        </div>
+        {!authToken ? (
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+            <input
+              placeholder="username"
+              value={authUsername}
+              onChange={e => setAuthUsername(e.target.value)}
+              style={{ padding: '4px 8px' }}
+            />
+            <input
+              placeholder="password"
+              type="password"
+              value={authPassword}
+              onChange={e => setAuthPassword(e.target.value)}
+              style={{ padding: '4px 8px' }}
+            />
+            <button onClick={() => handleAuth('login')}>Login</button>
+            <button onClick={() => handleAuth('register')}>Register</button>
+            {authError && <span style={{ color: 'red', fontSize: 12 }}>{authError}</span>}
+          </div>
+        ) : (
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+            {signalingPeers.map(peer => (
+              <button key={peer.id} onClick={() => callPeer(peer.id)}>Call {peer.name}</button>
+            ))}
+            {signalingPeers.length === 0 && <span>No peers online</span>}
+            <button onClick={() => setAuthToken('')} style={{ marginLeft: 'auto', color: 'red' }}>Sign out</button>
+          </div>
+        )}
       </div>
 
       <div style={{ flex: 1, display: 'flex', justifyContent: 'center', gap: 20, alignItems: 'center' }}>
@@ -485,14 +460,10 @@ export const CallWindow = () => {
             fontSize: 16,
             borderRadius: 8
           }}>
-            📵 Видео отключено
+            Видео отключено
           </div>
         )}
-        
 
-
-        {/* 🔹 Remote video: autoplay с muted=true для браузера, звук включаем после клика */}
-        
         <video
           ref={remoteVideoRef}
           autoPlay
@@ -518,11 +489,10 @@ export const CallWindow = () => {
             alignItems: 'center',
             justifyContent: 'center'
           }}>
-            📵 У собеседника выключено видео
+            У собеседника выключено видео
           </div>
         )}
 
-        {/* Screen share video (local preview or remote) */}
         <video
           ref={screenVideoRef}
           autoPlay
@@ -533,26 +503,25 @@ export const CallWindow = () => {
         />
       </div>
 
-      <div style={{ margin: '9px 0', width: '100%', display: 'flex', gap: 12, justifyContent: 'center' }}> 
-        <button className="icon-btn glass-btn" style={{ background: 'red' }} onClick={stopCall}>X</button> 
+      <div style={{ margin: '9px 0', width: '100%', display: 'flex', gap: 12, justifyContent: 'center' }}>
+        <button className="icon-btn glass-btn" style={{ background: 'red' }} onClick={stopCall}>X</button>
         <button
           className="icon-btn glass-btn"
           onClick={() => {
             const newState = !isVideoActive;
             setVideoActive(newState);
 
-            // 🔹 переключаем локальный track
             if (cameraStream.current) {
               cameraStream.current.getVideoTracks().forEach(track => {
                 track.enabled = newState;
               });
             }
 
-            // 🔹 отправляем сигнал удалённому
             if (targetIdRef.current) {
-              sendSignal(targetIdRef.current, {
+              sendSignal({
                 type: 'video-toggle',
-                enabled: newState
+                enabled: newState,
+                to: targetIdRef.current,
               });
             }
 
@@ -569,9 +538,9 @@ export const CallWindow = () => {
             });
           }
         }}>M</button>
-        <button className="icon-btn glass-btn">H</button> 
-        <button className="icon-btn glass-btn" onClick={() => setDemonstrationActive(!isDemonstrationActive)}>D</button> 
-      </div> 
+        <button className="icon-btn glass-btn">H</button>
+        <button className="icon-btn glass-btn" onClick={() => setDemonstrationActive(!isDemonstrationActive)}>D</button>
+      </div>
     </div>
   );
 };

@@ -63,4 +63,5 @@ export interface AppState {
   SpeakersActive: Array<string>;
   currentServerIP: string;
   userIDonServer: string;
+  authToken: string;
 }
