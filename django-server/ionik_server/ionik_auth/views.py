@@ -16,7 +16,7 @@ def register(request):
         user = serializer.save()
         refresh = RefreshToken.for_user(user)
         return Response({
-            'user': UserSerializer(user).data,
+            'user': UserSerializer(user, context={'request': request}).data,
             'access': str(refresh.access_token),
             'refresh': str(refresh),
         }, status=status.HTTP_201_CREATED)
@@ -26,14 +26,14 @@ def register(request):
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def me(request):
-    return Response(UserSerializer(request.user).data)
+    return Response(UserSerializer(request.user, context={'request': request}).data)
 
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def users_list(request):
     users = User.objects.exclude(id=request.user.id)
-    return Response(UserSerializer(users, many=True).data)
+    return Response(UserSerializer(users, many=True, context={'request': request}).data)
 
 
 # ==================== Friends ====================
@@ -50,7 +50,7 @@ def friends_list(request):
     for f in friendships:
         friend = f.to_user if f.from_user == request.user else f.from_user
         friends.append(friend)
-    return Response(UserSerializer(friends, many=True).data)
+    return Response(UserSerializer(friends, many=True, context={'request': request}).data)
 
 
 @api_view(['POST'])
@@ -80,10 +80,10 @@ def friend_request_send(request):
             existing.from_user = request.user
             existing.to_user = to_user
             existing.save()
-            return Response(FriendshipSerializer(existing).data, status=status.HTTP_200_OK)
+            return Response(FriendshipSerializer(existing, context={'request': request}).data, status=status.HTTP_200_OK)
 
     friendship = Friendship.objects.create(from_user=request.user, to_user=to_user)
-    return Response(FriendshipSerializer(friendship).data, status=status.HTTP_201_CREATED)
+    return Response(FriendshipSerializer(friendship, context={'request': request}).data, status=status.HTTP_201_CREATED)
 
 
 @api_view(['POST'])
@@ -96,7 +96,7 @@ def friend_request_accept(request, friendship_id):
         return Response({'error': 'Request not found'}, status=status.HTTP_404_NOT_FOUND)
     friendship.status = 'accepted'
     friendship.save()
-    return Response(FriendshipSerializer(friendship).data)
+    return Response(FriendshipSerializer(friendship, context={'request': request}).data)
 
 
 @api_view(['POST'])
@@ -109,7 +109,7 @@ def friend_request_reject(request, friendship_id):
         return Response({'error': 'Request not found'}, status=status.HTTP_404_NOT_FOUND)
     friendship.status = 'rejected'
     friendship.save()
-    return Response(FriendshipSerializer(friendship).data)
+    return Response(FriendshipSerializer(friendship, context={'request': request}).data)
 
 
 @api_view(['DELETE'])
@@ -131,4 +131,4 @@ def friend_remove(request, user_id):
 def friend_requests_pending(request):
     """List incoming pending friend requests."""
     pending = Friendship.objects.filter(to_user=request.user, status='pending')
-    return Response(FriendshipSerializer(pending, many=True).data)
+    return Response(FriendshipSerializer(pending, many=True, context={'request': request}).data)

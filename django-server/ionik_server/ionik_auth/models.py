@@ -3,7 +3,8 @@ from django.db import models
 
 
 class User(AbstractUser):
-    avatar = models.URLField(blank=True, default='')
+    nickname = models.CharField(max_length=50, blank=True, default='')
+    avatar = models.ImageField(upload_to='avatars/', blank=True, null=True)
     bio = models.CharField(max_length=200, blank=True, default='')
     status = models.CharField(
         max_length=10,

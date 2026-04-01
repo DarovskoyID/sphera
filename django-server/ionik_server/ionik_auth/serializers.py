@@ -3,9 +3,19 @@ from .models import User, Friendship
 
 
 class UserSerializer(serializers.ModelSerializer):
+    avatar = serializers.SerializerMethodField()
+
     class Meta:
         model = User
-        fields = ['id', 'username', 'avatar', 'bio', 'status']
+        fields = ['id', 'username', 'nickname', 'avatar', 'bio', 'status']
+
+    def get_avatar(self, obj):
+        if not obj.avatar:
+            return ''
+        request = self.context.get('request')
+        if request:
+            return request.build_absolute_uri(obj.avatar.url)
+        return obj.avatar.url
 
 
 class RegisterSerializer(serializers.ModelSerializer):
@@ -13,7 +23,7 @@ class RegisterSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ['username', 'password', 'avatar', 'bio']
+        fields = ['username', 'password', 'nickname', 'avatar', 'bio']
 
     def create(self, validated_data):
         return User.objects.create_user(**validated_data)

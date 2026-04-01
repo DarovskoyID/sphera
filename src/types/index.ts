@@ -7,6 +7,23 @@ export interface User {
   bio?: string;
 }
 
+export interface ServerUser {
+  id: string;
+  username: string;
+  nickname: string;
+  avatar: string;
+  bio: string;
+  status: 'online' | 'idle' | 'dnd' | 'offline';
+}
+
+export interface PendingRequest {
+  id: number;
+  from_user: ServerUser;
+  to_user: ServerUser;
+  status: string;
+  created_at: string;
+}
+
 export interface Message {
   id: string;
   author: string;
@@ -64,4 +81,8 @@ export interface AppState {
   currentServerIP: string;
   userIDonServer: string;
   authToken: string;
+  currentUser: ServerUser | null;
+  friends: ServerUser[];
+  pendingRequests: PendingRequest[];
+  callTargetId: string | null;
 }

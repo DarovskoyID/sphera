@@ -25,7 +25,7 @@ class SignalingConsumer(AsyncWebsocketConsumer):
         self.user_id = str(user.id)
         SignalingConsumer._users[self.user_id] = {
             'channel': self.channel_name,
-            'name': user.username,
+            'name': user.nickname if user.nickname else user.username,
         }
 
         await self.channel_layer.group_add('signaling', self.channel_name)

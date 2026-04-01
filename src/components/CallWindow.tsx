@@ -12,6 +12,9 @@ export const CallWindow = () => {
     sendSignal,
     signalingPeers,
     onSignalingMessage,
+    userIDonServer,
+    callTargetId,
+    setCallTargetId,
   } = useApp();
 
 
@@ -325,6 +328,17 @@ export const CallWindow = () => {
     };
   });
 
+  // Auto-call target when WS connects and peer appears
+  const hasAutoCalledRef = useRef(false);
+  useEffect(() => {
+    if (!callTargetId || hasAutoCalledRef.current) return;
+    if (signalingPeers.some(p => p.id === callTargetId)) {
+      hasAutoCalledRef.current = true;
+      setCallTargetId(null);
+      callPeer(callTargetId);
+    }
+  }, [callTargetId, signalingPeers]);
+
   // ==================== Call peer ====================
   const callPeer = async (peerId: string) => {
     targetIdRef.current = peerId;
@@ -364,6 +378,8 @@ export const CallWindow = () => {
     if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
     if (screenVideoRef.current) screenVideoRef.current.srcObject = null;
 
+    hasAutoCalledRef.current = false;
+    setCallTargetId(null);
     setRemoteVideoStatus('нет видео');
     setRemoteScreenActive(false);
     setCallActive(false);
@@ -380,14 +396,16 @@ export const CallWindow = () => {
   }, [remoteVideoStatus]);
 
   // ==================== UI ====================
+  const visiblePeers: Array<{ id: string; name: string }> = signalingPeers.filter((peer: { id: string; name: string }) => peer.id !== userIDonServer);
+
   return (
     <div className="call-window" style={{ height: 350, background: 'black', display: 'flex', flexDirection: 'column' }}>
       <div style={{ color: 'white', padding: 10 }}>
         <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-          {signalingPeers.map(peer => (
+          {visiblePeers.map(peer => (
             <button key={peer.id} onClick={() => callPeer(peer.id)}>Call {peer.name}</button>
           ))}
-          {signalingPeers.length === 0 && <span>No peers online</span>}
+          {visiblePeers.length === 0 && <span>No peers online</span>}
         </div>
       </div>
 

@@ -1,14 +1,27 @@
 import React, { useState } from 'react';
-import { Sun, Moon, ArrowLeft, Search, Menu } from 'lucide-react';
+import { Sun, Moon, Search, Menu, UserPlus, Check, X } from 'lucide-react';
 import { useApp } from '../context/AppContext';
-import { directMessages, serverChannels } from '../data/mockData';
+import { serverChannels } from '../data/mockData';
+import type { ServerUser } from '../types';
 
 export const ChatSidebar: React.FC = () => {
-  const { currentView, currentServer, currentChat, currentSettingsPage, setCurrentChat, setCurrentSettingsPage, toggleTheme, theme, isMobileSidebarOpen, toggleMobileSidebar } = useApp();
-  const [searchQuery, setSearchQuery] = useState('');
+  const {
+    currentView, currentServer, currentChat, currentSettingsPage,
+    setCurrentChat, setCurrentSettingsPage, toggleTheme, theme,
+    isMobileSidebarOpen, toggleMobileSidebar, setAuthToken,
+    friends, pendingRequests, sendFriendRequest, acceptFriendRequest,
+    rejectFriendRequest, searchUsers, loadFriends,
+  } = useApp();
 
-  const filteredChats = Object.values(directMessages).filter(chat =>
-    chat.name.toLowerCase().includes(searchQuery.toLowerCase())
+  const [searchQuery, setSearchQuery] = useState('');
+  const [showAddFriend, setShowAddFriend] = useState(false);
+  const [addQuery, setAddQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<ServerUser[]>([]);
+  const [addError, setAddError] = useState('');
+  const [addSuccess, setAddSuccess] = useState('');
+
+  const filteredFriends = friends.filter(f =>
+    (f.nickname || f.username).toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   const serverData = currentServer !== 'home' && currentServer !== 'settings'
@@ -20,6 +33,48 @@ export const ChatSidebar: React.FC = () => {
     : serverData
     ? serverData.name
     : 'Direct Messages';
+
+  const handleSearch = async () => {
+    if (!addQuery.trim()) return;
+    setAddError('');
+    setAddSuccess('');
+    try {
+      const results = await searchUsers(addQuery);
+      setSearchResults(results);
+      if (results.length === 0) setAddError('No users found');
+    } catch {
+      setAddError('Search failed');
+    }
+  };
+
+  const handleSendRequest = async (userId: string) => {
+    setAddError('');
+    setAddSuccess('');
+    try {
+      await sendFriendRequest(userId);
+      setAddSuccess('Friend request sent!');
+      setSearchResults([]);
+      setAddQuery('');
+    } catch (e: any) {
+      setAddError(e.message || 'Error sending request');
+    }
+  };
+
+  const handleAccept = async (id: number) => {
+    try {
+      await acceptFriendRequest(id);
+    } catch (e: any) {
+      console.error(e);
+    }
+  };
+
+  const handleReject = async (id: number) => {
+    try {
+      await rejectFriendRequest(id);
+    } catch (e: any) {
+      console.error(e);
+    }
+  };
 
   return (
     <aside className={`chat-sidebar ${isMobileSidebarOpen ? 'mobile-open' : ''}`}>
@@ -39,36 +94,116 @@ export const ChatSidebar: React.FC = () => {
             <Search size={18} className="search-icon" />
             <input
               type="text"
-              placeholder="Search conversations"
+              placeholder="Search friends"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
             />
           </div>
 
-          <div className="section-title">DIRECT MESSAGES</div>
+          {/* Pending friend requests */}
+          {pendingRequests.length > 0 && (
+            <>
+              <div className="section-title">FRIEND REQUESTS ({pendingRequests.length})</div>
+              {pendingRequests.map(req => (
+                <div key={req.id} className="chat-item" style={{ gap: 8 }}>
+                  <div className="chat-avatar">
+                    {req.from_user.avatar
+                      ? <img src={req.from_user.avatar} alt={req.from_user.nickname || req.from_user.username} />
+                      : <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'var(--accent-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 700, fontSize: 14 }}>
+                          {(req.from_user.nickname || req.from_user.username)[0].toUpperCase()}
+                        </div>
+                    }
+                  </div>
+                  <div className="chat-info" style={{ flex: 1 }}>
+                    <div className="chat-name">{req.from_user.nickname || req.from_user.username}</div>
+                    <div className="chat-message">wants to be friends</div>
+                  </div>
+                  <button className="icon-btn glass-btn" style={{ color: '#22c55e', padding: 4 }} onClick={() => handleAccept(req.id)} title="Accept">
+                    <Check size={16} />
+                  </button>
+                  <button className="icon-btn glass-btn" style={{ color: '#ef4444', padding: 4 }} onClick={() => handleReject(req.id)} title="Decline">
+                    <X size={16} />
+                  </button>
+                </div>
+              ))}
+            </>
+          )}
 
-          {filteredChats.map((chat) => (
+          <div className="section-title" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span>DIRECT MESSAGES</span>
+            <button
+              className="icon-btn glass-btn"
+              style={{ padding: 2 }}
+              onClick={() => { setShowAddFriend(v => !v); setAddError(''); setAddSuccess(''); setSearchResults([]); setAddQuery(''); }}
+              title="Add Friend"
+            >
+              <UserPlus size={16} />
+            </button>
+          </div>
+
+          {showAddFriend && (
+            <div style={{ padding: '8px 12px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <input
+                  type="text"
+                  placeholder="Search by login or nickname"
+                  value={addQuery}
+                  onChange={e => setAddQuery(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && handleSearch()}
+                  style={{
+                    flex: 1,
+                    padding: '6px 10px',
+                    borderRadius: 'var(--radius-sm)',
+                    border: '1px solid var(--border-color)',
+                    background: 'var(--bg-primary)',
+                    color: 'var(--text-primary)',
+                    fontSize: 13,
+                    outline: 'none',
+                  }}
+                />
+                <button className="glass-btn" style={{ padding: '6px 10px', fontSize: 12 }} onClick={handleSearch}>Find</button>
+              </div>
+              {addError && <div style={{ color: '#ef4444', fontSize: 12 }}>{addError}</div>}
+              {addSuccess && <div style={{ color: '#22c55e', fontSize: 12 }}>{addSuccess}</div>}
+              {searchResults.map(u => (
+                <div key={u.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <div style={{ flex: 1, fontSize: 13, color: 'var(--text-primary)' }}>
+                    {u.nickname || u.username}
+                    <span style={{ color: 'var(--text-secondary)', marginLeft: 4, fontSize: 11 }}>@{u.username}</span>
+                  </div>
+                  <button className="glass-btn" style={{ padding: '4px 8px', fontSize: 11 }} onClick={() => handleSendRequest(u.id)}>Add</button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {filteredFriends.map((friend) => (
             <div
-              key={chat.id}
-              className={`chat-item ${currentChat === chat.id ? 'active' : ''}`}
-              onClick={() => setCurrentChat(chat.id)}
+              key={friend.id}
+              className={`chat-item ${currentChat === friend.id ? 'active' : ''}`}
+              onClick={() => setCurrentChat(friend.id)}
             >
               <div className="chat-avatar">
-                <img src={chat.avatar} alt={chat.name} />
-                <span className={`status-indicator ${chat.status}`}></span>
+                {friend.avatar
+                  ? <img src={friend.avatar} alt={friend.nickname || friend.username} />
+                  : <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'var(--accent-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 700, fontSize: 14 }}>
+                      {(friend.nickname || friend.username)[0].toUpperCase()}
+                    </div>
+                }
+                <span className="status-indicator offline"></span>
               </div>
               <div className="chat-info">
-                <div className="chat-name">{chat.name}</div>
-                <div className="chat-message">{chat.lastMessage}</div>
-              </div>
-              <div className="chat-meta">
-                <div className="chat-time">{chat.lastMessageTime}</div>
-                {chat.unread > 0 && (
-                  <div className="unread-badge">{chat.unread}</div>
-                )}
+                <div className="chat-name">{friend.nickname || friend.username}</div>
+                <div className="chat-message">@{friend.username}</div>
               </div>
             </div>
           ))}
+
+          {filteredFriends.length === 0 && !showAddFriend && pendingRequests.length === 0 && (
+            <div style={{ padding: '16px 12px', color: 'var(--text-secondary)', fontSize: 13, textAlign: 'center' }}>
+              No friends yet. Click <UserPlus size={12} style={{ display: 'inline' }} /> to add someone.
+            </div>
+          )}
         </div>
       )}
 
@@ -129,7 +264,7 @@ export const ChatSidebar: React.FC = () => {
 
           <div className="settings-devider"></div>
 
-          <div className="settings-item" style={{ color: '#ef4444' }}>Exit</div>
+          <div className="settings-item" style={{ color: '#ef4444' }} onClick={() => setAuthToken('')}>Exit</div>
         </div>
       )}
 
@@ -139,17 +274,25 @@ export const ChatSidebar: React.FC = () => {
 };
 
 const UserProfile: React.FC = () => {
+  const { currentUser } = useApp();
   const [isMuted, setIsMuted] = useState(false);
   const [isDeafened, setIsDeafened] = useState(false);
+
+  const displayName = currentUser?.nickname || currentUser?.username || 'You';
 
   return (
     <div className="user-profile-section glass-panel">
       <button className="profile-avatar-btn">
-        <img src="https://images.pexels.com/photos/220453/pexels-photo-220453.jpeg?auto=compress&cs=tinysrgb&w=100" alt="Profile" />
+        {currentUser?.avatar
+          ? <img src={currentUser.avatar} alt={displayName} />
+          : <div style={{ width: 32, height: 32, borderRadius: '50%', background: 'var(--accent-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 700, fontSize: 14 }}>
+              {displayName[0].toUpperCase()}
+            </div>
+        }
         <span className="status-indicator online"></span>
       </button>
       <div className="profile-info">
-        <div className="profile-name">You</div>
+        <div className="profile-name">{displayName}</div>
         <div className="profile-status">Online</div>
       </div>
       <div className="profile-controls">

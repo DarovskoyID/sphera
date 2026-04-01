@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Phone, Video, Search, Menu, ArrowLeft, Plus, Smile, Send } from 'lucide-react';
 import { useApp } from '../context/AppContext';
-import { directMessages, messages, serverChannels } from '../data/mockData';
+import { messages, serverChannels } from '../data/mockData';
 import { Settings } from './Settings';
 import { CallWindow } from './CallWindow';
 
@@ -60,11 +60,19 @@ export const ChatMain: React.FC = () => {
 };
 
 const ChatHeader: React.FC = () => {
-  const { isCallActive, currentView, currentChat, toggleMobileSidebar, setCallActive, setVideoActive, setMobileActivePanel } = useApp();
+  const { isCallActive, currentChat, friends, toggleMobileSidebar, setCallActive, setVideoActive, setCallTargetId, setMobileActivePanel } = useApp();
 
-  const chat = currentChat ? directMessages[currentChat] : null;
+  const friend = friends.find(f => f.id === currentChat);
 
-  if (!chat) return null;
+  if (!friend) return null;
+
+  const displayName = friend.nickname || friend.username;
+
+  const startCall = (withVideo = false) => {
+    setCallTargetId(friend.id);
+    setCallActive(true);
+    if (withVideo) setVideoActive(true);
+  };
 
   return (
     <>
@@ -74,19 +82,24 @@ const ChatHeader: React.FC = () => {
       </button>
       <div className="chat-header-info">
         <div className="header-avatar">
-          <img src={chat.avatar} alt={chat.name} />
-          <span className={`status-indicator ${chat.status}`}></span>
+          {friend.avatar
+            ? <img src={friend.avatar} alt={displayName} />
+            : <div style={{ width: 32, height: 32, borderRadius: '50%', background: 'var(--accent-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 700, fontSize: 14 }}>
+                {displayName[0].toUpperCase()}
+              </div>
+          }
+          <span className="status-indicator offline"></span>
         </div>
         <div>
-          <h3>{chat.name}</h3>
-          <p>{chat.status}</p>
+          <h3>{displayName}</h3>
+          <p>@{friend.username}</p>
         </div>
       </div>
       <div className="chat-header-actions">
-        <button className="icon-btn glass-btn" onClick={() => (setCallActive(true))} title="Voice Call">
+        <button className="icon-btn glass-btn" onClick={() => startCall(false)} title="Voice Call">
           <Phone size={20} />
         </button>
-        <button className="icon-btn glass-btn" onClick={() => {setCallActive(true); setVideoActive(true)}} title="Video Call">
+        <button className="icon-btn glass-btn" onClick={() => startCall(true)} title="Video Call">
           <Video size={20} />
         </button>
         <button className="icon-btn glass-btn" title="Search">
@@ -98,7 +111,6 @@ const ChatHeader: React.FC = () => {
       </div>
     </header>}
     </>
-
   );
 };
 
