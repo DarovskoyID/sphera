@@ -5,21 +5,15 @@ export const CallWindow = () => {
   const {
     isDemonstrationActive,
     isVideoActive,
-    authToken,
-    currentServerIP,
     setCallActive,
     setDemonstrationActive,
     setVideoActive,
     setCallStatus,
-    setAuthToken,
     sendSignal,
     signalingPeers,
     onSignalingMessage,
   } = useApp();
 
-  const [authUsername, setAuthUsername] = useState('');
-  const [authPassword, setAuthPassword] = useState('');
-  const [authError, setAuthError] = useState('');
 
   const cameraVideoRef = useRef<HTMLVideoElement>(null);
   const screenVideoRef = useRef<HTMLVideoElement>(null);
@@ -385,63 +379,16 @@ export const CallWindow = () => {
     console.log(remoteVideoStatus);
   }, [remoteVideoStatus]);
 
-  // ==================== Auth ====================
-  const handleAuth = async (mode: 'login' | 'register') => {
-    setAuthError('');
-    const url = mode === 'register'
-      ? `${currentServerIP}/api/auth/register/`
-      : `${currentServerIP}/api/auth/login/`;
-    const body = { username: authUsername, password: authPassword };
-
-    try {
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setAuthError(JSON.stringify(data));
-        return;
-      }
-      setAuthToken(data.access);
-    } catch (e: any) {
-      setAuthError(e.message);
-    }
-  };
-
   // ==================== UI ====================
   return (
     <div className="call-window" style={{ height: 350, background: 'black', display: 'flex', flexDirection: 'column' }}>
       <div style={{ color: 'white', padding: 10 }}>
-        {!authToken ? (
-          <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-            <input
-              placeholder="username"
-              value={authUsername}
-              onChange={e => setAuthUsername(e.target.value)}
-              style={{ padding: '4px 8px' }}
-            />
-            <input
-              placeholder="password"
-              type="password"
-              value={authPassword}
-              onChange={e => setAuthPassword(e.target.value)}
-              style={{ padding: '4px 8px' }}
-            />
-            <button onClick={() => handleAuth('login')}>Login</button>
-            <button onClick={() => handleAuth('register')}>Register</button>
-            {authError && <span style={{ color: 'red', fontSize: 12 }}>{authError}</span>}
-          </div>
-        ) : (
-          <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-            {signalingPeers.map(peer => (
-              <button key={peer.id} onClick={() => callPeer(peer.id)}>Call {peer.name}</button>
-            ))}
-            {signalingPeers.length === 0 && <span>No peers online</span>}
-            <button onClick={() => setAuthToken('')} style={{ marginLeft: 'auto', color: 'red' }}>Sign out</button>
-          </div>
-        )}
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+          {signalingPeers.map(peer => (
+            <button key={peer.id} onClick={() => callPeer(peer.id)}>Call {peer.name}</button>
+          ))}
+          {signalingPeers.length === 0 && <span>No peers online</span>}
+        </div>
       </div>
 
       <div style={{ flex: 1, display: 'flex', justifyContent: 'center', gap: 20, alignItems: 'center' }}>
