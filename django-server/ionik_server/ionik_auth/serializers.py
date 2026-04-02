@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import User, Friendship
+from .models import User, Friendship, BlockedUser, UserDevice, UserSettings
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -16,6 +16,17 @@ class UserSerializer(serializers.ModelSerializer):
         if request:
             return request.build_absolute_uri(obj.avatar.url)
         return obj.avatar.url
+
+
+class ProfileUpdateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = ['nickname', 'bio', 'avatar']
+        extra_kwargs = {
+            'nickname': {'required': False},
+            'bio': {'required': False},
+            'avatar': {'required': False},
+        }
 
 
 class RegisterSerializer(serializers.ModelSerializer):
@@ -36,3 +47,26 @@ class FriendshipSerializer(serializers.ModelSerializer):
     class Meta:
         model = Friendship
         fields = ['id', 'from_user', 'to_user', 'status', 'created_at']
+
+
+class BlockedUserSerializer(serializers.ModelSerializer):
+    blocked = UserSerializer(read_only=True)
+
+    class Meta:
+        model = BlockedUser
+        fields = ['id', 'blocked', 'created_at']
+
+
+class UserDeviceSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = UserDevice
+        fields = [
+            'id', 'device_name', 'device_type',
+            'ip_address', 'last_login', 'created_at',
+        ]
+
+
+class UserSettingsSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = UserSettings
+        exclude = ['id', 'user']
