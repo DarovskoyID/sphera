@@ -97,6 +97,30 @@ def update_profile(request):
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
+def delete_account(request):
+    username = request.data.get('username', '')
+    password = request.data.get('password', '')
+    if not username or not password:
+        return Response(
+            {'error': 'username and password required'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    if request.user.username != username:
+        return Response(
+            {'error': 'Username does not match'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    if not request.user.check_password(password):
+        return Response(
+            {'error': 'Password is incorrect'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    request.user.delete()
+    return Response({'status': 'deleted'})
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
 def change_password(request):
     old_pw = request.data.get('old_password', '')
     new_pw = request.data.get('new_password', '')

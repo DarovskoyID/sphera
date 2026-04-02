@@ -295,7 +295,77 @@ const ProfileSettings: React.FC = () => {
       <Check label="Show my profile to everyone" field="show_profile_to_everyone" />
       <Check label="Display my online status" field="display_online_status" />
       <Check label="Show my activity status" field="show_activity_status" />
+
+      <div style={divider} />
+
+      <DeleteAccount />
     </section>
+  );
+};
+
+// ==================== Delete Account ====================
+
+const DeleteAccount: React.FC = () => {
+  const { currentServerIP, authToken, setAuthToken } = useApp();
+  const [show, setShow] = useState(false);
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+
+  const handleDelete = async () => {
+    if (!username || !password) { setError('Fill in both fields'); return; }
+    try {
+      const res = await fetch(`${currentServerIP}/api/auth/me/delete/`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${authToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setError(data.error || 'Failed to delete'); return; }
+      setShow(false);
+      setAuthToken('');
+    } catch { setError('Network error'); }
+  };
+
+  return (
+    <>
+      <div style={{ ...card, borderColor: '#ef444444' }}>
+        <h3 style={{ ...sectionH3, color: '#ef4444' }}>
+          <Trash2 size={16} style={{ verticalAlign: 'middle', marginRight: 8 }} />
+          Delete Account
+        </h3>
+        <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: '0 0 16px' }}>
+          Permanently delete your account and all associated data. This action cannot be undone.
+        </p>
+        <button type="button" onClick={() => setShow(true)} style={{ padding: '10px 24px', background: '#ef4444', color: '#fff', border: 'none', borderRadius: 6, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
+          Delete Account
+        </button>
+      </div>
+
+      {show && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+          <div style={{ background: 'var(--bg-secondary)', borderRadius: 12, padding: 24, maxWidth: 400, width: '90%', border: '1px solid var(--border-color)' }}>
+            <h3 style={{ margin: '0 0 8px', color: '#ef4444', fontSize: 18, fontWeight: 700 }}>Delete Account</h3>
+            <p style={{ margin: '0 0 16px', color: 'var(--text-secondary)', fontSize: 14 }}>
+              This action is permanent. Enter your login and password to confirm.
+            </p>
+            <div style={{ marginBottom: 12 }}>
+              <div style={fieldLabel}>Username</div>
+              <input type="text" value={username} onChange={e => { setUsername(e.target.value); setError(''); }} placeholder="Enter your username" style={{ ...fieldInput, boxSizing: 'border-box' as const }} />
+            </div>
+            <div style={{ marginBottom: 16 }}>
+              <div style={fieldLabel}>Password</div>
+              <input type="password" value={password} onChange={e => { setPassword(e.target.value); setError(''); }} placeholder="Enter your password" style={{ ...fieldInput, boxSizing: 'border-box' as const }} />
+            </div>
+            {error && <div style={{ color: '#ef4444', fontSize: 13, marginBottom: 12 }}>{error}</div>}
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button onClick={() => { setShow(false); setUsername(''); setPassword(''); setError(''); }} style={{ ...btnSecondary }}>Cancel</button>
+              <button onClick={handleDelete} style={{ padding: '8px 20px', background: '#ef4444', color: '#fff', border: 'none', borderRadius: 6, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>Delete Account</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 };
 

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Sun, Moon, Search, Menu, UserPlus, Check, X } from 'lucide-react';
+import { Sun, Moon, Search, Menu, UserPlus, Check, X, LogOut } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import type { ServerUser } from '../types';
 
@@ -10,6 +10,7 @@ export const ChatSidebar: React.FC = () => {
     isMobileSidebarOpen, toggleMobileSidebar, setAuthToken,
     friends, pendingRequests, sendFriendRequest, acceptFriendRequest,
     rejectFriendRequest, searchUsers, loadFriends,
+    currentServerIP, authToken,
   } = useApp();
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -18,6 +19,7 @@ export const ChatSidebar: React.FC = () => {
   const [searchResults, setSearchResults] = useState<ServerUser[]>([]);
   const [addError, setAddError] = useState('');
   const [addSuccess, setAddSuccess] = useState('');
+  const [showLogoutModal, setShowLogoutModal] = useState(false);
 
   const filteredFriends = friends.filter(f =>
     (f.nickname || f.username).toLowerCase().includes(searchQuery.toLowerCase())
@@ -245,7 +247,28 @@ export const ChatSidebar: React.FC = () => {
 
           <div className="settings-devider"></div>
 
-          <div className="settings-item" style={{ color: '#ef4444' }} onClick={() => setAuthToken('')}>Exit</div>
+          <div className="settings-item" style={{ color: '#ef4444' }} onClick={() => setShowLogoutModal(true)}>
+            <LogOut size={14} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 6 }} />
+            Exit
+          </div>
+        </div>
+      )}
+
+      {/* Logout confirmation modal */}
+      {showLogoutModal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+          <div style={{ background: 'var(--bg-secondary)', borderRadius: 12, padding: 24, maxWidth: 380, width: '90%', border: '1px solid var(--border-color)' }}>
+            <h3 style={{ margin: '0 0 8px', color: 'var(--text-primary)', fontSize: 18, fontWeight: 700 }}>Log Out</h3>
+            <p style={{ margin: '0 0 20px', color: 'var(--text-secondary)', fontSize: 14 }}>Are you sure you want to log out?</p>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button onClick={() => setShowLogoutModal(false)} style={{ padding: '8px 20px', background: 'var(--bg-tertiary)', color: 'var(--text-primary)', border: '1px solid var(--border-color)', borderRadius: 6, fontSize: 14, cursor: 'pointer' }}>
+                Cancel
+              </button>
+              <button onClick={() => { setShowLogoutModal(false); setAuthToken(''); }} style={{ padding: '8px 20px', background: '#ef4444', color: '#fff', border: 'none', borderRadius: 6, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
+                Log Out
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
