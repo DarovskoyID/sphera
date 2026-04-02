@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback, type ReactNode } from 'react';
-import type { AppState, ViewType, MobilePanel, ServerUser, PendingRequest } from '../types';
+import type { AppState, ViewType, MobilePanel, ServerUser, PendingRequest, ChatMessage } from '../types';
 
 interface AppContextType extends AppState {
   setCurrentView: (view: ViewType) => void;
@@ -20,6 +20,7 @@ interface AppContextType extends AppState {
   setUserIDonServer: (userIDonServer: string) => void;
   setAuthToken: (token: string) => void;
   setCallTargetId: (id: string | null) => void;
+  setIncomingOffer: (offer: any | null) => void;
   signalingWs: React.MutableRefObject<WebSocket | null>;
   sendSignal: (data: any) => void;
   signalingPeers: Array<{ id: string; name: string }>;
@@ -30,6 +31,8 @@ interface AppContextType extends AppState {
   acceptFriendRequest: (friendshipId: number) => Promise<void>;
   rejectFriendRequest: (friendshipId: number) => Promise<void>;
   searchUsers: (query: string) => Promise<ServerUser[]>;
+  sendChatMessage: (text: string) => void;
+  loadOlderMessages: () => Promise<boolean>;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -77,12 +80,17 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       friends: [],
       pendingRequests: [],
       callTargetId: null,
+      incomingOffer: null,
+      chatMessages: [],
+      chatConversationId: null,
     };
   });
 
   const signalingWs = useRef<WebSocket | null>(null);
   const [signalingPeers, setSignalingPeers] = useState<Array<{ id: string; name: string }>>([]);
   const onSignalingMessage = useRef<((msg: any) => void) | null>(null);
+
+  const chatWs = useRef<WebSocket | null>(null);
 
   // ==================== API helpers ====================
   const apiGet = useCallback(async (path: string, token: string, serverIP: string) => {
@@ -173,9 +181,115 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     );
   }, [state.authToken, state.currentServerIP, apiGet]);
 
+  // ==================== Chat WebSocket ====================
+  // When currentChat changes, get/create conversation, load history, connect WS
+  useEffect(() => {
+    // Close existing chat WS
+    if (chatWs.current) {
+      chatWs.current.close();
+      chatWs.current = null;
+    }
+
+    if (!state.currentChat || !state.authToken) {
+      setState(prev => ({ ...prev, chatMessages: [], chatConversationId: null }));
+      return;
+    }
+
+    let cancelled = false;
+
+    const initChat = async () => {
+      try {
+        // Get or create conversation with this user
+        const convo = await apiPost(
+          '/api/conversations/create/',
+          state.authToken,
+          state.currentServerIP,
+          { user_id: state.currentChat }
+        );
+        if (cancelled) return;
+
+        const convoId = convo.id;
+        setState(prev => ({ ...prev, chatConversationId: convoId }));
+
+        // Load message history
+        const msgs: ChatMessage[] = await apiGet(
+          `/api/conversations/${convoId}/messages/`,
+          state.authToken,
+          state.currentServerIP
+        );
+        if (cancelled) return;
+        setState(prev => ({ ...prev, chatMessages: msgs }));
+
+        // Connect chat WebSocket
+        const wsUrl = state.currentServerIP.replace(/^http/, 'ws');
+        const ws = new WebSocket(`${wsUrl}/ws/chat/${convoId}/?token=${state.authToken}`);
+
+        ws.onopen = () => {
+          console.log('Chat WS connected, conversation:', convoId);
+          chatWs.current = ws;
+        };
+
+        ws.onmessage = (event) => {
+          const msg: ChatMessage = JSON.parse(event.data);
+          setState(prev => {
+            const msgs = [...prev.chatMessages, msg];
+            // Cap at 500 messages in memory — older ones can be loaded on scroll
+            if (msgs.length > 500) msgs.splice(0, msgs.length - 500);
+            return { ...prev, chatMessages: msgs };
+          });
+        };
+
+        ws.onclose = () => {
+          console.log('Chat WS disconnected');
+          if (chatWs.current === ws) chatWs.current = null;
+        };
+      } catch (e) {
+        console.error('Failed to init chat:', e);
+      }
+    };
+
+    initChat();
+
+    return () => {
+      cancelled = true;
+      if (chatWs.current) {
+        chatWs.current.close();
+        chatWs.current = null;
+      }
+    };
+  }, [state.currentChat, state.authToken, state.currentServerIP]);
+
+  const sendChatMessage = useCallback((text: string) => {
+    if (chatWs.current?.readyState === WebSocket.OPEN && text.trim()) {
+      chatWs.current.send(JSON.stringify({ message: text }));
+    }
+  }, []);
+
+  const loadOlderMessages = useCallback(async (): Promise<boolean> => {
+    const convoId = state.chatConversationId;
+    const firstMsg = state.chatMessages[0];
+    if (!convoId || !firstMsg?.id) return false;
+    try {
+      const older: ChatMessage[] = await apiGet(
+        `/api/conversations/${convoId}/messages/?before=${firstMsg.id}&limit=50`,
+        state.authToken,
+        state.currentServerIP
+      );
+      if (older.length === 0) return false;
+      setState(prev => ({
+        ...prev,
+        chatMessages: [...older, ...prev.chatMessages],
+      }));
+      return true;
+    } catch (e) {
+      console.error('Failed to load older messages:', e);
+      return false;
+    }
+  }, [state.chatConversationId, state.chatMessages, state.authToken, state.currentServerIP, apiGet]);
+
   // ==================== Signaling WebSocket ====================
   useEffect(() => {
-    if (!state.authToken || !state.isCallActive) {
+    if (!state.authToken) {
       if (signalingWs.current) {
         signalingWs.current.close();
         signalingWs.current = null;
@@ -212,7 +326,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       ws.close();
       signalingWs.current = null;
     };
-  }, [state.authToken, state.currentServerIP, state.isCallActive]);
+  }, [state.authToken, state.currentServerIP]);
 
   const sendSignal = (data: any) => {
     if (signalingWs.current?.readyState === WebSocket.OPEN) {
@@ -245,13 +359,14 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       ...prev,
       currentServer: serverId,
       currentView: serverId === 'home' ? 'home' : serverId === 'settings' ? 'settings' : 'server',
+      currentChat: serverId === 'home' ? '' : prev.currentChat,
       isMobileSidebarOpen: false,
       mobileActivePanel: 'chat-list' as MobilePanel,
     }));
   };
 
   const setCurrentChat = (chatId: string) => {
-    setState(prev => ({ ...prev, currentChat: chatId, mobileActivePanel: 'chat-view' as MobilePanel }));
+    setState(prev => ({ ...prev, currentChat: chatId, currentView: 'home', currentServer: 'home', mobileActivePanel: 'chat-view' as MobilePanel }));
   };
 
   const setCurrentChannel = (channel: string) => setState(prev => ({ ...prev, currentChannel: channel }));
@@ -272,6 +387,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
   const setCurrentServerIP = (ip: string) => setState(prev => ({ ...prev, currentServerIP: ip }));
   const setUserIDonServer = (id: string) => setState(prev => ({ ...prev, userIDonServer: id }));
   const setCallTargetId = (id: string | null) => setState(prev => ({ ...prev, callTargetId: id }));
+  const setIncomingOffer = (offer: any | null) => setState(prev => ({ ...prev, incomingOffer: offer }));
 
   const setAuthToken = (token: string) => {
     localStorage.setItem('authToken', token);
@@ -299,6 +415,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       setUserIDonServer,
       setAuthToken,
       setCallTargetId,
+      setIncomingOffer,
       signalingWs,
       sendSignal,
       signalingPeers,
@@ -309,6 +426,8 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       acceptFriendRequest,
       rejectFriendRequest,
       searchUsers,
+      sendChatMessage,
+      loadOlderMessages,
     }}>
       {children}
     </AppContext.Provider>

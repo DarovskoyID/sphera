@@ -24,25 +24,17 @@ export interface PendingRequest {
   created_at: string;
 }
 
-export interface Message {
-  id: string;
-  author: string;
-  authorId: string;
-  avatar: string;
+export interface ChatMessage {
+  id: number;
+  author: {
+    id: string;
+    username: string;
+    nickname?: string;
+    avatar: string;
+    status?: string;
+  };
   content: string;
-  timestamp: string;
-  isOwn: boolean;
-}
-
-export interface DirectMessage {
-  id: string;
-  name: string;
-  avatar: string;
-  status: 'online' | 'idle' | 'dnd' | 'offline';
-  lastMessage: string;
-  lastMessageTime: string;
-  unread: number;
-  isActive?: boolean;
+  created_at: string;
 }
 
 export interface ServerChannel {
@@ -85,4 +77,7 @@ export interface AppState {
   friends: ServerUser[];
   pendingRequests: PendingRequest[];
   callTargetId: string | null;
+  incomingOffer: any | null;
+  chatMessages: ChatMessage[];
+  chatConversationId: number | null;
 }

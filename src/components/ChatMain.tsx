@@ -1,12 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Phone, Video, Search, Menu, ArrowLeft, Plus, Smile, Send } from 'lucide-react';
 import { useApp } from '../context/AppContext';
-import { messages, serverChannels } from '../data/mockData';
 import { Settings } from './Settings';
 import { CallWindow } from './CallWindow';
 
 export const ChatMain: React.FC = () => {
-  const { currentView, currentServer, currentChat, currentSettingsPage, toggleMobileSidebar, setMobileActivePanel } = useApp();
+  const { currentView, currentChat, currentSettingsPage, setMobileActivePanel } = useApp();
 
   if (currentView === 'settings') {
     if (!currentSettingsPage) {
@@ -62,7 +61,7 @@ export const ChatMain: React.FC = () => {
 const ChatHeader: React.FC = () => {
   const { isCallActive, currentChat, friends, toggleMobileSidebar, setCallActive, setVideoActive, setCallTargetId, setMobileActivePanel } = useApp();
 
-  const friend = friends.find(f => f.id === currentChat);
+  const friend = friends.find(f => String(f.id) === String(currentChat));
 
   if (!friend) return null;
 
@@ -114,25 +113,84 @@ const ChatHeader: React.FC = () => {
   );
 };
 
-const MessagesContainer: React.FC = () => {
-  const { currentChat } = useApp();
-  const chatMessages = currentChat && messages[currentChat] ? messages[currentChat] : [];
+const MSG_HEIGHT = 60;
+
+const MessageRow = React.memo(({ msg, isOwn }: { msg: import('../types').ChatMessage; isOwn: boolean }) => {
+  const displayName = msg.author.nickname || msg.author.username;
+  const time = new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
   return (
-    <div className="messages-container">
-      <div className="messages-list">
-        <div className="date-divider">Today</div>
-        {chatMessages.map((message) => (
-          <div key={message.id} className={`message-item ${message.isOwn ? 'own' : ''}`}>
-            <img src={message.avatar} alt={message.author} className="message-avatar" />
-            <div className="message-content">
-              <div className="message-header">
-                <span className="message-author">{message.author}</span>
-                <span className="message-timestamp">{message.timestamp}</span>
-              </div>
-              <div className="message-text">{message.content}</div>
+    <div className={`message-item ${isOwn ? 'own' : ''}`} style={{ minHeight: MSG_HEIGHT }}>
+      <div className="message-avatar">
+        {msg.author.avatar
+          ? <img src={msg.author.avatar} alt={displayName} style={{ width: 36, height: 36, borderRadius: '50%', objectFit: 'cover' }} />
+          : <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'var(--accent-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 700, fontSize: 14 }}>
+              {displayName[0].toUpperCase()}
             </div>
+        }
+      </div>
+      <div className="message-content">
+        <div className="message-header">
+          <span className="message-author">{displayName}</span>
+          <span className="message-timestamp">{time}</span>
+        </div>
+        <div className="message-text">{msg.content}</div>
+      </div>
+    </div>
+  );
+});
+
+const MessagesContainer: React.FC = () => {
+  const { chatMessages, userIDonServer, loadOlderMessages } = useApp();
+  const containerRef = useRef<HTMLDivElement>(null);
+  const wasAtBottom = useRef(true);
+  const loadingOlder = useRef(false);
+
+  // Auto-scroll to bottom when new messages arrive (if user was at bottom)
+  useEffect(() => {
+    const el = containerRef.current;
+    if (el && wasAtBottom.current) {
+      el.scrollTop = el.scrollHeight;
+    }
+  }, [chatMessages.length]);
+
+  // Track whether user is scrolled to bottom
+  const handleScroll = async () => {
+    const el = containerRef.current;
+    if (!el) return;
+
+    const threshold = 80;
+    wasAtBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
+
+    // Load older messages when scrolled near top
+    if (el.scrollTop < 100 && !loadingOlder.current && chatMessages.length > 0) {
+      loadingOlder.current = true;
+      const prevHeight = el.scrollHeight;
+      const loaded = await loadOlderMessages();
+      if (loaded) {
+        // Maintain scroll position after prepending
+        requestAnimationFrame(() => {
+          el.scrollTop = el.scrollHeight - prevHeight;
+        });
+      }
+      loadingOlder.current = false;
+    }
+  };
+
+  return (
+    <div className="messages-container" ref={containerRef} onScroll={handleScroll}>
+      <div className="messages-list">
+        {chatMessages.length === 0 && (
+          <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-secondary)' }}>
+            No messages yet. Say hello!
           </div>
+        )}
+        {chatMessages.map((msg, i) => (
+          <MessageRow
+            key={msg.id || `tmp-${i}`}
+            msg={msg}
+            isOwn={String(msg.author.id) === String(userIDonServer)}
+          />
         ))}
       </div>
     </div>
@@ -140,11 +198,12 @@ const MessagesContainer: React.FC = () => {
 };
 
 const MessageInput: React.FC = () => {
+  const { sendChatMessage } = useApp();
   const [message, setMessage] = useState('');
 
   const handleSend = () => {
     if (message.trim()) {
-      console.log('Sending message:', message);
+      sendChatMessage(message);
       setMessage('');
     }
   };
@@ -182,41 +241,6 @@ const MessageInput: React.FC = () => {
 };
 
 const WelcomeScreen: React.FC = () => {
-  const ads = [
-    {
-      label: 'GAMING',
-      image: 'https://images.pexels.com/photos/3945683/pexels-photo-3945683.jpeg?auto=compress&cs=tinysrgb&w=600',
-      title: 'Join Gaming Servers',
-      desc: 'Connect with players worldwide',
-      cta: 'Explore',
-      color: '#16a34a'
-    },
-    {
-      label: 'DEVELOPMENT',
-      image: 'https://images.pexels.com/photos/577585/pexels-photo-577585.jpeg?auto=compress&cs=tinysrgb&w=600',
-      title: 'Developer Communities',
-      desc: 'Learn, share, and grow together',
-      cta: 'Join Now',
-      color: '#2563eb'
-    },
-    {
-      label: 'MUSIC',
-      image: 'https://images.pexels.com/photos/1763075/pexels-photo-1763075.jpeg?auto=compress&cs=tinysrgb&w=600',
-      title: 'Music & Audio',
-      desc: 'Discover new sounds and artists',
-      cta: 'Listen',
-      color: '#dc2626'
-    },
-    {
-      label: 'STUDY',
-      image: 'https://images.pexels.com/photos/159490/yale-university-landscape-universities-schools-159490.jpeg?auto=compress&cs=tinysrgb&w=600',
-      title: 'Study Groups',
-      desc: 'Collaborate and ace your exams',
-      cta: 'Study',
-      color: '#d97706'
-    }
-  ];
-
   return (
     <div className="messages-container">
       <div className="welcome-screen active">
@@ -230,20 +254,6 @@ const WelcomeScreen: React.FC = () => {
             <h2>Your Messages</h2>
             <p>Select a conversation from the sidebar to start chatting with your friends.</p>
           </div>
-          <div className="welcome-ads-grid">
-            {ads.map((ad, i) => (
-              <div key={i} className="welcome-ad-card">
-                <div className="welcome-ad-image" style={{ backgroundImage: `url(${ad.image})` }}>
-                  <span className="welcome-ad-label">{ad.label}</span>
-                </div>
-                <div className="welcome-ad-body">
-                  <h3 className="welcome-ad-title">{ad.title}</h3>
-                  <p className="welcome-ad-desc">{ad.desc}</p>
-                  <button className="welcome-ad-cta" style={{ background: ad.color }}>{ad.cta}</button>
-                </div>
-              </div>
-            ))}
-          </div>
         </div>
       </div>
     </div>
@@ -251,25 +261,6 @@ const WelcomeScreen: React.FC = () => {
 };
 
 const SettingsView: React.FC = () => {
-  const settingsAds = [
-    {
-      label: 'PREMIUM',
-      image: 'https://images.pexels.com/photos/1939485/pexels-photo-1939485.jpeg?auto=compress&cs=tinysrgb&w=600',
-      title: 'Get Premium Features',
-      desc: 'Unlock exclusive perks and customization',
-      cta: 'Upgrade',
-      color: '#8b5cf6'
-    },
-    {
-      label: 'SECURITY',
-      image: 'https://images.pexels.com/photos/60504/security-protection-anti-virus-software-60504.jpeg?auto=compress&cs=tinysrgb&w=600',
-      title: 'Two-Factor Auth',
-      desc: 'Keep your account secure',
-      cta: 'Enable',
-      color: '#059669'
-    }
-  ];
-
   return (
     <div className="settings-welcome-screen">
       <div className="welcome-screen-inner">
@@ -281,20 +272,6 @@ const SettingsView: React.FC = () => {
           </div>
           <h2>Settings</h2>
           <p>Customize your experience. Choose a category from the sidebar to get started.</p>
-        </div>
-        <div className="welcome-ads-grid">
-          {settingsAds.map((ad, i) => (
-            <div key={i} className="welcome-ad-card">
-              <div className="welcome-ad-image" style={{ backgroundImage: `url(${ad.image})` }}>
-                <span className="welcome-ad-label">{ad.label}</span>
-              </div>
-              <div className="welcome-ad-body">
-                <h3 className="welcome-ad-title">{ad.title}</h3>
-                <p className="welcome-ad-desc">{ad.desc}</p>
-                <button className="welcome-ad-cta" style={{ background: ad.color }}>{ad.cta}</button>
-              </div>
-            </div>
-          ))}
         </div>
       </div>
     </div>

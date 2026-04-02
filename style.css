@@ -2650,6 +2650,19 @@ input[type="range"] {
   display: none;
 }
 
+.chat-avatar{
+  width: 36px;
+  height: 36px; 
+  border-radius: 50%;
+  background: var(--accent-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgb(255, 255, 255);
+  font-weight: 700; 
+  font-size: 14px;
+}
+
 /* Hide welcome screens on mobile */
 @media (max-width: 768px) {
   .welcome-screen-inner {

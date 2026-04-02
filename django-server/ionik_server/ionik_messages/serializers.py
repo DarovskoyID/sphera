@@ -5,6 +5,7 @@ from ionik_auth.serializers import UserSerializer
 
 class MessageSerializer(serializers.ModelSerializer):
     author = UserSerializer(read_only=True)
+    content = serializers.CharField(read_only=True)
 
     class Meta:
         model = Message

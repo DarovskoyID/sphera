@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { Sun, Moon, Search, Menu, UserPlus, Check, X } from 'lucide-react';
 import { useApp } from '../context/AppContext';
-import { serverChannels } from '../data/mockData';
 import type { ServerUser } from '../types';
 
 export const ChatSidebar: React.FC = () => {
@@ -24,14 +23,8 @@ export const ChatSidebar: React.FC = () => {
     (f.nickname || f.username).toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  const serverData = currentServer !== 'home' && currentServer !== 'settings'
-    ? serverChannels[currentServer]
-    : null;
-
   const sidebarTitle = currentView === 'settings'
     ? 'Settings'
-    : serverData
-    ? serverData.name
     : 'Direct Messages';
 
   const handleSearch = async () => {
@@ -180,7 +173,7 @@ export const ChatSidebar: React.FC = () => {
           {filteredFriends.map((friend) => (
             <div
               key={friend.id}
-              className={`chat-item ${currentChat === friend.id ? 'active' : ''}`}
+              className={`chat-item ${String(currentChat) === String(friend.id) ? 'active' : ''}`}
               onClick={() => setCurrentChat(friend.id)}
             >
               <div className="chat-avatar">
@@ -207,23 +200,11 @@ export const ChatSidebar: React.FC = () => {
         </div>
       )}
 
-      {currentView === 'server' && serverData && (
+      {currentView === 'server' && (
         <div className="channel-list">
-          <div className="section-title">TEXT CHANNELS</div>
-          {serverData.channels.map((channel) => (
-            <div key={channel} className="channel-item">
-              <span>#</span>
-              <span>{channel}</span>
-            </div>
-          ))}
-
-          <div className="section-title">VOICE CHANNELS</div>
-          {serverData.voiceChannels.map((channel) => (
-            <div key={channel} className="channel-item">
-              <span>🔊</span>
-              <span>{channel}</span>
-            </div>
-          ))}
+          <div style={{ padding: 16, color: 'var(--text-secondary)', textAlign: 'center' }}>
+            Server channels coming soon
+          </div>
         </div>
       )}
 

@@ -4,6 +4,7 @@ import { ServerSidebar } from './components/ServerSidebar';
 import { ChatSidebar } from './components/ChatSidebar';
 import { ChatMain } from './components/ChatMain';
 import { AuthScreen } from './components/AuthScreen';
+import { IncomingCallModal } from './components/IncomingCallModal';
 
 function AppContent() {
   const { authToken, mobileActivePanel, isMobileSidebarOpen, toggleMobileSidebar } = useApp();
@@ -20,6 +21,7 @@ function AppContent() {
       )}
       <ChatSidebar />
       <ChatMain />
+      <IncomingCallModal />
     </div>
   );
 }

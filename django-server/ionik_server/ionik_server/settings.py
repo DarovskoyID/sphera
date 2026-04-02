@@ -59,7 +59,16 @@ TEMPLATES = [
 WSGI_APPLICATION = 'ionik_server.wsgi.application'
 ASGI_APPLICATION = 'ionik_server.asgi.application'
 
-# In-memory channel layer (no Redis needed for dev)
+# Channel layer: use Redis in production, InMemory for dev
+# To use Redis: pip install channels-redis, then uncomment below
+# CHANNEL_LAYERS = {
+#     'default': {
+#         'BACKEND': 'channels_redis.core.RedisChannelLayer',
+#         'CONFIG': {
+#             'hosts': [('127.0.0.1', 6379)],
+#         },
+#     },
+# }
 CHANNEL_LAYERS = {
     'default': {
         'BACKEND': 'channels.layers.InMemoryChannelLayer',
@@ -94,6 +103,9 @@ SIMPLE_JWT = {
     'ACCESS_TOKEN_LIFETIME': timedelta(days=7),
     'REFRESH_TOKEN_LIFETIME': timedelta(days=30),
 }
+
+# Fernet key for encrypting chat messages at rest
+MESSAGE_ENCRYPTION_KEY = 'B_jCzvYRndN90PQCee5x7RwE5R-AjJ_WN_m0d3beh1Q='
 
 LANGUAGE_CODE = 'en-us'
 TIME_ZONE = 'UTC'
