@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Sun, Moon, Search, Menu, UserPlus, Check, X, LogOut } from 'lucide-react';
 import { useApp } from '../context/AppContext';
+import { useTranslation } from '../i18n/useTranslation';
 import type { ServerUser } from '../types';
 
 export const ChatSidebar: React.FC = () => {
@@ -12,6 +13,7 @@ export const ChatSidebar: React.FC = () => {
     rejectFriendRequest, searchUsers, loadFriends,
     currentServerIP, authToken,
   } = useApp();
+  const tr = useTranslation();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [showAddFriend, setShowAddFriend] = useState(false);
@@ -26,8 +28,8 @@ export const ChatSidebar: React.FC = () => {
   );
 
   const sidebarTitle = currentView === 'settings'
-    ? 'Settings'
-    : 'Direct Messages';
+    ? tr('nav_settings')
+    : tr('nav_direct_messages');
 
   const handleSearch = async () => {
     if (!addQuery.trim()) return;
@@ -36,9 +38,9 @@ export const ChatSidebar: React.FC = () => {
     try {
       const results = await searchUsers(addQuery);
       setSearchResults(results);
-      if (results.length === 0) setAddError('No users found');
+      if (results.length === 0) setAddError(tr('friends_no_users'));
     } catch {
-      setAddError('Search failed');
+      setAddError(tr('friends_search_failed'));
     }
   };
 
@@ -47,7 +49,7 @@ export const ChatSidebar: React.FC = () => {
     setAddSuccess('');
     try {
       await sendFriendRequest(userId);
-      setAddSuccess('Friend request sent!');
+      setAddSuccess(tr('friends_request_sent'));
       setSearchResults([]);
       setAddQuery('');
     } catch (e: any) {
@@ -74,11 +76,11 @@ export const ChatSidebar: React.FC = () => {
   return (
     <aside className={`chat-sidebar ${isMobileSidebarOpen ? 'mobile-open' : ''}`}>
       <div className="chat-sidebar-header">
-        <button className="icon-btn glass-btn mobile-hamburger-btn" onClick={toggleMobileSidebar} title="Menu">
+        <button className="icon-btn glass-btn mobile-hamburger-btn" onClick={toggleMobileSidebar} title={tr('nav_menu')}>
           <Menu size={20} />
         </button>
         <h2>{sidebarTitle}</h2>
-        <button className="icon-btn glass-btn" onClick={toggleTheme} title="Toggle Theme">
+        <button className="icon-btn glass-btn" onClick={toggleTheme} title={tr('nav_toggle_theme')}>
           {theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
         </button>
       </div>
@@ -89,7 +91,7 @@ export const ChatSidebar: React.FC = () => {
             <Search size={18} className="search-icon" />
             <input
               type="text"
-              placeholder="Search friends"
+              placeholder={tr('friends_search')}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
             />
@@ -98,7 +100,7 @@ export const ChatSidebar: React.FC = () => {
           {/* Pending friend requests */}
           {pendingRequests.length > 0 && (
             <>
-              <div className="section-title">FRIEND REQUESTS ({pendingRequests.length})</div>
+              <div className="section-title">{tr('friends_requests')} ({pendingRequests.length})</div>
               {pendingRequests.map(req => (
                 <div key={req.id} className="chat-item" style={{ gap: 8 }}>
                   <div className="chat-avatar">
@@ -111,12 +113,12 @@ export const ChatSidebar: React.FC = () => {
                   </div>
                   <div className="chat-info" style={{ flex: 1 }}>
                     <div className="chat-name">{req.from_user.nickname || req.from_user.username}</div>
-                    <div className="chat-message">wants to be friends</div>
+                    <div className="chat-message">{tr('friends_wants_to_be')}</div>
                   </div>
-                  <button className="icon-btn glass-btn" style={{ color: '#22c55e', padding: 4 }} onClick={() => handleAccept(req.id)} title="Accept">
+                  <button className="icon-btn glass-btn" style={{ color: '#22c55e', padding: 4 }} onClick={() => handleAccept(req.id)} title={tr('friends_accept')}>
                     <Check size={16} />
                   </button>
-                  <button className="icon-btn glass-btn" style={{ color: '#ef4444', padding: 4 }} onClick={() => handleReject(req.id)} title="Decline">
+                  <button className="icon-btn glass-btn" style={{ color: '#ef4444', padding: 4 }} onClick={() => handleReject(req.id)} title={tr('friends_decline')}>
                     <X size={16} />
                   </button>
                 </div>
@@ -125,12 +127,12 @@ export const ChatSidebar: React.FC = () => {
           )}
 
           <div className="section-title" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <span>DIRECT MESSAGES</span>
+            <span>{tr('friends_direct_messages')}</span>
             <button
               className="icon-btn glass-btn"
               style={{ padding: 2 }}
               onClick={() => { setShowAddFriend(v => !v); setAddError(''); setAddSuccess(''); setSearchResults([]); setAddQuery(''); }}
-              title="Add Friend"
+              title={tr('friends_add')}
             >
               <UserPlus size={16} />
             </button>
@@ -141,7 +143,7 @@ export const ChatSidebar: React.FC = () => {
               <div style={{ display: 'flex', gap: 6 }}>
                 <input
                   type="text"
-                  placeholder="Search by login or nickname"
+                  placeholder={tr('friends_search_placeholder')}
                   value={addQuery}
                   onChange={e => setAddQuery(e.target.value)}
                   onKeyDown={e => e.key === 'Enter' && handleSearch()}
@@ -156,7 +158,7 @@ export const ChatSidebar: React.FC = () => {
                     outline: 'none',
                   }}
                 />
-                <button className="glass-btn" style={{ padding: '6px 10px', fontSize: 12 }} onClick={handleSearch}>Find</button>
+                <button className="glass-btn" style={{ padding: '6px 10px', fontSize: 12 }} onClick={handleSearch}>{tr('friends_find')}</button>
               </div>
               {addError && <div style={{ color: '#ef4444', fontSize: 12 }}>{addError}</div>}
               {addSuccess && <div style={{ color: '#22c55e', fontSize: 12 }}>{addSuccess}</div>}
@@ -196,7 +198,7 @@ export const ChatSidebar: React.FC = () => {
 
           {filteredFriends.length === 0 && !showAddFriend && pendingRequests.length === 0 && (
             <div style={{ padding: '16px 12px', color: 'var(--text-secondary)', fontSize: 13, textAlign: 'center' }}>
-              No friends yet. Click <UserPlus size={12} style={{ display: 'inline' }} /> to add someone.
+              {tr('friends_none')} <UserPlus size={12} style={{ display: 'inline' }} />
             </div>
           )}
         </div>
@@ -205,51 +207,51 @@ export const ChatSidebar: React.FC = () => {
       {currentView === 'server' && (
         <div className="channel-list">
           <div style={{ padding: 16, color: 'var(--text-secondary)', textAlign: 'center' }}>
-            Server channels coming soon
+            {tr('server_channels_soon')}
           </div>
         </div>
       )}
 
       {currentView === 'settings' && (
         <div className="settings-list">
-          <div className={`settings-item ${currentSettingsPage === 'profile' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('profile')}>My Account</div>
-          <div className={`settings-item ${currentSettingsPage === 'content' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('content')}>Privacy & Safety</div>
-          <div className={`settings-item ${currentSettingsPage === 'data' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('data')}>Data and privacy</div>
-          <div className={`settings-item ${currentSettingsPage === 'devices' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('devices')}>Devices</div>
-          <div className={`settings-item ${currentSettingsPage === 'family' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('family')}>Family center</div>
-          <div className={`settings-item ${currentSettingsPage === 'integration' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('integration')}>Integration</div>
-          <div className={`settings-item ${currentSettingsPage === 'notifications' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('notifications')}>Notifications</div>
-          <div className={`settings-item ${currentSettingsPage === 'apps' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('apps')}>Apps</div>
+          <div className={`settings-item ${currentSettingsPage === 'profile' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('profile')}>{tr('settings_my_account')}</div>
+          <div className={`settings-item ${currentSettingsPage === 'content' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('content')}>{tr('settings_privacy')}</div>
+          <div className={`settings-item ${currentSettingsPage === 'data' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('data')}>{tr('settings_data')}</div>
+          <div className={`settings-item ${currentSettingsPage === 'devices' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('devices')}>{tr('settings_devices')}</div>
+          <div className={`settings-item ${currentSettingsPage === 'family' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('family')}>{tr('settings_family')}</div>
+          <div className={`settings-item ${currentSettingsPage === 'integration' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('integration')}>{tr('settings_integration')}</div>
+          <div className={`settings-item ${currentSettingsPage === 'notifications' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('notifications')}>{tr('settings_notifications')}</div>
+          <div className={`settings-item ${currentSettingsPage === 'apps' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('apps')}>{tr('settings_apps')}</div>
 
           <div className="settings-devider"></div>
 
-          <div className={`settings-item ${currentSettingsPage === 'nitro' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('nitro')}>Nitro</div>
-          <div className={`settings-item ${currentSettingsPage === 'subscribes' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('subscribes')}>Subscribes</div>
-          <div className={`settings-item ${currentSettingsPage === 'gifts' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('gifts')}>Gifts</div>
-          <div className={`settings-item ${currentSettingsPage === 'payments' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('payments')}>Payments</div>
+          <div className={`settings-item ${currentSettingsPage === 'nitro' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('nitro')}>{tr('settings_nitro')}</div>
+          <div className={`settings-item ${currentSettingsPage === 'subscribes' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('subscribes')}>{tr('settings_subscribes')}</div>
+          <div className={`settings-item ${currentSettingsPage === 'gifts' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('gifts')}>{tr('settings_gifts')}</div>
+          <div className={`settings-item ${currentSettingsPage === 'payments' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('payments')}>{tr('settings_payments')}</div>
 
           <div className="settings-devider"></div>
 
-          <div className={`settings-item ${currentSettingsPage === 'view' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('view')}>Appearance</div>
-          <div className={`settings-item ${currentSettingsPage === 'special' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('special')}>Special</div>
-          <div className={`settings-item ${currentSettingsPage === 'voiceAndVideo' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('voiceAndVideo')}>Voice & Video</div>
-          <div className={`settings-item ${currentSettingsPage === 'chat' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('chat')}>Chat</div>
-          <div className={`settings-item ${currentSettingsPage === 'binds' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('binds')}>Key binds</div>
-          <div className={`settings-item ${currentSettingsPage === 'language' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('language')}>Language</div>
-          <div className={`settings-item ${currentSettingsPage === 'exportImport' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('exportImport')}>Export & Import</div>
-          <div className={`settings-item ${currentSettingsPage === 'streamer' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('streamer')}>Streamer mode</div>
-          <div className={`settings-item ${currentSettingsPage === 'more' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('more')}>More</div>
+          <div className={`settings-item ${currentSettingsPage === 'view' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('view')}>{tr('settings_appearance')}</div>
+          <div className={`settings-item ${currentSettingsPage === 'special' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('special')}>{tr('settings_special')}</div>
+          <div className={`settings-item ${currentSettingsPage === 'voiceAndVideo' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('voiceAndVideo')}>{tr('settings_voice_video')}</div>
+          <div className={`settings-item ${currentSettingsPage === 'chat' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('chat')}>{tr('settings_chat')}</div>
+          <div className={`settings-item ${currentSettingsPage === 'binds' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('binds')}>{tr('settings_binds')}</div>
+          <div className={`settings-item ${currentSettingsPage === 'language' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('language')}>{tr('settings_language')}</div>
+          <div className={`settings-item ${currentSettingsPage === 'exportImport' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('exportImport')}>{tr('settings_export_import')}</div>
+          <div className={`settings-item ${currentSettingsPage === 'streamer' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('streamer')}>{tr('settings_streamer')}</div>
+          <div className={`settings-item ${currentSettingsPage === 'more' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('more')}>{tr('settings_more')}</div>
 
           <div className="settings-devider"></div>
 
-          <div className={`settings-item ${currentSettingsPage === 'privacyOfActivity' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('privacyOfActivity')}>Privacy of activity</div>
-          <div className={`settings-item ${currentSettingsPage === 'games' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('games')}>Registered games</div>
+          <div className={`settings-item ${currentSettingsPage === 'privacyOfActivity' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('privacyOfActivity')}>{tr('settings_activity_privacy')}</div>
+          <div className={`settings-item ${currentSettingsPage === 'games' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('games')}>{tr('settings_games')}</div>
 
           <div className="settings-devider"></div>
 
           <div className="settings-item" style={{ color: '#ef4444' }} onClick={() => setShowLogoutModal(true)}>
             <LogOut size={14} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 6 }} />
-            Exit
+            {tr('settings_exit')}
           </div>
         </div>
       )}
@@ -258,14 +260,14 @@ export const ChatSidebar: React.FC = () => {
       {showLogoutModal && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
           <div style={{ background: 'var(--bg-secondary)', borderRadius: 12, padding: 24, maxWidth: 380, width: '90%', border: '1px solid var(--border-color)' }}>
-            <h3 style={{ margin: '0 0 8px', color: 'var(--text-primary)', fontSize: 18, fontWeight: 700 }}>Log Out</h3>
-            <p style={{ margin: '0 0 20px', color: 'var(--text-secondary)', fontSize: 14 }}>Are you sure you want to log out?</p>
+            <h3 style={{ margin: '0 0 8px', color: 'var(--text-primary)', fontSize: 18, fontWeight: 700 }}>{tr('logout_title')}</h3>
+            <p style={{ margin: '0 0 20px', color: 'var(--text-secondary)', fontSize: 14 }}>{tr('logout_confirm')}</p>
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
               <button onClick={() => setShowLogoutModal(false)} style={{ padding: '8px 20px', background: 'var(--bg-tertiary)', color: 'var(--text-primary)', border: '1px solid var(--border-color)', borderRadius: 6, fontSize: 14, cursor: 'pointer' }}>
-                Cancel
+                {tr('cancel')}
               </button>
               <button onClick={() => { setShowLogoutModal(false); setAuthToken(''); }} style={{ padding: '8px 20px', background: '#ef4444', color: '#fff', border: 'none', borderRadius: 6, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
-                Log Out
+                {tr('logout_button')}
               </button>
             </div>
           </div>
@@ -279,6 +281,7 @@ export const ChatSidebar: React.FC = () => {
 
 const UserProfile: React.FC = () => {
   const { currentUser } = useApp();
+  const tr = useTranslation();
   const [isMuted, setIsMuted] = useState(false);
   const [isDeafened, setIsDeafened] = useState(false);
 
@@ -297,13 +300,13 @@ const UserProfile: React.FC = () => {
       </button>
       <div className="profile-info">
         <div className="profile-name">{displayName}</div>
-        <div className="profile-status">Online</div>
+        <div className="profile-status">{tr('profile_online')}</div>
       </div>
       <div className="profile-controls">
         <button
           className={`profile-icon-btn glass-btn ${isMuted ? 'muted' : ''}`}
           onClick={() => setIsMuted(!isMuted)}
-          title="Mute Microphone"
+          title={tr('profile_mute')}
         >
           <svg viewBox="0 0 24 24" fill="currentColor">
             <path d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"/>
@@ -312,7 +315,7 @@ const UserProfile: React.FC = () => {
         <button
           className={`profile-icon-btn glass-btn ${isDeafened ? 'muted' : ''}`}
           onClick={() => setIsDeafened(!isDeafened)}
-          title="Deafen"
+          title={tr('profile_deafen')}
         >
           <svg viewBox="0 0 24 24" fill="currentColor">
             <path d="M9 19V6m0 0a3 3 0 013-3h0a3 3 0 013 3m0 0a3 3 0 013-3h0a3 3 0 013 3m0 0v13m0 0H9"/>

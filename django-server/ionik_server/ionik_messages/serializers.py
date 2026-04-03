@@ -1,15 +1,38 @@
 from rest_framework import serializers
-from .models import Conversation, Message
+from .models import Conversation, Message, Attachment
 from ionik_auth.serializers import UserSerializer
 
 
-class MessageSerializer(serializers.ModelSerializer):
+class AttachmentSerializer(serializers.ModelSerializer):
+    filename = serializers.CharField(source='original_filename', read_only=True)
+    url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Attachment
+        fields = ['id', 'filename', 'content_type', 'file_size', 'url', 'created_at']
+
+    def get_url(self, obj):
+        return f'/api/attachments/{obj.id}/'
+
+
+class ReplyPreviewSerializer(serializers.ModelSerializer):
     author = UserSerializer(read_only=True)
     content = serializers.CharField(read_only=True)
 
     class Meta:
         model = Message
-        fields = ['id', 'author', 'content', 'created_at']
+        fields = ['id', 'author', 'content']
+
+
+class MessageSerializer(serializers.ModelSerializer):
+    author = UserSerializer(read_only=True)
+    content = serializers.CharField(read_only=True)
+    attachments = AttachmentSerializer(many=True, read_only=True)
+    reply_to = ReplyPreviewSerializer(read_only=True)
+
+    class Meta:
+        model = Message
+        fields = ['id', 'author', 'content', 'attachments', 'reply_to', 'is_pinned', 'created_at']
 
 
 class ConversationSerializer(serializers.ModelSerializer):

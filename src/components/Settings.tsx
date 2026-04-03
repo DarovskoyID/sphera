@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useCallback, createContext, useContext } from 'react';
 import { Shield, Monitor, Smartphone, Tablet, Trash2, UserX, Camera } from 'lucide-react';
 import { useApp } from '../context/AppContext';
+import { useTranslation } from '../i18n/useTranslation';
+import { languages, type LangCode } from '../i18n';
 import type { ServerUser } from '../types';
 
 // ==================== Settings context (loads/saves all prefs) ====================
@@ -92,7 +94,7 @@ const Check: React.FC<{ label: string; field: keyof SettingsData }> = ({ label, 
 // ==================== Main Settings ====================
 
 export const Settings: React.FC = () => {
-  const { currentSettingsPage, currentServerIP, authToken } = useApp();
+  const { currentSettingsPage, currentServerIP, authToken, setLanguage } = useApp();
   const [s, setS] = useState<SettingsData>(defaultSettings);
   const [loaded, setLoaded] = useState(false);
 
@@ -107,6 +109,7 @@ export const Settings: React.FC = () => {
         if (res.ok) {
           const data = await res.json();
           setS(prev => ({ ...prev, ...data }));
+          if (data.language) setLanguage(data.language);
         }
       } catch { /* use defaults */ }
       setLoaded(true);
@@ -182,6 +185,7 @@ export const Settings: React.FC = () => {
 // ==================== Profile Settings ====================
 
 const ProfileSettings: React.FC = () => {
+  const tr = useTranslation();
   const { currentUser, currentServerIP, authToken } = useApp();
   const [nickname, setNickname] = useState(currentUser?.nickname || '');
   const [bio, setBio] = useState(currentUser?.bio || '');
@@ -207,19 +211,19 @@ const ProfileSettings: React.FC = () => {
       if (avatarFile) fd.append('avatar', avatarFile);
       const res = await fetch(`${currentServerIP}/api/auth/me/update/`, { method: 'PATCH', headers: { 'Authorization': `Bearer ${authToken}` }, body: fd });
       if (!res.ok) throw new Error('Failed');
-      setMsg({ text: 'Profile updated!', type: 'ok' }); setAvatarFile(null);
-    } catch { setMsg({ text: 'Failed to save', type: 'err' }); }
+      setMsg({ text: tr('sp_saved'), type: 'ok' }); setAvatarFile(null);
+    } catch { setMsg({ text: tr('sp_save_fail'), type: 'err' }); }
     setSaving(false);
   };
 
   const handleChangePassword = async () => {
     setPwMsg(null);
-    if (!oldPw || !newPw) { setPwMsg({ text: 'Fill in both fields', type: 'err' }); return; }
+    if (!oldPw || !newPw) { setPwMsg({ text: tr('sp_fill_both'), type: 'err' }); return; }
     try {
       const res = await fetch(`${currentServerIP}/api/auth/me/password/`, { method: 'POST', headers: { 'Authorization': `Bearer ${authToken}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ old_password: oldPw, new_password: newPw }) });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed');
-      setPwMsg({ text: 'Password changed!', type: 'ok' }); setOldPw(''); setNewPw('');
+      setPwMsg({ text: tr('sp_password_changed'), type: 'ok' }); setOldPw(''); setNewPw('');
     } catch (e: any) { setPwMsg({ text: e.message, type: 'err' }); }
   };
 
@@ -227,8 +231,8 @@ const ProfileSettings: React.FC = () => {
 
   return (
     <section>
-      <h1>My Account</h1>
-      <p>Manage your account settings and profile information</p>
+      <h1>{tr('sp_title')}</h1>
+      <p>{tr('sp_desc')}</p>
 
       <div style={{ ...card, padding: 0, overflow: 'hidden' }}>
         <div style={{ height: 100, background: 'linear-gradient(135deg, var(--accent-primary), #7c3aed)' }} />
@@ -255,20 +259,20 @@ const ProfileSettings: React.FC = () => {
 
       <form onSubmit={handleSave}>
         <div style={card}>
-          <h3 style={sectionH3}>Profile Information</h3>
+          <h3 style={sectionH3}>{tr('sp_profile_info')}</h3>
           <div style={{ marginBottom: 16 }}>
-            <div style={fieldLabel}>Display Name</div>
+            <div style={fieldLabel}>{tr('sp_display_name')}</div>
             <input style={fieldInput} value={nickname} onChange={e => setNickname(e.target.value)} placeholder="Display name" />
           </div>
           <div style={{ marginBottom: 16 }}>
-            <div style={fieldLabel}>Username</div>
+            <div style={fieldLabel}>{tr('sp_username')}</div>
             <input style={{ ...fieldInput, opacity: 0.6 }} value={currentUser?.username || ''} disabled />
           </div>
           <div style={{ marginBottom: 16 }}>
-            <div style={fieldLabel}>About Me</div>
-            <textarea value={bio} onChange={e => setBio(e.target.value)} placeholder="Tell us about yourself" rows={3} style={{ ...fieldInput, resize: 'vertical', fontFamily: 'inherit' }} />
+            <div style={fieldLabel}>{tr('sp_about')}</div>
+            <textarea value={bio} onChange={e => setBio(e.target.value)} placeholder={tr('sp_about_placeholder')} rows={3} style={{ ...fieldInput, resize: 'vertical', fontFamily: 'inherit' }} />
           </div>
-          <button type="submit" style={{ ...btnPrimary, opacity: saving ? 0.6 : 1 }} disabled={saving}>{saving ? 'Saving...' : 'Save Changes'}</button>
+          <button type="submit" style={{ ...btnPrimary, opacity: saving ? 0.6 : 1 }} disabled={saving}>{saving ? tr('sp_saving') : tr('sp_save')}</button>
           {msg && <div style={statusMsg(msg.type)}>{msg.text}</div>}
         </div>
       </form>
@@ -276,25 +280,25 @@ const ProfileSettings: React.FC = () => {
       <div style={divider} />
 
       <div style={card}>
-        <h3 style={sectionH3}><Shield size={16} style={{ verticalAlign: 'middle', marginRight: 8 }} />Change Password</h3>
+        <h3 style={sectionH3}><Shield size={16} style={{ verticalAlign: 'middle', marginRight: 8 }} />{tr('sp_change_password')}</h3>
         <div style={{ marginBottom: 12 }}>
-          <div style={fieldLabel}>Current Password</div>
+          <div style={fieldLabel}>{tr('sp_current_password')}</div>
           <input type="password" style={fieldInput} value={oldPw} onChange={e => setOldPw(e.target.value)} />
         </div>
         <div style={{ marginBottom: 16 }}>
-          <div style={fieldLabel}>New Password</div>
+          <div style={fieldLabel}>{tr('sp_new_password')}</div>
           <input type="password" style={fieldInput} value={newPw} onChange={e => setNewPw(e.target.value)} />
         </div>
-        <button type="button" style={btnPrimary} onClick={handleChangePassword}>Change Password</button>
+        <button type="button" style={btnPrimary} onClick={handleChangePassword}>{tr('sp_change_password')}</button>
         {pwMsg && <div style={statusMsg(pwMsg.type)}>{pwMsg.text}</div>}
       </div>
 
       <div style={divider} />
 
-      <h3 style={sectionH3}>Profile Customization</h3>
-      <Check label="Show my profile to everyone" field="show_profile_to_everyone" />
-      <Check label="Display my online status" field="display_online_status" />
-      <Check label="Show my activity status" field="show_activity_status" />
+      <h3 style={sectionH3}>{tr('sp_profile_custom')}</h3>
+      <Check label={tr('sp_show_profile')} field="show_profile_to_everyone" />
+      <Check label={tr('sp_show_online')} field="display_online_status" />
+      <Check label={tr('sp_show_activity')} field="show_activity_status" />
 
       <div style={divider} />
 
@@ -306,6 +310,7 @@ const ProfileSettings: React.FC = () => {
 // ==================== Delete Account ====================
 
 const DeleteAccount: React.FC = () => {
+  const tr = useTranslation();
   const { currentServerIP, authToken, setAuthToken } = useApp();
   const [show, setShow] = useState(false);
   const [username, setUsername] = useState('');
@@ -313,7 +318,7 @@ const DeleteAccount: React.FC = () => {
   const [error, setError] = useState('');
 
   const handleDelete = async () => {
-    if (!username || !password) { setError('Fill in both fields'); return; }
+    if (!username || !password) { setError(tr('sp_fill_both')); return; }
     try {
       const res = await fetch(`${currentServerIP}/api/auth/me/delete/`, {
         method: 'POST',
@@ -332,35 +337,35 @@ const DeleteAccount: React.FC = () => {
       <div style={{ ...card, borderColor: '#ef444444' }}>
         <h3 style={{ ...sectionH3, color: '#ef4444' }}>
           <Trash2 size={16} style={{ verticalAlign: 'middle', marginRight: 8 }} />
-          Delete Account
+          {tr('sd_title')}
         </h3>
         <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: '0 0 16px' }}>
-          Permanently delete your account and all associated data. This action cannot be undone.
+          {tr('sd_desc')}
         </p>
         <button type="button" onClick={() => setShow(true)} style={{ padding: '10px 24px', background: '#ef4444', color: '#fff', border: 'none', borderRadius: 6, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
-          Delete Account
+          {tr('sd_title')}
         </button>
       </div>
 
       {show && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
           <div style={{ background: 'var(--bg-secondary)', borderRadius: 12, padding: 24, maxWidth: 400, width: '90%', border: '1px solid var(--border-color)' }}>
-            <h3 style={{ margin: '0 0 8px', color: '#ef4444', fontSize: 18, fontWeight: 700 }}>Delete Account</h3>
+            <h3 style={{ margin: '0 0 8px', color: '#ef4444', fontSize: 18, fontWeight: 700 }}>{tr('sd_title')}</h3>
             <p style={{ margin: '0 0 16px', color: 'var(--text-secondary)', fontSize: 14 }}>
-              This action is permanent. Enter your login and password to confirm.
+              {tr('sd_confirm')}
             </p>
             <div style={{ marginBottom: 12 }}>
-              <div style={fieldLabel}>Username</div>
-              <input type="text" value={username} onChange={e => { setUsername(e.target.value); setError(''); }} placeholder="Enter your username" style={{ ...fieldInput, boxSizing: 'border-box' as const }} />
+              <div style={fieldLabel}>{tr('sd_username')}</div>
+              <input type="text" value={username} onChange={e => { setUsername(e.target.value); setError(''); }} placeholder={tr('sd_username_placeholder')} style={{ ...fieldInput, boxSizing: 'border-box' as const }} />
             </div>
             <div style={{ marginBottom: 16 }}>
-              <div style={fieldLabel}>Password</div>
-              <input type="password" value={password} onChange={e => { setPassword(e.target.value); setError(''); }} placeholder="Enter your password" style={{ ...fieldInput, boxSizing: 'border-box' as const }} />
+              <div style={fieldLabel}>{tr('sd_password')}</div>
+              <input type="password" value={password} onChange={e => { setPassword(e.target.value); setError(''); }} placeholder={tr('sd_password_placeholder')} style={{ ...fieldInput, boxSizing: 'border-box' as const }} />
             </div>
             {error && <div style={{ color: '#ef4444', fontSize: 13, marginBottom: 12 }}>{error}</div>}
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-              <button onClick={() => { setShow(false); setUsername(''); setPassword(''); setError(''); }} style={{ ...btnSecondary }}>Cancel</button>
-              <button onClick={handleDelete} style={{ padding: '8px 20px', background: '#ef4444', color: '#fff', border: 'none', borderRadius: 6, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>Delete Account</button>
+              <button onClick={() => { setShow(false); setUsername(''); setPassword(''); setError(''); }} style={{ ...btnSecondary }}>{tr('cancel')}</button>
+              <button onClick={handleDelete} style={{ padding: '8px 20px', background: '#ef4444', color: '#fff', border: 'none', borderRadius: 6, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>{tr('sd_title')}</button>
             </div>
           </div>
         </div>
@@ -374,6 +379,7 @@ const DeleteAccount: React.FC = () => {
 interface BlockedEntry { id: number; blocked: ServerUser; created_at: string; }
 
 const PrivacySettings: React.FC = () => {
+  const tr = useTranslation();
   const { currentServerIP, authToken, searchUsers } = useApp();
   const [blocked, setBlocked] = useState<BlockedEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -414,28 +420,28 @@ const PrivacySettings: React.FC = () => {
 
   return (
     <section>
-      <h1>Privacy & Safety</h1>
-      <p>Manage your content filtering and privacy preferences</p>
+      <h1>{tr('sprv_title')}</h1>
+      <p>{tr('sprv_desc')}</p>
 
-      <h3 style={sectionH3}>Safe Direct Messaging</h3>
-      <p>Filter direct messages from server members who are not friends</p>
-      <Check label="Keep me safe" field="safe_dm_filter" />
-
-      <div style={divider} />
-
-      <h3 style={sectionH3}>Explicit Content Filter</h3>
-      <p>Automatically scan and delete direct messages containing explicit media</p>
-      <Check label="Scan messages from everyone" field="scan_messages_everyone" />
-      <Check label="Scan messages from non-friends only" field="scan_messages_non_friends" />
-      <Check label="Don't scan any messages" field="scan_messages_off" />
+      <h3 style={sectionH3}>{tr('sprv_safe_dm')}</h3>
+      <p>{tr('sprv_safe_dm_desc')}</p>
+      <Check label={tr('sprv_keep_safe')} field="safe_dm_filter" />
 
       <div style={divider} />
 
-      <h3 style={sectionH3}>Blocked Users ({blocked.length})</h3>
+      <h3 style={sectionH3}>{tr('sprv_explicit')}</h3>
+      <p>{tr('sprv_explicit_desc')}</p>
+      <Check label={tr('sprv_scan_all')} field="scan_messages_everyone" />
+      <Check label={tr('sprv_scan_non_friends')} field="scan_messages_non_friends" />
+      <Check label={tr('sprv_scan_off')} field="scan_messages_off" />
+
+      <div style={divider} />
+
+      <h3 style={sectionH3}>{tr('sprv_blocked')} ({blocked.length})</h3>
 
       <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
-        <input style={{ ...fieldInput, flex: 1 }} placeholder="Search user to block..." value={blockQuery} onChange={e => setBlockQuery(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleSearch()} />
-        <button type="button" style={btnSecondary} onClick={handleSearch}>Search</button>
+        <input style={{ ...fieldInput, flex: 1 }} placeholder={tr('sprv_search_block')} value={blockQuery} onChange={e => setBlockQuery(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleSearch()} />
+        <button type="button" style={btnSecondary} onClick={handleSearch}>{tr('chat_search')}</button>
       </div>
       {error && <div style={{ ...statusMsg('err'), marginBottom: 12 }}>{error}</div>}
 
@@ -448,12 +454,12 @@ const PrivacySettings: React.FC = () => {
             <div style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: 14 }}>{u.nickname || u.username}</div>
             <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>@{u.username}</div>
           </div>
-          <button type="button" style={btnDanger} onClick={() => handleBlock(u.id)}><UserX size={14} style={{ marginRight: 4, verticalAlign: 'middle' }} />Block</button>
+          <button type="button" style={btnDanger} onClick={() => handleBlock(u.id)}><UserX size={14} style={{ marginRight: 4, verticalAlign: 'middle' }} />{tr('sprv_block')}</button>
         </div>
       ))}
 
-      {loading ? <div style={{ color: 'var(--text-secondary)', fontSize: 13 }}>Loading...</div> : blocked.length === 0 ? (
-        <div style={{ color: 'var(--text-secondary)', fontSize: 13, padding: 16, textAlign: 'center' }}>No blocked users</div>
+      {loading ? <div style={{ color: 'var(--text-secondary)', fontSize: 13 }}>{tr('loading')}</div> : blocked.length === 0 ? (
+        <div style={{ color: 'var(--text-secondary)', fontSize: 13, padding: 16, textAlign: 'center' }}>{tr('sprv_no_blocked')}</div>
       ) : blocked.map(entry => {
         const u = entry.blocked; const name = u.nickname || u.username;
         return (
@@ -463,9 +469,9 @@ const PrivacySettings: React.FC = () => {
             )}
             <div style={{ flex: 1 }}>
               <div style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: 14 }}>{name}</div>
-              <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Blocked {new Date(entry.created_at).toLocaleDateString()}</div>
+              <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{tr('sprv_blocked_on')} {new Date(entry.created_at).toLocaleDateString()}</div>
             </div>
-            <button type="button" style={btnSecondary} onClick={() => handleUnblock(String(u.id))}>Unblock</button>
+            <button type="button" style={btnSecondary} onClick={() => handleUnblock(String(u.id))}>{tr('sprv_unblock')}</button>
           </div>
         );
       })}
@@ -484,6 +490,7 @@ const DeviceIcon = ({ type }: { type: string }) => {
 };
 
 const DevicesSettings: React.FC = () => {
+  const tr = useTranslation();
   const { currentServerIP, authToken } = useApp();
   const [devices, setDevices] = useState<DeviceEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -504,11 +511,11 @@ const DevicesSettings: React.FC = () => {
 
   return (
     <section>
-      <h1>Devices</h1>
-      <p>Manage devices that have logged into your account</p>
+      <h1>{tr('sdev_title')}</h1>
+      <p>{tr('sdev_desc')}</p>
 
-      {loading ? <div style={{ color: 'var(--text-secondary)', fontSize: 13, padding: 20 }}>Loading...</div> : devices.length === 0 ? (
-        <div style={{ color: 'var(--text-secondary)', fontSize: 13, padding: 20, textAlign: 'center' }}>No devices found</div>
+      {loading ? <div style={{ color: 'var(--text-secondary)', fontSize: 13, padding: 20 }}>{tr('sdev_loading')}</div> : devices.length === 0 ? (
+        <div style={{ color: 'var(--text-secondary)', fontSize: 13, padding: 20, textAlign: 'center' }}>{tr('sdev_none')}</div>
       ) : devices.map((device, i) => {
         const browser = parseBrowser(device.device_name);
         const os = parseOS(device.device_name);
@@ -522,11 +529,11 @@ const DevicesSettings: React.FC = () => {
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: 14, display: 'flex', alignItems: 'center', gap: 8 }}>
                 {browser} on {os}
-                {isRecent && <span style={{ fontSize: 11, background: '#22c55e22', color: '#22c55e', padding: '2px 8px', borderRadius: 99, fontWeight: 500 }}>Active now</span>}
+                {isRecent && <span style={{ fontSize: 11, background: '#22c55e22', color: '#22c55e', padding: '2px 8px', borderRadius: 99, fontWeight: 500 }}>{tr('sdev_active')}</span>}
               </div>
-              <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>IP: {device.ip_address}</div>
-              <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Last active: {lastSeen.toLocaleString()}</div>
-              <div style={{ fontSize: 11, color: 'var(--text-secondary)', opacity: 0.7 }}>First login: {new Date(device.created_at).toLocaleString()}</div>
+              <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>{tr('sdev_ip')} {device.ip_address}</div>
+              <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{tr('sdev_last_active')} {lastSeen.toLocaleString()}</div>
+              <div style={{ fontSize: 11, color: 'var(--text-secondary)', opacity: 0.7 }}>{tr('sdev_first_login')} {new Date(device.created_at).toLocaleString()}</div>
             </div>
             {i > 0 && <button type="button" style={{ ...btnDanger, display: 'flex', alignItems: 'center', gap: 4, padding: '6px 12px' }} onClick={() => handleRemove(device.id)}><Trash2 size={14} /></button>}
           </div>
@@ -538,84 +545,97 @@ const DevicesSettings: React.FC = () => {
 
 // ==================== Notifications ====================
 
-const NotificationSettings: React.FC = () => (
+const NotificationSettings: React.FC = () => {
+  const tr = useTranslation();
+  return (
   <section>
-    <h1>Notifications</h1>
-    <p>Control how you receive notifications</p>
-    <h3 style={sectionH3}>Enable Desktop Notifications</h3>
-    <Check label="Enable all notifications" field="enable_all_notifications" />
+    <h1>{tr('sn_title')}</h1>
+    <p>{tr('sn_desc')}</p>
+    <h3 style={sectionH3}>{tr('sn_desktop')}</h3>
+    <Check label={tr('sn_enable_all')} field="enable_all_notifications" />
     <div style={divider} />
-    <h3 style={sectionH3}>Push Notifications</h3>
-    <Check label="Direct messages" field="notify_direct_messages" />
-    <Check label="Mentions" field="notify_mentions" />
-    <Check label="All server messages" field="notify_all_server_messages" />
-    <Check label="Friend requests" field="notify_friend_requests" />
+    <h3 style={sectionH3}>{tr('sn_push')}</h3>
+    <Check label={tr('sn_dm')} field="notify_direct_messages" />
+    <Check label={tr('sn_mentions')} field="notify_mentions" />
+    <Check label={tr('sn_all_server')} field="notify_all_server_messages" />
+    <Check label={tr('sn_friend_req')} field="notify_friend_requests" />
     <div style={divider} />
-    <h3 style={sectionH3}>Sounds</h3>
-    <Check label="Message notification sound" field="sound_message" />
-    <Check label="Incoming call sound" field="sound_incoming_call" />
+    <h3 style={sectionH3}>{tr('sn_sounds')}</h3>
+    <Check label={tr('sn_sound_msg')} field="sound_message" />
+    <Check label={tr('sn_sound_call')} field="sound_incoming_call" />
   </section>
-);
+  );
+};
 
 // ==================== Appearance ====================
 
 const AppearanceSettings: React.FC = () => {
+  const tr = useTranslation();
   const { s, setField } = useSettings();
   return (
     <section>
-      <h1>Appearance</h1>
-      <p>Customize how your app looks and feels</p>
-      <h3 style={sectionH3}>Theme</h3>
-      <label style={fieldLabel}>App Theme
+      <h1>{tr('sa_title')}</h1>
+      <p>{tr('sa_desc')}</p>
+      <h3 style={sectionH3}>{tr('sa_theme')}</h3>
+      <label style={fieldLabel}>{tr('sa_app_theme')}
         <select value={s.theme} onChange={e => setField('theme', e.target.value)} style={{ ...fieldInput, marginTop: 6 }}>
-          <option value="dark">Dark</option>
-          <option value="light">Light</option>
+          <option value="dark">{tr('sa_dark')}</option>
+          <option value="light">{tr('sa_light')}</option>
         </select>
       </label>
       <div style={divider} />
-      <h3 style={sectionH3}>Message Display</h3>
-      <Check label="Show message timestamps" field="show_timestamps" />
-      <Check label="Show avatars" field="show_avatars" />
+      <h3 style={sectionH3}>{tr('sa_msg_display')}</h3>
+      <Check label={tr('sa_timestamps')} field="show_timestamps" />
+      <Check label={tr('sa_avatars')} field="show_avatars" />
     </section>
   );
 };
 
 // ==================== Voice & Video ====================
 
-const VoiceVideoSettings: React.FC = () => (
+const VoiceVideoSettings: React.FC = () => {
+  const tr = useTranslation();
+  return (
   <section>
-    <h1>Voice & Video</h1>
-    <p>Configure your audio and video settings</p>
-    <h3 style={sectionH3}>Voice Processing</h3>
-    <Check label="Automatically determine input sensitivity" field="auto_input_sensitivity" />
-    <Check label="Echo cancellation" field="echo_cancellation" />
-    <Check label="Noise suppression" field="noise_suppression" />
+    <h1>{tr('sv_title')}</h1>
+    <p>{tr('sv_desc')}</p>
+    <h3 style={sectionH3}>{tr('sv_processing')}</h3>
+    <Check label={tr('sv_auto_sensitivity')} field="auto_input_sensitivity" />
+    <Check label={tr('sv_echo')} field="echo_cancellation" />
+    <Check label={tr('sv_noise')} field="noise_suppression" />
   </section>
-);
+  );
+};
 
 // ==================== Chat ====================
 
-const ChatSettings: React.FC = () => (
+const ChatSettings: React.FC = () => {
+  const tr = useTranslation();
+  return (
   <section>
-    <h1>Chat Settings</h1>
-    <Check label="Show timestamps" field="chat_show_timestamps" />
-    <Check label="Enable emoji reactions" field="chat_emoji_reactions" />
-    <Check label="Compact mode" field="chat_compact_mode" />
+    <h1>{tr('sc_title')}</h1>
+    <Check label={tr('sc_timestamps')} field="chat_show_timestamps" />
+    <Check label={tr('sc_emoji')} field="chat_emoji_reactions" />
+    <Check label={tr('sc_compact')} field="chat_compact_mode" />
   </section>
-);
+  );
+};
 
 // ==================== Language ====================
 
 const LanguageSettings: React.FC = () => {
+  const tr = useTranslation();
   const { s, setField } = useSettings();
+  const { setLanguage } = useApp();
   return (
     <section>
-      <h1>Language</h1>
-      <p>Choose your preferred language</p>
-      <label style={fieldLabel}>Select Language
-        <select value={s.language} onChange={e => setField('language', e.target.value)} style={{ ...fieldInput, marginTop: 6 }}>
-          <option value="en">English</option>
-          <option value="ru">Russian</option>
+      <h1>{tr('sl_title')}</h1>
+      <p>{tr('sl_desc')}</p>
+      <label style={fieldLabel}>{tr('sl_select')}
+        <select value={s.language} onChange={e => { setField('language', e.target.value); setLanguage(e.target.value); }} style={{ ...fieldInput, marginTop: 6 }}>
+          {(Object.entries(languages) as [LangCode, string][]).map(([code, name]) => (
+            <option key={code} value={code}>{name}</option>
+          ))}
         </select>
       </label>
     </section>
@@ -624,67 +644,84 @@ const LanguageSettings: React.FC = () => {
 
 // ==================== Data & Privacy ====================
 
-const DataSettings: React.FC = () => (
+const DataSettings: React.FC = () => {
+  const tr = useTranslation();
+  return (
   <section>
-    <h1>Data and Privacy</h1>
-    <Check label="Use my data for app improvements" field="data_app_improvements" />
-    <Check label="Use my data for personalization" field="data_personalization" />
+    <h1>{tr('sdata_title')}</h1>
+    <Check label={tr('sdata_improvements')} field="data_app_improvements" />
+    <Check label={tr('sdata_personal')} field="data_personalization" />
     <div style={divider} />
-    <button type="button" style={btnSecondary}>Download my data</button>
+    <button type="button" style={btnSecondary}>{tr('sdata_download')}</button>
   </section>
-);
+  );
+};
 
 // ==================== Streamer ====================
 
-const StreamerSettings: React.FC = () => (
+const StreamerSettings: React.FC = () => {
+  const tr = useTranslation();
+  return (
   <section>
-    <h1>Streamer Mode</h1>
-    <Check label="Enable streamer mode" field="streamer_mode" />
+    <h1>{tr('sstr_title')}</h1>
+    <Check label={tr('sstr_enable')} field="streamer_mode" />
     <div style={divider} />
-    <h3 style={sectionH3}>Privacy Options</h3>
-    <Check label="Hide personal information" field="streamer_hide_info" />
-    <Check label="Disable notifications" field="streamer_disable_notifs" />
+    <h3 style={sectionH3}>{tr('sstr_privacy')}</h3>
+    <Check label={tr('sstr_hide')} field="streamer_hide_info" />
+    <Check label={tr('sstr_disable_notifs')} field="streamer_disable_notifs" />
   </section>
-);
+  );
+};
 
 // ==================== Advanced ====================
 
-const MoreSettings: React.FC = () => (
+const MoreSettings: React.FC = () => {
+  const tr = useTranslation();
+  return (
   <section>
-    <h1>Advanced Settings</h1>
-    <Check label="Developer mode" field="developer_mode" />
-    <Check label="Hardware acceleration" field="hardware_acceleration" />
+    <h1>{tr('sadv_title')}</h1>
+    <Check label={tr('sadv_dev')} field="developer_mode" />
+    <Check label={tr('sadv_hw')} field="hardware_acceleration" />
   </section>
-);
+  );
+};
 
 // ==================== Activity Privacy ====================
 
-const PrivacyActivitySettings: React.FC = () => (
+const PrivacyActivitySettings: React.FC = () => {
+  const tr = useTranslation();
+  return (
   <section>
-    <h1>Activity Privacy</h1>
-    <Check label="Show current activity" field="show_current_activity" />
-    <Check label="Show game status" field="show_game_status" />
+    <h1>{tr('sact_title')}</h1>
+    <Check label={tr('sact_current')} field="show_current_activity" />
+    <Check label={tr('sact_game')} field="show_game_status" />
   </section>
-);
+  );
+};
 
 // ==================== Accessibility ====================
 
-const SpecialSettings: React.FC = () => (
+const SpecialSettings: React.FC = () => {
+  const tr = useTranslation();
+  return (
   <section>
-    <h1>Accessibility</h1>
-    <p>Configure accessibility features for better usability.</p>
-    <label className="ui-checkbox"><input type="checkbox" /><span className="ui-checkbox-box"></span><span className="ui-checkbox-text">High contrast mode</span></label>
-    <label className="ui-checkbox"><input type="checkbox" /><span className="ui-checkbox-box"></span><span className="ui-checkbox-text">Screen reader support</span></label>
+    <h1>{tr('sacc_title')}</h1>
+    <p>{tr('sacc_desc')}</p>
+    <label className="ui-checkbox"><input type="checkbox" /><span className="ui-checkbox-box"></span><span className="ui-checkbox-text">{tr('sacc_contrast')}</span></label>
+    <label className="ui-checkbox"><input type="checkbox" /><span className="ui-checkbox-box"></span><span className="ui-checkbox-text">{tr('sacc_reader')}</span></label>
   </section>
-);
+  );
+};
 
 // ==================== Keybindings ====================
 
-const BindsSettings: React.FC = () => (
+const BindsSettings: React.FC = () => {
+  const tr = useTranslation();
+  return (
   <section>
-    <h1>Keybindings</h1>
+    <h1>{tr('sbind_title')}</h1>
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-      {[['Mute/Unmute', 'Ctrl + Shift + M'], ['Deafen/Undeafen', 'Ctrl + Shift + D'], ['Push to Talk', 'Ctrl + Space']].map(([action, key]) => (
+      {[[tr('sbind_mute'), 'Ctrl + Shift + M'], [tr('sbind_deafen'), 'Ctrl + Shift + D'], [tr('sbind_ptt'), 'Ctrl + Space']].map(([action, key]) => (
         <div key={action} style={{ ...card, display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: 12, marginBottom: 0 }}>
           <span style={{ color: 'var(--text-primary)', fontSize: 14 }}>{action}</span>
           <kbd style={{ padding: '4px 10px', background: 'var(--bg-primary)', borderRadius: 4, fontSize: 12, color: 'var(--text-secondary)', border: '1px solid var(--border-color)' }}>{key}</kbd>
@@ -692,26 +729,33 @@ const BindsSettings: React.FC = () => (
       ))}
     </div>
   </section>
-);
+  );
+};
 
 // ==================== Export & Import ====================
 
-const ExportImportSettings: React.FC = () => (
+const ExportImportSettings: React.FC = () => {
+  const tr = useTranslation();
+  return (
   <section>
-    <h1>Export & Import</h1>
-    <p>Backup and restore your settings</p>
-    <h3 style={sectionH3}>Export Settings</h3>
-    <p>Download all your settings as a JSON file</p>
-    <button type="button" style={btnSecondary}>Export Settings</button>
+    <h1>{tr('sexp_title')}</h1>
+    <p>{tr('sexp_desc')}</p>
+    <h3 style={sectionH3}>{tr('sexp_export')}</h3>
+    <p>{tr('sexp_export_desc')}</p>
+    <button type="button" style={btnSecondary}>{tr('sexp_export')}</button>
     <div style={divider} />
-    <h3 style={sectionH3}>Import Settings</h3>
-    <p>Upload a previously exported settings file</p>
-    <button type="button" style={btnSecondary}>Import Settings</button>
+    <h3 style={sectionH3}>{tr('sexp_import')}</h3>
+    <p>{tr('sexp_import_desc')}</p>
+    <button type="button" style={btnSecondary}>{tr('sexp_import')}</button>
   </section>
-);
+  );
+};
 
 // ==================== Placeholder ====================
 
-const Placeholder: React.FC<{ title: string }> = ({ title }) => (
-  <section><h1>{title}</h1><p style={{ color: 'var(--text-secondary)' }}>Coming soon</p></section>
-);
+const Placeholder: React.FC<{ title: string }> = ({ title }) => {
+  const tr = useTranslation();
+  return (
+  <section><h1>{title}</h1><p style={{ color: 'var(--text-secondary)' }}>{tr('settings_coming_soon')}</p></section>
+  );
+};

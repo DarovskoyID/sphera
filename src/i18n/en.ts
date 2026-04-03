@@ -1,0 +1,253 @@
+export const en = {
+  // Auth
+  auth_create_account: 'Create Account',
+  auth_welcome_back: 'Welcome Back',
+  auth_signup_desc: 'Sign up to get started',
+  auth_signin_desc: 'Sign in to continue',
+  auth_login: 'Login',
+  auth_register: 'Register',
+  auth_password: 'Password',
+  auth_nickname: 'Nickname (display name)',
+  auth_photo: 'Photo',
+  auth_already_have: 'Already have an account?',
+  auth_dont_have: "Don't have an account?",
+  auth_signin: 'Sign in',
+  auth_connection_error: 'Connection error',
+
+  // Navigation
+  nav_settings: 'Settings',
+  nav_direct_messages: 'Direct Messages',
+  nav_back: 'Back',
+  nav_menu: 'Menu',
+  nav_toggle_theme: 'Toggle Theme',
+
+  // Chat
+  chat_type_message: 'Type a message...',
+  chat_send: 'Send Message',
+  chat_attachment: 'Add Attachment',
+  chat_emoji: 'Emoji',
+  chat_no_messages: 'No messages yet. Say hello!',
+  chat_search: 'Search',
+  chat_voice_call: 'Voice Call',
+  chat_video_call: 'Video Call',
+
+  // Welcome
+  welcome_title: 'Your Messages',
+  welcome_desc: 'Select a conversation from the sidebar to start chatting with your friends.',
+
+  // Friends
+  friends_search: 'Search friends',
+  friends_requests: 'FRIEND REQUESTS',
+  friends_wants_to_be: 'wants to be friends',
+  friends_accept: 'Accept',
+  friends_decline: 'Decline',
+  friends_direct_messages: 'DIRECT MESSAGES',
+  friends_add: 'Add Friend',
+  friends_search_placeholder: 'Search by login or nickname',
+  friends_find: 'Find',
+  friends_no_users: 'No users found',
+  friends_search_failed: 'Search failed',
+  friends_request_sent: 'Friend request sent!',
+  friends_none: 'No friends yet. Click + to add someone.',
+
+  // Call
+  call_incoming: 'Incoming Call',
+  call_calling_you: 'is calling you...',
+  call_accept: 'Accept',
+  call_decline: 'Decline',
+  call_no_video: 'no video',
+  call_video_playing: 'video playing',
+  call_video_enabled: 'video enabled',
+  call_video_disabled: 'video disabled',
+  call_video_off: 'Video disabled',
+  call_remote_video_off: 'Participant has video disabled',
+
+  // Logout
+  logout_title: 'Log Out',
+  logout_confirm: 'Are you sure you want to log out?',
+  logout_button: 'Log Out',
+  cancel: 'Cancel',
+
+  // Profile
+  profile_online: 'Online',
+  profile_mute: 'Mute Microphone',
+  profile_deafen: 'Deafen',
+
+  // Settings menu
+  settings_my_account: 'My Account',
+  settings_privacy: 'Privacy & Safety',
+  settings_data: 'Data and privacy',
+  settings_devices: 'Devices',
+  settings_family: 'Family center',
+  settings_integration: 'Integration',
+  settings_notifications: 'Notifications',
+  settings_apps: 'Apps',
+  settings_nitro: 'Nitro',
+  settings_subscribes: 'Subscribes',
+  settings_gifts: 'Gifts',
+  settings_payments: 'Payments',
+  settings_appearance: 'Appearance',
+  settings_special: 'Special',
+  settings_voice_video: 'Voice & Video',
+  settings_chat: 'Chat',
+  settings_binds: 'Key binds',
+  settings_language: 'Language',
+  settings_export_import: 'Export & Import',
+  settings_streamer: 'Streamer mode',
+  settings_more: 'More',
+  settings_activity_privacy: 'Privacy of activity',
+  settings_games: 'Registered games',
+  settings_exit: 'Exit',
+  settings_coming_soon: 'Coming soon',
+
+  // Settings - Profile
+  sp_title: 'My Account',
+  sp_desc: 'Manage your account settings and profile information',
+  sp_profile_info: 'Profile Information',
+  sp_display_name: 'Display Name',
+  sp_username: 'Username',
+  sp_about: 'About Me',
+  sp_about_placeholder: 'Tell us about yourself',
+  sp_saving: 'Saving...',
+  sp_save: 'Save Changes',
+  sp_saved: 'Profile updated!',
+  sp_save_fail: 'Failed to save',
+  sp_change_password: 'Change Password',
+  sp_current_password: 'Current Password',
+  sp_new_password: 'New Password',
+  sp_fill_both: 'Fill in both fields',
+  sp_password_changed: 'Password changed!',
+  sp_profile_custom: 'Profile Customization',
+  sp_show_profile: 'Show my profile to everyone',
+  sp_show_online: 'Display my online status',
+  sp_show_activity: 'Show my activity status',
+
+  // Settings - Delete Account
+  sd_title: 'Delete Account',
+  sd_desc: 'Permanently delete your account and all associated data. This action cannot be undone.',
+  sd_confirm: 'This action is permanent. Enter your login and password to confirm.',
+  sd_username: 'Username',
+  sd_username_placeholder: 'Enter your username',
+  sd_password: 'Password',
+  sd_password_placeholder: 'Enter your password',
+
+  // Settings - Privacy
+  sprv_title: 'Privacy & Safety',
+  sprv_desc: 'Manage your content filtering and privacy preferences',
+  sprv_safe_dm: 'Safe Direct Messaging',
+  sprv_safe_dm_desc: 'Filter direct messages from server members who are not friends',
+  sprv_keep_safe: 'Keep me safe',
+  sprv_explicit: 'Explicit Content Filter',
+  sprv_explicit_desc: 'Automatically scan and delete direct messages containing explicit media',
+  sprv_scan_all: 'Scan messages from everyone',
+  sprv_scan_non_friends: 'Scan messages from non-friends only',
+  sprv_scan_off: "Don't scan any messages",
+  sprv_blocked: 'Blocked Users',
+  sprv_search_block: 'Search user to block...',
+  sprv_block: 'Block',
+  sprv_unblock: 'Unblock',
+  sprv_no_blocked: 'No blocked users',
+  sprv_blocked_on: 'Blocked',
+
+  // Settings - Devices
+  sdev_title: 'Devices',
+  sdev_desc: 'Manage devices that have logged into your account',
+  sdev_loading: 'Loading...',
+  sdev_none: 'No devices found',
+  sdev_active: 'Active now',
+  sdev_ip: 'IP',
+  sdev_last_active: 'Last active',
+  sdev_first_login: 'First login',
+
+  // Settings - Notifications
+  sn_title: 'Notifications',
+  sn_desc: 'Control how you receive notifications',
+  sn_desktop: 'Enable Desktop Notifications',
+  sn_enable_all: 'Enable all notifications',
+  sn_push: 'Push Notifications',
+  sn_dm: 'Direct messages',
+  sn_mentions: 'Mentions',
+  sn_all_server: 'All server messages',
+  sn_friend_req: 'Friend requests',
+  sn_sounds: 'Sounds',
+  sn_sound_msg: 'Message notification sound',
+  sn_sound_call: 'Incoming call sound',
+
+  // Settings - Appearance
+  sa_title: 'Appearance',
+  sa_desc: 'Customize how your app looks and feels',
+  sa_theme: 'Theme',
+  sa_app_theme: 'App Theme',
+  sa_dark: 'Dark',
+  sa_light: 'Light',
+  sa_msg_display: 'Message Display',
+  sa_timestamps: 'Show message timestamps',
+  sa_avatars: 'Show avatars',
+
+  // Settings - Voice
+  sv_title: 'Voice & Video',
+  sv_desc: 'Configure your audio and video settings',
+  sv_processing: 'Voice Processing',
+  sv_auto_sensitivity: 'Automatically determine input sensitivity',
+  sv_echo: 'Echo cancellation',
+  sv_noise: 'Noise suppression',
+
+  // Settings - Chat
+  sc_title: 'Chat Settings',
+  sc_timestamps: 'Show timestamps',
+  sc_emoji: 'Enable emoji reactions',
+  sc_compact: 'Compact mode',
+
+  // Settings - Language
+  sl_title: 'Language',
+  sl_desc: 'Choose your preferred language',
+  sl_select: 'Select Language',
+
+  // Settings - Data
+  sdata_title: 'Data and Privacy',
+  sdata_improvements: 'Use my data for app improvements',
+  sdata_personal: 'Use my data for personalization',
+  sdata_download: 'Download my data',
+
+  // Settings - Streamer
+  sstr_title: 'Streamer Mode',
+  sstr_enable: 'Enable streamer mode',
+  sstr_privacy: 'Privacy Options',
+  sstr_hide: 'Hide personal information',
+  sstr_disable_notifs: 'Disable notifications',
+
+  // Settings - Advanced
+  sadv_title: 'Advanced Settings',
+  sadv_dev: 'Developer mode',
+  sadv_hw: 'Hardware acceleration',
+
+  // Settings - Activity
+  sact_title: 'Activity Privacy',
+  sact_current: 'Show current activity',
+  sact_game: 'Show game status',
+
+  // Settings - Accessibility
+  sacc_title: 'Accessibility',
+  sacc_desc: 'Configure accessibility features for better usability.',
+  sacc_contrast: 'High contrast mode',
+  sacc_reader: 'Screen reader support',
+
+  // Settings - Keybindings
+  sbind_title: 'Keybindings',
+  sbind_mute: 'Mute/Unmute',
+  sbind_deafen: 'Deafen/Undeafen',
+  sbind_ptt: 'Push to Talk',
+
+  // Settings - Export
+  sexp_title: 'Export & Import',
+  sexp_desc: 'Backup and restore your settings',
+  sexp_export: 'Export Settings',
+  sexp_export_desc: 'Download all your settings as a JSON file',
+  sexp_import: 'Import Settings',
+  sexp_import_desc: 'Upload a previously exported settings file',
+
+  // Misc
+  loading: 'Loading...',
+  error_network: 'Network error',
+  server_channels_soon: 'Server channels coming soon',
+} as const;

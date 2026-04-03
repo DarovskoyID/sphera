@@ -30,3 +30,4 @@ django-server/myenv/
 django-server/ionik_server/db.sqlite3
 *.pyc
 __pycache__/
+django-server/ionik_server/media/

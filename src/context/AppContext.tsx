@@ -8,7 +8,7 @@ interface AppContextType extends AppState {
   setCurrentChannel: (channel: string) => void;
   setCurrentSettingsPage: (page: string) => void;
   toggleTheme: () => void;
-  setLanguage: (lang: 'en' | 'ru') => void;
+  setLanguage: (lang: string) => void;
   toggleMobileSidebar: () => void;
   setMobileActivePanel: (panel: MobilePanel) => void;
   setCallActive: (active: boolean) => void;
@@ -31,7 +31,10 @@ interface AppContextType extends AppState {
   acceptFriendRequest: (friendshipId: number) => Promise<void>;
   rejectFriendRequest: (friendshipId: number) => Promise<void>;
   searchUsers: (query: string) => Promise<ServerUser[]>;
-  sendChatMessage: (text: string) => void;
+  sendChatMessage: (text: string, attachmentIds?: number[], replyToId?: number) => void;
+  deleteMessage: (messageId: number) => Promise<void>;
+  pinMessage: (messageId: number) => Promise<void>;
+  reportMessage: (messageId: number) => Promise<void>;
   loadOlderMessages: () => Promise<boolean>;
 }
 
@@ -52,7 +55,7 @@ interface AppProviderProps {
 export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
   const [state, setState] = useState<AppState>(() => {
     const savedTheme = localStorage.getItem('messengerTheme') as 'light' | 'dark' || 'dark';
-    const savedLanguage = localStorage.getItem('messengerLanguage') as 'en' | 'ru' || 'en';
+    const savedLanguage = localStorage.getItem('messengerLanguage') || 'en';
     const savedServer = localStorage.getItem('messengerCurrentServer') || 'home';
     const savedChat = localStorage.getItem('messengerCurrentChat') || '';
     const savedChannel = localStorage.getItem('messengerCurrentChannel') || 'general';
@@ -230,13 +233,27 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
         };
 
         ws.onmessage = (event) => {
-          const msg: ChatMessage = JSON.parse(event.data);
-          setState(prev => {
-            const msgs = [...prev.chatMessages, msg];
-            // Cap at 500 messages in memory — older ones can be loaded on scroll
-            if (msgs.length > 500) msgs.splice(0, msgs.length - 500);
-            return { ...prev, chatMessages: msgs };
-          });
+          const data = JSON.parse(event.data);
+          if (data.type === 'message_deleted') {
+            setState(prev => ({
+              ...prev,
+              chatMessages: prev.chatMessages.filter(m => m.id !== data.id),
+            }));
+          } else if (data.type === 'message_pinned') {
+            setState(prev => ({
+              ...prev,
+              chatMessages: prev.chatMessages.map(m =>
+                m.id === data.id ? { ...m, is_pinned: data.is_pinned } : m
+              ),
+            }));
+          } else {
+            const msg: ChatMessage = data;
+            setState(prev => {
+              const msgs = [...prev.chatMessages, msg];
+              if (msgs.length > 500) msgs.splice(0, msgs.length - 500);
+              return { ...prev, chatMessages: msgs };
+            });
+          }
         };
 
         ws.onclose = () => {
@@ -259,11 +276,37 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     };
   }, [state.currentChat, state.authToken, state.currentServerIP]);
 
-  const sendChatMessage = useCallback((text: string) => {
-    if (chatWs.current?.readyState === WebSocket.OPEN && text.trim()) {
-      chatWs.current.send(JSON.stringify({ message: text }));
+  const sendChatMessage = useCallback((text: string, attachmentIds?: number[], replyToId?: number) => {
+    if (chatWs.current?.readyState !== WebSocket.OPEN) return;
+    const payload: Record<string, unknown> = {};
+    if (text.trim()) payload.message = text;
+    if (attachmentIds && attachmentIds.length > 0) payload.attachment_ids = attachmentIds;
+    if (replyToId) payload.reply_to_id = replyToId;
+    if (payload.message || payload.attachment_ids) {
+      chatWs.current.send(JSON.stringify(payload));
     }
   }, []);
+
+  const deleteMessage = useCallback(async (messageId: number) => {
+    await fetch(`${state.currentServerIP}/api/messages/${messageId}/`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${state.authToken}` },
+    });
+  }, [state.currentServerIP, state.authToken]);
+
+  const pinMessage = useCallback(async (messageId: number) => {
+    await fetch(`${state.currentServerIP}/api/messages/${messageId}/pin/`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${state.authToken}` },
+    });
+  }, [state.currentServerIP, state.authToken]);
+
+  const reportMessage = useCallback(async (messageId: number) => {
+    await fetch(`${state.currentServerIP}/api/messages/${messageId}/report/`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${state.authToken}` },
+    });
+  }, [state.currentServerIP, state.authToken]);
 
   const loadOlderMessages = useCallback(async (): Promise<boolean> => {
     const convoId = state.chatConversationId;
@@ -376,7 +419,10 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
   };
 
   const toggleTheme = () => setState(prev => ({ ...prev, theme: prev.theme === 'dark' ? 'light' : 'dark' }));
-  const setLanguage = (lang: 'en' | 'ru') => setState(prev => ({ ...prev, language: lang }));
+  const setLanguage = (lang: string) => {
+    setState(prev => ({ ...prev, language: lang }));
+    localStorage.setItem('messengerLanguage', lang);
+  };
   const toggleMobileSidebar = () => setState(prev => ({ ...prev, isMobileSidebarOpen: !prev.isMobileSidebarOpen }));
   const setMobileActivePanel = (panel: MobilePanel) => setState(prev => ({ ...prev, mobileActivePanel: panel }));
   const setCallActive = (active: boolean) => setState(prev => ({ ...prev, isCallActive: active }));
@@ -427,6 +473,9 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       rejectFriendRequest,
       searchUsers,
       sendChatMessage,
+      deleteMessage,
+      pinMessage,
+      reportMessage,
       loadOlderMessages,
     }}>
       {children}

@@ -1,5 +1,6 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
 import { useApp } from '../context/AppContext';
+import { useTranslation } from '../i18n/useTranslation';
 
 export const CallWindow = () => {
   const {
@@ -16,6 +17,7 @@ export const CallWindow = () => {
     incomingOffer,
     setIncomingOffer,
   } = useApp();
+  const tr = useTranslation();
 
   const cameraVideoRef = useRef<HTMLVideoElement>(null);
   const screenVideoRef = useRef<HTMLVideoElement>(null);
@@ -575,7 +577,7 @@ export const CallWindow = () => {
             fontSize: 16,
             borderRadius: 8
           }}>
-            Видео отключено
+            {tr('call_video_off')}
           </div>
         )}
 
@@ -604,7 +606,7 @@ export const CallWindow = () => {
             alignItems: 'center',
             justifyContent: 'center'
           }}>
-            У собеседника выключено видео
+            {tr('call_remote_video_off')}
           </div>
         )}
 

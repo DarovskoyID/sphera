@@ -1,8 +1,10 @@
 import { useState, useRef } from 'react';
 import { useApp } from '../context/AppContext';
+import { useTranslation } from '../i18n/useTranslation';
 
 export const AuthScreen = () => {
   const { currentServerIP, setAuthToken } = useApp();
+  const tr = useTranslation();
 
   const [login, setLogin] = useState('');
   const [nickname, setNickname] = useState('');
@@ -64,7 +66,7 @@ export const AuthScreen = () => {
         setAuthToken(data.access);
       }
     } catch (e: any) {
-      setError(e.message || 'Connection error');
+      setError(e.message || tr('auth_connection_error'));
     } finally {
       setLoading(false);
     }
@@ -98,10 +100,10 @@ export const AuthScreen = () => {
         boxShadow: '0 8px 32px var(--glass-shadow)',
       }}>
         <h2 style={{ margin: '0 0 8px', color: 'var(--text-primary)', fontSize: 24, textAlign: 'center' }}>
-          {isRegister ? 'Create Account' : 'Welcome Back'}
+          {isRegister ? tr('auth_create_account') : tr('auth_welcome_back')}
         </h2>
         <p style={{ margin: '0 0 24px', color: 'var(--text-secondary)', fontSize: 14, textAlign: 'center' }}>
-          {isRegister ? 'Sign up to get started' : 'Sign in to continue'}
+          {isRegister ? tr('auth_signup_desc') : tr('auth_signin_desc')}
         </p>
 
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -124,7 +126,7 @@ export const AuthScreen = () => {
               >
                 {avatarPreview
                   ? <img src={avatarPreview} alt="avatar" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                  : <span style={{ color: 'var(--text-secondary)', fontSize: 12 }}>Photo</span>
+                  : <span style={{ color: 'var(--text-secondary)', fontSize: 12 }}>{tr('auth_photo')}</span>
                 }
               </div>
               <input ref={fileInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleAvatarChange} />
@@ -133,7 +135,7 @@ export const AuthScreen = () => {
 
           <input
             type="text"
-            placeholder="Login"
+            placeholder={tr('auth_login')}
             value={login}
             onChange={e => setLogin(e.target.value)}
             required
@@ -143,7 +145,7 @@ export const AuthScreen = () => {
           {isRegister && (
             <input
               type="text"
-              placeholder="Nickname (display name)"
+              placeholder={tr('auth_nickname')}
               value={nickname}
               onChange={e => setNickname(e.target.value)}
               style={inputStyle}
@@ -152,7 +154,7 @@ export const AuthScreen = () => {
 
           <input
             type="password"
-            placeholder="Password"
+            placeholder={tr('auth_password')}
             value={password}
             onChange={e => setPassword(e.target.value)}
             required
@@ -187,17 +189,17 @@ export const AuthScreen = () => {
               opacity: loading ? 0.7 : 1,
             }}
           >
-            {loading ? '...' : isRegister ? 'Register' : 'Login'}
+            {loading ? '...' : isRegister ? tr('auth_register') : tr('auth_login')}
           </button>
         </form>
 
         <p style={{ margin: '16px 0 0', color: 'var(--text-secondary)', fontSize: 13, textAlign: 'center' }}>
-          {isRegister ? 'Already have an account?' : "Don't have an account?"}{' '}
+          {isRegister ? tr('auth_already_have') : tr('auth_dont_have')}{' '}
           <span
             onClick={() => { setIsRegister(!isRegister); setError(''); }}
             style={{ color: 'var(--accent-primary)', cursor: 'pointer', fontWeight: 600 }}
           >
-            {isRegister ? 'Sign in' : 'Register'}
+            {isRegister ? tr('auth_signin') : tr('auth_register')}
           </span>
         </p>
       </div>

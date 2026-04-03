@@ -24,6 +24,14 @@ export interface PendingRequest {
   created_at: string;
 }
 
+export interface ChatAttachment {
+  id: number;
+  filename: string;
+  content_type: string;
+  file_size: number;
+  url: string;
+}
+
 export interface ChatMessage {
   id: number;
   author: {
@@ -35,6 +43,13 @@ export interface ChatMessage {
   };
   content: string;
   created_at: string;
+  attachments?: ChatAttachment[];
+  reply_to?: {
+    id: number;
+    content: string;
+    author: { id: string; username: string; nickname?: string };
+  } | null;
+  is_pinned?: boolean;
 }
 
 export interface ServerChannel {
@@ -62,7 +77,7 @@ export interface AppState {
   currentChannel: string;
   currentSettingsPage: string;
   theme: 'light' | 'dark';
-  language: 'en' | 'ru';
+  language: string;
   isMobileSidebarOpen: boolean;
   mobileActivePanel: MobilePanel;
   isCallActive: boolean;

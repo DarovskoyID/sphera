@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { Phone, PhoneOff } from 'lucide-react';
 import { useApp } from '../context/AppContext';
+import { useTranslation } from '../i18n/useTranslation';
 
 export const IncomingCallModal = () => {
   const {
@@ -14,6 +15,7 @@ export const IncomingCallModal = () => {
     signalingPeers,
     onSignalingMessage,
   } = useApp();
+  const tr = useTranslation();
 
   const bufferedCandidates = useRef<any[]>([]);
   const isCallActiveRef = useRef(isCallActive);
@@ -110,9 +112,9 @@ export const IncomingCallModal = () => {
         }}>
           <Phone size={28} color="#fff" />
         </div>
-        <h2 style={{ margin: '0 0 8px 0', color: '#fff', fontSize: 20 }}>Входящий вызов</h2>
+        <h2 style={{ margin: '0 0 8px 0', color: '#fff', fontSize: 20 }}>{tr('call_incoming')}</h2>
         <p style={{ margin: '0 0 24px 0', color: '#aaa', fontSize: 16 }}>
-          {callerName} вызывает вас...
+          {callerName} {tr('call_calling_you')}
         </p>
         <div style={{ display: 'flex', gap: 16, justifyContent: 'center' }}>
           <button
@@ -129,7 +131,7 @@ export const IncomingCallModal = () => {
               justifyContent: 'center',
               cursor: 'pointer',
             }}
-            title="Отклонить"
+            title={tr('call_decline')}
           >
             <PhoneOff size={24} />
           </button>
@@ -147,7 +149,7 @@ export const IncomingCallModal = () => {
               justifyContent: 'center',
               cursor: 'pointer',
             }}
-            title="Принять"
+            title={tr('call_accept')}
           >
             <Phone size={24} />
           </button>
