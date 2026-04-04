@@ -14,6 +14,7 @@ export const IncomingCallModal = () => {
     sendSignal,
     signalingPeers,
     onSignalingMessage,
+    friends,
   } = useApp();
   const tr = useTranslation();
 
@@ -51,9 +52,14 @@ export const IncomingCallModal = () => {
     };
   }, [isCallActive]);
 
-  const callerName = incomingOffer
-    ? signalingPeers.find(p => String(p.id) === String(incomingOffer.from))?.name || incomingOffer.from
-    : '';
+  const callerPeer = incomingOffer
+    ? signalingPeers.find(p => String(p.id) === String(incomingOffer.from))
+    : null;
+  const callerFriend = incomingOffer
+    ? friends.find(f => String(f.id) === String(incomingOffer.from))
+    : null;
+  const callerName = callerFriend?.nickname || callerFriend?.username || callerPeer?.name || String(incomingOffer?.from ?? '');
+  const callerAvatar = callerFriend?.avatar || '';
 
   const accept = () => {
     if (!incomingOffer) return;
@@ -100,21 +106,32 @@ export const IncomingCallModal = () => {
         boxShadow: '0 8px 32px rgba(0, 0, 0, 0.5)',
         textAlign: 'center',
       }}>
-        <div style={{
-          width: 64,
-          height: 64,
-          borderRadius: '50%',
-          background: 'var(--accent-primary, #5865f2)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          margin: '0 auto 16px',
-        }}>
-          <Phone size={28} color="#fff" />
-        </div>
-        <h2 style={{ margin: '0 0 8px 0', color: '#fff', fontSize: 20 }}>{tr('call_incoming')}</h2>
-        <p style={{ margin: '0 0 24px 0', color: '#aaa', fontSize: 16 }}>
-          {callerName} {tr('call_calling_you')}
+        {callerAvatar ? (
+          <img
+            src={callerAvatar}
+            alt={callerName}
+            style={{ width: 72, height: 72, borderRadius: '50%', objectFit: 'cover', margin: '0 auto 16px', display: 'block', border: '3px solid var(--accent-primary, #5865f2)' }}
+          />
+        ) : (
+          <div style={{
+            width: 72,
+            height: 72,
+            borderRadius: '50%',
+            background: 'var(--accent-primary, #5865f2)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            margin: '0 auto 16px',
+            fontSize: 28,
+            fontWeight: 700,
+            color: '#fff',
+          }}>
+            {callerName ? callerName[0].toUpperCase() : <Phone size={28} color="#fff" />}
+          </div>
+        )}
+        <h2 style={{ margin: '0 0 4px 0', color: '#fff', fontSize: 20 }}>{callerName}</h2>
+        <p style={{ margin: '0 0 24px 0', color: '#aaa', fontSize: 14 }}>
+          {tr('call_incoming')} · {tr('call_calling_you')}
         </p>
         <div style={{ display: 'flex', gap: 16, justifyContent: 'center' }}>
           <button

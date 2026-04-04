@@ -170,7 +170,7 @@ export const AuthScreen = () => {
               borderRadius: 'var(--radius-sm)',
               background: 'rgba(240, 71, 71, 0.1)',
             }}>
-              {error}
+              {error} {currentServerIP}
             </div>
           )}
 

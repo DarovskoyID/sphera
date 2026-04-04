@@ -5,6 +5,8 @@ import { useApp } from '../context/AppContext';
 import { Settings } from './Settings';
 import { CallWindow } from './CallWindow';
 import { useTranslation } from '../i18n/useTranslation';
+import { EmojiPicker, MessageText } from './EmojiPicker';
+import type { CustomEmoji } from '../types';
 
 export const ChatMain: React.FC = () => {
   const { currentView, currentChat, currentSettingsPage, setMobileActivePanel } = useApp();
@@ -315,15 +317,17 @@ const MessageContextMenu: React.FC<{
 
 // ── Message Row ───────────────────────────────────────────────────────────────
 
-const MessageRow = React.memo(({ msg, isOwn, onContextMenu, onReply }: {
+const MessageRow = React.memo(({ msg, isOwn, onContextMenu, onReply, customEmojis }: {
   msg: ChatMessageType;
   isOwn: boolean;
   onContextMenu: (e: React.MouseEvent, msg: ChatMessageType) => void;
   onReply: (msg: ChatMessageType) => void;
+  customEmojis: CustomEmoji[];
 }) => {
   const displayName = msg.author.nickname || msg.author.username;
   const time = new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   const [hovered, setHovered] = useState(false);
+  const [avatarError, setAvatarError] = useState(false);
 
   return (
     <div
@@ -339,8 +343,8 @@ const MessageRow = React.memo(({ msg, isOwn, onContextMenu, onReply }: {
         </div>
       )}
       <div className="message-avatar">
-        {msg.author.avatar
-          ? <img src={msg.author.avatar} alt={displayName} style={{ width: 36, height: 36, borderRadius: '50%', objectFit: 'cover' }} />
+        {msg.author.avatar && !avatarError
+          ? <img src={msg.author.avatar} alt={displayName} style={{ width: 36, height: 36, borderRadius: '50%', objectFit: 'cover' }} onError={() => setAvatarError(true)} />
           : <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'var(--accent-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 700, fontSize: 14 }}>
               {displayName[0].toUpperCase()}
             </div>
@@ -361,10 +365,10 @@ const MessageRow = React.memo(({ msg, isOwn, onContextMenu, onReply }: {
             <span style={{ fontWeight: 600 }}>
               {msg.reply_to.author.nickname || msg.reply_to.author.username}:
             </span>{' '}
-            {msg.reply_to.content}
+            <MessageText text={msg.reply_to.content} customEmojis={customEmojis} />
           </div>
         )}
-        {msg.content && <div className="message-text">{msg.content}</div>}
+        {msg.content && <div className="message-text"><MessageText text={msg.content} customEmojis={customEmojis} /></div>}
         {msg.attachments?.map(att => (
           <AttachmentView key={att.id} att={att} />
         ))}
@@ -394,7 +398,7 @@ const MessageRow = React.memo(({ msg, isOwn, onContextMenu, onReply }: {
 const MessagesContainer: React.FC<{
   onReply: (msg: ChatMessageType) => void;
 }> = ({ onReply }) => {
-  const { chatMessages, userIDonServer, loadOlderMessages, deleteMessage, pinMessage, reportMessage } = useApp();
+  const { chatMessages, userIDonServer, loadOlderMessages, deleteMessage, pinMessage, reportMessage, customEmojis } = useApp();
   const tr = useTranslation();
   const containerRef = useRef<HTMLDivElement>(null);
   const wasAtBottom = useRef(true);
@@ -461,6 +465,7 @@ const MessagesContainer: React.FC<{
               isOwn={String(msg.author.id) === String(userIDonServer)}
               onContextMenu={openCtx}
               onReply={onReply}
+              customEmojis={customEmojis}
             />
           ))}
         </div>
@@ -489,8 +494,10 @@ const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: (
   const [uploading, setUploading] = useState(false);
   const [showDelayMenu, setShowDelayMenu] = useState(false);
   const [delayCountdown, setDelayCountdown] = useState<number | null>(null);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const delayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const emojiButtonRef = useRef<HTMLButtonElement>(null);
 
   const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const selected = Array.from(e.target.files || []);
@@ -551,7 +558,7 @@ const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: (
           })
         );
         results.forEach(id => { if (id != null) attachmentIds.push(id); });
-      } catch (e) { console.error('Upload failed:', e); }
+      } catch { }
       finally { setUploading(false); }
     }
     sendChatMessage(text, attachmentIds.length > 0 ? attachmentIds : undefined, replyId);
@@ -679,7 +686,21 @@ const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: (
             disabled={uploading}
           />
         </div>
-        <button className="icon-btn glass-btn" title={tr('chat_emoji')}><Smile size={20} /></button>
+        <button
+          ref={emojiButtonRef}
+          className="icon-btn glass-btn"
+          title={tr('chat_emoji')}
+          onClick={() => setShowEmojiPicker(v => !v)}
+        >
+          <Smile size={20} />
+        </button>
+        {showEmojiPicker && (
+          <EmojiPicker
+            anchorRef={emojiButtonRef}
+            onSelect={emoji => setMessage(prev => prev + emoji)}
+            onClose={() => setShowEmojiPicker(false)}
+          />
+        )}
 
         {/* Delayed send */}
         <div style={{ position: 'relative' }}>

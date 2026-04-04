@@ -33,4 +33,8 @@ urlpatterns = [
     # Settings
     path('settings/', views.user_settings_get),
     path('settings/update/', views.user_settings_update),
+    # Custom Emojis
+    path('emojis/', views.emoji_list),
+    path('emojis/create/', views.emoji_create),
+    path('emojis/<int:emoji_id>/', views.emoji_delete),
 ]

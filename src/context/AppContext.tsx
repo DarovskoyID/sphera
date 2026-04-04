@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback, type ReactNode } from 'react';
 import type { AppState, ViewType, MobilePanel, ServerUser, PendingRequest, ChatMessage } from '../types';
+import type { CustomEmoji } from '../types';
 
 interface AppContextType extends AppState {
   setCurrentView: (view: ViewType) => void;
@@ -36,6 +37,7 @@ interface AppContextType extends AppState {
   pinMessage: (messageId: number) => Promise<void>;
   reportMessage: (messageId: number) => Promise<void>;
   loadOlderMessages: () => Promise<boolean>;
+  loadCustomEmojis: () => Promise<void>;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -76,7 +78,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       isVideoActive: false,
       SpeakersActive: ["", ""],
       callStatus: 'inactive',
-      currentServerIP: 'http://localhost:8000',
+      currentServerIP: 'http://192.168.0.110:8000',
       userIDonServer: '',
       authToken: savedToken,
       currentUser: null,
@@ -86,6 +88,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       incomingOffer: null,
       chatMessages: [],
       chatConversationId: null,
+      customEmojis: [],
     };
   });
 
@@ -127,21 +130,19 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       try {
         const user: ServerUser = await apiGet('/api/auth/me/', state.authToken, state.currentServerIP);
         setState(prev => ({ ...prev, currentUser: user, userIDonServer: String(user.id) }));
-      } catch (e) {
-        console.error('Failed to load user:', e);
-      }
+      } catch { }
       try {
         const friends: ServerUser[] = await apiGet('/api/auth/friends/', state.authToken, state.currentServerIP);
         setState(prev => ({ ...prev, friends }));
-      } catch (e) {
-        console.error('Failed to load friends:', e);
-      }
+      } catch { }
       try {
         const pending: PendingRequest[] = await apiGet('/api/auth/friends/requests/pending/', state.authToken, state.currentServerIP);
         setState(prev => ({ ...prev, pendingRequests: pending }));
-      } catch (e) {
-        console.error('Failed to load pending requests:', e);
-      }
+      } catch { }
+      try {
+        const emojis: CustomEmoji[] = await apiGet('/api/auth/emojis/', state.authToken, state.currentServerIP);
+        setState(prev => ({ ...prev, customEmojis: emojis }));
+      } catch { }
     };
     load();
   }, [state.authToken]);
@@ -151,14 +152,22 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     try {
       const friends: ServerUser[] = await apiGet('/api/auth/friends/', state.authToken, state.currentServerIP);
       setState(prev => ({ ...prev, friends }));
-    } catch (e) { console.error(e); }
+    } catch { }
   }, [state.authToken, state.currentServerIP, apiGet]);
 
   const loadPendingRequests = useCallback(async () => {
     try {
       const pending: PendingRequest[] = await apiGet('/api/auth/friends/requests/pending/', state.authToken, state.currentServerIP);
       setState(prev => ({ ...prev, pendingRequests: pending }));
-    } catch (e) { console.error(e); }
+    } catch { }
+  }, [state.authToken, state.currentServerIP, apiGet]);
+
+  const loadCustomEmojis = useCallback(async () => {
+    if (!state.authToken) return;
+    try {
+      const emojis: CustomEmoji[] = await apiGet('/api/auth/emojis/', state.authToken, state.currentServerIP);
+      setState(prev => ({ ...prev, customEmojis: emojis }));
+    } catch { }
   }, [state.authToken, state.currentServerIP, apiGet]);
 
   const sendFriendRequest = useCallback(async (userId: string) => {
@@ -228,7 +237,6 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
         const ws = new WebSocket(`${wsUrl}/ws/chat/${convoId}/?token=${state.authToken}`);
 
         ws.onopen = () => {
-          console.log('Chat WS connected, conversation:', convoId);
           chatWs.current = ws;
         };
 
@@ -257,11 +265,9 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
         };
 
         ws.onclose = () => {
-          console.log('Chat WS disconnected');
           if (chatWs.current === ws) chatWs.current = null;
         };
-      } catch (e) {
-        console.error('Failed to init chat:', e);
+      } catch {
       }
     };
 
@@ -324,8 +330,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
         chatMessages: [...older, ...prev.chatMessages],
       }));
       return true;
-    } catch (e) {
-      console.error('Failed to load older messages:', e);
+    } catch {
       return false;
     }
   }, [state.chatConversationId, state.chatMessages, state.authToken, state.currentServerIP, apiGet]);
@@ -345,7 +350,6 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     const ws = new WebSocket(`${wsUrl}/ws/signaling/?token=${state.authToken}`);
 
     ws.onopen = () => {
-      console.log('Signaling WS connected');
       signalingWs.current = ws;
     };
 
@@ -361,7 +365,6 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     };
 
     ws.onclose = () => {
-      console.log('Signaling WS disconnected');
       signalingWs.current = null;
     };
 
@@ -374,8 +377,6 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
   const sendSignal = (data: any) => {
     if (signalingWs.current?.readyState === WebSocket.OPEN) {
       signalingWs.current.send(JSON.stringify(data));
-    } else {
-      console.error('Signaling WS not connected');
     }
   };
 
@@ -477,6 +478,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       pinMessage,
       reportMessage,
       loadOlderMessages,
+      loadCustomEmojis,
     }}>
       {children}
     </AppContext.Provider>

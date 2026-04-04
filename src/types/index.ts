@@ -70,6 +70,13 @@ export type ViewType = 'home' | 'server' | 'settings';
 
 export type MobilePanel = 'chat-list' | 'chat-view';
 
+export interface CustomEmoji {
+  id: number;
+  name: string;
+  image_url: string;
+  created_by: string;
+}
+
 export interface AppState {
   currentView: ViewType;
   currentServer: string;
@@ -95,4 +102,5 @@ export interface AppState {
   incomingOffer: any | null;
   chatMessages: ChatMessage[];
   chatConversationId: number | null;
+  customEmojis: CustomEmoji[];
 }

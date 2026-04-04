@@ -60,17 +60,13 @@ export const ChatSidebar: React.FC = () => {
   const handleAccept = async (id: number) => {
     try {
       await acceptFriendRequest(id);
-    } catch (e: any) {
-      console.error(e);
-    }
+    } catch { }
   };
 
   const handleReject = async (id: number) => {
     try {
       await rejectFriendRequest(id);
-    } catch (e: any) {
-      console.error(e);
-    }
+    } catch { }
   };
 
   return (

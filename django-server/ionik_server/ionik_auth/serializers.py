@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import User, Friendship, BlockedUser, UserDevice, UserSettings
+from .models import User, Friendship, BlockedUser, UserDevice, UserSettings, CustomEmoji
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -70,3 +70,20 @@ class UserSettingsSerializer(serializers.ModelSerializer):
     class Meta:
         model = UserSettings
         exclude = ['id', 'user']
+
+
+class CustomEmojiSerializer(serializers.ModelSerializer):
+    image_url = serializers.SerializerMethodField()
+    created_by = serializers.CharField(source='created_by.username', read_only=True)
+
+    class Meta:
+        model = CustomEmoji
+        fields = ['id', 'name', 'image_url', 'created_by', 'created_at']
+
+    def get_image_url(self, obj):
+        if obj.image:
+            request = self.context.get('request')
+            if request:
+                return request.build_absolute_uri(obj.image.url)
+            return obj.image.url
+        return ''

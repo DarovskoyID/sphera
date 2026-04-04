@@ -7,11 +7,11 @@ from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
-from .models import User, Friendship, BlockedUser, UserDevice, UserSettings
+from .models import User, Friendship, BlockedUser, UserDevice, UserSettings, CustomEmoji
 from .serializers import (
     RegisterSerializer, UserSerializer, FriendshipSerializer,
     ProfileUpdateSerializer, BlockedUserSerializer,
-    UserDeviceSerializer, UserSettingsSerializer,
+    UserDeviceSerializer, UserSettingsSerializer, CustomEmojiSerializer,
 )
 
 
@@ -419,3 +419,41 @@ def user_settings_update(request):
     return Response(
         serializer.errors, status=status.HTTP_400_BAD_REQUEST,
     )
+
+
+# ==================== Custom Emojis ====================
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def emoji_list(request):
+    emojis = CustomEmoji.objects.select_related('created_by').order_by('name')
+    return Response(CustomEmojiSerializer(emojis, many=True, context={'request': request}).data)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+@parser_classes([MultiPartParser, FormParser])
+def emoji_create(request):
+    name = request.data.get('name', '').strip().lower()
+    image = request.FILES.get('image')
+    if not name or not image:
+        return Response({'error': 'name and image required'}, status=status.HTTP_400_BAD_REQUEST)
+    if not name.replace('_', '').isalnum():
+        return Response({'error': 'name must be alphanumeric/underscore only'}, status=status.HTTP_400_BAD_REQUEST)
+    if CustomEmoji.objects.filter(name=name).exists():
+        return Response({'error': 'name already taken'}, status=status.HTTP_400_BAD_REQUEST)
+    emoji = CustomEmoji(name=name, created_by=request.user)
+    emoji.image.save(image.name, image, save=True)
+    return Response(CustomEmojiSerializer(emoji, context={'request': request}).data, status=status.HTTP_201_CREATED)
+
+
+@api_view(['DELETE'])
+@permission_classes([IsAuthenticated])
+def emoji_delete(request, emoji_id):
+    try:
+        emoji = CustomEmoji.objects.get(id=emoji_id, created_by=request.user)
+    except CustomEmoji.DoesNotExist:
+        return Response({'error': 'not found'}, status=status.HTTP_404_NOT_FOUND)
+    emoji.image.delete(save=False)
+    emoji.delete()
+    return Response(status=status.HTTP_204_NO_CONTENT)
