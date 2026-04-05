@@ -1,3 +1,5 @@
+from asgiref.sync import async_to_sync
+from channels.layers import get_channel_layer
 from django.db.models import Q
 from rest_framework import status
 from rest_framework.decorators import (
@@ -34,15 +36,17 @@ def track_device(request):
     else:
         dtype = 'desktop'
 
-    # Truncate UA for device name
     name = ua[:200] if ua else 'Unknown device'
 
-    device, _ = UserDevice.objects.update_or_create(
+    device, _ = UserDevice.objects.get_or_create(
         user=user,
         ip_address=ip,
-        device_name=name,
-        defaults={'device_type': dtype},
+        defaults={'device_name': name, 'device_type': dtype},
     )
+    if not _:
+        UserDevice.objects.filter(pk=device.pk).update(
+            device_name=name, device_type=dtype,
+        )
     return device
 
 
@@ -70,7 +74,10 @@ def register(request):
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def me(request):
-    track_device(request)
+    try:
+        track_device(request)
+    except Exception:
+        pass
     return Response(
         UserSerializer(request.user, context={'request': request}).data
     )
@@ -277,6 +284,55 @@ def friend_request_reject(request, friendship_id):
     ).data)
 
 
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def mutual_friends(request, user_id):
+    """Friends shared by the current user and user_id."""
+    def get_friend_ids(user):
+        friendships = Friendship.objects.filter(
+            Q(from_user=user) | Q(to_user=user),
+            status='accepted',
+        )
+        ids = set()
+        for f in friendships:
+            other = (
+                f.to_user if f.from_user == user
+                else f.from_user
+            )
+            ids.add(other.id)
+        return ids
+
+    try:
+        target = User.objects.get(id=user_id)
+    except User.DoesNotExist:
+        return Response(
+            {'error': 'User not found'},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+    mutual_ids = get_friend_ids(request.user) & get_friend_ids(target)
+    users = User.objects.filter(id__in=mutual_ids)
+    return Response(
+        UserSerializer(users, many=True, context={'request': request}).data
+    )
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def user_profile(request, user_id):
+    """Public profile for any user."""
+    try:
+        user = User.objects.get(id=user_id)
+    except User.DoesNotExist:
+        return Response(
+            {'error': 'User not found'},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+    return Response(
+        UserSerializer(user, context={'request': request}).data
+    )
+
+
 @api_view(['DELETE'])
 @permission_classes([IsAuthenticated])
 def friend_remove(request, user_id):
@@ -348,6 +404,9 @@ def block_user(request):
             {'error': 'Already blocked'},
             status=status.HTTP_400_BAD_REQUEST,
         )
+
+    _push_block_event(str(user_id), 'blocked', str(request.user.id))
+
     return Response(
         BlockedUserSerializer(
             block, context={'request': request}
@@ -367,7 +426,28 @@ def unblock_user(request, user_id):
             {'error': 'Not blocked'},
             status=status.HTTP_404_NOT_FOUND,
         )
+
+    _push_block_event(str(user_id), 'unblocked', str(request.user.id))
+
     return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+def _push_block_event(target_user_id: str, event_type: str, by_user_id: str):
+    """Send a real-time block/unblock notification to the target user."""
+    try:
+        layer = get_channel_layer()
+        async_to_sync(layer.group_send)(
+            f'user_{target_user_id}',
+            {
+                'type': 'block.notify',
+                'data': {
+                    'type': event_type,
+                    'by_user_id': by_user_id,
+                },
+            },
+        )
+    except Exception:
+        pass
 
 
 # ==================== Devices ====================

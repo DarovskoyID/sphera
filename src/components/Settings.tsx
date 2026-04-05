@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, createContext, useContext } from 'react';
 import { Shield, Monitor, Smartphone, Tablet, Trash2, UserX, Camera } from 'lucide-react';
-import { useApp } from '../context/AppContext';
+import { useApp, reportError } from '../context/AppContext';
 import { useTranslation } from '../i18n/useTranslation';
 import { languages, type LangCode } from '../i18n';
 import type { ServerUser } from '../types';
@@ -391,7 +391,7 @@ const PrivacySettings: React.FC = () => {
     try {
       const res = await fetch(`${currentServerIP}/api/auth/blocked/`, { headers: { 'Authorization': `Bearer ${authToken}` } });
       if (res.ok) setBlocked(await res.json());
-    } catch { /* */ }
+    } catch (e) { reportError(e); }
     setLoading(false);
   }, [currentServerIP, authToken]);
 
@@ -404,18 +404,18 @@ const PrivacySettings: React.FC = () => {
       const blockedIds = blocked.map(b => String(b.blocked.id));
       setSearchResults(results.filter(u => !blockedIds.includes(String(u.id))));
       if (results.length === 0) setError('No users found');
-    } catch { setError('Search failed'); }
+    } catch (e) { reportError(e); }
   };
 
   const handleBlock = async (userId: string) => {
     try {
       const res = await fetch(`${currentServerIP}/api/auth/block/`, { method: 'POST', headers: { 'Authorization': `Bearer ${authToken}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ user_id: userId }) });
       if (res.ok) { setSearchResults([]); setBlockQuery(''); await loadBlocked(); }
-    } catch { /* */ }
+    } catch (e) { reportError(e); }
   };
 
   const handleUnblock = async (userId: string) => {
-    try { await fetch(`${currentServerIP}/api/auth/unblock/${userId}/`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${authToken}` } }); setBlocked(prev => prev.filter(b => String(b.blocked.id) !== userId)); } catch { /* */ }
+    try { await fetch(`${currentServerIP}/api/auth/unblock/${userId}/`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${authToken}` } }); setBlocked(prev => prev.filter(b => String(b.blocked.id) !== userId)); } catch (e) { reportError(e); }
   };
 
   return (
@@ -496,14 +496,14 @@ const DevicesSettings: React.FC = () => {
   const [loading, setLoading] = useState(true);
 
   const loadDevices = useCallback(async () => {
-    try { const res = await fetch(`${currentServerIP}/api/auth/devices/`, { headers: { 'Authorization': `Bearer ${authToken}` } }); if (res.ok) setDevices(await res.json()); } catch { /* */ }
+    try { const res = await fetch(`${currentServerIP}/api/auth/devices/`, { headers: { 'Authorization': `Bearer ${authToken}` } }); if (res.ok) setDevices(await res.json()); } catch (e) { reportError(e); }
     setLoading(false);
   }, [currentServerIP, authToken]);
 
   useEffect(() => { loadDevices(); }, [loadDevices]);
 
   const handleRemove = async (id: number) => {
-    try { await fetch(`${currentServerIP}/api/auth/devices/${id}/remove/`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${authToken}` } }); setDevices(prev => prev.filter(d => d.id !== id)); } catch { /* */ }
+    try { await fetch(`${currentServerIP}/api/auth/devices/${id}/remove/`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${authToken}` } }); setDevices(prev => prev.filter(d => d.id !== id)); } catch (e) { reportError(e); }
   };
 
   const parseBrowser = (ua: string) => { if (ua.includes('Chrome') && !ua.includes('Edg')) return 'Chrome'; if (ua.includes('Firefox')) return 'Firefox'; if (ua.includes('Safari') && !ua.includes('Chrome')) return 'Safari'; if (ua.includes('Edg')) return 'Edge'; return 'Browser'; };
@@ -569,9 +569,19 @@ const NotificationSettings: React.FC = () => {
 
 // ==================== Appearance ====================
 
+const ACCENT_PRESETS = [
+  '#0070F3', '#6366f1', '#8b5cf6', '#ec4899',
+  '#10b981', '#f59e0b', '#ef4444', '#06b6d4',
+];
+
 const AppearanceSettings: React.FC = () => {
   const tr = useTranslation();
   const { s, setField } = useSettings();
+  const { setAccentColor } = useApp();
+  const [accent, setAccent] = useState(localStorage.getItem('accentColor') || '#0070F3');
+
+  const pick = (c: string) => { setAccent(c); setAccentColor(c); };
+
   return (
     <section>
       <h1>{tr('sa_title')}</h1>
@@ -583,6 +593,24 @@ const AppearanceSettings: React.FC = () => {
           <option value="light">{tr('sa_light')}</option>
         </select>
       </label>
+      <div style={divider} />
+      <h3 style={sectionH3}>Accent colour</h3>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 12 }}>
+        {ACCENT_PRESETS.map(c => (
+          <button key={c} onClick={() => pick(c)} style={{
+            width: 28, height: 28, borderRadius: '50%', background: c, padding: 0,
+            border: accent === c ? '3px solid var(--text-primary)' : '2px solid transparent',
+            cursor: 'pointer',
+          }} />
+        ))}
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <input type="color" value={accent}
+          onChange={e => pick(e.target.value)}
+          style={{ width: 36, height: 36, border: 'none', borderRadius: 6, cursor: 'pointer', padding: 0, background: 'none' }}
+        />
+        <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Custom colour</span>
+      </div>
       <div style={divider} />
       <h3 style={sectionH3}>{tr('sa_msg_display')}</h3>
       <Check label={tr('sa_timestamps')} field="show_timestamps" />

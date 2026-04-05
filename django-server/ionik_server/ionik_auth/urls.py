@@ -23,6 +23,12 @@ urlpatterns = [
     path('friends/<int:user_id>/remove/', views.friend_remove),
     path('friends/requests/pending/',
          views.friend_requests_pending),
+    # User profile
+    path('users/<int:user_id>/profile/', views.user_profile),
+    path(
+        'users/<int:user_id>/mutual-friends/',
+        views.mutual_friends,
+    ),
     # Block
     path('blocked/', views.blocked_list),
     path('block/', views.block_user),

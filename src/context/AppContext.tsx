@@ -2,6 +2,62 @@ import React, { createContext, useContext, useState, useEffect, useRef, useCallb
 import type { AppState, ViewType, MobilePanel, ServerUser, PendingRequest, ChatMessage } from '../types';
 import type { CustomEmoji } from '../types';
 
+// ── Global error interception ────────────────────────────────────────────────
+// Captures errors before the context mounts, then drains them once it's ready.
+const _errorQueue: string[] = [];
+let _errorSink: ((msg: string) => void) | null = null;
+
+function _dispatch(msg: string) {
+  if (_errorSink) {
+    _errorSink(msg);
+  } else {
+    _errorQueue.push(msg);
+  }
+}
+
+export function reportError(e: unknown) {
+  const msg = e instanceof Error ? e.message : String(e ?? 'Unknown error');
+  _dispatch(msg);
+}
+
+// Intercept console.error
+const _origConsoleError = console.error.bind(console);
+console.error = (...args: unknown[]) => {
+  _origConsoleError(...args);
+  const msg = args.map(a => (a instanceof Error ? a.message : String(a))).join(' ');
+  _dispatch(msg);
+};
+
+// Intercept uncaught errors
+window.addEventListener('error', (e) => {
+  _dispatch(e.message || String(e));
+});
+
+// Intercept unhandled promise rejections
+window.addEventListener('unhandledrejection', (e) => {
+  const reason = e.reason;
+  const msg = reason instanceof Error ? reason.message : String(reason ?? 'Unhandled rejection');
+  _dispatch(msg);
+});
+
+// ── Accent colour (premium blue default) ─────────────────────────────────────
+const DEFAULT_ACCENT = '#0070F3';
+function applyAccent(color: string) {
+  document.documentElement.style.setProperty('--accent-primary', color);
+  // Darken 15% for hover/active
+  document.documentElement.style.setProperty('--accent-hover', shadeColor(color, -15));
+  document.documentElement.style.setProperty('--accent-active', shadeColor(color, -25));
+}
+function shadeColor(hex: string, pct: number): string {
+  const n = parseInt(hex.replace('#', ''), 16);
+  const r = Math.min(255, Math.max(0, (n >> 16) + Math.round(2.55 * pct)));
+  const g = Math.min(255, Math.max(0, ((n >> 8) & 0xff) + Math.round(2.55 * pct)));
+  const b = Math.min(255, Math.max(0, (n & 0xff) + Math.round(2.55 * pct)));
+  return `#${((1 << 24) | (r << 16) | (g << 8) | b).toString(16).slice(1)}`;
+}
+// Apply on load
+applyAccent(localStorage.getItem('accentColor') || DEFAULT_ACCENT);
+
 interface AppContextType extends AppState {
   setCurrentView: (view: ViewType) => void;
   setCurrentServer: (serverId: string) => void;
@@ -28,6 +84,11 @@ interface AppContextType extends AppState {
   onSignalingMessage: React.MutableRefObject<((msg: any) => void) | null>;
   loadFriends: () => Promise<void>;
   loadPendingRequests: () => Promise<void>;
+  removeFriend: (userId: string) => Promise<void>;
+  blockUser: (userId: string) => Promise<void>;
+  unblockUser: (userId: string) => Promise<void>;
+  removeBlockedContact: (userId: string) => void;
+  setAccentColor: (color: string) => void;
   sendFriendRequest: (userId: string) => Promise<void>;
   acceptFriendRequest: (friendshipId: number) => Promise<void>;
   rejectFriendRequest: (friendshipId: number) => Promise<void>;
@@ -38,6 +99,12 @@ interface AppContextType extends AppState {
   reportMessage: (messageId: number) => Promise<void>;
   loadOlderMessages: () => Promise<boolean>;
   loadCustomEmojis: () => Promise<void>;
+  scheduleMessage: (conversationId: number, text: string, attachmentIds: number[], delaySeconds: number, replyToId?: number) => Promise<{ id: number; send_at: string } | null>;
+  cancelScheduledMessage: (scheduledId: number) => Promise<void>;
+  listScheduled: (conversationId: number) => Promise<Array<{ id: number; send_at: string; content: string }>>;
+  showError: (message: string) => void;
+  clearError: () => void;
+  errorMessage: string | null;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -83,11 +150,13 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       authToken: savedToken,
       currentUser: null,
       friends: [],
+      blockedContacts: [],
       pendingRequests: [],
       callTargetId: null,
       incomingOffer: null,
       chatMessages: [],
       chatConversationId: null,
+      chatBlockedByOther: false,
       customEmojis: [],
     };
   });
@@ -95,6 +164,25 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
   const signalingWs = useRef<WebSocket | null>(null);
   const [signalingPeers, setSignalingPeers] = useState<Array<{ id: string; name: string }>>([]);
   const onSignalingMessage = useRef<((msg: any) => void) | null>(null);
+  const pendingStatusRef = useRef<Record<string, string>>({});
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const showError = useCallback((message: string) => setErrorMessage(message), []);
+  const clearError = useCallback(() => setErrorMessage(null), []);
+
+  // Drain any errors that were queued before the context mounted, then
+  // redirect all future console.error / window errors into the modal.
+  useEffect(() => {
+    // Drain queue
+    if (_errorQueue.length > 0) {
+      setErrorMessage(_errorQueue[0]);
+      _errorQueue.length = 0;
+    }
+    // Point the global sink at this context
+    _errorSink = (msg: string) => setErrorMessage(msg);
+    return () => {
+      _errorSink = null;
+    };
+  }, []);
 
   const chatWs = useRef<WebSocket | null>(null);
 
@@ -130,19 +218,29 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       try {
         const user: ServerUser = await apiGet('/api/auth/me/', state.authToken, state.currentServerIP);
         setState(prev => ({ ...prev, currentUser: user, userIDonServer: String(user.id) }));
-      } catch { }
+      } catch (e) { reportError(e); }
       try {
-        const friends: ServerUser[] = await apiGet('/api/auth/friends/', state.authToken, state.currentServerIP);
-        setState(prev => ({ ...prev, friends }));
-      } catch { }
+        const [friendsRaw, blockedRaw]: [ServerUser[], any[]] = await Promise.all([
+          apiGet('/api/auth/friends/', state.authToken, state.currentServerIP),
+          apiGet('/api/auth/blocked/', state.authToken, state.currentServerIP),
+        ]);
+        const friends = friendsRaw;
+        const blockedContacts: ServerUser[] = blockedRaw.map((r: any) => r.blocked);
+        // Merge any status updates that arrived via WS before this load completed
+        const merged = friends.map(f => ({
+          ...f,
+          status: (pendingStatusRef.current[String(f.id)] ?? f.status) as ServerUser['status'],
+        }));
+        setState(prev => ({ ...prev, friends: merged, blockedContacts }));
+      } catch (e) { reportError(e); }
       try {
         const pending: PendingRequest[] = await apiGet('/api/auth/friends/requests/pending/', state.authToken, state.currentServerIP);
         setState(prev => ({ ...prev, pendingRequests: pending }));
-      } catch { }
+      } catch (e) { reportError(e); }
       try {
         const emojis: CustomEmoji[] = await apiGet('/api/auth/emojis/', state.authToken, state.currentServerIP);
         setState(prev => ({ ...prev, customEmojis: emojis }));
-      } catch { }
+      } catch (e) { reportError(e); }
     };
     load();
   }, [state.authToken]);
@@ -152,14 +250,14 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     try {
       const friends: ServerUser[] = await apiGet('/api/auth/friends/', state.authToken, state.currentServerIP);
       setState(prev => ({ ...prev, friends }));
-    } catch { }
+    } catch (e) { reportError(e); }
   }, [state.authToken, state.currentServerIP, apiGet]);
 
   const loadPendingRequests = useCallback(async () => {
     try {
       const pending: PendingRequest[] = await apiGet('/api/auth/friends/requests/pending/', state.authToken, state.currentServerIP);
       setState(prev => ({ ...prev, pendingRequests: pending }));
-    } catch { }
+    } catch (e) { reportError(e); }
   }, [state.authToken, state.currentServerIP, apiGet]);
 
   const loadCustomEmojis = useCallback(async () => {
@@ -167,8 +265,58 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     try {
       const emojis: CustomEmoji[] = await apiGet('/api/auth/emojis/', state.authToken, state.currentServerIP);
       setState(prev => ({ ...prev, customEmojis: emojis }));
-    } catch { }
+    } catch (e) { reportError(e); }
   }, [state.authToken, state.currentServerIP, apiGet]);
+
+  const removeFriend = useCallback(async (userId: string) => {
+    await fetch(`${state.currentServerIP}/api/auth/friends/${userId}/remove/`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${state.authToken}` },
+    });
+    setState(prev => ({ ...prev, friends: prev.friends.filter(f => String(f.id) !== String(userId)) }));
+  }, [state.authToken, state.currentServerIP]);
+
+  const blockUser = useCallback(async (userId: string) => {
+    await fetch(`${state.currentServerIP}/api/auth/block/`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${state.authToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: userId }),
+    });
+    // Move from friends → blockedContacts so the DM stays visible
+    setState(prev => {
+      const blocked = prev.friends.find(f => String(f.id) === String(userId));
+      return {
+        ...prev,
+        friends: prev.friends.filter(f => String(f.id) !== String(userId)),
+        blockedContacts: blocked
+          ? [...prev.blockedContacts.filter(u => String(u.id) !== String(userId)), blocked]
+          : prev.blockedContacts,
+      };
+    });
+  }, [state.authToken, state.currentServerIP]);
+
+  const unblockUser = useCallback(async (userId: string) => {
+    await fetch(`${state.currentServerIP}/api/auth/unblock/${userId}/`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${state.authToken}` },
+    });
+    setState(prev => ({
+      ...prev,
+      blockedContacts: prev.blockedContacts.filter(u => String(u.id) !== String(userId)),
+    }));
+  }, [state.authToken, state.currentServerIP]);
+
+  const removeBlockedContact = useCallback((userId: string) => {
+    setState(prev => ({
+      ...prev,
+      blockedContacts: prev.blockedContacts.filter(u => String(u.id) !== String(userId)),
+    }));
+  }, []);
+
+  const setAccentColor = useCallback((color: string) => {
+    localStorage.setItem('accentColor', color);
+    applyAccent(color);
+  }, []);
 
   const sendFriendRequest = useCallback(async (userId: string) => {
     await apiPost('/api/auth/friends/request/', state.authToken, state.currentServerIP, { user_id: userId });
@@ -203,7 +351,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     }
 
     if (!state.currentChat || !state.authToken) {
-      setState(prev => ({ ...prev, chatMessages: [], chatConversationId: null }));
+      setState(prev => ({ ...prev, chatMessages: [], chatConversationId: null, chatBlockedByOther: false }));
       return;
     }
 
@@ -212,13 +360,25 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     const initChat = async () => {
       try {
         // Get or create conversation with this user
-        const convo = await apiPost(
-          '/api/conversations/create/',
-          state.authToken,
-          state.currentServerIP,
-          { user_id: state.currentChat }
-        );
+        setState(prev => ({ ...prev, chatBlockedByOther: false }));
+        const convoRes = await fetch(`${state.currentServerIP}/api/conversations/create/`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${state.authToken}` },
+          body: JSON.stringify({ user_id: state.currentChat }),
+        });
         if (cancelled) return;
+        if (convoRes.status === 403) {
+          // No prior conversation exists and we're blocked — nothing to show
+          setState(prev => ({ ...prev, chatBlockedByOther: true, chatMessages: [], chatConversationId: null }));
+          return;
+        }
+        if (!convoRes.ok) throw new Error(`${convoRes.status}`);
+        const convo = await convoRes.json();
+        if (cancelled) return;
+        if (convo.blocked_by_other) {
+          // Existing conversation accessible, but we can't send new messages
+          setState(prev => ({ ...prev, chatBlockedByOther: true }));
+        }
 
         const convoId = convo.id;
         setState(prev => ({ ...prev, chatConversationId: convoId }));
@@ -242,10 +402,31 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
 
         ws.onmessage = (event) => {
           const data = JSON.parse(event.data);
+          if (data.type === 'conversation_deleted') {
+            setState(prev => ({
+              ...prev,
+              chatMessages: [],
+              chatConversationId: null,
+              currentChat: '',
+              // Also remove from blocked contacts if this was a blocked DM
+              blockedContacts: prev.blockedContacts.filter(
+                u => String(u.id) !== String(prev.currentChat)
+              ),
+            }));
+            if (chatWs.current === ws) {
+              chatWs.current = null;
+            }
+            return;
+          }
           if (data.type === 'message_deleted') {
             setState(prev => ({
               ...prev,
-              chatMessages: prev.chatMessages.filter(m => m.id !== data.id),
+              chatMessages: prev.chatMessages
+                .filter(m => m.id !== data.id)
+                .map(m => m.reply_to?.id === data.id
+                  ? { ...m, reply_to: { ...m.reply_to!, deleted: true } }
+                  : m
+                ),
             }));
           } else if (data.type === 'message_pinned') {
             setState(prev => ({
@@ -267,8 +448,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
         ws.onclose = () => {
           if (chatWs.current === ws) chatWs.current = null;
         };
-      } catch {
-      }
+      } catch (e) { reportError(e); }
     };
 
     initChat();
@@ -298,7 +478,65 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       method: 'DELETE',
       headers: { Authorization: `Bearer ${state.authToken}` },
     });
+    // Optimistically remove from local state in case the WS event is delayed
+    setState(prev => ({
+      ...prev,
+      chatMessages: prev.chatMessages
+        .filter(m => m.id !== messageId)
+        .map(m => m.reply_to?.id === messageId
+          ? { ...m, reply_to: { ...m.reply_to!, deleted: true } }
+          : m
+        ),
+    }));
   }, [state.currentServerIP, state.authToken]);
+
+  const scheduleMessage = useCallback(async (
+    conversationId: number,
+    text: string,
+    attachmentIds: number[],
+    delaySeconds: number,
+    replyToId?: number,
+  ): Promise<{ id: number; send_at: string } | null> => {
+    try {
+      const res = await fetch(
+        `${state.currentServerIP}/api/conversations/${conversationId}/schedule/`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${state.authToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            content: text,
+            attachment_ids: attachmentIds,
+            delay_seconds: delaySeconds,
+            reply_to_id: replyToId,
+          }),
+        }
+      );
+      if (!res.ok) return null;
+      return res.json();
+    } catch (e) {
+      reportError(e);
+      return null;
+    }
+  }, [state.currentServerIP, state.authToken]);
+
+  const cancelScheduledMessage = useCallback(async (scheduledId: number) => {
+    await fetch(`${state.currentServerIP}/api/scheduled/${scheduledId}/`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${state.authToken}` },
+    });
+  }, [state.currentServerIP, state.authToken]);
+
+  const listScheduled = useCallback(async (conversationId: number): Promise<Array<{ id: number; send_at: string; content: string }>> => {
+    try {
+      return await apiGet(`/api/conversations/${conversationId}/scheduled/`, state.authToken, state.currentServerIP);
+    } catch (e) {
+      reportError(e);
+      return [];
+    }
+  }, [state.authToken, state.currentServerIP, apiGet]);
 
   const pinMessage = useCallback(async (messageId: number) => {
     await fetch(`${state.currentServerIP}/api/messages/${messageId}/pin/`, {
@@ -330,7 +568,8 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
         chatMessages: [...older, ...prev.chatMessages],
       }));
       return true;
-    } catch {
+    } catch (e) {
+      reportError(e);
       return false;
     }
   }, [state.chatConversationId, state.chatMessages, state.authToken, state.currentServerIP, apiGet]);
@@ -351,12 +590,50 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
 
     ws.onopen = () => {
       signalingWs.current = ws;
+      // Mark ourselves as online locally
+      setState(prev => prev.currentUser
+        ? { ...prev, currentUser: { ...prev.currentUser, status: 'online' } }
+        : prev
+      );
     };
 
     ws.onmessage = (event) => {
       const data = JSON.parse(event.data);
       if (data.type === 'peers') {
         setSignalingPeers(data.peers);
+        return;
+      }
+      if (data.type === 'blocked') {
+        // Someone blocked me — disable messaging if their chat is open
+        setState(prev => ({
+          ...prev,
+          chatBlockedByOther: String(data.by_user_id) === String(prev.currentChat)
+            ? true
+            : prev.chatBlockedByOther,
+        }));
+        return;
+      }
+      if (data.type === 'unblocked') {
+        // Someone unblocked me — re-enable messaging if their chat is open
+        setState(prev => ({
+          ...prev,
+          chatBlockedByOther: String(data.by_user_id) === String(prev.currentChat)
+            ? false
+            : prev.chatBlockedByOther,
+        }));
+        return;
+      }
+      if (data.type === 'status_update') {
+        // Buffer in case friends list hasn't loaded yet
+        pendingStatusRef.current[String(data.user_id)] = data.status;
+        setState(prev => ({
+          ...prev,
+          friends: prev.friends.map(f =>
+            String(f.id) === String(data.user_id)
+              ? { ...f, status: data.status }
+              : f
+          ),
+        }));
         return;
       }
       if (onSignalingMessage.current) {
@@ -366,6 +643,10 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
 
     ws.onclose = () => {
       signalingWs.current = null;
+      setState(prev => prev.currentUser
+        ? { ...prev, currentUser: { ...prev.currentUser, status: 'offline' } }
+        : prev
+      );
     };
 
     return () => {
@@ -469,6 +750,11 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       onSignalingMessage,
       loadFriends,
       loadPendingRequests,
+      removeFriend,
+      blockUser,
+      unblockUser,
+      removeBlockedContact,
+      setAccentColor,
       sendFriendRequest,
       acceptFriendRequest,
       rejectFriendRequest,
@@ -479,6 +765,12 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       reportMessage,
       loadOlderMessages,
       loadCustomEmojis,
+      scheduleMessage,
+      cancelScheduledMessage,
+      listScheduled,
+      showError,
+      clearError,
+      errorMessage,
     }}>
       {children}
     </AppContext.Provider>

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Phone, Video, Search, Menu, ArrowLeft, Plus, Smile, Send, FileText, FileImage, FileVideo, FileAudio, File, Download, X, MoreHorizontal, Reply, Copy, Trash2, Flag, Pin, Clock } from 'lucide-react';
+import { Phone, Video, Search, Menu, ArrowLeft, Plus, Smile, Send, FileText, FileImage, FileVideo, FileAudio, File, Download, X, MoreHorizontal, Reply, Copy, Trash2, Flag, Pin, Clock, Ban } from 'lucide-react';
 import type { ChatAttachment, ChatMessage as ChatMessageType } from '../types';
-import { useApp } from '../context/AppContext';
+import { useApp, reportError } from '../context/AppContext';
 import { Settings } from './Settings';
 import { CallWindow } from './CallWindow';
 import { useTranslation } from '../i18n/useTranslation';
@@ -51,72 +51,231 @@ export const ChatMain: React.FC = () => {
   return null;
 };
 
-const ChatHeader: React.FC = () => {
-  const { isCallActive, currentChat, friends, toggleMobileSidebar, setCallActive, setVideoActive, setCallTargetId, setMobileActivePanel } = useApp();
+const ChatHeader: React.FC<{
+  onSearchToggle: () => void;
+  searchOpen: boolean;
+}> = ({ onSearchToggle, searchOpen }) => {
+  const { isCallActive, currentChat, friends, blockedContacts, toggleMobileSidebar, setCallActive, setVideoActive, setCallTargetId, setMobileActivePanel } = useApp();
   const tr = useTranslation();
 
   const friend = friends.find(f => String(f.id) === String(currentChat));
+  const blockedUser = !friend ? blockedContacts.find(u => String(u.id) === String(currentChat)) : null;
+  const chatUser = friend ?? blockedUser;
 
-  if (!friend) return null;
+  if (!chatUser) return null;
 
-  const displayName = friend.nickname || friend.username;
+  if (isCallActive) {
+    return <CallWindow inline />;
+  }
+
+  const displayName = chatUser.nickname || chatUser.username;
 
   const startCall = (withVideo = false) => {
-    setCallTargetId(friend.id);
+    setCallTargetId(chatUser.id);
     setCallActive(true);
     if (withVideo) setVideoActive(true);
   };
 
   return (
-    <>
-    {isCallActive ? <CallWindow /> : <header className="chat-header glass-panel">
+    <header className="chat-header glass-panel">
       <button className="icon-btn glass-btn mobile-back-btn" onClick={() => setMobileActivePanel('chat-list')} title={tr('nav_back')}>
         <ArrowLeft size={20} />
       </button>
       <div className="chat-header-info">
         <div className="header-avatar">
-          {friend.avatar
-            ? <img src={friend.avatar} alt={displayName} />
+          {chatUser.avatar
+            ? <img src={chatUser.avatar} alt={displayName} />
             : <div style={{ width: 32, height: 32, borderRadius: '50%', background: 'var(--accent-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 700, fontSize: 14 }}>
                 {displayName[0].toUpperCase()}
               </div>
           }
-          <span className="status-indicator offline"></span>
+          {blockedUser
+            ? <span style={{ position: 'absolute', bottom: 0, right: 0, width: 10, height: 10, borderRadius: '50%', background: '#f97316', border: '2px solid var(--bg-secondary)' }} />
+            : <span className={`status-indicator ${chatUser.status ?? 'offline'}`} />
+          }
         </div>
         <div>
           <h3>{displayName}</h3>
-          <p>@{friend.username}</p>
+          {blockedUser
+            ? <p style={{ color: '#f97316' }}>Blocked</p>
+            : <p>@{chatUser.username}</p>
+          }
         </div>
       </div>
       <div className="chat-header-actions">
-        <button className="icon-btn glass-btn" onClick={() => startCall(false)} title={tr('chat_voice_call')}>
-          <Phone size={20} />
-        </button>
-        <button className="icon-btn glass-btn" onClick={() => startCall(true)} title={tr('chat_video_call')}>
-          <Video size={20} />
-        </button>
-        <button className="icon-btn glass-btn" title={tr('chat_search')}>
+        {!blockedUser && <>
+          <button className="icon-btn glass-btn" onClick={() => startCall(false)} title={tr('chat_voice_call')}>
+            <Phone size={20} />
+          </button>
+          <button className="icon-btn glass-btn" onClick={() => startCall(true)} title={tr('chat_video_call')}>
+            <Video size={20} />
+          </button>
+        </>}
+        <button
+          className="icon-btn glass-btn"
+          title={tr('chat_search')}
+          onClick={onSearchToggle}
+          style={{ color: searchOpen ? 'var(--accent-primary)' : undefined }}
+        >
           <Search size={20} />
         </button>
         <button className="icon-btn glass-btn mobile-menu-btn" onClick={toggleMobileSidebar}>
           <Menu size={20} />
         </button>
       </div>
-    </header>}
-    </>
+    </header>
   );
 };
 
 // ── ChatView — holds reply state, wires header + messages + input ─────────────
 
+type ScheduledItem = { id: number; send_at: string; content: string };
+
+const MessageSearchBar: React.FC<{
+  query: string;
+  onChange: (q: string) => void;
+  onClose: () => void;
+  matchCount: number;
+}> = ({ query, onChange, onClose, matchCount }) => {
+  const inputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => { inputRef.current?.focus(); }, []);
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 8,
+      padding: '6px 12px', background: 'var(--bg-secondary)',
+      borderBottom: '1px solid var(--border-color)', flexShrink: 0,
+    }}>
+      <Search size={15} style={{ color: 'var(--text-tertiary)', flexShrink: 0 }} />
+      <input
+        ref={inputRef}
+        className="field-input"
+        type="text"
+        placeholder="Search messages..."
+        value={query}
+        onChange={e => onChange(e.target.value)}
+        style={{ flex: 1, border: 'none', background: 'transparent', fontSize: 14 }}
+      />
+      {query && (
+        <span style={{ fontSize: 12, color: 'var(--text-tertiary)', whiteSpace: 'nowrap' }}>
+          {matchCount} result{matchCount !== 1 ? 's' : ''}
+        </span>
+      )}
+      <button
+        onClick={onClose}
+        style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', display: 'flex', padding: 2 }}
+      >
+        <X size={15} />
+      </button>
+    </div>
+  );
+};
+
 const ChatView: React.FC = () => {
+  const { chatConversationId, listScheduled, cancelScheduledMessage, chatMessages, currentChat, blockedContacts, chatBlockedByOther } = useApp();
+  const isBlockedByMe = blockedContacts.some(u => String(u.id) === String(currentChat));
+  const blockedName = isBlockedByMe ? (blockedContacts.find(u => String(u.id) === String(currentChat))?.nickname || blockedContacts.find(u => String(u.id) === String(currentChat))?.username || '') : '';
   const [replyTo, setReplyTo] = useState<ChatMessageType | null>(null);
+  const [scheduled, setScheduled] = useState<ScheduledItem[]>([]);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+
+  // Load pending scheduled messages when conversation opens
+  useEffect(() => {
+    if (!chatConversationId) return;
+    listScheduled(chatConversationId).then(setScheduled);
+  }, [chatConversationId]);
+
+  const handleCancelScheduled = useCallback(async (id: number) => {
+    await cancelScheduledMessage(id);
+    setScheduled(prev => prev.filter(s => s.id !== id));
+  }, [cancelScheduledMessage]);
+
+  // Remove from list once the countdown expires (server will deliver it)
+  useEffect(() => {
+    if (scheduled.length === 0) return;
+    const nearest = Math.min(...scheduled.map(s => new Date(s.send_at).getTime()));
+    const delay = nearest - Date.now();
+    if (delay <= 0) {
+      setScheduled(prev => prev.filter(s => new Date(s.send_at).getTime() > Date.now()));
+      return;
+    }
+    const t = setTimeout(() => {
+      setScheduled(prev => prev.filter(s => new Date(s.send_at).getTime() > Date.now()));
+    }, delay + 500);
+    return () => clearTimeout(t);
+  }, [scheduled]);
+
+  const searchMatches = searchQuery.trim()
+    ? chatMessages.filter(m =>
+        m.content?.toLowerCase().includes(searchQuery.toLowerCase())
+      )
+    : [];
+
   return (
     <main className="chat-main">
-      <ChatHeader />
-      <MessagesContainer onReply={setReplyTo} />
-      <MessageInput replyTo={replyTo} onCancelReply={() => setReplyTo(null)} />
+      <ChatHeader
+        onSearchToggle={() => { setSearchOpen(v => !v); setSearchQuery(''); }}
+        searchOpen={searchOpen}
+      />
+      {searchOpen && (
+        <MessageSearchBar
+          query={searchQuery}
+          onChange={setSearchQuery}
+          onClose={() => { setSearchOpen(false); setSearchQuery(''); }}
+          matchCount={searchMatches.length}
+        />
+      )}
+      {scheduled.map(s => (
+        <ScheduledBanner key={s.id} item={s} onCancel={handleCancelScheduled} />
+      ))}
+      <MessagesContainer
+        onReply={setReplyTo}
+        searchQuery={searchQuery}
+      />
+      {isBlockedByMe
+        ? <div style={{
+            padding: '14px 20px', background: 'var(--bg-secondary)',
+            borderTop: '1px solid var(--border-color)',
+            display: 'flex', alignItems: 'center', gap: 10,
+            color: '#f97316', fontSize: 14, flexShrink: 0,
+          }}>
+            <Ban size={16} />
+            You have blocked <strong style={{ marginLeft: 3 }}>{blockedName}</strong> — messaging is disabled
+          </div>
+        : chatBlockedByOther
+        ? <div style={{
+            padding: '14px 20px', background: 'var(--bg-secondary)',
+            borderTop: '1px solid var(--border-color)',
+            display: 'flex', alignItems: 'center', gap: 10,
+            color: 'var(--text-secondary)', fontSize: 14, flexShrink: 0,
+          }}>
+            <Ban size={16} />
+            You cannot send messages to this user
+          </div>
+        : <MessageInput replyTo={replyTo} onCancelReply={() => setReplyTo(null)} onScheduled={item => setScheduled(prev => [...prev, item])} />
+      }
     </main>
+  );
+};
+
+const ScheduledBanner: React.FC<{ item: ScheduledItem; onCancel: (id: number) => void }> = ({ item, onCancel }) => {
+  const [remaining, setRemaining] = useState(() => Math.max(0, Math.round((new Date(item.send_at).getTime() - Date.now()) / 1000)));
+
+  useEffect(() => {
+    const iv = setInterval(() => {
+      setRemaining(Math.max(0, Math.round((new Date(item.send_at).getTime() - Date.now()) / 1000)));
+    }, 1000);
+    return () => clearInterval(iv);
+  }, [item.send_at]);
+
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '4px 8px 0', padding: '7px 12px', borderRadius: 8, background: 'rgba(88,101,242,0.15)', border: '1px solid var(--accent-primary)', flexShrink: 0 }}>
+      <Clock size={14} style={{ color: 'var(--accent-primary)', flexShrink: 0 }} />
+      <span style={{ fontSize: 13, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        Sending in <b>{remaining}s</b>: {item.content || '[attachment]'}
+      </span>
+      <button onClick={() => onCancel(item.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ff6666', fontSize: 12, padding: 0, flexShrink: 0 }}>Cancel</button>
+    </div>
   );
 };
 
@@ -317,22 +476,45 @@ const MessageContextMenu: React.FC<{
 
 // ── Message Row ───────────────────────────────────────────────────────────────
 
-const MessageRow = React.memo(({ msg, isOwn, onContextMenu, onReply, customEmojis }: {
+function highlightText(text: string, query: string): React.ReactNode {
+  if (!query.trim()) return text;
+  const idx = text.toLowerCase().indexOf(query.toLowerCase());
+  if (idx === -1) return text;
+  return (
+    <>
+      {text.slice(0, idx)}
+      <mark style={{ background: 'rgba(255,200,0,0.4)', color: 'inherit', borderRadius: 2 }}>
+        {text.slice(idx, idx + query.length)}
+      </mark>
+      {text.slice(idx + query.length)}
+    </>
+  );
+}
+
+const MessageRow = React.memo(({ msg, isOwn, onContextMenu, onReply, customEmojis, searchQuery }: {
   msg: ChatMessageType;
   isOwn: boolean;
   onContextMenu: (e: React.MouseEvent, msg: ChatMessageType) => void;
   onReply: (msg: ChatMessageType) => void;
   customEmojis: CustomEmoji[];
+  searchQuery?: string;
 }) => {
   const displayName = msg.author.nickname || msg.author.username;
   const time = new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   const [hovered, setHovered] = useState(false);
   const [avatarError, setAvatarError] = useState(false);
 
+  const isSearchMatch = !!(searchQuery?.trim() && msg.content?.toLowerCase().includes(searchQuery.toLowerCase()));
+
   return (
     <div
       className={`message-item ${isOwn ? 'own' : ''}`}
-      style={{ minHeight: MSG_HEIGHT, position: 'relative', background: msg.is_pinned ? 'rgba(88,101,242,0.08)' : undefined }}
+      style={{
+        minHeight: MSG_HEIGHT, position: 'relative',
+        background: isSearchMatch
+          ? 'rgba(255,200,0,0.07)'
+          : msg.is_pinned ? 'rgba(0,112,243,0.08)' : undefined,
+      }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       onContextMenu={e => { e.preventDefault(); onContextMenu(e, msg); }}
@@ -362,13 +544,26 @@ const MessageRow = React.memo(({ msg, isOwn, onContextMenu, onReply, customEmoji
             color: 'var(--text-secondary)', fontSize: 12,
             overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
           }}>
-            <span style={{ fontWeight: 600 }}>
-              {msg.reply_to.author.nickname || msg.reply_to.author.username}:
-            </span>{' '}
-            <MessageText text={msg.reply_to.content} customEmojis={customEmojis} />
+            {msg.reply_to.deleted ? (
+              <span style={{ fontStyle: 'italic', opacity: 0.6 }}>Message deleted</span>
+            ) : (
+              <>
+                <span style={{ fontWeight: 600 }}>
+                  {msg.reply_to.author.nickname || msg.reply_to.author.username}:
+                </span>{' '}
+                <MessageText text={msg.reply_to.content} customEmojis={customEmojis} />
+              </>
+            )}
           </div>
         )}
-        {msg.content && <div className="message-text"><MessageText text={msg.content} customEmojis={customEmojis} /></div>}
+        {msg.content && (
+          <div className="message-text">
+            {searchQuery?.trim()
+              ? highlightText(msg.content, searchQuery)
+              : <MessageText text={msg.content} customEmojis={customEmojis} />
+            }
+          </div>
+        )}
         {msg.attachments?.map(att => (
           <AttachmentView key={att.id} att={att} />
         ))}
@@ -397,8 +592,12 @@ const MessageRow = React.memo(({ msg, isOwn, onContextMenu, onReply, customEmoji
 
 const MessagesContainer: React.FC<{
   onReply: (msg: ChatMessageType) => void;
-}> = ({ onReply }) => {
+  searchQuery: string;
+}> = ({ onReply, searchQuery }) => {
   const { chatMessages, userIDonServer, loadOlderMessages, deleteMessage, pinMessage, reportMessage, customEmojis } = useApp();
+  const filteredMessages = searchQuery.trim()
+    ? chatMessages.filter(m => m.content?.toLowerCase().includes(searchQuery.toLowerCase()))
+    : chatMessages;
   const tr = useTranslation();
   const containerRef = useRef<HTMLDivElement>(null);
   const wasAtBottom = useRef(true);
@@ -453,12 +652,12 @@ const MessagesContainer: React.FC<{
       )}
       <div className="messages-container" ref={containerRef} onScroll={handleScroll}>
         <div className="messages-list">
-          {chatMessages.length === 0 && (
+          {filteredMessages.length === 0 && (
             <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-secondary)' }}>
-              {tr('chat_no_messages')}
+              {searchQuery.trim() ? 'No messages match your search.' : tr('chat_no_messages')}
             </div>
           )}
-          {chatMessages.map((msg, i) => (
+          {filteredMessages.map((msg, i) => (
             <MessageRow
               key={msg.id || `tmp-${i}`}
               msg={msg}
@@ -466,6 +665,7 @@ const MessagesContainer: React.FC<{
               onContextMenu={openCtx}
               onReply={onReply}
               customEmojis={customEmojis}
+              searchQuery={searchQuery}
             />
           ))}
         </div>
@@ -485,17 +685,15 @@ const DELAY_OPTIONS = [
   { label: '5 min', ms: 300000 },
 ];
 
-const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: () => void }> = ({ replyTo, onCancelReply }) => {
-  const { sendChatMessage, chatConversationId, currentServerIP, authToken } = useApp();
+const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: () => void; onScheduled: (item: ScheduledItem) => void }> = ({ replyTo, onCancelReply, onScheduled }) => {
+  const { sendChatMessage, chatConversationId, currentServerIP, authToken, scheduleMessage } = useApp();
   const tr = useTranslation();
   const [message, setMessage] = useState('');
   const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
   const [limitWarning, setLimitWarning] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [showDelayMenu, setShowDelayMenu] = useState(false);
-  const [delayCountdown, setDelayCountdown] = useState<number | null>(null);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
-  const delayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const emojiButtonRef = useRef<HTMLButtonElement>(null);
 
@@ -539,30 +737,33 @@ const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: (
     });
   }, []);
 
-  const doSend = useCallback(async (text: string, files: PendingFile[], replyId?: number) => {
-    if (!chatConversationId) return;
+  const uploadFiles = useCallback(async (files: PendingFile[]): Promise<number[]> => {
+    if (!chatConversationId || files.length === 0) return [];
+    setUploading(true);
     const attachmentIds: number[] = [];
-    if (files.length > 0) {
-      setUploading(true);
-      try {
-        const results = await Promise.all(
-          files.map(async ({ file }) => {
-            const form = new FormData();
-            form.append('file', file);
-            const res = await fetch(
-              `${currentServerIP}/api/conversations/${chatConversationId}/upload/`,
-              { method: 'POST', headers: { Authorization: `Bearer ${authToken}` }, body: form }
-            );
-            if (res.ok) { const d = await res.json(); return d.id as number; }
-            return null;
-          })
-        );
-        results.forEach(id => { if (id != null) attachmentIds.push(id); });
-      } catch { }
-      finally { setUploading(false); }
-    }
+    try {
+      const results = await Promise.all(
+        files.map(async ({ file }) => {
+          const form = new FormData();
+          form.append('file', file);
+          const res = await fetch(
+            `${currentServerIP}/api/conversations/${chatConversationId}/upload/`,
+            { method: 'POST', headers: { Authorization: `Bearer ${authToken}` }, body: form }
+          );
+          if (res.ok) { const d = await res.json(); return d.id as number; }
+          return null;
+        })
+      );
+      results.forEach(id => { if (id != null) attachmentIds.push(id); });
+    } catch (e) { reportError(e); }
+    finally { setUploading(false); }
+    return attachmentIds;
+  }, [chatConversationId, currentServerIP, authToken]);
+
+  const doSend = useCallback(async (text: string, files: PendingFile[], replyId?: number) => {
+    const attachmentIds = await uploadFiles(files);
     sendChatMessage(text, attachmentIds.length > 0 ? attachmentIds : undefined, replyId);
-  }, [chatConversationId, currentServerIP, authToken, sendChatMessage]);
+  }, [uploadFiles, sendChatMessage]);
 
   const handleSend = useCallback(async () => {
     if (!message.trim() && pendingFiles.length === 0) return;
@@ -575,8 +776,9 @@ const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: (
     await doSend(text, files, replyId);
   }, [message, pendingFiles, replyTo, doSend, clearFiles, onCancelReply]);
 
-  const handleDelayedSend = useCallback((delayMs: number) => {
+  const handleDelayedSend = useCallback(async (delayMs: number) => {
     if (!message.trim() && pendingFiles.length === 0) return;
+    if (!chatConversationId) return;
     setShowDelayMenu(false);
     const text = message;
     const files = [...pendingFiles];
@@ -585,26 +787,15 @@ const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: (
     clearFiles();
     onCancelReply();
 
-    let remaining = Math.round(delayMs / 1000);
-    setDelayCountdown(remaining);
-
-    const interval = setInterval(() => {
-      remaining -= 1;
-      setDelayCountdown(remaining);
-      if (remaining <= 0) clearInterval(interval);
-    }, 1000);
-
-    delayTimerRef.current = setTimeout(async () => {
-      clearInterval(interval);
-      setDelayCountdown(null);
-      await doSend(text, files, replyId);
-    }, delayMs);
-  }, [message, pendingFiles, replyTo, doSend, clearFiles, onCancelReply]);
-
-  const cancelDelayedSend = useCallback(() => {
-    if (delayTimerRef.current) { clearTimeout(delayTimerRef.current); delayTimerRef.current = null; }
-    setDelayCountdown(null);
-  }, []);
+    // Upload files first, then schedule on server
+    const attachmentIds = await uploadFiles(files);
+    const result = await scheduleMessage(
+      chatConversationId, text, attachmentIds,
+      Math.round(delayMs / 1000), replyId,
+    );
+    if (!result) return;
+    onScheduled({ id: result.id, send_at: result.send_at, content: text });
+  }, [message, pendingFiles, replyTo, chatConversationId, uploadFiles, scheduleMessage, clearFiles, onCancelReply, onScheduled]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
@@ -614,15 +805,6 @@ const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: (
 
   return (
     <div className="message-input-container glass-panel" style={{ flexDirection: 'column', gap: 0, alignItems: 'stretch' }}>
-      {/* Delay countdown banner */}
-      {delayCountdown !== null && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '8px 8px 0', padding: '8px 12px', borderRadius: 8, background: 'rgba(88,101,242,0.15)', border: '1px solid var(--accent-primary)' }}>
-          <Clock size={15} style={{ color: 'var(--accent-primary)' }} />
-          <span style={{ fontSize: 13, flex: 1 }}>Sending in <b>{delayCountdown}s</b>…</span>
-          <button onClick={cancelDelayedSend} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ff6666', fontSize: 12, padding: 0 }}>Cancel</button>
-        </div>
-      )}
-
       {/* Reply preview */}
       {replyTo && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '8px 8px 0', padding: '6px 12px', borderRadius: 8, background: 'var(--bg-secondary)', borderLeft: '3px solid var(--accent-primary)' }}>
@@ -675,16 +857,26 @@ const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: (
         <button className="icon-btn glass-btn" title={tr('chat_attachment')} onClick={() => fileInputRef.current?.click()} disabled={uploading || pendingFiles.length >= MAX_FILES}>
           <Plus size={20} />
         </button>
-        <div className="message-input-wrapper">
+        <div className="message-input-wrapper" style={{ position: 'relative', flex: 1 }}>
           <input
             type="text"
             className="message-input"
             placeholder={tr('chat_type_message')}
             value={message}
+            maxLength={5000}
             onChange={e => setMessage(e.target.value)}
             onKeyDown={handleKeyDown}
             disabled={uploading}
           />
+          {message.length > 4000 && (
+            <span style={{
+              position: 'absolute', right: 8, bottom: '50%', transform: 'translateY(50%)',
+              fontSize: 11, color: message.length >= 4900 ? '#ff4444' : 'var(--text-secondary)',
+              pointerEvents: 'none', userSelect: 'none',
+            }}>
+              {message.length}/5000
+            </span>
+          )}
         </div>
         <button
           ref={emojiButtonRef}

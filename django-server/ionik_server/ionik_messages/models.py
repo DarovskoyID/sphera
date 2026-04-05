@@ -69,3 +69,21 @@ class MessageReport(models.Model):
 
     def __str__(self):
         return f'{self.reporter.username} reported msg {self.message_id}'
+
+
+class ScheduledMessage(models.Model):
+    conversation = models.ForeignKey(Conversation, on_delete=models.CASCADE, related_name='scheduled_messages')
+    author = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    encrypted_content = models.TextField()
+    send_at = models.DateTimeField(db_index=True)
+    reply_to = models.ForeignKey(Message, null=True, blank=True, on_delete=models.SET_NULL)
+    attachment_ids = models.JSONField(default=list)
+    is_sent = models.BooleanField(default=False, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    @property
+    def content(self):
+        return decrypt_text(self.encrypted_content)
+
+    def __str__(self):
+        return f'Scheduled by {self.author.username} at {self.send_at}'

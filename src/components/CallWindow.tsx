@@ -1,9 +1,8 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
 import { Maximize2, Minimize2 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
-import { useTranslation } from '../i18n/useTranslation';
 
-// ── Module-level helpers (never redefined, so video refs stay stable) ──────────
+// ── Module-level helpers (never redefined) ────────────────────────────────────
 
 const UserAvatar = ({ name, avatar, size = 80 }: { name: string; avatar: string; size?: number }) => (
   avatar ? (
@@ -15,7 +14,6 @@ const UserAvatar = ({ name, avatar, size = 80 }: { name: string; avatar: string;
   )
 );
 
-// Tile changes its own wrapper to position:fixed when expanded — video stays in ONE DOM node, ref intact
 const Tile = ({ id, label, children, expandedTile, setExpandedTile }: {
   id: string;
   label: string;
@@ -44,7 +42,36 @@ const Tile = ({ id, label, children, expandedTile, setExpandedTile }: {
   );
 };
 
-export const CallWindow = () => {
+// ── Module-level stream attachment pointers ───────────────────────────────────
+// Updated on every render so pc.ontrack always reaches the live video element,
+// even after the component unmounts and remounts (inline ↔ floating transition).
+let _attachRemoteRef: { current: (stream: MediaStream) => void } | null = null;
+let _attachRemoteScreenRef: { current: (stream: MediaStream) => void } | null = null;
+let _clearRemoteScreenRef: { current: () => void } | null = null;
+
+// ── Module-level call state ───────────────────────────────────────────────────
+// Lives outside React so WebRTC connection survives component unmount/remount
+// when the user navigates away from the chat while a call is active.
+const _call = {
+  pc: null as RTCPeerConnection | null,
+  audioStream: null as MediaStream | null,
+  cameraStream: null as MediaStream | null,
+  screenStream: null as MediaStream | null,
+  localMediaStream: new MediaStream(),
+  remoteStream: null as MediaStream | null,
+  remoteScreenStream: null as MediaStream | null,
+  screenSender: null as RTCRtpSender | null,
+  targetId: null as string | null,
+  pendingCandidates: [] as RTCIceCandidate[],
+  hasAutoCalled: false,
+  hasProcessedOffer: false,
+  remotePeerId: null as string | null,
+  remoteScreenActive: false,
+};
+
+// ── Component ─────────────────────────────────────────────────────────────────
+
+export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
   const {
     isDemonstrationActive,
     isVideoActive,
@@ -60,35 +87,62 @@ export const CallWindow = () => {
     setIncomingOffer,
     friends,
   } = useApp();
-  const tr = useTranslation();
 
+
+  // Video element refs — recreated on each mount; streams re-attached via useEffect
   const cameraVideoRef = useRef<HTMLVideoElement>(null);
   const screenVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const remoteScreenVideoRef = useRef<HTMLVideoElement>(null);
 
-  const audioStream = useRef<MediaStream | null>(null);
-  const cameraStream = useRef<MediaStream | null>(null);
-  const screenStream = useRef<MediaStream | null>(null);
-  const localMediaStream = useRef<MediaStream>(new MediaStream());
-
-  const [remoteVideoStatus, setRemoteVideoStatus] = useState<string>('нет видео');
-  const [localVideoStatus, setLocalVideoStatus] = useState<string>('нет видео');
-  const [remotePeerId, setRemotePeerId] = useState<string | null>(null);
+  // Visual state — initialised from module-level so it's correct after remount
+  const [remoteVideoStatus, setRemoteVideoStatus] = useState<string>(
+    _call.remoteStream ? 'видео играет' : 'нет видео'
+  );
+  const [, setLocalVideoStatus] = useState<string>(
+    _call.cameraStream?.active ? 'видео играет' : 'нет видео'
+  );
   const [windowExpanded, setWindowExpanded] = useState(false);
-  const [expandedTile, setExpandedTile] = useState<string | null>(null); // 'local' | 'remote' | 'screen' | 'remoteScreen'
+  const [expandedTile, setExpandedTile] = useState<string | null>(null);
 
-  const pcRef = useRef<RTCPeerConnection | null>(null);
-  const targetIdRef = useRef<string | null>(null);
-  const pendingCandidates = useRef<RTCIceCandidate[]>([]);
+  // These two need to stay in sync with _call so remounts read correct value
+  const [remotePeerId, setRemotePeerIdState] = useState<string | null>(_call.remotePeerId);
+  const [remoteScreenActive, setRemoteScreenActiveState] = useState(_call.remoteScreenActive);
 
-  const remoteStreamRef = useRef<MediaStream | null>(null);
-  const remoteScreenStreamRef = useRef<MediaStream | null>(null);
-  const screenSenderRef = useRef<RTCRtpSender | null>(null);
-  const [remoteScreenActive, setRemoteScreenActive] = useState(false);
+  const setRemotePeerId = (id: string | null) => {
+    _call.remotePeerId = id;
+    setRemotePeerIdState(id);
+  };
+  const setRemoteScreenActive = (v: boolean) => {
+    _call.remoteScreenActive = v;
+    setRemoteScreenActiveState(v);
+  };
 
-  const hasAutoCalledRef = useRef(false);
-  const hasProcessedOffer = useRef(false);
+  // On mount: re-attach streams that survived the previous unmount
+  useEffect(() => {
+    if (_call.cameraStream?.active && cameraVideoRef.current) {
+      cameraVideoRef.current.srcObject = _call.cameraStream;
+      cameraVideoRef.current.muted = true;
+      cameraVideoRef.current.playsInline = true;
+      cameraVideoRef.current.play().catch(() => {});
+      setLocalVideoStatus('видео играет');
+    }
+    if (_call.remoteStream && remoteVideoRef.current) {
+      remoteVideoRef.current.srcObject = _call.remoteStream;
+      remoteVideoRef.current.muted = false;
+      remoteVideoRef.current.playsInline = true;
+      remoteVideoRef.current.play().catch(() => {});
+      setRemoteVideoStatus('видео играет');
+    }
+    if (_call.screenStream?.active && screenVideoRef.current) {
+      screenVideoRef.current.srcObject = _call.screenStream;
+      screenVideoRef.current.play().catch(() => {});
+    }
+    if (_call.remoteScreenStream && remoteScreenVideoRef.current) {
+      remoteScreenVideoRef.current.srcObject = _call.remoteScreenStream;
+      remoteScreenVideoRef.current.play().catch(() => {});
+    }
+  }, []); // only on mount
 
   // ==================== Local video helpers ====================
   const attachStreamToVideo = (
@@ -97,59 +151,49 @@ export const CallWindow = () => {
     setStatus: (s: string) => void,
     muted = true
   ) => {
-    if (!videoEl || !stream) {
-      setStatus('нет элемента или srcObject');
-      return;
-    }
+    if (!videoEl || !stream) return;
     if (videoEl.srcObject === stream) return;
-
     videoEl.srcObject = stream;
     videoEl.muted = muted;
     videoEl.playsInline = true;
-
     videoEl.onloadedmetadata = () => {
       videoEl.play()
         .then(() => setStatus('видео играет'))
-        .catch(err => {
-          setStatus(err.name);
-        });
+        .catch(err => setStatus(err.name));
     };
   };
 
   const startAudio = async () => {
-    if (audioStream.current?.active) return;
+    if (_call.audioStream?.active) return;
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    audioStream.current = stream;
+    _call.audioStream = stream;
   };
 
   const startCamera = async (): Promise<boolean> => {
-    if (cameraStream.current?.active) return true;
+    if (_call.cameraStream?.active) return true;
     const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-    cameraStream.current = stream;
+    _call.cameraStream = stream;
     return true;
   };
 
   const addLocalTracks = (pc: RTCPeerConnection) => {
     const senders = pc.getSenders();
-    if (audioStream.current) {
-      audioStream.current.getAudioTracks().forEach(track => {
-        if (!senders.some(s => s.track?.id === track.id)) {
-          pc.addTrack(track, localMediaStream.current);
-        }
+    if (_call.audioStream) {
+      _call.audioStream.getAudioTracks().forEach(track => {
+        if (!senders.some(s => s.track?.id === track.id))
+          pc.addTrack(track, _call.localMediaStream);
       });
     }
-    if (cameraStream.current) {
-      cameraStream.current.getVideoTracks().forEach(track => {
-        if (!senders.some(s => s.track?.id === track.id)) {
-          pc.addTrack(track, localMediaStream.current);
-        }
+    if (_call.cameraStream) {
+      _call.cameraStream.getVideoTracks().forEach(track => {
+        if (!senders.some(s => s.track?.id === track.id))
+          pc.addTrack(track, _call.localMediaStream);
       });
     }
-    if (screenStream.current) {
-      const screenTrack = screenStream.current.getVideoTracks()[0];
+    if (_call.screenStream) {
+      const screenTrack = _call.screenStream.getVideoTracks()[0];
       if (screenTrack && !senders.some(s => s.track?.id === screenTrack.id)) {
-        const sender = pc.addTrack(screenTrack, screenStream.current);
-        screenSenderRef.current = sender;
+        _call.screenSender = pc.addTrack(screenTrack, _call.screenStream);
       }
     }
   };
@@ -157,99 +201,89 @@ export const CallWindow = () => {
   const startScreen = async () => {
     try {
       const stream = await navigator.mediaDevices.getDisplayMedia({ video: true });
-      screenStream.current = stream;
+      _call.screenStream = stream;
       attachStreamToVideo(screenVideoRef.current, stream, () => {}, true);
 
-      const pc = pcRef.current;
+      const pc = _call.pc;
 
-      if (audioStream.current) {
-        const audioTrack = audioStream.current.getAudioTracks()[0];
+      if (_call.audioStream) {
+        const audioTrack = _call.audioStream.getAudioTracks()[0];
         if (!audioTrack || audioTrack.readyState !== 'live') {
           const newAudioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
           if (pc) {
-            const oldTrack = audioStream.current.getAudioTracks()[0];
+            const oldTrack = _call.audioStream.getAudioTracks()[0];
             const newTrack = newAudioStream.getAudioTracks()[0];
             if (oldTrack && newTrack) {
               const sender = pc.getSenders().find(s => s.track?.id === oldTrack.id);
               if (sender) await sender.replaceTrack(newTrack);
             }
           }
-          audioStream.current.getTracks().forEach(t => t.stop());
-          audioStream.current = newAudioStream;
+          _call.audioStream.getTracks().forEach(t => t.stop());
+          _call.audioStream = newAudioStream;
         }
       }
 
-      if (cameraStream.current) {
-        const camTrack = cameraStream.current.getVideoTracks()[0];
+      if (_call.cameraStream) {
+        const camTrack = _call.cameraStream.getVideoTracks()[0];
         if (!camTrack || camTrack.readyState !== 'live') {
           const newCamStream = await navigator.mediaDevices.getUserMedia({ video: true });
           if (pc) {
-            const oldTrack = cameraStream.current.getVideoTracks()[0];
+            const oldTrack = _call.cameraStream.getVideoTracks()[0];
             const newTrack = newCamStream.getVideoTracks()[0];
             if (oldTrack && newTrack) {
               const sender = pc.getSenders().find(s => s.track?.id === oldTrack.id);
               if (sender) await sender.replaceTrack(newTrack);
             }
           }
-          cameraStream.current.getTracks().forEach(t => t.stop());
-          cameraStream.current = newCamStream;
+          _call.cameraStream.getTracks().forEach(t => t.stop());
+          _call.cameraStream = newCamStream;
           if (cameraVideoRef.current) {
             cameraVideoRef.current.srcObject = newCamStream;
             cameraVideoRef.current.play().catch(() => {});
           }
         } else {
-          if (cameraVideoRef.current) {
-            cameraVideoRef.current.play().catch(() => {});
-          }
+          cameraVideoRef.current?.play().catch(() => {});
         }
       }
 
-      const targetId = targetIdRef.current;
-      if (pc && targetId) {
+      if (pc && _call.targetId) {
         const screenTrack = stream.getVideoTracks()[0];
-        const sender = pc.addTrack(screenTrack, stream);
-        screenSenderRef.current = sender;
-
+        _call.screenSender = pc.addTrack(screenTrack, stream);
         const offer = await pc.createOffer();
         await pc.setLocalDescription(offer);
-        sendSignal({ type: 'offer', sdp: offer, to: targetId });
-        sendSignal({ type: 'demo-toggle', enabled: true, to: targetId });
+        sendSignal({ type: 'offer', sdp: offer, to: _call.targetId });
+        sendSignal({ type: 'demo-toggle', enabled: true, to: _call.targetId });
       }
 
-      stream.getVideoTracks()[0].onended = () => {
-        setDemonstrationActive(false);
-      };
+      stream.getVideoTracks()[0].onended = () => setDemonstrationActive(false);
     } catch {
       setDemonstrationActive(false);
     }
   };
 
   const stopScreen = async () => {
-    screenStream.current?.getTracks().forEach(t => t.stop());
-    screenStream.current = null;
+    _call.screenStream?.getTracks().forEach(t => t.stop());
+    _call.screenStream = null;
     if (screenVideoRef.current) screenVideoRef.current.srcObject = null;
 
-    const pc = pcRef.current;
-    const targetId = targetIdRef.current;
-    if (pc && targetId && screenSenderRef.current) {
-      pc.removeTrack(screenSenderRef.current);
-      screenSenderRef.current = null;
-
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-      sendSignal({ type: 'offer', sdp: offer, to: targetId });
-      sendSignal({ type: 'demo-toggle', enabled: false, to: targetId });
+    if (_call.pc && _call.targetId && _call.screenSender) {
+      _call.pc.removeTrack(_call.screenSender);
+      _call.screenSender = null;
+      const offer = await _call.pc.createOffer();
+      await _call.pc.setLocalDescription(offer);
+      sendSignal({ type: 'offer', sdp: offer, to: _call.targetId });
+      sendSignal({ type: 'demo-toggle', enabled: false, to: _call.targetId });
     }
   };
 
   const stopAllMedia = () => {
-    audioStream.current?.getTracks().forEach(t => t.stop());
-    cameraStream.current?.getTracks().forEach(t => t.stop());
-    screenStream.current?.getTracks().forEach(t => t.stop());
-    audioStream.current = null;
-    cameraStream.current = null;
-    screenStream.current = null;
-    localMediaStream.current = new MediaStream();
+    _call.audioStream?.getTracks().forEach(t => t.stop());
+    _call.cameraStream?.getTracks().forEach(t => t.stop());
+    _call.screenStream?.getTracks().forEach(t => t.stop());
+    _call.audioStream = null;
+    _call.cameraStream = null;
+    _call.screenStream = null;
+    _call.localMediaStream = new MediaStream();
     if (cameraVideoRef.current) cameraVideoRef.current.srcObject = null;
     if (screenVideoRef.current) screenVideoRef.current.srcObject = null;
     setLocalVideoStatus('нет видео');
@@ -262,7 +296,6 @@ export const CallWindow = () => {
     videoEl.srcObject = stream;
     videoEl.muted = true;
     videoEl.playsInline = true;
-
     const tryPlay = () => {
       videoEl.play()
         .then(() => {
@@ -273,6 +306,31 @@ export const CallWindow = () => {
     };
     tryPlay();
   }, []);
+
+  const attachRemoteScreenStream = useCallback((stream: MediaStream) => {
+    const screenEl = remoteScreenVideoRef.current;
+    if (!screenEl) return;
+    screenEl.srcObject = stream;
+    screenEl.muted = true;
+    screenEl.playsInline = true;
+    screenEl.play().catch(() => {});
+  }, []);
+
+  const clearRemoteScreen = useCallback(() => {
+    if (remoteScreenVideoRef.current) remoteScreenVideoRef.current.srcObject = null;
+  }, []);
+
+  // Keep module-level pointers up-to-date on every render so that pc.ontrack
+  // (created once, never replaced) always reaches the current mounted refs.
+  const _attachRemoteLocalRef = useRef(attachRemoteStream);
+  const _attachRemoteScreenLocalRef = useRef(attachRemoteScreenStream);
+  const _clearRemoteScreenLocalRef = useRef(clearRemoteScreen);
+  _attachRemoteLocalRef.current = attachRemoteStream;
+  _attachRemoteScreenLocalRef.current = attachRemoteScreenStream;
+  _clearRemoteScreenLocalRef.current = clearRemoteScreen;
+  _attachRemoteRef = _attachRemoteLocalRef;
+  _attachRemoteScreenRef = _attachRemoteScreenLocalRef;
+  _clearRemoteScreenRef = _clearRemoteScreenLocalRef;
 
   const createPeerConnection = (remoteId: string): RTCPeerConnection => {
     const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
@@ -285,28 +343,22 @@ export const CallWindow = () => {
       const stream = event.streams[0];
       if (!stream) return;
 
-      if (!remoteStreamRef.current) {
-        remoteStreamRef.current = stream;
-        attachRemoteStream(stream);
-      } else if (stream.id !== remoteStreamRef.current.id) {
-        remoteScreenStreamRef.current = stream;
-        const screenEl = remoteScreenVideoRef.current;
-        if (screenEl) {
-          screenEl.srcObject = stream;
-          screenEl.muted = true;
-          screenEl.playsInline = true;
-          screenEl.play().catch(() => {});
-        }
+      if (!_call.remoteStream) {
+        _call.remoteStream = stream;
+        _attachRemoteRef?.current(stream);
+      } else if (stream.id !== _call.remoteStream.id) {
+        _call.remoteScreenStream = stream;
+        _attachRemoteScreenRef?.current(stream);
         setRemoteScreenActive(true);
 
         event.track.onended = () => {
-          remoteScreenStreamRef.current = null;
-          if (remoteScreenVideoRef.current) remoteScreenVideoRef.current.srcObject = null;
+          _call.remoteScreenStream = null;
+          _clearRemoteScreenRef?.current();
           setRemoteScreenActive(false);
         };
         event.track.onmute = () => {
-          remoteScreenStreamRef.current = null;
-          if (remoteScreenVideoRef.current) remoteScreenVideoRef.current.srcObject = null;
+          _call.remoteScreenStream = null;
+          _clearRemoteScreenRef?.current();
           setRemoteScreenActive(false);
         };
       }
@@ -318,13 +370,10 @@ export const CallWindow = () => {
   // ==================== Local video useEffect ====================
   useEffect(() => {
     if (!isVideoActive) return;
-
     const init = async () => {
-      if (!cameraStream.current?.active) {
-        await startCamera();
-      }
-      if (cameraVideoRef.current && cameraStream.current) {
-        attachStreamToVideo(cameraVideoRef.current, cameraStream.current, setLocalVideoStatus, true);
+      if (!_call.cameraStream?.active) await startCamera();
+      if (cameraVideoRef.current && _call.cameraStream) {
+        attachStreamToVideo(cameraVideoRef.current, _call.cameraStream, setLocalVideoStatus, true);
       }
     };
     init();
@@ -340,7 +389,6 @@ export const CallWindow = () => {
   }, [isDemonstrationActive]);
 
   // ==================== Handle incoming signals ====================
-  // Use a ref to always point to the latest handler — avoids null gaps during re-renders
   const handleSignalRef = useRef<(msg: any) => void>(() => {});
 
   handleSignalRef.current = async (msg: any) => {
@@ -348,96 +396,85 @@ export const CallWindow = () => {
     if (!senderId) return;
 
     if (msg.type === 'offer') {
-      if (pcRef.current && String(targetIdRef.current) === senderId) {
-        const pc = pcRef.current;
+      if (_call.pc && String(_call.targetId) === senderId) {
+        const pc = _call.pc;
         try {
           await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
           addLocalTracks(pc);
           const answer = await pc.createAnswer();
           await pc.setLocalDescription(answer);
           sendSignal({ type: 'answer', sdp: answer, to: senderId });
-          for (const c of pendingCandidates.current) await pc.addIceCandidate(c);
-          pendingCandidates.current = [];
+          for (const c of _call.pendingCandidates) await pc.addIceCandidate(c);
+          _call.pendingCandidates = [];
         } catch { }
         return;
       }
-
-      if (pcRef.current && String(targetIdRef.current) !== senderId) {
+      if (_call.pc && String(_call.targetId) !== senderId) {
         sendSignal({ type: 'call-rejected', to: senderId });
         return;
       }
       return;
     } else if (msg.type === 'call-end' || msg.type === 'call-rejected') {
-      if (String(targetIdRef.current) === senderId) {
-        stopCall(false);
-      }
+      if (String(_call.targetId) === senderId) stopCall(false);
       return;
     }
 
-    // For answer/candidate: ensure we have a PC with this sender
-    if (!pcRef.current || String(targetIdRef.current) !== senderId) {
-      pcRef.current = createPeerConnection(senderId);
-      targetIdRef.current = senderId;
-      pendingCandidates.current = [];
+    if (!_call.pc || String(_call.targetId) !== senderId) {
+      _call.pc = createPeerConnection(senderId);
+      _call.targetId = senderId;
+      _call.pendingCandidates = [];
     }
-    const pc = pcRef.current;
+    const pc = _call.pc;
 
     if (msg.type === 'answer') {
       try {
         if (pc.signalingState !== 'have-local-offer') return;
         await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
-        for (const c of pendingCandidates.current) await pc.addIceCandidate(c);
-        pendingCandidates.current = [];
+        for (const c of _call.pendingCandidates) await pc.addIceCandidate(c);
+        _call.pendingCandidates = [];
       } catch { }
     } else if (msg.type === 'candidate') {
       try {
         if (msg.candidate) {
-          if (pc.remoteDescription && pc.remoteDescription.type) {
+          if (pc.remoteDescription?.type) {
             await pc.addIceCandidate(new RTCIceCandidate(msg.candidate));
           } else {
-            pendingCandidates.current.push(msg.candidate);
+            _call.pendingCandidates.push(msg.candidate);
           }
         }
       } catch { }
     } else if (msg.type === 'video-toggle') {
-      if (msg.enabled) {
-        setRemoteVideoStatus('видео включено');
-      } else {
-        setRemoteVideoStatus('видео выключено');
-      }
+      setRemoteVideoStatus(msg.enabled ? 'видео включено' : 'видео выключено');
     } else if (msg.type === 'demo-toggle') {
       if (!msg.enabled) {
-        remoteScreenStreamRef.current = null;
+        _call.remoteScreenStream = null;
         if (remoteScreenVideoRef.current) remoteScreenVideoRef.current.srcObject = null;
       }
       setRemoteScreenActive(msg.enabled);
     }
   };
 
-  // Register a stable handler on mount, clear on unmount — no gaps during re-renders
   useEffect(() => {
     const stableHandler = (msg: any) => handleSignalRef.current(msg);
     onSignalingMessage.current = stableHandler;
     return () => {
-      if (onSignalingMessage.current === stableHandler) {
-        onSignalingMessage.current = null;
-      }
+      if (onSignalingMessage.current === stableHandler) onSignalingMessage.current = null;
     };
   }, []);
 
   // Process incoming offer stored by IncomingCallModal (user accepted)
   useEffect(() => {
-    if (incomingOffer && !hasProcessedOffer.current) {
-      hasProcessedOffer.current = true;
+    if (incomingOffer && !_call.hasProcessedOffer) {
+      _call.hasProcessedOffer = true;
       processIncomingOffer(incomingOffer);
       setIncomingOffer(null);
     }
   }, [incomingOffer]);
 
-  // Auto-call target on mount (triggered from ChatMain Phone/Video buttons)
+  // Auto-call target on mount
   useEffect(() => {
-    if (!callTargetId || hasAutoCalledRef.current || incomingOffer) return;
-    hasAutoCalledRef.current = true;
+    if (!callTargetId || _call.hasAutoCalled || incomingOffer) return;
+    _call.hasAutoCalled = true;
     const targetId = String(callTargetId);
     setCallTargetId(null);
     callPeer(targetId);
@@ -445,24 +482,23 @@ export const CallWindow = () => {
 
   // ==================== Call peer ====================
   const callPeer = async (peerId: string) => {
-    targetIdRef.current = String(peerId);
+    _call.targetId = String(peerId);
     setRemotePeerId(String(peerId));
-    pendingCandidates.current = [];
+    _call.pendingCandidates = [];
 
     try { await startAudio(); } catch { }
     try {
-      if (!cameraStream.current?.active) {
+      if (!_call.cameraStream?.active) {
         const ok = await startCamera();
         if (ok) setVideoActive(true);
       }
-      if (cameraVideoRef.current && cameraStream.current) {
-        attachStreamToVideo(cameraVideoRef.current, cameraStream.current, setLocalVideoStatus, true);
+      if (cameraVideoRef.current && _call.cameraStream) {
+        attachStreamToVideo(cameraVideoRef.current, _call.cameraStream, setLocalVideoStatus, true);
       }
     } catch { }
 
     const pc = createPeerConnection(String(peerId));
-    pcRef.current = pc;
-
+    _call.pc = pc;
     addLocalTracks(pc);
 
     const offer = await pc.createOffer();
@@ -470,49 +506,39 @@ export const CallWindow = () => {
     sendSignal({ type: 'offer', sdp: offer, to: peerId });
   };
 
-  // Process incoming offer from IncomingCallModal (user accepted the call)
   const processIncomingOffer = async (msg: any) => {
     const senderId = String(msg.from);
     setRemotePeerId(senderId);
-
-    // Prevent auto-call effect from also firing
-    hasAutoCalledRef.current = true;
+    _call.hasAutoCalled = true;
     setCallTargetId(null);
 
     try {
-      if (pcRef.current) pcRef.current.close();
-      pcRef.current = createPeerConnection(senderId);
-      targetIdRef.current = senderId;
-      pendingCandidates.current = [];
-      remoteStreamRef.current = null;
-      remoteScreenStreamRef.current = null;
+      if (_call.pc) _call.pc.close();
+      _call.pc = createPeerConnection(senderId);
+      _call.targetId = senderId;
+      _call.pendingCandidates = [];
+      _call.remoteStream = null;
+      _call.remoteScreenStream = null;
 
-      const pc = pcRef.current;
+      const pc = _call.pc;
 
-      // Start media — failures are non-fatal so the answer is always sent
       try { await startAudio(); } catch { }
       try {
-        if (!cameraStream.current?.active) {
+        if (!_call.cameraStream?.active) {
           await startCamera();
           setVideoActive(true);
         }
-        if (cameraVideoRef.current && cameraStream.current) {
-          attachStreamToVideo(cameraVideoRef.current, cameraStream.current, setLocalVideoStatus, true);
+        if (cameraVideoRef.current && _call.cameraStream) {
+          attachStreamToVideo(cameraVideoRef.current, _call.cameraStream, setLocalVideoStatus, true);
         }
       } catch { }
 
-      // Set remote description (the offer)
       await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
-
-      // Add local tracks so the answer includes our media
       addLocalTracks(pc);
-
-      // Create and send answer
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
       sendSignal({ type: 'answer', sdp: answer, to: senderId });
 
-      // Replay any ICE candidates buffered while modal was shown
       if (msg.bufferedCandidates?.length) {
         for (const candidateMsg of msg.bufferedCandidates) {
           if (candidateMsg.candidate) {
@@ -520,77 +546,62 @@ export const CallWindow = () => {
           }
         }
       }
-
-      // Flush any candidates that arrived during processing
-      for (const c of pendingCandidates.current) await pc.addIceCandidate(c);
-      pendingCandidates.current = [];
-
+      for (const c of _call.pendingCandidates) await pc.addIceCandidate(c);
+      _call.pendingCandidates = [];
     } catch { }
-
   };
 
   const stopCall = (notifyRemote = true) => {
-    const targetId = targetIdRef.current;
+    const targetId = _call.targetId;
 
-    pcRef.current?.close();
-    pcRef.current = null;
-
-    targetIdRef.current = null;
-    pendingCandidates.current = [];
+    _call.pc?.close();
+    _call.pc = null;
+    _call.targetId = null;
+    _call.pendingCandidates = [];
 
     stopAllMedia();
 
-    remoteStreamRef.current = null;
-    remoteScreenStreamRef.current = null;
+    _call.remoteStream = null;
+    _call.remoteScreenStream = null;
+    _call.hasAutoCalled = false;
+    _call.hasProcessedOffer = false;
+    _call.remotePeerId = null;
+    _call.remoteScreenActive = false;
+
     if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
     if (remoteScreenVideoRef.current) remoteScreenVideoRef.current.srcObject = null;
 
-    if (notifyRemote && targetId) {
-      sendSignal({ type: 'call-end', to: targetId });
-    }
+    if (notifyRemote && targetId) sendSignal({ type: 'call-end', to: targetId });
 
-    hasAutoCalledRef.current = false;
     setCallTargetId(null);
-    setRemotePeerId(null);
+    setRemotePeerIdState(null);
     setRemoteVideoStatus('нет видео');
-    setRemoteScreenActive(false);
+    setRemoteScreenActiveState(false);
     setCallActive(false);
     setCallStatus('inactive');
     setVideoActive(false);
     setDemonstrationActive(false);
   };
 
-
   // ==================== UI ====================
   const remoteUser = remotePeerId ? friends.find(f => String(f.id) === remotePeerId) : null;
   const remoteName = remoteUser?.nickname || remoteUser?.username || remotePeerId || '?';
   const remoteAvatar = remoteUser?.avatar || '';
 
-  // Count visible tiles to pick grid layout
   const tileCount = 2 + (isDemonstrationActive ? 1 : 0) + (remoteScreenActive ? 1 : 0);
   const cols = Math.min(tileCount, 2);
 
-  const videoFill: React.CSSProperties = {
-    width: '100%',
-    height: '100%',
-    objectFit: 'contain',
-    display: 'block',
-  };
-
+  const videoFill: React.CSSProperties = { width: '100%', height: '100%', objectFit: 'contain', display: 'block' };
   const placeholderStyle: React.CSSProperties = {
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    width: '100%',
-    height: '100%',
-    background: '#1a1a2e',
+    display: 'flex', flexDirection: 'column', alignItems: 'center',
+    justifyContent: 'center', gap: 8, width: '100%', height: '100%', background: '#1a1a2e',
   };
 
   const outerStyle: React.CSSProperties = windowExpanded
     ? { position: 'fixed', inset: 0, width: '100vw', height: '100vh', zIndex: 9500, background: '#111', display: 'flex', flexDirection: 'column' }
-    : { height: 420, background: '#111', display: 'flex', flexDirection: 'column' };
+    : inline
+      ? { height: 420, background: '#111', display: 'flex', flexDirection: 'column' }
+      : { position: 'fixed', bottom: 0, right: 0, width: 480, height: 420, zIndex: 9500, background: '#111', display: 'flex', flexDirection: 'column', borderRadius: '12px 12px 0 0', boxShadow: '0 -4px 32px rgba(0,0,0,0.7)' };
 
   return (
     <div className="call-window" style={outerStyle}>
@@ -601,7 +612,7 @@ export const CallWindow = () => {
             <UserAvatar name={remoteName} avatar={remoteAvatar} size={28} />
             <div style={{ flex: 1 }}>
               <div style={{ color: '#fff', fontWeight: 600, fontSize: 13, lineHeight: 1.2 }}>{remoteName}</div>
-              <div style={{ color: '#aaa', fontSize: 11 }}>{tr('call_active') ?? 'In call'}</div>
+              <div style={{ color: '#aaa', fontSize: 11 }}>In call</div>
             </div>
           </>
         ) : (
@@ -618,18 +629,16 @@ export const CallWindow = () => {
 
       {/* Video grid */}
       <div style={{ flex: 1, display: 'grid', gridTemplateColumns: `repeat(${cols}, 1fr)`, gridAutoRows: '1fr', gap: 3, padding: 3, minHeight: 0, overflow: 'hidden' }}>
-        {/* Local camera */}
-        <Tile id="local" label={tr('call_you') ?? 'You'} expandedTile={expandedTile} setExpandedTile={setExpandedTile}>
+        <Tile id="local" label="You" expandedTile={expandedTile} setExpandedTile={setExpandedTile}>
           <video ref={cameraVideoRef} autoPlay muted playsInline style={{ ...videoFill, display: isVideoActive ? 'block' : 'none' }} />
           {!isVideoActive && (
             <div style={placeholderStyle}>
               <UserAvatar name="Me" avatar="" size={48} />
-              <span style={{ color: '#aaa', fontSize: 12 }}>{tr('call_video_off')}</span>
+              <span style={{ color: '#aaa', fontSize: 12 }}>Video off</span>
             </div>
           )}
         </Tile>
 
-        {/* Remote camera */}
         <Tile id="remote" label={remoteName} expandedTile={expandedTile} setExpandedTile={setExpandedTile}>
           <video
             ref={remoteVideoRef} autoPlay muted playsInline
@@ -640,21 +649,19 @@ export const CallWindow = () => {
             <div style={placeholderStyle}>
               <UserAvatar name={remoteName} avatar={remoteAvatar} size={48} />
               <span style={{ color: '#fff', fontWeight: 600, fontSize: 13 }}>{remoteName}</span>
-              <span style={{ color: '#aaa', fontSize: 11 }}>{tr('call_remote_video_off')}</span>
+              <span style={{ color: '#aaa', fontSize: 11 }}>Video off</span>
             </div>
           )}
         </Tile>
 
-        {/* Local screen share */}
         {isDemonstrationActive && (
-          <Tile id="screen" label={tr('call_your_screen') ?? 'Your screen'} expandedTile={expandedTile} setExpandedTile={setExpandedTile}>
+          <Tile id="screen" label="Your screen" expandedTile={expandedTile} setExpandedTile={setExpandedTile}>
             <video ref={screenVideoRef} autoPlay muted playsInline style={videoFill} />
           </Tile>
         )}
 
-        {/* Remote screen share */}
         {remoteScreenActive && (
-          <Tile id="remoteScreen" label={`${remoteName} — ${tr('call_screen') ?? 'screen'}`} expandedTile={expandedTile} setExpandedTile={setExpandedTile}>
+          <Tile id="remoteScreen" label={`${remoteName} — screen`} expandedTile={expandedTile} setExpandedTile={setExpandedTile}>
             <video ref={remoteScreenVideoRef} autoPlay muted playsInline style={videoFill} />
           </Tile>
         )}
@@ -668,19 +675,17 @@ export const CallWindow = () => {
           onClick={() => {
             const newState = !isVideoActive;
             setVideoActive(newState);
-            if (cameraStream.current) {
-              cameraStream.current.getVideoTracks().forEach(track => { track.enabled = newState; });
+            if (_call.cameraStream) {
+              _call.cameraStream.getVideoTracks().forEach(track => { track.enabled = newState; });
             }
-            if (targetIdRef.current) {
-              sendSignal({ type: 'video-toggle', enabled: newState, to: targetIdRef.current });
-            }
+            if (_call.targetId) sendSignal({ type: 'video-toggle', enabled: newState, to: _call.targetId });
           }}
         >
           C
         </button>
         <button className="icon-btn glass-btn" onClick={() => {
-          if (audioStream.current) {
-            audioStream.current.getAudioTracks().forEach(track => { track.enabled = !track.enabled; });
+          if (_call.audioStream) {
+            _call.audioStream.getAudioTracks().forEach(track => { track.enabled = !track.enabled; });
           }
         }}>M</button>
         <button className="icon-btn glass-btn">H</button>

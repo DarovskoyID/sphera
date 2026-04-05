@@ -48,6 +48,7 @@ export interface ChatMessage {
     id: number;
     content: string;
     author: { id: string; username: string; nickname?: string };
+    deleted?: boolean;
   } | null;
   is_pinned?: boolean;
 }
@@ -97,10 +98,12 @@ export interface AppState {
   authToken: string;
   currentUser: ServerUser | null;
   friends: ServerUser[];
+  blockedContacts: ServerUser[];
   pendingRequests: PendingRequest[];
   callTargetId: string | null;
   incomingOffer: any | null;
   chatMessages: ChatMessage[];
   chatConversationId: number | null;
+  chatBlockedByOther: boolean;
   customEmojis: CustomEmoji[];
 }
