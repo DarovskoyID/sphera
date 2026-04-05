@@ -90,6 +90,78 @@ export const serverChannels: Record<string, ServerChannel> = {
     online: 129,
     channels: ['general', 'study-hall', 'resources', 'off-topic'],
     voiceChannels: ['Study Room', 'Group Discussion']
+  },
+  '5': {
+    id: '5',
+    name: 'Study Group',
+    abbr: 'SG',
+    description: 'A focused community for students to collaborate, share resources and stay motivated.',
+    banner: 'https://images.pexels.com/photos/256490/pexels-photo-256490.jpeg?auto=compress&cs=tinysrgb&w=1200',
+    accent: '#d97706',
+    members: 763,
+    online: 129,
+    channels: ['general', 'study-hall', 'resources', 'off-topic'],
+    voiceChannels: ['Study Room', 'Group Discussion']
+  },
+  '6': {
+    id: '6',
+    name: 'Study Group',
+    abbr: 'SG',
+    description: 'A focused community for students to collaborate, share resources and stay motivated.',
+    banner: 'https://images.pexels.com/photos/256490/pexels-photo-256490.jpeg?auto=compress&cs=tinysrgb&w=1200',
+    accent: '#d97706',
+    members: 763,
+    online: 129,
+    channels: ['general', 'study-hall', 'resources', 'off-topic'],
+    voiceChannels: ['Study Room', 'Group Discussion']
+  },
+  '7': {
+    id: '7',
+    name: 'Study Group',
+    abbr: 'SG',
+    description: 'A focused community for students to collaborate, share resources and stay motivated.',
+    banner: 'https://images.pexels.com/photos/256490/pexels-photo-256490.jpeg?auto=compress&cs=tinysrgb&w=1200',
+    accent: '#d97706',
+    members: 763,
+    online: 129,
+    channels: ['general', 'study-hall', 'resources', 'off-topic'],
+    voiceChannels: ['Study Room', 'Group Discussion']
+  },
+  '8': {
+    id: '8',
+    name: 'Study Group',
+    abbr: 'SG',
+    description: 'A focused community for students to collaborate, share resources and stay motivated.',
+    banner: 'https://images.pexels.com/photos/256490/pexels-photo-256490.jpeg?auto=compress&cs=tinysrgb&w=1200',
+    accent: '#d97706',
+    members: 763,
+    online: 129,
+    channels: ['general', 'study-hall', 'resources', 'off-topic'],
+    voiceChannels: ['Study Room', 'Group Discussion']
+  },
+  '9': {
+    id: '9',
+    name: 'Study Group',
+    abbr: 'SG',
+    description: 'A focused community for students to collaborate, share resources and stay motivated.',
+    banner: 'https://images.pexels.com/photos/256490/pexels-photo-256490.jpeg?auto=compress&cs=tinysrgb&w=1200',
+    accent: '#d97706',
+    members: 763,
+    online: 129,
+    channels: ['general', 'study-hall', 'resources', 'off-topic'],
+    voiceChannels: ['Study Room', 'Group Discussion']
+  },
+  '10': {
+    id: '10',
+    name: 'Study Group',
+    abbr: 'SG',
+    description: 'A focused community for students to collaborate, share resources and stay motivated.',
+    banner: 'https://images.pexels.com/photos/256490/pexels-photo-256490.jpeg?auto=compress&cs=tinysrgb&w=1200',
+    accent: '#d97706',
+    members: 763,
+    online: 129,
+    channels: ['general', 'study-hall', 'resources', 'off-topic'],
+    voiceChannels: ['Study Room', 'Group Discussion']
   }
 };
 

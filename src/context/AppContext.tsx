@@ -1,5 +1,62 @@
-import React, { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
-import type {AppState, ViewType, MobilePanel} from '../types';
+import React, { createContext, useContext, useState, useEffect, useRef, useCallback, type ReactNode } from 'react';
+import type { AppState, ViewType, MobilePanel, ServerUser, PendingRequest, ChatMessage } from '../types';
+import type { CustomEmoji } from '../types';
+
+// ── Global error interception ────────────────────────────────────────────────
+// Captures errors before the context mounts, then drains them once it's ready.
+const _errorQueue: string[] = [];
+let _errorSink: ((msg: string) => void) | null = null;
+
+function _dispatch(msg: string) {
+  if (_errorSink) {
+    _errorSink(msg);
+  } else {
+    _errorQueue.push(msg);
+  }
+}
+
+export function reportError(e: unknown) {
+  const msg = e instanceof Error ? e.message : String(e ?? 'Unknown error');
+  _dispatch(msg);
+}
+
+// Intercept console.error
+const _origConsoleError = console.error.bind(console);
+console.error = (...args: unknown[]) => {
+  _origConsoleError(...args);
+  const msg = args.map(a => (a instanceof Error ? a.message : String(a))).join(' ');
+  _dispatch(msg);
+};
+
+// Intercept uncaught errors
+window.addEventListener('error', (e) => {
+  _dispatch(e.message || String(e));
+});
+
+// Intercept unhandled promise rejections
+window.addEventListener('unhandledrejection', (e) => {
+  const reason = e.reason;
+  const msg = reason instanceof Error ? reason.message : String(reason ?? 'Unhandled rejection');
+  _dispatch(msg);
+});
+
+// ── Accent colour (premium blue default) ─────────────────────────────────────
+const DEFAULT_ACCENT = '#0070F3';
+function applyAccent(color: string) {
+  document.documentElement.style.setProperty('--accent-primary', color);
+  // Darken 15% for hover/active
+  document.documentElement.style.setProperty('--accent-hover', shadeColor(color, -15));
+  document.documentElement.style.setProperty('--accent-active', shadeColor(color, -25));
+}
+function shadeColor(hex: string, pct: number): string {
+  const n = parseInt(hex.replace('#', ''), 16);
+  const r = Math.min(255, Math.max(0, (n >> 16) + Math.round(2.55 * pct)));
+  const g = Math.min(255, Math.max(0, ((n >> 8) & 0xff) + Math.round(2.55 * pct)));
+  const b = Math.min(255, Math.max(0, (n & 0xff) + Math.round(2.55 * pct)));
+  return `#${((1 << 24) | (r << 16) | (g << 8) | b).toString(16).slice(1)}`;
+}
+// Apply on load
+applyAccent(localStorage.getItem('accentColor') || DEFAULT_ACCENT);
 
 interface AppContextType extends AppState {
   setCurrentView: (view: ViewType) => void;
@@ -8,7 +65,7 @@ interface AppContextType extends AppState {
   setCurrentChannel: (channel: string) => void;
   setCurrentSettingsPage: (page: string) => void;
   toggleTheme: () => void;
-  setLanguage: (lang: 'en' | 'ru') => void;
+  setLanguage: (lang: string) => void;
   toggleMobileSidebar: () => void;
   setMobileActivePanel: (panel: MobilePanel) => void;
   setCallActive: (active: boolean) => void;
@@ -18,6 +75,36 @@ interface AppContextType extends AppState {
   setCallStatus: (status: 'active' | 'ringing' | 'connection' | 'inactive') => void;
   setCurrentServerIP: (serverIP: string) => void;
   setUserIDonServer: (userIDonServer: string) => void;
+  setAuthToken: (token: string) => void;
+  setCallTargetId: (id: string | null) => void;
+  setIncomingOffer: (offer: any | null) => void;
+  signalingWs: React.MutableRefObject<WebSocket | null>;
+  sendSignal: (data: any) => void;
+  signalingPeers: Array<{ id: string; name: string }>;
+  onSignalingMessage: React.MutableRefObject<((msg: any) => void) | null>;
+  loadFriends: () => Promise<void>;
+  loadPendingRequests: () => Promise<void>;
+  removeFriend: (userId: string) => Promise<void>;
+  blockUser: (userId: string) => Promise<void>;
+  unblockUser: (userId: string) => Promise<void>;
+  removeBlockedContact: (userId: string) => void;
+  setAccentColor: (color: string) => void;
+  sendFriendRequest: (userId: string) => Promise<void>;
+  acceptFriendRequest: (friendshipId: number) => Promise<void>;
+  rejectFriendRequest: (friendshipId: number) => Promise<void>;
+  searchUsers: (query: string) => Promise<ServerUser[]>;
+  sendChatMessage: (text: string, attachmentIds?: number[], replyToId?: number) => void;
+  deleteMessage: (messageId: number) => Promise<void>;
+  pinMessage: (messageId: number) => Promise<void>;
+  reportMessage: (messageId: number) => Promise<void>;
+  loadOlderMessages: () => Promise<boolean>;
+  loadCustomEmojis: () => Promise<void>;
+  scheduleMessage: (conversationId: number, text: string, attachmentIds: number[], delaySeconds: number, replyToId?: number) => Promise<{ id: number; send_at: string } | null>;
+  cancelScheduledMessage: (scheduledId: number) => Promise<void>;
+  listScheduled: (conversationId: number) => Promise<Array<{ id: number; send_at: string; content: string }>>;
+  showError: (message: string) => void;
+  clearError: () => void;
+  errorMessage: string | null;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -37,10 +124,11 @@ interface AppProviderProps {
 export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
   const [state, setState] = useState<AppState>(() => {
     const savedTheme = localStorage.getItem('messengerTheme') as 'light' | 'dark' || 'dark';
-    const savedLanguage = localStorage.getItem('messengerLanguage') as 'en' | 'ru' || 'en';
+    const savedLanguage = localStorage.getItem('messengerLanguage') || 'en';
     const savedServer = localStorage.getItem('messengerCurrentServer') || 'home';
-    const savedChat = localStorage.getItem('messengerCurrentChat') || '1';
+    const savedChat = localStorage.getItem('messengerCurrentChat') || '';
     const savedChannel = localStorage.getItem('messengerCurrentChannel') || 'general';
+    const savedToken = localStorage.getItem('authToken') || '';
 
     return {
       currentView: savedServer === 'home' ? 'home' : savedServer === 'settings' ? 'settings' : 'server',
@@ -57,11 +145,523 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       isVideoActive: false,
       SpeakersActive: ["", ""],
       callStatus: 'inactive',
-      currentServerIP: 'http://localhost:8888',
+      currentServerIP: 'http://192.168.0.110:8000',
       userIDonServer: '',
+      authToken: savedToken,
+      currentUser: null,
+      friends: [],
+      blockedContacts: [],
+      pendingRequests: [],
+      callTargetId: null,
+      incomingOffer: null,
+      chatMessages: [],
+      chatConversationId: null,
+      chatBlockedByOther: false,
+      customEmojis: [],
     };
   });
 
+  const signalingWs = useRef<WebSocket | null>(null);
+  const [signalingPeers, setSignalingPeers] = useState<Array<{ id: string; name: string }>>([]);
+  const onSignalingMessage = useRef<((msg: any) => void) | null>(null);
+  const pendingStatusRef = useRef<Record<string, string>>({});
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const showError = useCallback((message: string) => setErrorMessage(message), []);
+  const clearError = useCallback(() => setErrorMessage(null), []);
+
+  // Drain any errors that were queued before the context mounted, then
+  // redirect all future console.error / window errors into the modal.
+  useEffect(() => {
+    // Drain queue
+    if (_errorQueue.length > 0) {
+      setErrorMessage(_errorQueue[0]);
+      _errorQueue.length = 0;
+    }
+    // Point the global sink at this context
+    _errorSink = (msg: string) => setErrorMessage(msg);
+    return () => {
+      _errorSink = null;
+    };
+  }, []);
+
+  const chatWs = useRef<WebSocket | null>(null);
+
+  // ==================== API helpers ====================
+  const apiGet = useCallback(async (path: string, token: string, serverIP: string) => {
+    const res = await fetch(`${serverIP}${path}`, {
+      headers: { 'Authorization': `Bearer ${token}` },
+    });
+    if (!res.ok) throw new Error(`${res.status}`);
+    return res.json();
+  }, []);
+
+  const apiPost = useCallback(async (path: string, token: string, serverIP: string, body: any) => {
+    const res = await fetch(`${serverIP}${path}`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const data = await res.json();
+      throw new Error(typeof data === 'object' ? Object.values(data).flat().join(', ') : String(data));
+    }
+    return res.json();
+  }, []);
+
+  // ==================== Load user info after login ====================
+  useEffect(() => {
+    if (!state.authToken) {
+      setState(prev => ({ ...prev, currentUser: null, friends: [], pendingRequests: [], userIDonServer: '', currentChat: '' }));
+      return;
+    }
+    const load = async () => {
+      try {
+        const user: ServerUser = await apiGet('/api/auth/me/', state.authToken, state.currentServerIP);
+        setState(prev => ({ ...prev, currentUser: user, userIDonServer: String(user.id) }));
+      } catch (e) { reportError(e); }
+      try {
+        const [friendsRaw, blockedRaw]: [ServerUser[], any[]] = await Promise.all([
+          apiGet('/api/auth/friends/', state.authToken, state.currentServerIP),
+          apiGet('/api/auth/blocked/', state.authToken, state.currentServerIP),
+        ]);
+        const friends = friendsRaw;
+        const blockedContacts: ServerUser[] = blockedRaw.map((r: any) => r.blocked);
+        // Merge any status updates that arrived via WS before this load completed
+        const merged = friends.map(f => ({
+          ...f,
+          status: (pendingStatusRef.current[String(f.id)] ?? f.status) as ServerUser['status'],
+        }));
+        setState(prev => ({ ...prev, friends: merged, blockedContacts }));
+      } catch (e) { reportError(e); }
+      try {
+        const pending: PendingRequest[] = await apiGet('/api/auth/friends/requests/pending/', state.authToken, state.currentServerIP);
+        setState(prev => ({ ...prev, pendingRequests: pending }));
+      } catch (e) { reportError(e); }
+      try {
+        const emojis: CustomEmoji[] = await apiGet('/api/auth/emojis/', state.authToken, state.currentServerIP);
+        setState(prev => ({ ...prev, customEmojis: emojis }));
+      } catch (e) { reportError(e); }
+    };
+    load();
+  }, [state.authToken]);
+
+  // ==================== Friends actions ====================
+  const loadFriends = useCallback(async () => {
+    try {
+      const friends: ServerUser[] = await apiGet('/api/auth/friends/', state.authToken, state.currentServerIP);
+      setState(prev => ({ ...prev, friends }));
+    } catch (e) { reportError(e); }
+  }, [state.authToken, state.currentServerIP, apiGet]);
+
+  const loadPendingRequests = useCallback(async () => {
+    try {
+      const pending: PendingRequest[] = await apiGet('/api/auth/friends/requests/pending/', state.authToken, state.currentServerIP);
+      setState(prev => ({ ...prev, pendingRequests: pending }));
+    } catch (e) { reportError(e); }
+  }, [state.authToken, state.currentServerIP, apiGet]);
+
+  const loadCustomEmojis = useCallback(async () => {
+    if (!state.authToken) return;
+    try {
+      const emojis: CustomEmoji[] = await apiGet('/api/auth/emojis/', state.authToken, state.currentServerIP);
+      setState(prev => ({ ...prev, customEmojis: emojis }));
+    } catch (e) { reportError(e); }
+  }, [state.authToken, state.currentServerIP, apiGet]);
+
+  const removeFriend = useCallback(async (userId: string) => {
+    await fetch(`${state.currentServerIP}/api/auth/friends/${userId}/remove/`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${state.authToken}` },
+    });
+    setState(prev => ({ ...prev, friends: prev.friends.filter(f => String(f.id) !== String(userId)) }));
+  }, [state.authToken, state.currentServerIP]);
+
+  const blockUser = useCallback(async (userId: string) => {
+    await fetch(`${state.currentServerIP}/api/auth/block/`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${state.authToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: userId }),
+    });
+    // Move from friends → blockedContacts so the DM stays visible
+    setState(prev => {
+      const blocked = prev.friends.find(f => String(f.id) === String(userId));
+      return {
+        ...prev,
+        friends: prev.friends.filter(f => String(f.id) !== String(userId)),
+        blockedContacts: blocked
+          ? [...prev.blockedContacts.filter(u => String(u.id) !== String(userId)), blocked]
+          : prev.blockedContacts,
+      };
+    });
+  }, [state.authToken, state.currentServerIP]);
+
+  const unblockUser = useCallback(async (userId: string) => {
+    await fetch(`${state.currentServerIP}/api/auth/unblock/${userId}/`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${state.authToken}` },
+    });
+    setState(prev => ({
+      ...prev,
+      blockedContacts: prev.blockedContacts.filter(u => String(u.id) !== String(userId)),
+    }));
+  }, [state.authToken, state.currentServerIP]);
+
+  const removeBlockedContact = useCallback((userId: string) => {
+    setState(prev => ({
+      ...prev,
+      blockedContacts: prev.blockedContacts.filter(u => String(u.id) !== String(userId)),
+    }));
+  }, []);
+
+  const setAccentColor = useCallback((color: string) => {
+    localStorage.setItem('accentColor', color);
+    applyAccent(color);
+  }, []);
+
+  const sendFriendRequest = useCallback(async (userId: string) => {
+    await apiPost('/api/auth/friends/request/', state.authToken, state.currentServerIP, { user_id: userId });
+  }, [state.authToken, state.currentServerIP, apiPost]);
+
+  const acceptFriendRequest = useCallback(async (friendshipId: number) => {
+    await apiPost(`/api/auth/friends/request/${friendshipId}/accept/`, state.authToken, state.currentServerIP, {});
+    await loadFriends();
+    await loadPendingRequests();
+  }, [state.authToken, state.currentServerIP, apiPost, loadFriends, loadPendingRequests]);
+
+  const rejectFriendRequest = useCallback(async (friendshipId: number) => {
+    await apiPost(`/api/auth/friends/request/${friendshipId}/reject/`, state.authToken, state.currentServerIP, {});
+    await loadPendingRequests();
+  }, [state.authToken, state.currentServerIP, apiPost, loadPendingRequests]);
+
+  const searchUsers = useCallback(async (query: string): Promise<ServerUser[]> => {
+    const users: ServerUser[] = await apiGet('/api/auth/users/', state.authToken, state.currentServerIP);
+    const q = query.toLowerCase();
+    return users.filter(u =>
+      u.username.toLowerCase().includes(q) || u.nickname.toLowerCase().includes(q)
+    );
+  }, [state.authToken, state.currentServerIP, apiGet]);
+
+  // ==================== Chat WebSocket ====================
+  // When currentChat changes, get/create conversation, load history, connect WS
+  useEffect(() => {
+    // Close existing chat WS
+    if (chatWs.current) {
+      chatWs.current.close();
+      chatWs.current = null;
+    }
+
+    if (!state.currentChat || !state.authToken) {
+      setState(prev => ({ ...prev, chatMessages: [], chatConversationId: null, chatBlockedByOther: false }));
+      return;
+    }
+
+    let cancelled = false;
+
+    const initChat = async () => {
+      try {
+        // Get or create conversation with this user
+        setState(prev => ({ ...prev, chatBlockedByOther: false }));
+        const convoRes = await fetch(`${state.currentServerIP}/api/conversations/create/`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${state.authToken}` },
+          body: JSON.stringify({ user_id: state.currentChat }),
+        });
+        if (cancelled) return;
+        if (convoRes.status === 403) {
+          // No prior conversation exists and we're blocked — nothing to show
+          setState(prev => ({ ...prev, chatBlockedByOther: true, chatMessages: [], chatConversationId: null }));
+          return;
+        }
+        if (!convoRes.ok) throw new Error(`${convoRes.status}`);
+        const convo = await convoRes.json();
+        if (cancelled) return;
+        if (convo.blocked_by_other) {
+          // Existing conversation accessible, but we can't send new messages
+          setState(prev => ({ ...prev, chatBlockedByOther: true }));
+        }
+
+        const convoId = convo.id;
+        setState(prev => ({ ...prev, chatConversationId: convoId }));
+
+        // Load message history
+        const msgs: ChatMessage[] = await apiGet(
+          `/api/conversations/${convoId}/messages/`,
+          state.authToken,
+          state.currentServerIP
+        );
+        if (cancelled) return;
+        setState(prev => ({ ...prev, chatMessages: msgs }));
+
+        // Connect chat WebSocket
+        const wsUrl = state.currentServerIP.replace(/^http/, 'ws');
+        const ws = new WebSocket(`${wsUrl}/ws/chat/${convoId}/?token=${state.authToken}`);
+
+        ws.onopen = () => {
+          chatWs.current = ws;
+        };
+
+        ws.onmessage = (event) => {
+          const data = JSON.parse(event.data);
+          if (data.type === 'conversation_deleted') {
+            setState(prev => ({
+              ...prev,
+              chatMessages: [],
+              chatConversationId: null,
+              currentChat: '',
+              // Also remove from blocked contacts if this was a blocked DM
+              blockedContacts: prev.blockedContacts.filter(
+                u => String(u.id) !== String(prev.currentChat)
+              ),
+            }));
+            if (chatWs.current === ws) {
+              chatWs.current = null;
+            }
+            return;
+          }
+          if (data.type === 'message_deleted') {
+            setState(prev => ({
+              ...prev,
+              chatMessages: prev.chatMessages
+                .filter(m => m.id !== data.id)
+                .map(m => m.reply_to?.id === data.id
+                  ? { ...m, reply_to: { ...m.reply_to!, deleted: true } }
+                  : m
+                ),
+            }));
+          } else if (data.type === 'message_pinned') {
+            setState(prev => ({
+              ...prev,
+              chatMessages: prev.chatMessages.map(m =>
+                m.id === data.id ? { ...m, is_pinned: data.is_pinned } : m
+              ),
+            }));
+          } else {
+            const msg: ChatMessage = data;
+            setState(prev => {
+              const msgs = [...prev.chatMessages, msg];
+              if (msgs.length > 500) msgs.splice(0, msgs.length - 500);
+              return { ...prev, chatMessages: msgs };
+            });
+          }
+        };
+
+        ws.onclose = () => {
+          if (chatWs.current === ws) chatWs.current = null;
+        };
+      } catch (e) { reportError(e); }
+    };
+
+    initChat();
+
+    return () => {
+      cancelled = true;
+      if (chatWs.current) {
+        chatWs.current.close();
+        chatWs.current = null;
+      }
+    };
+  }, [state.currentChat, state.authToken, state.currentServerIP]);
+
+  const sendChatMessage = useCallback((text: string, attachmentIds?: number[], replyToId?: number) => {
+    if (chatWs.current?.readyState !== WebSocket.OPEN) return;
+    const payload: Record<string, unknown> = {};
+    if (text.trim()) payload.message = text;
+    if (attachmentIds && attachmentIds.length > 0) payload.attachment_ids = attachmentIds;
+    if (replyToId) payload.reply_to_id = replyToId;
+    if (payload.message || payload.attachment_ids) {
+      chatWs.current.send(JSON.stringify(payload));
+    }
+  }, []);
+
+  const deleteMessage = useCallback(async (messageId: number) => {
+    await fetch(`${state.currentServerIP}/api/messages/${messageId}/`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${state.authToken}` },
+    });
+    // Optimistically remove from local state in case the WS event is delayed
+    setState(prev => ({
+      ...prev,
+      chatMessages: prev.chatMessages
+        .filter(m => m.id !== messageId)
+        .map(m => m.reply_to?.id === messageId
+          ? { ...m, reply_to: { ...m.reply_to!, deleted: true } }
+          : m
+        ),
+    }));
+  }, [state.currentServerIP, state.authToken]);
+
+  const scheduleMessage = useCallback(async (
+    conversationId: number,
+    text: string,
+    attachmentIds: number[],
+    delaySeconds: number,
+    replyToId?: number,
+  ): Promise<{ id: number; send_at: string } | null> => {
+    try {
+      const res = await fetch(
+        `${state.currentServerIP}/api/conversations/${conversationId}/schedule/`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${state.authToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            content: text,
+            attachment_ids: attachmentIds,
+            delay_seconds: delaySeconds,
+            reply_to_id: replyToId,
+          }),
+        }
+      );
+      if (!res.ok) return null;
+      return res.json();
+    } catch (e) {
+      reportError(e);
+      return null;
+    }
+  }, [state.currentServerIP, state.authToken]);
+
+  const cancelScheduledMessage = useCallback(async (scheduledId: number) => {
+    await fetch(`${state.currentServerIP}/api/scheduled/${scheduledId}/`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${state.authToken}` },
+    });
+  }, [state.currentServerIP, state.authToken]);
+
+  const listScheduled = useCallback(async (conversationId: number): Promise<Array<{ id: number; send_at: string; content: string }>> => {
+    try {
+      return await apiGet(`/api/conversations/${conversationId}/scheduled/`, state.authToken, state.currentServerIP);
+    } catch (e) {
+      reportError(e);
+      return [];
+    }
+  }, [state.authToken, state.currentServerIP, apiGet]);
+
+  const pinMessage = useCallback(async (messageId: number) => {
+    await fetch(`${state.currentServerIP}/api/messages/${messageId}/pin/`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${state.authToken}` },
+    });
+  }, [state.currentServerIP, state.authToken]);
+
+  const reportMessage = useCallback(async (messageId: number) => {
+    await fetch(`${state.currentServerIP}/api/messages/${messageId}/report/`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${state.authToken}` },
+    });
+  }, [state.currentServerIP, state.authToken]);
+
+  const loadOlderMessages = useCallback(async (): Promise<boolean> => {
+    const convoId = state.chatConversationId;
+    const firstMsg = state.chatMessages[0];
+    if (!convoId || !firstMsg?.id) return false;
+    try {
+      const older: ChatMessage[] = await apiGet(
+        `/api/conversations/${convoId}/messages/?before=${firstMsg.id}&limit=50`,
+        state.authToken,
+        state.currentServerIP
+      );
+      if (older.length === 0) return false;
+      setState(prev => ({
+        ...prev,
+        chatMessages: [...older, ...prev.chatMessages],
+      }));
+      return true;
+    } catch (e) {
+      reportError(e);
+      return false;
+    }
+  }, [state.chatConversationId, state.chatMessages, state.authToken, state.currentServerIP, apiGet]);
+
+  // ==================== Signaling WebSocket ====================
+  useEffect(() => {
+    if (!state.authToken) {
+      if (signalingWs.current) {
+        signalingWs.current.close();
+        signalingWs.current = null;
+        setSignalingPeers([]);
+      }
+      return;
+    }
+
+    const wsUrl = state.currentServerIP.replace(/^http/, 'ws');
+    const ws = new WebSocket(`${wsUrl}/ws/signaling/?token=${state.authToken}`);
+
+    ws.onopen = () => {
+      signalingWs.current = ws;
+      // Mark ourselves as online locally
+      setState(prev => prev.currentUser
+        ? { ...prev, currentUser: { ...prev.currentUser, status: 'online' } }
+        : prev
+      );
+    };
+
+    ws.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      if (data.type === 'peers') {
+        setSignalingPeers(data.peers);
+        return;
+      }
+      if (data.type === 'blocked') {
+        // Someone blocked me — disable messaging if their chat is open
+        setState(prev => ({
+          ...prev,
+          chatBlockedByOther: String(data.by_user_id) === String(prev.currentChat)
+            ? true
+            : prev.chatBlockedByOther,
+        }));
+        return;
+      }
+      if (data.type === 'unblocked') {
+        // Someone unblocked me — re-enable messaging if their chat is open
+        setState(prev => ({
+          ...prev,
+          chatBlockedByOther: String(data.by_user_id) === String(prev.currentChat)
+            ? false
+            : prev.chatBlockedByOther,
+        }));
+        return;
+      }
+      if (data.type === 'status_update') {
+        // Buffer in case friends list hasn't loaded yet
+        pendingStatusRef.current[String(data.user_id)] = data.status;
+        setState(prev => ({
+          ...prev,
+          friends: prev.friends.map(f =>
+            String(f.id) === String(data.user_id)
+              ? { ...f, status: data.status }
+              : f
+          ),
+        }));
+        return;
+      }
+      if (onSignalingMessage.current) {
+        onSignalingMessage.current(data);
+      }
+    };
+
+    ws.onclose = () => {
+      signalingWs.current = null;
+      setState(prev => prev.currentUser
+        ? { ...prev, currentUser: { ...prev.currentUser, status: 'offline' } }
+        : prev
+      );
+    };
+
+    return () => {
+      ws.close();
+      signalingWs.current = null;
+    };
+  }, [state.authToken, state.currentServerIP]);
+
+  const sendSignal = (data: any) => {
+    if (signalingWs.current?.readyState === WebSocket.OPEN) {
+      signalingWs.current.send(JSON.stringify(data));
+    }
+  };
+
+  // ==================== localStorage effects ====================
   useEffect(() => {
     if (state.theme === 'dark') {
       document.body.classList.add('dark-theme');
@@ -71,91 +671,56 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     localStorage.setItem('messengerTheme', state.theme);
   }, [state.theme]);
 
-  useEffect(() => {
-    localStorage.setItem('messengerCurrentServer', state.currentServer);
-  }, [state.currentServer]);
+  useEffect(() => { localStorage.setItem('messengerCurrentServer', state.currentServer); }, [state.currentServer]);
+  useEffect(() => { localStorage.setItem('messengerCurrentChat', state.currentChat); }, [state.currentChat]);
+  useEffect(() => { localStorage.setItem('messengerCurrentChannel', state.currentChannel); }, [state.currentChannel]);
+  useEffect(() => { localStorage.setItem('messengerLanguage', state.language); }, [state.language]);
 
-  useEffect(() => {
-    localStorage.setItem('messengerCurrentChat', state.currentChat);
-  }, [state.currentChat]);
-
-  useEffect(() => {
-    localStorage.setItem('messengerCurrentChannel', state.currentChannel);
-  }, [state.currentChannel]);
-
-  useEffect(() => {
-    localStorage.setItem('messengerLanguage', state.language);
-  }, [state.language]);
-
-  const setCurrentView = (view: ViewType) => {
-    setState(prev => ({ ...prev, currentView: view }));
-  };
+  // ==================== State setters ====================
+  const setCurrentView = (view: ViewType) => setState(prev => ({ ...prev, currentView: view }));
 
   const setCurrentServer = (serverId: string) => {
     setState(prev => ({
       ...prev,
       currentServer: serverId,
       currentView: serverId === 'home' ? 'home' : serverId === 'settings' ? 'settings' : 'server',
+      currentChat: serverId === 'home' ? '' : prev.currentChat,
       isMobileSidebarOpen: false,
       mobileActivePanel: 'chat-list' as MobilePanel,
     }));
   };
 
   const setCurrentChat = (chatId: string) => {
-    setState(prev => ({ ...prev, currentChat: chatId, mobileActivePanel: 'chat-view' as MobilePanel }));
+    setState(prev => ({ ...prev, currentChat: chatId, currentView: 'home', currentServer: 'home', mobileActivePanel: 'chat-view' as MobilePanel }));
   };
 
-  const setCurrentChannel = (channel: string) => {
-    setState(prev => ({ ...prev, currentChannel: channel }));
-  };
+  const setCurrentChannel = (channel: string) => setState(prev => ({ ...prev, currentChannel: channel }));
 
   const setCurrentSettingsPage = (page: string) => {
     setState(prev => ({ ...prev, currentSettingsPage: page, mobileActivePanel: 'chat-view' as MobilePanel }));
   };
 
-  const toggleTheme = () => {
-    setState(prev => ({ ...prev, theme: prev.theme === 'dark' ? 'light' : 'dark' }));
-  };
-
-  const setLanguage = (lang: 'en' | 'ru') => {
+  const toggleTheme = () => setState(prev => ({ ...prev, theme: prev.theme === 'dark' ? 'light' : 'dark' }));
+  const setLanguage = (lang: string) => {
     setState(prev => ({ ...prev, language: lang }));
+    localStorage.setItem('messengerLanguage', lang);
   };
+  const toggleMobileSidebar = () => setState(prev => ({ ...prev, isMobileSidebarOpen: !prev.isMobileSidebarOpen }));
+  const setMobileActivePanel = (panel: MobilePanel) => setState(prev => ({ ...prev, mobileActivePanel: panel }));
+  const setCallActive = (active: boolean) => setState(prev => ({ ...prev, isCallActive: active }));
+  const setDemonstrationActive = (v: boolean) => setState(prev => ({ ...prev, isDemonstrationActive: v }));
+  const setVideoActive = (v: boolean) => setState(prev => ({ ...prev, isVideoActive: v }));
+  const setSpeakersActive = (v: Array<string>) => setState(prev => ({ ...prev, SpeakersActive: v }));
+  const setCallStatus = (s: 'active' | 'ringing' | 'connection' | 'inactive') => setState(prev => ({ ...prev, callStatus: s }));
+  const setCurrentServerIP = (ip: string) => setState(prev => ({ ...prev, currentServerIP: ip }));
+  const setUserIDonServer = (id: string) => setState(prev => ({ ...prev, userIDonServer: id }));
+  const setCallTargetId = (id: string | null) => setState(prev => ({ ...prev, callTargetId: id }));
+  const setIncomingOffer = (offer: any | null) => setState(prev => ({ ...prev, incomingOffer: offer }));
 
-  const toggleMobileSidebar = () => {
-    setState(prev => ({ ...prev, isMobileSidebarOpen: !prev.isMobileSidebarOpen }));
+  const setAuthToken = (token: string) => {
+    localStorage.setItem('authToken', token);
+    setState(prev => ({ ...prev, authToken: token }));
   };
-
-  const setMobileActivePanel = (panel: MobilePanel) => {
-    setState(prev => ({ ...prev, mobileActivePanel: panel }));
-  };
-
-  const setCallActive = (active: boolean) => {
-    setState(prev => ({ ...prev, isCallActive: active }));
-  };
-
-  const setDemonstrationActive = (DemonstrationActive: boolean) => {
-    setState(prev => ({ ...prev, isDemonstrationActive: DemonstrationActive }));
-  }
-
-  const setVideoActive = (VideoActive: boolean) => {
-    setState(prev => ({ ...prev, isVideoActive: VideoActive }));
-  }
-
-  const setSpeakersActive = (SpeakersActive: Array<string>) => {
-    setState(prev => ({ ...prev, SpeakersActive }));
-  }
-
-  const setCallStatus = (status: 'active' | 'ringing' | 'connection' | 'inactive') => {
-    setState(prev => ({ ...prev, callStatus: status }));
-  }
-
-  const setCurrentServerIP = (serverIP: string) => {
-    setState(prev => ({ ...prev, currentServerIP: serverIP }));
-  }
-
-  const setUserIDonServer = (userIDonServer: string) => {
-    setState(prev => ({ ...prev, userIDonServer }));
-  }
 
   return (
     <AppContext.Provider value={{
@@ -176,6 +741,36 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       setCallStatus,
       setCurrentServerIP,
       setUserIDonServer,
+      setAuthToken,
+      setCallTargetId,
+      setIncomingOffer,
+      signalingWs,
+      sendSignal,
+      signalingPeers,
+      onSignalingMessage,
+      loadFriends,
+      loadPendingRequests,
+      removeFriend,
+      blockUser,
+      unblockUser,
+      removeBlockedContact,
+      setAccentColor,
+      sendFriendRequest,
+      acceptFriendRequest,
+      rejectFriendRequest,
+      searchUsers,
+      sendChatMessage,
+      deleteMessage,
+      pinMessage,
+      reportMessage,
+      loadOlderMessages,
+      loadCustomEmojis,
+      scheduleMessage,
+      cancelScheduledMessage,
+      listScheduled,
+      showError,
+      clearError,
+      errorMessage,
     }}>
       {children}
     </AppContext.Provider>

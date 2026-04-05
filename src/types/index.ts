@@ -7,25 +7,50 @@ export interface User {
   bio?: string;
 }
 
-export interface Message {
+export interface ServerUser {
   id: string;
-  author: string;
-  authorId: string;
+  username: string;
+  nickname: string;
   avatar: string;
-  content: string;
-  timestamp: string;
-  isOwn: boolean;
+  bio: string;
+  status: 'online' | 'idle' | 'dnd' | 'offline';
 }
 
-export interface DirectMessage {
-  id: string;
-  name: string;
-  avatar: string;
-  status: 'online' | 'idle' | 'dnd' | 'offline';
-  lastMessage: string;
-  lastMessageTime: string;
-  unread: number;
-  isActive?: boolean;
+export interface PendingRequest {
+  id: number;
+  from_user: ServerUser;
+  to_user: ServerUser;
+  status: string;
+  created_at: string;
+}
+
+export interface ChatAttachment {
+  id: number;
+  filename: string;
+  content_type: string;
+  file_size: number;
+  url: string;
+}
+
+export interface ChatMessage {
+  id: number;
+  author: {
+    id: string;
+    username: string;
+    nickname?: string;
+    avatar: string;
+    status?: string;
+  };
+  content: string;
+  created_at: string;
+  attachments?: ChatAttachment[];
+  reply_to?: {
+    id: number;
+    content: string;
+    author: { id: string; username: string; nickname?: string };
+    deleted?: boolean;
+  } | null;
+  is_pinned?: boolean;
 }
 
 export interface ServerChannel {
@@ -46,6 +71,13 @@ export type ViewType = 'home' | 'server' | 'settings';
 
 export type MobilePanel = 'chat-list' | 'chat-view';
 
+export interface CustomEmoji {
+  id: number;
+  name: string;
+  image_url: string;
+  created_by: string;
+}
+
 export interface AppState {
   currentView: ViewType;
   currentServer: string;
@@ -53,7 +85,7 @@ export interface AppState {
   currentChannel: string;
   currentSettingsPage: string;
   theme: 'light' | 'dark';
-  language: 'en' | 'ru';
+  language: string;
   isMobileSidebarOpen: boolean;
   mobileActivePanel: MobilePanel;
   isCallActive: boolean;
@@ -63,4 +95,15 @@ export interface AppState {
   SpeakersActive: Array<string>;
   currentServerIP: string;
   userIDonServer: string;
+  authToken: string;
+  currentUser: ServerUser | null;
+  friends: ServerUser[];
+  blockedContacts: ServerUser[];
+  pendingRequests: PendingRequest[];
+  callTargetId: string | null;
+  incomingOffer: any | null;
+  chatMessages: ChatMessage[];
+  chatConversationId: number | null;
+  chatBlockedByOther: boolean;
+  customEmojis: CustomEmoji[];
 }

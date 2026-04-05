@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx tsc:*)",
+      "Bash(\"../myenv/Scripts/python.exe\" manage.py check --deploy)",
+      "Bash(\"../myenv/Scripts/python.exe\" -c \"from ionik_messages import views, consumers; from ionik_auth import views as av; print\\('OK'\\)\")",
+      "Bash(\"../myenv/Scripts/python.exe\" manage.py check)"
+    ]
+  }
+}

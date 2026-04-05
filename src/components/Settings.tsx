@@ -1,580 +1,789 @@
-import React from 'react';
-import { useApp } from '../context/AppContext';
+import React, { useState, useEffect, useCallback, createContext, useContext } from 'react';
+import { Shield, Monitor, Smartphone, Tablet, Trash2, UserX, Camera } from 'lucide-react';
+import { useApp, reportError } from '../context/AppContext';
+import { useTranslation } from '../i18n/useTranslation';
+import { languages, type LangCode } from '../i18n';
+import type { ServerUser } from '../types';
 
-export const Settings: React.FC = () => {
-  const { currentSettingsPage } = useApp();
+// ==================== Settings context (loads/saves all prefs) ====================
 
-  if (!currentSettingsPage) {
-    return null;
-  }
+interface SettingsData {
+  show_profile_to_everyone: boolean;
+  display_online_status: boolean;
+  show_activity_status: boolean;
+  safe_dm_filter: boolean;
+  scan_messages_everyone: boolean;
+  scan_messages_non_friends: boolean;
+  scan_messages_off: boolean;
+  enable_all_notifications: boolean;
+  notify_direct_messages: boolean;
+  notify_mentions: boolean;
+  notify_all_server_messages: boolean;
+  notify_friend_requests: boolean;
+  sound_message: boolean;
+  sound_incoming_call: boolean;
+  theme: string;
+  show_timestamps: boolean;
+  show_avatars: boolean;
+  auto_input_sensitivity: boolean;
+  echo_cancellation: boolean;
+  noise_suppression: boolean;
+  chat_show_timestamps: boolean;
+  chat_emoji_reactions: boolean;
+  chat_compact_mode: boolean;
+  data_app_improvements: boolean;
+  data_personalization: boolean;
+  streamer_mode: boolean;
+  streamer_hide_info: boolean;
+  streamer_disable_notifs: boolean;
+  developer_mode: boolean;
+  hardware_acceleration: boolean;
+  show_current_activity: boolean;
+  show_game_status: boolean;
+  language: string;
+}
 
+const defaultSettings: SettingsData = {
+  show_profile_to_everyone: true, display_online_status: true, show_activity_status: false,
+  safe_dm_filter: true, scan_messages_everyone: true, scan_messages_non_friends: false, scan_messages_off: false,
+  enable_all_notifications: true, notify_direct_messages: true, notify_mentions: true,
+  notify_all_server_messages: false, notify_friend_requests: true, sound_message: true, sound_incoming_call: true,
+  theme: 'dark', show_timestamps: true, show_avatars: true,
+  auto_input_sensitivity: true, echo_cancellation: true, noise_suppression: true,
+  chat_show_timestamps: true, chat_emoji_reactions: true, chat_compact_mode: false,
+  data_app_improvements: true, data_personalization: true,
+  streamer_mode: false, streamer_hide_info: false, streamer_disable_notifs: false,
+  developer_mode: false, hardware_acceleration: false,
+  show_current_activity: true, show_game_status: true, language: 'en',
+};
+
+interface SettingsCtx {
+  s: SettingsData;
+  toggle: (key: keyof SettingsData) => void;
+  setField: (key: keyof SettingsData, val: any) => void;
+}
+
+const SettingsCtx = createContext<SettingsCtx>({ s: defaultSettings, toggle: () => {}, setField: () => {} });
+
+const useSettings = () => useContext(SettingsCtx);
+
+// ==================== Shared styles ====================
+
+const card: React.CSSProperties = { background: 'var(--bg-secondary)', borderRadius: 12, border: '1px solid var(--border-color)', padding: 20, marginBottom: 16 };
+const fieldLabel: React.CSSProperties = { fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 };
+const fieldInput: React.CSSProperties = { width: '100%', padding: '10px 12px', background: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: 6, color: 'var(--text-primary)', fontSize: 14, outline: 'none' };
+const btnPrimary: React.CSSProperties = { padding: '10px 24px', background: 'var(--accent-primary)', color: '#fff', border: 'none', borderRadius: 6, fontSize: 14, fontWeight: 600, cursor: 'pointer' };
+const btnSecondary: React.CSSProperties = { padding: '8px 16px', background: 'var(--bg-tertiary)', color: 'var(--text-primary)', border: '1px solid var(--border-color)', borderRadius: 6, fontSize: 13, cursor: 'pointer' };
+const btnDanger: React.CSSProperties = { ...btnSecondary, color: '#ef4444', borderColor: '#ef444444' };
+const divider: React.CSSProperties = { height: 1, background: 'var(--border-color)', margin: '24px 0' };
+const statusMsg = (type: 'ok' | 'err'): React.CSSProperties => ({ fontSize: 13, color: type === 'ok' ? '#22c55e' : '#ef4444', marginTop: 8 });
+const sectionH3: React.CSSProperties = { margin: '0 0 12px', fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', textTransform: 'uppercase', letterSpacing: 0.5 };
+
+// Checkbox component
+const Check: React.FC<{ label: string; field: keyof SettingsData }> = ({ label, field }) => {
+  const { s, toggle } = useSettings();
   return (
-    <div className="settings-container">
-      {currentSettingsPage === 'profile' && <ProfileSettings />}
-      {currentSettingsPage === 'content' && <PrivacySettings />}
-      {currentSettingsPage === 'data' && <DataSettings />}
-      {currentSettingsPage === 'devices' && <DevicesSettings />}
-      {currentSettingsPage === 'family' && <FamilySettings />}
-      {currentSettingsPage === 'integration' && <IntegrationSettings />}
-      {currentSettingsPage === 'notifications' && <NotificationSettings />}
-      {currentSettingsPage === 'apps' && <AppsSettings />}
-      {currentSettingsPage === 'nitro' && <NitroSettings />}
-      {currentSettingsPage === 'subscribes' && <SubscribesSettings />}
-      {currentSettingsPage === 'gifts' && <GiftsSettings />}
-      {currentSettingsPage === 'payments' && <PaymentsSettings />}
-      {currentSettingsPage === 'view' && <AppearanceSettings />}
-      {currentSettingsPage === 'special' && <SpecialSettings />}
-      {currentSettingsPage === 'voiceAndVideo' && <VoiceVideoSettings />}
-      {currentSettingsPage === 'chat' && <ChatSettings />}
-      {currentSettingsPage === 'binds' && <BindsSettings />}
-      {currentSettingsPage === 'language' && <LanguageSettings />}
-      {currentSettingsPage === 'exportImport' && <ExportImportSettings />}
-      {currentSettingsPage === 'streamer' && <StreamerSettings />}
-      {currentSettingsPage === 'more' && <MoreSettings />}
-      {currentSettingsPage === 'privacyOfActivity' && <PrivacyActivitySettings />}
-      {currentSettingsPage === 'games' && <GamesSettings />}
-    </div>
+    <label className="ui-checkbox">
+      <input type="checkbox" checked={!!s[field]} onChange={() => toggle(field)} />
+      <span className="ui-checkbox-box"></span>
+      <span className="ui-checkbox-text">{label}</span>
+    </label>
   );
 };
 
-const ProfileSettings: React.FC = () => (
-  <section>
-    <h1>My Account</h1>
-    <p>Manage your account settings and profile information</p>
+// ==================== Main Settings ====================
 
-    <div className="profile-preview-card">
-      <div className="profile-banner-preview" style={{ backgroundImage: "url('https://images.pexels.com/photos/1366919/pexels-photo-1366919.jpeg?auto=compress&cs=tinysrgb&w=800')" }}></div>
-      <div className="profile-avatar-wrapper">
-        <img src="https://images.pexels.com/photos/220453/pexels-photo-220453.jpeg?auto=compress&cs=tinysrgb&w=100" alt="Avatar" className="profile-avatar-preview" />
+export const Settings: React.FC = () => {
+  const { currentSettingsPage, currentServerIP, authToken, setLanguage } = useApp();
+  const [s, setS] = useState<SettingsData>(defaultSettings);
+  const [loaded, setLoaded] = useState(false);
+
+  // Load settings from API
+  useEffect(() => {
+    if (!authToken) return;
+    (async () => {
+      try {
+        const res = await fetch(`${currentServerIP}/api/auth/settings/`, {
+          headers: { 'Authorization': `Bearer ${authToken}` },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setS(prev => ({ ...prev, ...data }));
+          if (data.language) setLanguage(data.language);
+        }
+      } catch { /* use defaults */ }
+      setLoaded(true);
+    })();
+  }, [authToken, currentServerIP]);
+
+  // Save to API on change (debounced)
+  const saveTimeout = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const saveToApi = useCallback((newS: SettingsData) => {
+    if (saveTimeout.current) clearTimeout(saveTimeout.current);
+    saveTimeout.current = setTimeout(async () => {
+      try {
+        await fetch(`${currentServerIP}/api/auth/settings/update/`, {
+          method: 'PATCH',
+          headers: { 'Authorization': `Bearer ${authToken}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify(newS),
+        });
+      } catch { /* ignore */ }
+    }, 500);
+  }, [currentServerIP, authToken]);
+
+  const toggle = useCallback((key: keyof SettingsData) => {
+    setS(prev => {
+      const newS = { ...prev, [key]: !prev[key] };
+      saveToApi(newS);
+      return newS;
+    });
+  }, [saveToApi]);
+
+  const setField = useCallback((key: keyof SettingsData, val: any) => {
+    setS(prev => {
+      const newS = { ...prev, [key]: val };
+      saveToApi(newS);
+      return newS;
+    });
+  }, [saveToApi]);
+
+  if (!currentSettingsPage || !loaded) return null;
+
+  return (
+    <SettingsCtx.Provider value={{ s, toggle, setField }}>
+      <div className="settings-container">
+        <div className="settings-list">
+          {currentSettingsPage === 'profile' && <ProfileSettings />}
+          {currentSettingsPage === 'content' && <PrivacySettings />}
+          {currentSettingsPage === 'data' && <DataSettings />}
+          {currentSettingsPage === 'devices' && <DevicesSettings />}
+          {currentSettingsPage === 'notifications' && <NotificationSettings />}
+          {currentSettingsPage === 'view' && <AppearanceSettings />}
+          {currentSettingsPage === 'voiceAndVideo' && <VoiceVideoSettings />}
+          {currentSettingsPage === 'chat' && <ChatSettings />}
+          {currentSettingsPage === 'language' && <LanguageSettings />}
+          {currentSettingsPage === 'streamer' && <StreamerSettings />}
+          {currentSettingsPage === 'more' && <MoreSettings />}
+          {currentSettingsPage === 'privacyOfActivity' && <PrivacyActivitySettings />}
+          {currentSettingsPage === 'special' && <SpecialSettings />}
+          {currentSettingsPage === 'binds' && <BindsSettings />}
+          {currentSettingsPage === 'exportImport' && <ExportImportSettings />}
+          {currentSettingsPage === 'family' && <Placeholder title="Family Center" />}
+          {currentSettingsPage === 'integration' && <Placeholder title="Integrations" />}
+          {currentSettingsPage === 'apps' && <Placeholder title="Connected Apps" />}
+          {currentSettingsPage === 'nitro' && <Placeholder title="Nitro" />}
+          {currentSettingsPage === 'subscribes' && <Placeholder title="Subscriptions" />}
+          {currentSettingsPage === 'gifts' && <Placeholder title="Gifts" />}
+          {currentSettingsPage === 'payments' && <Placeholder title="Payments" />}
+          {currentSettingsPage === 'games' && <Placeholder title="Registered Games" />}
+        </div>
       </div>
-    </div>
+    </SettingsCtx.Provider>
+  );
+};
 
-    <form>
-      <h3>Profile Information</h3>
-      <label>Display Name
-        <input type="text" name="displayname" defaultValue="Gemini User" placeholder="Enter your display name" />
-      </label>
+// ==================== Profile Settings ====================
 
-      <label>Username
-        <input type="text" name="username" defaultValue="gemini_user" placeholder="Enter your username" />
-      </label>
+const ProfileSettings: React.FC = () => {
+  const tr = useTranslation();
+  const { currentUser, currentServerIP, authToken } = useApp();
+  const [nickname, setNickname] = useState(currentUser?.nickname || '');
+  const [bio, setBio] = useState(currentUser?.bio || '');
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState<{ text: string; type: 'ok' | 'err' } | null>(null);
+  const [oldPw, setOldPw] = useState('');
+  const [newPw, setNewPw] = useState('');
+  const [pwMsg, setPwMsg] = useState<{ text: string; type: 'ok' | 'err' } | null>(null);
+  const [avatarFile, setAvatarFile] = useState<File | null>(null);
+  const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
 
-      <label>Email Address
-        <input type="email" name="email" defaultValue="user@example.com" placeholder="Enter your email" />
-      </label>
+  useEffect(() => { setNickname(currentUser?.nickname || ''); setBio(currentUser?.bio || ''); }, [currentUser]);
 
-      <label>Phone Number
-        <input type="text" name="phone" defaultValue="+1 (555) 123-4567" placeholder="Enter your phone number" />
-      </label>
+  const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) { setAvatarFile(file); setAvatarPreview(URL.createObjectURL(file)); }
+  };
 
-      <label>About Me
-        <textarea name="bio" rows={3} placeholder="Tell us about yourself" style={{ width: '100%', padding: '12px', background: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: '8px', color: 'var(--text-primary)', fontSize: '14px', resize: 'vertical', fontFamily: 'inherit' }} defaultValue="Digital explorer & creative thinker"></textarea>
-      </label>
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault(); setSaving(true); setMsg(null);
+    try {
+      const fd = new FormData(); fd.append('nickname', nickname); fd.append('bio', bio);
+      if (avatarFile) fd.append('avatar', avatarFile);
+      const res = await fetch(`${currentServerIP}/api/auth/me/update/`, { method: 'PATCH', headers: { 'Authorization': `Bearer ${authToken}` }, body: fd });
+      if (!res.ok) throw new Error('Failed');
+      setMsg({ text: tr('sp_saved'), type: 'ok' }); setAvatarFile(null);
+    } catch { setMsg({ text: tr('sp_save_fail'), type: 'err' }); }
+    setSaving(false);
+  };
 
-      <div className="settings-divider"></div>
+  const handleChangePassword = async () => {
+    setPwMsg(null);
+    if (!oldPw || !newPw) { setPwMsg({ text: tr('sp_fill_both'), type: 'err' }); return; }
+    try {
+      const res = await fetch(`${currentServerIP}/api/auth/me/password/`, { method: 'POST', headers: { 'Authorization': `Bearer ${authToken}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ old_password: oldPw, new_password: newPw }) });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed');
+      setPwMsg({ text: tr('sp_password_changed'), type: 'ok' }); setOldPw(''); setNewPw('');
+    } catch (e: any) { setPwMsg({ text: e.message, type: 'err' }); }
+  };
 
-      <h3>Account Security</h3>
-      <div className="action-buttons-grid">
-        <button type="button" className="glass-btn action-btn">Change Password</button>
-        <button type="button" className="glass-btn action-btn">Enable 2FA</button>
-        <button type="button" className="glass-btn action-btn">Security Keys</button>
-        <button type="button" className="glass-btn action-btn">View Login History</button>
-      </div>
+  const avatarSrc = avatarPreview || currentUser?.avatar || '';
 
-      <div className="settings-divider"></div>
+  return (
+    <section>
+      <h1>{tr('sp_title')}</h1>
+      <p>{tr('sp_desc')}</p>
 
-      <h3>Profile Customization</h3>
-      <label className="ui-checkbox">
-        <input type="checkbox" defaultChecked />
-        <span className="ui-checkbox-box"></span>
-        <span className="ui-checkbox-text">Show my profile to everyone</span>
-      </label>
-      <label className="ui-checkbox">
-        <input type="checkbox" defaultChecked />
-        <span className="ui-checkbox-box"></span>
-        <span className="ui-checkbox-text">Display my online status</span>
-      </label>
-      <label className="ui-checkbox">
-        <input type="checkbox" />
-        <span className="ui-checkbox-box"></span>
-        <span className="ui-checkbox-text">Show my activity status</span>
-      </label>
-
-      <div className="settings-divider"></div>
-
-      <div className="form-footer">
-        <button type="submit" className="save-btn">Save Changes</button>
-        <button type="button" className="delete-account-btn">Delete Account</button>
-      </div>
-    </form>
-  </section>
-);
-
-const PrivacySettings: React.FC = () => (
-  <section>
-    <h1>Privacy & Safety</h1>
-    <p>Manage your content filtering and privacy preferences</p>
-
-    <h3>Safe Direct Messaging</h3>
-    <p>Filter direct messages from server members who are not friends</p>
-    <label className="ui-checkbox">
-      <input type="checkbox" defaultChecked />
-      <span className="ui-checkbox-box"></span>
-      <span className="ui-checkbox-text">Keep me safe</span>
-    </label>
-
-    <div className="settings-divider"></div>
-
-    <h3>Explicit Content Filter</h3>
-    <p>Automatically scan and delete direct messages containing explicit media</p>
-
-    <label className="ui-checkbox">
-      <input type="checkbox" defaultChecked />
-      <span className="ui-checkbox-box"></span>
-      <span className="ui-checkbox-text">Scan messages from everyone</span>
-    </label>
-    <label className="ui-checkbox">
-      <input type="checkbox" />
-      <span className="ui-checkbox-box"></span>
-      <span className="ui-checkbox-text">Scan messages from non-friends only</span>
-    </label>
-    <label className="ui-checkbox">
-      <input type="checkbox" />
-      <span className="ui-checkbox-box"></span>
-      <span className="ui-checkbox-text">Don't scan any messages</span>
-    </label>
-
-    <div className="settings-divider"></div>
-
-    <h3>Blocked Users</h3>
-    <p>You have blocked 3 users</p>
-    <div className="blocked-users-list">
-      {['Michael Jordan', 'Sarah Williams', 'Alex Thompson'].map((name, i) => (
-        <div key={i} className="blocked-user-item">
-          <div className="chat-avatar">
-            <img src={`https://images.pexels.com/photos/${['1222271', '1239291', '415829'][i]}/pexels-photo-${['1222271', '1239291', '415829'][i]}.jpeg?auto=compress&cs=tinysrgb&w=100`} alt="User" />
+      <div style={{ ...card, padding: 0, overflow: 'hidden' }}>
+        <div style={{ height: 100, background: 'linear-gradient(135deg, var(--accent-primary), #7c3aed)' }} />
+        <div style={{ padding: '0 20px 20px', marginTop: -40 }}>
+          <div style={{ position: 'relative', display: 'inline-block' }}>
+            {avatarSrc ? (
+              <img src={avatarSrc} alt="Avatar" style={{ width: 80, height: 80, borderRadius: '50%', border: '4px solid var(--bg-secondary)', objectFit: 'cover' }} />
+            ) : (
+              <div style={{ width: 80, height: 80, borderRadius: '50%', border: '4px solid var(--bg-secondary)', background: 'var(--accent-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 28, fontWeight: 700 }}>
+                {(currentUser?.nickname || currentUser?.username || '?')[0].toUpperCase()}
+              </div>
+            )}
+            <label style={{ position: 'absolute', bottom: 0, right: 0, width: 28, height: 28, borderRadius: '50%', background: 'var(--accent-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', border: '2px solid var(--bg-secondary)' }}>
+              <Camera size={14} color="#fff" />
+              <input type="file" accept="image/*" onChange={handleAvatarChange} style={{ display: 'none' }} />
+            </label>
           </div>
-          <span>{name}</span>
-          <button type="button" className="glass-btn">Unblock</button>
+          <div style={{ marginTop: 12 }}>
+            <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--text-primary)' }}>{currentUser?.nickname || currentUser?.username}</div>
+            <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>@{currentUser?.username}</div>
+          </div>
+        </div>
+      </div>
+
+      <form onSubmit={handleSave}>
+        <div style={card}>
+          <h3 style={sectionH3}>{tr('sp_profile_info')}</h3>
+          <div style={{ marginBottom: 16 }}>
+            <div style={fieldLabel}>{tr('sp_display_name')}</div>
+            <input style={fieldInput} value={nickname} onChange={e => setNickname(e.target.value)} placeholder="Display name" />
+          </div>
+          <div style={{ marginBottom: 16 }}>
+            <div style={fieldLabel}>{tr('sp_username')}</div>
+            <input style={{ ...fieldInput, opacity: 0.6 }} value={currentUser?.username || ''} disabled />
+          </div>
+          <div style={{ marginBottom: 16 }}>
+            <div style={fieldLabel}>{tr('sp_about')}</div>
+            <textarea value={bio} onChange={e => setBio(e.target.value)} placeholder={tr('sp_about_placeholder')} rows={3} style={{ ...fieldInput, resize: 'vertical', fontFamily: 'inherit' }} />
+          </div>
+          <button type="submit" style={{ ...btnPrimary, opacity: saving ? 0.6 : 1 }} disabled={saving}>{saving ? tr('sp_saving') : tr('sp_save')}</button>
+          {msg && <div style={statusMsg(msg.type)}>{msg.text}</div>}
+        </div>
+      </form>
+
+      <div style={divider} />
+
+      <div style={card}>
+        <h3 style={sectionH3}><Shield size={16} style={{ verticalAlign: 'middle', marginRight: 8 }} />{tr('sp_change_password')}</h3>
+        <div style={{ marginBottom: 12 }}>
+          <div style={fieldLabel}>{tr('sp_current_password')}</div>
+          <input type="password" style={fieldInput} value={oldPw} onChange={e => setOldPw(e.target.value)} />
+        </div>
+        <div style={{ marginBottom: 16 }}>
+          <div style={fieldLabel}>{tr('sp_new_password')}</div>
+          <input type="password" style={fieldInput} value={newPw} onChange={e => setNewPw(e.target.value)} />
+        </div>
+        <button type="button" style={btnPrimary} onClick={handleChangePassword}>{tr('sp_change_password')}</button>
+        {pwMsg && <div style={statusMsg(pwMsg.type)}>{pwMsg.text}</div>}
+      </div>
+
+      <div style={divider} />
+
+      <h3 style={sectionH3}>{tr('sp_profile_custom')}</h3>
+      <Check label={tr('sp_show_profile')} field="show_profile_to_everyone" />
+      <Check label={tr('sp_show_online')} field="display_online_status" />
+      <Check label={tr('sp_show_activity')} field="show_activity_status" />
+
+      <div style={divider} />
+
+      <DeleteAccount />
+    </section>
+  );
+};
+
+// ==================== Delete Account ====================
+
+const DeleteAccount: React.FC = () => {
+  const tr = useTranslation();
+  const { currentServerIP, authToken, setAuthToken } = useApp();
+  const [show, setShow] = useState(false);
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+
+  const handleDelete = async () => {
+    if (!username || !password) { setError(tr('sp_fill_both')); return; }
+    try {
+      const res = await fetch(`${currentServerIP}/api/auth/me/delete/`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${authToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setError(data.error || 'Failed to delete'); return; }
+      setShow(false);
+      setAuthToken('');
+    } catch { setError('Network error'); }
+  };
+
+  return (
+    <>
+      <div style={{ ...card, borderColor: '#ef444444' }}>
+        <h3 style={{ ...sectionH3, color: '#ef4444' }}>
+          <Trash2 size={16} style={{ verticalAlign: 'middle', marginRight: 8 }} />
+          {tr('sd_title')}
+        </h3>
+        <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: '0 0 16px' }}>
+          {tr('sd_desc')}
+        </p>
+        <button type="button" onClick={() => setShow(true)} style={{ padding: '10px 24px', background: '#ef4444', color: '#fff', border: 'none', borderRadius: 6, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
+          {tr('sd_title')}
+        </button>
+      </div>
+
+      {show && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+          <div style={{ background: 'var(--bg-secondary)', borderRadius: 12, padding: 24, maxWidth: 400, width: '90%', border: '1px solid var(--border-color)' }}>
+            <h3 style={{ margin: '0 0 8px', color: '#ef4444', fontSize: 18, fontWeight: 700 }}>{tr('sd_title')}</h3>
+            <p style={{ margin: '0 0 16px', color: 'var(--text-secondary)', fontSize: 14 }}>
+              {tr('sd_confirm')}
+            </p>
+            <div style={{ marginBottom: 12 }}>
+              <div style={fieldLabel}>{tr('sd_username')}</div>
+              <input type="text" value={username} onChange={e => { setUsername(e.target.value); setError(''); }} placeholder={tr('sd_username_placeholder')} style={{ ...fieldInput, boxSizing: 'border-box' as const }} />
+            </div>
+            <div style={{ marginBottom: 16 }}>
+              <div style={fieldLabel}>{tr('sd_password')}</div>
+              <input type="password" value={password} onChange={e => { setPassword(e.target.value); setError(''); }} placeholder={tr('sd_password_placeholder')} style={{ ...fieldInput, boxSizing: 'border-box' as const }} />
+            </div>
+            {error && <div style={{ color: '#ef4444', fontSize: 13, marginBottom: 12 }}>{error}</div>}
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button onClick={() => { setShow(false); setUsername(''); setPassword(''); setError(''); }} style={{ ...btnSecondary }}>{tr('cancel')}</button>
+              <button onClick={handleDelete} style={{ padding: '8px 20px', background: '#ef4444', color: '#fff', border: 'none', borderRadius: 6, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>{tr('sd_title')}</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+};
+
+// ==================== Privacy Settings ====================
+
+interface BlockedEntry { id: number; blocked: ServerUser; created_at: string; }
+
+const PrivacySettings: React.FC = () => {
+  const tr = useTranslation();
+  const { currentServerIP, authToken, searchUsers } = useApp();
+  const [blocked, setBlocked] = useState<BlockedEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [blockQuery, setBlockQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<ServerUser[]>([]);
+  const [error, setError] = useState('');
+
+  const loadBlocked = useCallback(async () => {
+    try {
+      const res = await fetch(`${currentServerIP}/api/auth/blocked/`, { headers: { 'Authorization': `Bearer ${authToken}` } });
+      if (res.ok) setBlocked(await res.json());
+    } catch (e) { reportError(e); }
+    setLoading(false);
+  }, [currentServerIP, authToken]);
+
+  useEffect(() => { loadBlocked(); }, [loadBlocked]);
+
+  const handleSearch = async () => {
+    if (!blockQuery.trim()) return; setError('');
+    try {
+      const results = await searchUsers(blockQuery);
+      const blockedIds = blocked.map(b => String(b.blocked.id));
+      setSearchResults(results.filter(u => !blockedIds.includes(String(u.id))));
+      if (results.length === 0) setError('No users found');
+    } catch (e) { reportError(e); }
+  };
+
+  const handleBlock = async (userId: string) => {
+    try {
+      const res = await fetch(`${currentServerIP}/api/auth/block/`, { method: 'POST', headers: { 'Authorization': `Bearer ${authToken}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ user_id: userId }) });
+      if (res.ok) { setSearchResults([]); setBlockQuery(''); await loadBlocked(); }
+    } catch (e) { reportError(e); }
+  };
+
+  const handleUnblock = async (userId: string) => {
+    try { await fetch(`${currentServerIP}/api/auth/unblock/${userId}/`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${authToken}` } }); setBlocked(prev => prev.filter(b => String(b.blocked.id) !== userId)); } catch (e) { reportError(e); }
+  };
+
+  return (
+    <section>
+      <h1>{tr('sprv_title')}</h1>
+      <p>{tr('sprv_desc')}</p>
+
+      <h3 style={sectionH3}>{tr('sprv_safe_dm')}</h3>
+      <p>{tr('sprv_safe_dm_desc')}</p>
+      <Check label={tr('sprv_keep_safe')} field="safe_dm_filter" />
+
+      <div style={divider} />
+
+      <h3 style={sectionH3}>{tr('sprv_explicit')}</h3>
+      <p>{tr('sprv_explicit_desc')}</p>
+      <Check label={tr('sprv_scan_all')} field="scan_messages_everyone" />
+      <Check label={tr('sprv_scan_non_friends')} field="scan_messages_non_friends" />
+      <Check label={tr('sprv_scan_off')} field="scan_messages_off" />
+
+      <div style={divider} />
+
+      <h3 style={sectionH3}>{tr('sprv_blocked')} ({blocked.length})</h3>
+
+      <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+        <input style={{ ...fieldInput, flex: 1 }} placeholder={tr('sprv_search_block')} value={blockQuery} onChange={e => setBlockQuery(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleSearch()} />
+        <button type="button" style={btnSecondary} onClick={handleSearch}>{tr('chat_search')}</button>
+      </div>
+      {error && <div style={{ ...statusMsg('err'), marginBottom: 12 }}>{error}</div>}
+
+      {searchResults.map(u => (
+        <div key={u.id} style={{ ...card, display: 'flex', alignItems: 'center', gap: 12, padding: 12 }}>
+          <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'var(--accent-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 700, fontSize: 14, flexShrink: 0 }}>
+            {(u.nickname || u.username)[0].toUpperCase()}
+          </div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: 14 }}>{u.nickname || u.username}</div>
+            <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>@{u.username}</div>
+          </div>
+          <button type="button" style={btnDanger} onClick={() => handleBlock(u.id)}><UserX size={14} style={{ marginRight: 4, verticalAlign: 'middle' }} />{tr('sprv_block')}</button>
         </div>
       ))}
-    </div>
-  </section>
-);
 
-const NotificationSettings: React.FC = () => (
+      {loading ? <div style={{ color: 'var(--text-secondary)', fontSize: 13 }}>{tr('loading')}</div> : blocked.length === 0 ? (
+        <div style={{ color: 'var(--text-secondary)', fontSize: 13, padding: 16, textAlign: 'center' }}>{tr('sprv_no_blocked')}</div>
+      ) : blocked.map(entry => {
+        const u = entry.blocked; const name = u.nickname || u.username;
+        return (
+          <div key={entry.id} style={{ ...card, display: 'flex', alignItems: 'center', gap: 12, padding: 12 }}>
+            {u.avatar ? <img src={u.avatar} alt={name} style={{ width: 40, height: 40, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} /> : (
+              <div style={{ width: 40, height: 40, borderRadius: '50%', background: '#ef444433', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ef4444', fontWeight: 700, fontSize: 16, flexShrink: 0 }}>{name[0].toUpperCase()}</div>
+            )}
+            <div style={{ flex: 1 }}>
+              <div style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: 14 }}>{name}</div>
+              <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{tr('sprv_blocked_on')} {new Date(entry.created_at).toLocaleDateString()}</div>
+            </div>
+            <button type="button" style={btnSecondary} onClick={() => handleUnblock(String(u.id))}>{tr('sprv_unblock')}</button>
+          </div>
+        );
+      })}
+    </section>
+  );
+};
+
+// ==================== Devices Settings ====================
+
+interface DeviceEntry { id: number; device_name: string; device_type: string; ip_address: string; last_login: string; created_at: string; }
+
+const DeviceIcon = ({ type }: { type: string }) => {
+  if (type === 'mobile') return <Smartphone size={20} />;
+  if (type === 'tablet') return <Tablet size={20} />;
+  return <Monitor size={20} />;
+};
+
+const DevicesSettings: React.FC = () => {
+  const tr = useTranslation();
+  const { currentServerIP, authToken } = useApp();
+  const [devices, setDevices] = useState<DeviceEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const loadDevices = useCallback(async () => {
+    try { const res = await fetch(`${currentServerIP}/api/auth/devices/`, { headers: { 'Authorization': `Bearer ${authToken}` } }); if (res.ok) setDevices(await res.json()); } catch (e) { reportError(e); }
+    setLoading(false);
+  }, [currentServerIP, authToken]);
+
+  useEffect(() => { loadDevices(); }, [loadDevices]);
+
+  const handleRemove = async (id: number) => {
+    try { await fetch(`${currentServerIP}/api/auth/devices/${id}/remove/`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${authToken}` } }); setDevices(prev => prev.filter(d => d.id !== id)); } catch (e) { reportError(e); }
+  };
+
+  const parseBrowser = (ua: string) => { if (ua.includes('Chrome') && !ua.includes('Edg')) return 'Chrome'; if (ua.includes('Firefox')) return 'Firefox'; if (ua.includes('Safari') && !ua.includes('Chrome')) return 'Safari'; if (ua.includes('Edg')) return 'Edge'; return 'Browser'; };
+  const parseOS = (ua: string) => { if (ua.includes('Windows')) return 'Windows'; if (ua.includes('Mac OS')) return 'macOS'; if (ua.includes('Linux')) return 'Linux'; if (ua.includes('Android')) return 'Android'; if (ua.includes('iPhone') || ua.includes('iPad')) return 'iOS'; return 'Unknown OS'; };
+
+  return (
+    <section>
+      <h1>{tr('sdev_title')}</h1>
+      <p>{tr('sdev_desc')}</p>
+
+      {loading ? <div style={{ color: 'var(--text-secondary)', fontSize: 13, padding: 20 }}>{tr('sdev_loading')}</div> : devices.length === 0 ? (
+        <div style={{ color: 'var(--text-secondary)', fontSize: 13, padding: 20, textAlign: 'center' }}>{tr('sdev_none')}</div>
+      ) : devices.map((device, i) => {
+        const browser = parseBrowser(device.device_name);
+        const os = parseOS(device.device_name);
+        const lastSeen = new Date(device.last_login);
+        const isRecent = Date.now() - lastSeen.getTime() < 5 * 60 * 1000;
+        return (
+          <div key={device.id} style={{ ...card, display: 'flex', alignItems: 'center', gap: 16 }}>
+            <div style={{ width: 48, height: 48, borderRadius: 12, background: i === 0 ? 'var(--accent-primary)' : 'var(--bg-tertiary)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: i === 0 ? '#fff' : 'var(--text-secondary)', flexShrink: 0 }}>
+              <DeviceIcon type={device.device_type} />
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: 14, display: 'flex', alignItems: 'center', gap: 8 }}>
+                {browser} on {os}
+                {isRecent && <span style={{ fontSize: 11, background: '#22c55e22', color: '#22c55e', padding: '2px 8px', borderRadius: 99, fontWeight: 500 }}>{tr('sdev_active')}</span>}
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>{tr('sdev_ip')} {device.ip_address}</div>
+              <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{tr('sdev_last_active')} {lastSeen.toLocaleString()}</div>
+              <div style={{ fontSize: 11, color: 'var(--text-secondary)', opacity: 0.7 }}>{tr('sdev_first_login')} {new Date(device.created_at).toLocaleString()}</div>
+            </div>
+            {i > 0 && <button type="button" style={{ ...btnDanger, display: 'flex', alignItems: 'center', gap: 4, padding: '6px 12px' }} onClick={() => handleRemove(device.id)}><Trash2 size={14} /></button>}
+          </div>
+        );
+      })}
+    </section>
+  );
+};
+
+// ==================== Notifications ====================
+
+const NotificationSettings: React.FC = () => {
+  const tr = useTranslation();
+  return (
   <section>
-    <h1>Notifications</h1>
-    <p>Control how you receive notifications</p>
-
-    <h3>Enable Desktop Notifications</h3>
-    <label className="ui-checkbox">
-      <input type="checkbox" defaultChecked />
-      <span className="ui-checkbox-box"></span>
-      <span className="ui-checkbox-text">Enable all notifications</span>
-    </label>
-
-    <div className="settings-divider"></div>
-
-    <h3>Push Notifications</h3>
-    <label className="ui-checkbox">
-      <input type="checkbox" defaultChecked />
-      <span className="ui-checkbox-box"></span>
-      <span className="ui-checkbox-text">Direct messages</span>
-    </label>
-    <label className="ui-checkbox">
-      <input type="checkbox" defaultChecked />
-      <span className="ui-checkbox-box"></span>
-      <span className="ui-checkbox-text">Mentions</span>
-    </label>
-    <label className="ui-checkbox">
-      <input type="checkbox" />
-      <span className="ui-checkbox-box"></span>
-      <span className="ui-checkbox-text">All server messages</span>
-    </label>
-    <label className="ui-checkbox">
-      <input type="checkbox" defaultChecked />
-      <span className="ui-checkbox-box"></span>
-      <span className="ui-checkbox-text">Friend requests</span>
-    </label>
-
-    <div className="settings-divider"></div>
-
-    <h3>Sounds</h3>
-    <label className="ui-checkbox">
-      <input type="checkbox" defaultChecked />
-      <span className="ui-checkbox-box"></span>
-      <span className="ui-checkbox-text">Message notification sound</span>
-    </label>
-    <label className="ui-checkbox">
-      <input type="checkbox" defaultChecked />
-      <span className="ui-checkbox-box"></span>
-      <span className="ui-checkbox-text">Incoming call sound</span>
-    </label>
+    <h1>{tr('sn_title')}</h1>
+    <p>{tr('sn_desc')}</p>
+    <h3 style={sectionH3}>{tr('sn_desktop')}</h3>
+    <Check label={tr('sn_enable_all')} field="enable_all_notifications" />
+    <div style={divider} />
+    <h3 style={sectionH3}>{tr('sn_push')}</h3>
+    <Check label={tr('sn_dm')} field="notify_direct_messages" />
+    <Check label={tr('sn_mentions')} field="notify_mentions" />
+    <Check label={tr('sn_all_server')} field="notify_all_server_messages" />
+    <Check label={tr('sn_friend_req')} field="notify_friend_requests" />
+    <div style={divider} />
+    <h3 style={sectionH3}>{tr('sn_sounds')}</h3>
+    <Check label={tr('sn_sound_msg')} field="sound_message" />
+    <Check label={tr('sn_sound_call')} field="sound_incoming_call" />
   </section>
-);
+  );
+};
 
-const AppearanceSettings: React.FC = () => (
-  <section>
-    <h1>Appearance</h1>
-    <p>Customize how your app looks and feels</p>
+// ==================== Appearance ====================
 
-    <form>
-      <h3>Theme</h3>
-      <label>App Theme
-        <select name="theme">
-          <option value="dark" selected>Dark</option>
-          <option value="light">Light</option>
-          <option value="system">Sync with system</option>
+const ACCENT_PRESETS = [
+  '#0070F3', '#6366f1', '#8b5cf6', '#ec4899',
+  '#10b981', '#f59e0b', '#ef4444', '#06b6d4',
+];
+
+const AppearanceSettings: React.FC = () => {
+  const tr = useTranslation();
+  const { s, setField } = useSettings();
+  const { setAccentColor } = useApp();
+  const [accent, setAccent] = useState(localStorage.getItem('accentColor') || '#0070F3');
+
+  const pick = (c: string) => { setAccent(c); setAccentColor(c); };
+
+  return (
+    <section>
+      <h1>{tr('sa_title')}</h1>
+      <p>{tr('sa_desc')}</p>
+      <h3 style={sectionH3}>{tr('sa_theme')}</h3>
+      <label style={fieldLabel}>{tr('sa_app_theme')}
+        <select value={s.theme} onChange={e => setField('theme', e.target.value)} style={{ ...fieldInput, marginTop: 6 }}>
+          <option value="dark">{tr('sa_dark')}</option>
+          <option value="light">{tr('sa_light')}</option>
         </select>
       </label>
+      <div style={divider} />
+      <h3 style={sectionH3}>Accent colour</h3>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 12 }}>
+        {ACCENT_PRESETS.map(c => (
+          <button key={c} onClick={() => pick(c)} style={{
+            width: 28, height: 28, borderRadius: '50%', background: c, padding: 0,
+            border: accent === c ? '3px solid var(--text-primary)' : '2px solid transparent',
+            cursor: 'pointer',
+          }} />
+        ))}
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <input type="color" value={accent}
+          onChange={e => pick(e.target.value)}
+          style={{ width: 36, height: 36, border: 'none', borderRadius: 6, cursor: 'pointer', padding: 0, background: 'none' }}
+        />
+        <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Custom colour</span>
+      </div>
+      <div style={divider} />
+      <h3 style={sectionH3}>{tr('sa_msg_display')}</h3>
+      <Check label={tr('sa_timestamps')} field="show_timestamps" />
+      <Check label={tr('sa_avatars')} field="show_avatars" />
+    </section>
+  );
+};
 
-      <div className="settings-divider"></div>
+// ==================== Voice & Video ====================
 
-      <h3>Message Display</h3>
-      <label className="ui-checkbox">
-        <input type="checkbox" defaultChecked />
-        <span className="ui-checkbox-box"></span>
-        <span className="ui-checkbox-text">Show message timestamps</span>
-      </label>
-      <label className="ui-checkbox">
-        <input type="checkbox" defaultChecked />
-        <span className="ui-checkbox-box"></span>
-        <span className="ui-checkbox-text">Show avatars</span>
-      </label>
-    </form>
-  </section>
-);
-
-const VoiceVideoSettings: React.FC = () => (
+const VoiceVideoSettings: React.FC = () => {
+  const tr = useTranslation();
+  return (
   <section>
-    <h1>Voice & Video</h1>
-    <p>Configure your audio and video settings</p>
+    <h1>{tr('sv_title')}</h1>
+    <p>{tr('sv_desc')}</p>
+    <h3 style={sectionH3}>{tr('sv_processing')}</h3>
+    <Check label={tr('sv_auto_sensitivity')} field="auto_input_sensitivity" />
+    <Check label={tr('sv_echo')} field="echo_cancellation" />
+    <Check label={tr('sv_noise')} field="noise_suppression" />
+  </section>
+  );
+};
 
-    <form>
-      <h3>Input Device</h3>
-      <label>Microphone
-        <select name="microphone">
-          <option value="default">Default</option>
-          <option value="usb-pnp" selected>USB PNP Microphone</option>
-          <option value="built-in">Built-in Microphone</option>
+// ==================== Chat ====================
+
+const ChatSettings: React.FC = () => {
+  const tr = useTranslation();
+  return (
+  <section>
+    <h1>{tr('sc_title')}</h1>
+    <Check label={tr('sc_timestamps')} field="chat_show_timestamps" />
+    <Check label={tr('sc_emoji')} field="chat_emoji_reactions" />
+    <Check label={tr('sc_compact')} field="chat_compact_mode" />
+  </section>
+  );
+};
+
+// ==================== Language ====================
+
+const LanguageSettings: React.FC = () => {
+  const tr = useTranslation();
+  const { s, setField } = useSettings();
+  const { setLanguage } = useApp();
+  return (
+    <section>
+      <h1>{tr('sl_title')}</h1>
+      <p>{tr('sl_desc')}</p>
+      <label style={fieldLabel}>{tr('sl_select')}
+        <select value={s.language} onChange={e => { setField('language', e.target.value); setLanguage(e.target.value); }} style={{ ...fieldInput, marginTop: 6 }}>
+          {(Object.entries(languages) as [LangCode, string][]).map(([code, name]) => (
+            <option key={code} value={code}>{name}</option>
+          ))}
         </select>
       </label>
+    </section>
+  );
+};
 
-      <label className="ui-checkbox">
-        <input type="checkbox" defaultChecked />
-        <span className="ui-checkbox-box"></span>
-        <span className="ui-checkbox-text">Automatically determine input sensitivity</span>
-      </label>
+// ==================== Data & Privacy ====================
 
-      <div className="settings-divider"></div>
-
-      <h3>Voice Processing</h3>
-      <label className="ui-checkbox">
-        <input type="checkbox" defaultChecked />
-        <span className="ui-checkbox-box"></span>
-        <span className="ui-checkbox-text">Echo cancellation</span>
-      </label>
-      <label className="ui-checkbox">
-        <input type="checkbox" defaultChecked />
-        <span className="ui-checkbox-box"></span>
-        <span className="ui-checkbox-text">Noise suppression</span>
-      </label>
-    </form>
-  </section>
-);
-
-const LanguageSettings: React.FC = () => (
+const DataSettings: React.FC = () => {
+  const tr = useTranslation();
+  return (
   <section>
-    <h1>Language</h1>
-    <p>Choose your preferred language</p>
-
-    <form>
-      <h3>Select Language</h3>
-      <label>
-        <select name="language">
-          <option value="en">English</option>
-          <option value="ru">Русский</option>
-        </select>
-      </label>
-    </form>
+    <h1>{tr('sdata_title')}</h1>
+    <Check label={tr('sdata_improvements')} field="data_app_improvements" />
+    <Check label={tr('sdata_personal')} field="data_personalization" />
+    <div style={divider} />
+    <button type="button" style={btnSecondary}>{tr('sdata_download')}</button>
   </section>
-);
+  );
+};
 
-const DataSettings: React.FC = () => (
+// ==================== Streamer ====================
+
+const StreamerSettings: React.FC = () => {
+  const tr = useTranslation();
+  return (
   <section>
-    <h1>Data and Privacy</h1>
-    <form>
-      <label className="ui-checkbox">
-        <input type="checkbox" defaultChecked />
-        <span className="ui-checkbox-box"></span>
-        <span className="ui-checkbox-text">Use my data for app improvements</span>
-      </label>
-      <label className="ui-checkbox">
-        <input type="checkbox" defaultChecked />
-        <span className="ui-checkbox-box"></span>
-        <span className="ui-checkbox-text">Use my data for personalization</span>
-      </label>
-      <div className="settings-divider"></div>
-      <button type="button" className="glass-btn action-btn">Download my data</button>
-    </form>
+    <h1>{tr('sstr_title')}</h1>
+    <Check label={tr('sstr_enable')} field="streamer_mode" />
+    <div style={divider} />
+    <h3 style={sectionH3}>{tr('sstr_privacy')}</h3>
+    <Check label={tr('sstr_hide')} field="streamer_hide_info" />
+    <Check label={tr('sstr_disable_notifs')} field="streamer_disable_notifs" />
   </section>
-);
+  );
+};
 
-const DevicesSettings: React.FC = () => (
+// ==================== Advanced ====================
+
+const MoreSettings: React.FC = () => {
+  const tr = useTranslation();
+  return (
   <section>
-    <h1>Devices</h1>
-    <h3>Computers</h3>
-    <div style={{ marginTop: '16px' }}>
-      <div className="device-item">
-        <svg viewBox="0 0 24 24" fill="currentColor" style={{ width: '24px', height: '24px' }}>
-          <path d="M20 18c1.1 0 1.99-.9 1.99-2L22 6c0-1.1-.9-2-2-2H4c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2H0v2h24v-2h-4zM4 6h16v10H4V6z"/>
-        </svg>
-        <span>Alan desktop</span>
-      </div>
-      <div className="device-item">
-        <svg viewBox="0 0 24 24" fill="currentColor" style={{ width: '24px', height: '24px' }}>
-          <path d="M20 18c1.1 0 1.99-.9 1.99-2L22 6c0-1.1-.9-2-2-2H4c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2H0v2h24v-2h-4zM4 6h16v10H4V6z"/>
-        </svg>
-        <span>Alan notebook</span>
-      </div>
-    </div>
+    <h1>{tr('sadv_title')}</h1>
+    <Check label={tr('sadv_dev')} field="developer_mode" />
+    <Check label={tr('sadv_hw')} field="hardware_acceleration" />
   </section>
-);
+  );
+};
 
-const FamilySettings: React.FC = () => (
+// ==================== Activity Privacy ====================
+
+const PrivacyActivitySettings: React.FC = () => {
+  const tr = useTranslation();
+  return (
   <section>
-    <h1>Family Center</h1>
-    <p>Set up parental controls and monitor family activity.</p>
-    <button type="button" className="glass-btn action-btn">Set up Family Center</button>
+    <h1>{tr('sact_title')}</h1>
+    <Check label={tr('sact_current')} field="show_current_activity" />
+    <Check label={tr('sact_game')} field="show_game_status" />
   </section>
-);
+  );
+};
 
-const IntegrationSettings: React.FC = () => (
+// ==================== Accessibility ====================
+
+const SpecialSettings: React.FC = () => {
+  const tr = useTranslation();
+  return (
   <section>
-    <h1>Integrations</h1>
-    <h3>Connected Services</h3>
-    <div style={{ marginTop: '16px' }}>
-      {['GitHub', 'Steam', 'Reddit'].map((service) => (
-        <div key={service} className="integration-item">
-          <span>{service}</span>
-          <button type="button" className="glass-btn">Disconnect</button>
-        </div>
-      ))}
-    </div>
-    <div className="settings-divider"></div>
-    <button type="button" className="glass-btn action-btn">Add Integration</button>
+    <h1>{tr('sacc_title')}</h1>
+    <p>{tr('sacc_desc')}</p>
+    <label className="ui-checkbox"><input type="checkbox" /><span className="ui-checkbox-box"></span><span className="ui-checkbox-text">{tr('sacc_contrast')}</span></label>
+    <label className="ui-checkbox"><input type="checkbox" /><span className="ui-checkbox-box"></span><span className="ui-checkbox-text">{tr('sacc_reader')}</span></label>
   </section>
-);
+  );
+};
 
-const AppsSettings: React.FC = () => (
+// ==================== Keybindings ====================
+
+const BindsSettings: React.FC = () => {
+  const tr = useTranslation();
+  return (
   <section>
-    <h1>Connected Apps</h1>
-    <div style={{ marginTop: '16px' }}>
-      {['Max', 'Gosuslugi'].map((app) => (
-        <div key={app} className="app-item">
-          <span>{app}</span>
-          <button type="button" className="glass-btn">Revoke Access</button>
+    <h1>{tr('sbind_title')}</h1>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      {[[tr('sbind_mute'), 'Ctrl + Shift + M'], [tr('sbind_deafen'), 'Ctrl + Shift + D'], [tr('sbind_ptt'), 'Ctrl + Space']].map(([action, key]) => (
+        <div key={action} style={{ ...card, display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: 12, marginBottom: 0 }}>
+          <span style={{ color: 'var(--text-primary)', fontSize: 14 }}>{action}</span>
+          <kbd style={{ padding: '4px 10px', background: 'var(--bg-primary)', borderRadius: 4, fontSize: 12, color: 'var(--text-secondary)', border: '1px solid var(--border-color)' }}>{key}</kbd>
         </div>
       ))}
     </div>
   </section>
-);
+  );
+};
 
-const NitroSettings: React.FC = () => (
-  <section>
-    <h1>Nitro Subscription</h1>
-    <div className="nitro-card">
-      <h3>Nitro Active</h3>
-      <p>Enjoy premium features and perks</p>
-      <button type="button" className="glass-btn action-btn">Manage Subscription</button>
-    </div>
-  </section>
-);
+// ==================== Export & Import ====================
 
-const SubscribesSettings: React.FC = () => (
+const ExportImportSettings: React.FC = () => {
+  const tr = useTranslation();
+  return (
   <section>
-    <h1>Server Subscriptions</h1>
-    <h3>Active Subscriptions</h3>
-    <div style={{ marginTop: '16px' }}>
-      {['EFT', 'Factorio'].map((sub) => (
-        <div key={sub} className="subscription-item">
-          <span>{sub}</span>
-          <button type="button" className="glass-btn">Manage</button>
-        </div>
-      ))}
-    </div>
+    <h1>{tr('sexp_title')}</h1>
+    <p>{tr('sexp_desc')}</p>
+    <h3 style={sectionH3}>{tr('sexp_export')}</h3>
+    <p>{tr('sexp_export_desc')}</p>
+    <button type="button" style={btnSecondary}>{tr('sexp_export')}</button>
+    <div style={divider} />
+    <h3 style={sectionH3}>{tr('sexp_import')}</h3>
+    <p>{tr('sexp_import_desc')}</p>
+    <button type="button" style={btnSecondary}>{tr('sexp_import')}</button>
   </section>
-);
+  );
+};
 
-const GiftsSettings: React.FC = () => (
-  <section>
-    <h1>Gifts Inventory</h1>
-    <div className="gifts-grid">
-      {['Gold ingot', 'Rocket', 'Christmas Tree'].map((gift) => (
-        <div key={gift} className="gift-item">{gift}</div>
-      ))}
-    </div>
-  </section>
-);
+// ==================== Placeholder ====================
 
-const PaymentsSettings: React.FC = () => (
-  <section>
-    <h1>Payment Settings</h1>
-    <h3>Current Month Bill: $350</h3>
-    <div className="settings-divider"></div>
-    <h3>Saved Payment Methods</h3>
-    <div style={{ marginTop: '16px' }}>
-      {['**** **** **** 4444', '**** **** **** 6877'].map((card, i) => (
-        <div key={i} className="payment-item">
-          <span>{card}</span>
-          <button type="button" className="glass-btn">Remove</button>
-        </div>
-      ))}
-    </div>
-    <button type="button" className="glass-btn action-btn" style={{ marginTop: '20px' }}>Add Payment Method</button>
-  </section>
-);
-
-const SpecialSettings: React.FC = () => (
-  <section>
-    <h1>Accessibility</h1>
-    <p>Configure accessibility features for better usability.</p>
-    <label className="ui-checkbox">
-      <input type="checkbox" />
-      <span className="ui-checkbox-box"></span>
-      <span className="ui-checkbox-text">High contrast mode</span>
-    </label>
-    <label className="ui-checkbox">
-      <input type="checkbox" />
-      <span className="ui-checkbox-box"></span>
-      <span className="ui-checkbox-text">Screen reader support</span>
-    </label>
-  </section>
-);
-
-const ChatSettings: React.FC = () => (
-  <section>
-    <h1>Chat Settings</h1>
-    <label className="ui-checkbox">
-      <input type="checkbox" defaultChecked />
-      <span className="ui-checkbox-box"></span>
-      <span className="ui-checkbox-text">Show timestamps</span>
-    </label>
-    <label className="ui-checkbox">
-      <input type="checkbox" defaultChecked />
-      <span className="ui-checkbox-box"></span>
-      <span className="ui-checkbox-text">Enable emoji reactions</span>
-    </label>
-    <label className="ui-checkbox">
-      <input type="checkbox" />
-      <span className="ui-checkbox-box"></span>
-      <span className="ui-checkbox-text">Compact mode</span>
-    </label>
-  </section>
-);
-
-const BindsSettings: React.FC = () => (
-  <section>
-    <h1>Keybindings</h1>
-    <div className="keybind-list">
-      <div className="keybind-item">
-        <span>Mute/Unmute</span>
-        <kbd>Ctrl + Shift + M</kbd>
-      </div>
-      <div className="keybind-item">
-        <span>Deafen/Undeafen</span>
-        <kbd>Ctrl + Shift + D</kbd>
-      </div>
-      <div className="keybind-item">
-        <span>Push to Talk</span>
-        <kbd>Ctrl + Space</kbd>
-      </div>
-    </div>
-    <button type="button" className="glass-btn action-btn">Add Keybind</button>
-  </section>
-);
-
-const ExportImportSettings: React.FC = () => (
-  <section>
-    <h1>Export & Import</h1>
-    <p>Backup and restore your settings</p>
-    <form>
-      <h3>Export Settings</h3>
-      <p>Download all your settings as a JSON file</p>
-      <button type="button" className="glass-btn action-btn">Export Settings</button>
-      <div className="settings-divider"></div>
-      <h3>Import Settings</h3>
-      <p>Upload a previously exported settings file</p>
-      <button type="button" className="glass-btn action-btn">Import Settings</button>
-    </form>
-  </section>
-);
-
-const StreamerSettings: React.FC = () => (
-  <section>
-    <h1>Streamer Mode</h1>
-    <label className="ui-checkbox">
-      <input type="checkbox" />
-      <span className="ui-checkbox-box"></span>
-      <span className="ui-checkbox-text">Enable streamer mode</span>
-    </label>
-    <div className="settings-divider"></div>
-    <h3>Privacy Options</h3>
-    <label className="ui-checkbox">
-      <input type="checkbox" />
-      <span className="ui-checkbox-box"></span>
-      <span className="ui-checkbox-text">Hide personal information</span>
-    </label>
-    <label className="ui-checkbox">
-      <input type="checkbox" />
-      <span className="ui-checkbox-box"></span>
-      <span className="ui-checkbox-text">Disable notifications</span>
-    </label>
-  </section>
-);
-
-const MoreSettings: React.FC = () => (
-  <section>
-    <h1>Advanced Settings</h1>
-    <label className="ui-checkbox">
-      <input type="checkbox" />
-      <span className="ui-checkbox-box"></span>
-      <span className="ui-checkbox-text">Developer mode</span>
-    </label>
-    <label className="ui-checkbox">
-      <input type="checkbox" />
-      <span className="ui-checkbox-box"></span>
-      <span className="ui-checkbox-text">Hardware acceleration</span>
-    </label>
-    <button type="button" className="glass-btn action-btn">Clear cache</button>
-  </section>
-);
-
-const PrivacyActivitySettings: React.FC = () => (
-  <section>
-    <h1>Activity Privacy</h1>
-    <label className="ui-checkbox">
-      <input type="checkbox" defaultChecked />
-      <span className="ui-checkbox-box"></span>
-      <span className="ui-checkbox-text">Show current activity</span>
-    </label>
-    <label className="ui-checkbox">
-      <input type="checkbox" defaultChecked />
-      <span className="ui-checkbox-box"></span>
-      <span className="ui-checkbox-text">Show game status</span>
-    </label>
-  </section>
-);
-
-const GamesSettings: React.FC = () => (
-  <section>
-    <h1>Registered Games</h1>
-    <div className="games-list">
-      {['Escape from Tarkov', 'Minecraft', 'Factorio', 'Cyberpunk 2077'].map((game) => (
-        <div key={game} className="game-item">{game}</div>
-      ))}
-    </div>
-    <button type="button" className="glass-btn action-btn">Add Game</button>
-  </section>
-);
+const Placeholder: React.FC<{ title: string }> = ({ title }) => {
+  const tr = useTranslation();
+  return (
+  <section><h1>{title}</h1><p style={{ color: 'var(--text-secondary)' }}>{tr('settings_coming_soon')}</p></section>
+  );
+};

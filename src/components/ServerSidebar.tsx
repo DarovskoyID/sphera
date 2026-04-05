@@ -1,10 +1,11 @@
 import React from 'react';
 import { Settings, Home } from 'lucide-react';
 import { useApp } from '../context/AppContext';
-import { serverChannels } from '../data/mockData';
+import { useTranslation } from '../i18n/useTranslation';
 
 export const ServerSidebar: React.FC = () => {
   const { currentServer, setCurrentServer, isMobileSidebarOpen } = useApp();
+  const tr = useTranslation();
 
   return (
     <aside className={`server-sidebar ${isMobileSidebarOpen ? 'mobile-open' : ''}`}>
@@ -12,7 +13,7 @@ export const ServerSidebar: React.FC = () => {
         <button
           className={`server-icon ${currentServer === 'settings' ? 'active' : ''}`}
           onClick={() => setCurrentServer('settings')}
-          title="Settings"
+          title={tr('nav_settings')}
         >
           <Settings size={20} />
         </button>
@@ -20,28 +21,10 @@ export const ServerSidebar: React.FC = () => {
         <button
           className={`server-icon ${currentServer === 'home' ? 'active' : ''}`}
           onClick={() => setCurrentServer('home')}
-          title="Direct Messages"
+          title={tr('nav_direct_messages')}
         >
           <Home size={20} />
-          <span className="notification-badge">3</span>
         </button>
-
-        <div className="server-divider"></div>
-
-        {Object.values(serverChannels).map((server) => (
-          <button
-            key={server.id}
-            className={`server-icon ${currentServer === server.id ? 'active' : ''}`}
-            onClick={() => setCurrentServer(server.id)}
-            title={server.name}
-            style={{ background: server.accent }}
-          >
-            <span className="server-avatar">{server.abbr}</span>
-            {server.notifications && server.notifications > 0 && (
-              <span className="notification-badge">{server.notifications}</span>
-            )}
-          </button>
-        ))}
       </div>
     </aside>
   );

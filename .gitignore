@@ -22,3 +22,12 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+# Python virtual environments
+myenv/
+django-server/myenv/
+
+# Django
+django-server/ionik_server/db.sqlite3
+*.pyc
+__pycache__/
+django-server/ionik_server/media/
