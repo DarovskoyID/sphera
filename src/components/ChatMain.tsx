@@ -62,11 +62,11 @@ const ChatHeader: React.FC<{
   const blockedUser = !friend ? blockedContacts.find(u => String(u.id) === String(currentChat)) : null;
   const chatUser = friend ?? blockedUser;
 
-  if (!chatUser) return null;
-
   if (isCallActive) {
     return <CallWindow inline />;
   }
+
+  if (!chatUser) return null;
 
   const displayName = chatUser.nickname || chatUser.username;
 

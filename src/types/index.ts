@@ -100,6 +100,7 @@ export interface AppState {
   friends: ServerUser[];
   blockedContacts: ServerUser[];
   pendingRequests: PendingRequest[];
+  sentRequests: ServerUser[];
   callTargetId: string | null;
   incomingOffer: any | null;
   chatMessages: ChatMessage[];

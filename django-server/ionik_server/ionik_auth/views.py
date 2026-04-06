@@ -227,19 +227,17 @@ def friend_request_send(request):
             existing.from_user = request.user
             existing.to_user = to_user
             existing.save()
-            return Response(FriendshipSerializer(
-                existing, context={'request': request}
-            ).data)
+            friendship_data = FriendshipSerializer(existing, context={'request': request}).data
+            _push_friend_event(str(to_user_id), 'friend-request', friendship_data)
+            return Response(friendship_data)
 
     friendship = Friendship.objects.create(
         from_user=request.user, to_user=to_user,
     )
-    return Response(
-        FriendshipSerializer(
-            friendship, context={'request': request}
-        ).data,
-        status=status.HTTP_201_CREATED,
-    )
+    friendship_data = FriendshipSerializer(friendship, context={'request': request}).data
+    # Notify recipient in real time so their pending requests update immediately
+    _push_friend_event(str(to_user_id), 'friend-request', friendship_data)
+    return Response(friendship_data, status=status.HTTP_201_CREATED)
 
 
 @api_view(['POST'])
@@ -258,6 +256,9 @@ def friend_request_accept(request, friendship_id):
         )
     friendship.status = 'accepted'
     friendship.save()
+    # Notify the requester (from_user) that their request was accepted
+    me_data = UserSerializer(request.user, context={'request': request}).data
+    _push_friend_event(str(friendship.from_user_id), 'friend-added', me_data)
     return Response(FriendshipSerializer(
         friendship, context={'request': request}
     ).data)
@@ -347,6 +348,9 @@ def friend_remove(request, user_id):
             status=status.HTTP_404_NOT_FOUND,
         )
     friendship.delete()
+    # Notify the removed friend in real time
+    me_data = UserSerializer(request.user, context={'request': request}).data
+    _push_friend_event(str(user_id), 'friend-removed', me_data)
     return Response(status=status.HTTP_204_NO_CONTENT)
 
 
@@ -443,6 +447,24 @@ def _push_block_event(target_user_id: str, event_type: str, by_user_id: str):
                 'data': {
                     'type': event_type,
                     'by_user_id': by_user_id,
+                },
+            },
+        )
+    except Exception:
+        pass
+
+
+def _push_friend_event(target_user_id: str, event_type: str, user_data: dict):
+    """Send a real-time friend list change to the target user."""
+    try:
+        layer = get_channel_layer()
+        async_to_sync(layer.group_send)(
+            f'user_{target_user_id}',
+            {
+                'type': 'block.notify',
+                'data': {
+                    'type': event_type,
+                    'user': user_data,
                 },
             },
         )

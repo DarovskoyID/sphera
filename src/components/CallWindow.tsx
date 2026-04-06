@@ -299,12 +299,26 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
     const tryPlay = () => {
       videoEl.play()
         .then(() => {
-          setRemoteVideoStatus('видео играет');
-          setTimeout(() => { if (videoEl) videoEl.muted = false; }, 1000);
+          if (stream.getVideoTracks().length > 0) {
+            setRemoteVideoStatus('видео играет');
+            setTimeout(() => { if (videoEl) videoEl.muted = false; }, 1000);
+          } else {
+            // Audio-only stream — unmute immediately, keep video status as "no video"
+            videoEl.muted = false;
+          }
         })
         .catch(() => setTimeout(tryPlay, 500));
     };
     tryPlay();
+
+    // Also watch for video tracks being added later (remote enables camera mid-call)
+    stream.onaddtrack = (e) => {
+      if (e.track.kind === 'video') setRemoteVideoStatus('видео играет');
+    };
+    stream.onremovetrack = (e) => {
+      if (e.track.kind === 'video' && stream.getVideoTracks().length === 0)
+        setRemoteVideoStatus('нет видео');
+    };
   }, []);
 
   const attachRemoteScreenStream = useCallback((stream: MediaStream) => {
@@ -477,25 +491,24 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
     _call.hasAutoCalled = true;
     const targetId = String(callTargetId);
     setCallTargetId(null);
-    callPeer(targetId);
+    callPeer(targetId, isVideoActive);
   }, [callTargetId]);
 
   // ==================== Call peer ====================
-  const callPeer = async (peerId: string) => {
+  const callPeer = async (peerId: string, withVideo: boolean) => {
     _call.targetId = String(peerId);
     setRemotePeerId(String(peerId));
     _call.pendingCandidates = [];
 
     try { await startAudio(); } catch { }
-    try {
-      if (!_call.cameraStream?.active) {
-        const ok = await startCamera();
-        if (ok) setVideoActive(true);
-      }
-      if (cameraVideoRef.current && _call.cameraStream) {
-        attachStreamToVideo(cameraVideoRef.current, _call.cameraStream, setLocalVideoStatus, true);
-      }
-    } catch { }
+    if (withVideo) {
+      try {
+        if (!_call.cameraStream?.active) await startCamera();
+        if (cameraVideoRef.current && _call.cameraStream) {
+          attachStreamToVideo(cameraVideoRef.current, _call.cameraStream, setLocalVideoStatus, true);
+        }
+      } catch { }
+    }
 
     const pc = createPeerConnection(String(peerId));
     _call.pc = pc;
@@ -503,7 +516,7 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
 
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
-    sendSignal({ type: 'offer', sdp: offer, to: peerId });
+    sendSignal({ type: 'offer', sdp: offer, to: peerId, withVideo });
   };
 
   const processIncomingOffer = async (msg: any) => {
@@ -523,15 +536,17 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
       const pc = _call.pc;
 
       try { await startAudio(); } catch { }
-      try {
-        if (!_call.cameraStream?.active) {
-          await startCamera();
-          setVideoActive(true);
-        }
-        if (cameraVideoRef.current && _call.cameraStream) {
-          attachStreamToVideo(cameraVideoRef.current, _call.cameraStream, setLocalVideoStatus, true);
-        }
-      } catch { }
+      if (msg.withVideo) {
+        try {
+          if (!_call.cameraStream?.active) {
+            await startCamera();
+            setVideoActive(true);
+          }
+          if (cameraVideoRef.current && _call.cameraStream) {
+            attachStreamToVideo(cameraVideoRef.current, _call.cameraStream, setLocalVideoStatus, true);
+          }
+        } catch { }
+      }
 
       await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
       addLocalTracks(pc);
@@ -642,10 +657,10 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
         <Tile id="remote" label={remoteName} expandedTile={expandedTile} setExpandedTile={setExpandedTile}>
           <video
             ref={remoteVideoRef} autoPlay muted playsInline
-            style={{ ...videoFill, display: remoteVideoStatus !== 'видео выключено' ? 'block' : 'none' }}
+            style={{ ...videoFill, display: remoteVideoStatus === 'видео играет' ? 'block' : 'none' }}
             onClick={() => { if (remoteVideoRef.current) remoteVideoRef.current.muted = false; }}
           />
-          {remoteVideoStatus === 'видео выключено' && (
+          {remoteVideoStatus !== 'видео играет' && (
             <div style={placeholderStyle}>
               <UserAvatar name={remoteName} avatar={remoteAvatar} size={48} />
               <span style={{ color: '#fff', fontWeight: 600, fontSize: 13 }}>{remoteName}</span>

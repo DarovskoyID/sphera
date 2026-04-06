@@ -89,7 +89,7 @@ interface AppContextType extends AppState {
   unblockUser: (userId: string) => Promise<void>;
   removeBlockedContact: (userId: string) => void;
   setAccentColor: (color: string) => void;
-  sendFriendRequest: (userId: string) => Promise<void>;
+  sendFriendRequest: (userId: string, user?: ServerUser) => Promise<void>;
   acceptFriendRequest: (friendshipId: number) => Promise<void>;
   rejectFriendRequest: (friendshipId: number) => Promise<void>;
   searchUsers: (query: string) => Promise<ServerUser[]>;
@@ -145,13 +145,14 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       isVideoActive: false,
       SpeakersActive: ["", ""],
       callStatus: 'inactive',
-      currentServerIP: 'http://192.168.0.110:8000',
+      currentServerIP: 'http://127.0.0.1:8000',
       userIDonServer: '',
       authToken: savedToken,
       currentUser: null,
       friends: [],
       blockedContacts: [],
       pendingRequests: [],
+      sentRequests: [],
       callTargetId: null,
       incomingOffer: null,
       chatMessages: [],
@@ -211,7 +212,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
   // ==================== Load user info after login ====================
   useEffect(() => {
     if (!state.authToken) {
-      setState(prev => ({ ...prev, currentUser: null, friends: [], pendingRequests: [], userIDonServer: '', currentChat: '' }));
+      setState(prev => ({ ...prev, currentUser: null, friends: [], pendingRequests: [], sentRequests: [], userIDonServer: '', currentChat: '' }));
       return;
     }
     const load = async () => {
@@ -304,7 +305,8 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       ...prev,
       blockedContacts: prev.blockedContacts.filter(u => String(u.id) !== String(userId)),
     }));
-  }, [state.authToken, state.currentServerIP]);
+    await loadFriends();
+  }, [state.authToken, state.currentServerIP, loadFriends]);
 
   const removeBlockedContact = useCallback((userId: string) => {
     setState(prev => ({
@@ -318,11 +320,31 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     applyAccent(color);
   }, []);
 
-  const sendFriendRequest = useCallback(async (userId: string) => {
+  const sendFriendRequest = useCallback(async (userId: string, user?: ServerUser) => {
+    if (user) {
+      setState(prev => ({
+        ...prev,
+        sentRequests: prev.sentRequests.some(u => String(u.id) === String(userId))
+          ? prev.sentRequests
+          : [...prev.sentRequests, user],
+      }));
+    }
     await apiPost('/api/auth/friends/request/', state.authToken, state.currentServerIP, { user_id: userId });
   }, [state.authToken, state.currentServerIP, apiPost]);
 
   const acceptFriendRequest = useCallback(async (friendshipId: number) => {
+    // Optimistic update: move accepted user from pendingRequests → friends immediately
+    setState(prev => {
+      const req = prev.pendingRequests.find(r => r.id === friendshipId);
+      if (!req) return prev;
+      const newFriend: ServerUser = req.from_user;
+      const alreadyFriend = prev.friends.some(f => String(f.id) === String(newFriend.id));
+      return {
+        ...prev,
+        friends: alreadyFriend ? prev.friends : [...prev.friends, newFriend],
+        pendingRequests: prev.pendingRequests.filter(r => r.id !== friendshipId),
+      };
+    });
     await apiPost(`/api/auth/friends/request/${friendshipId}/accept/`, state.authToken, state.currentServerIP, {});
     await loadFriends();
     await loadPendingRequests();
@@ -621,6 +643,36 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
             ? false
             : prev.chatBlockedByOther,
         }));
+        return;
+      }
+      if (data.type === 'friend-request') {
+        // Someone sent me a friend request — add to pendingRequests immediately
+        setState(prev => {
+          const already = prev.pendingRequests.some(r => r.id === data.user.id);
+          return already ? prev : { ...prev, pendingRequests: [...prev.pendingRequests, data.user] };
+        });
+        return;
+      }
+      if (data.type === 'friend-removed') {
+        // Someone removed me from friends — remove them from my list immediately
+        setState(prev => ({
+          ...prev,
+          friends: prev.friends.filter(f => String(f.id) !== String(data.user.id)),
+          // If their chat is open, close it
+          currentChat: String(prev.currentChat) === String(data.user.id) ? '' : prev.currentChat,
+        }));
+        return;
+      }
+      if (data.type === 'friend-added') {
+        // Someone accepted my friend request — add them to friends, remove from sentRequests
+        setState(prev => {
+          const alreadyFriend = prev.friends.some(f => String(f.id) === String(data.user.id));
+          return {
+            ...prev,
+            friends: alreadyFriend ? prev.friends : [...prev.friends, data.user],
+            sentRequests: prev.sentRequests.filter(u => String(u.id) !== String(data.user.id)),
+          };
+        });
         return;
       }
       if (data.type === 'status_update') {

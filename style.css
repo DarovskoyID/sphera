@@ -626,7 +626,7 @@ svg {
 }
 
 .chat-item {
-  display: grid;
+  display: flex;
   grid-template-columns: 40px 1fr auto;
   gap: var(--spacing-md);
   padding: var(--spacing-sm);

@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { Phone, PhoneOff } from 'lucide-react';
+import { Phone, PhoneOff, Video } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { useTranslation } from '../i18n/useTranslation';
 
@@ -10,6 +10,7 @@ export const IncomingCallModal = () => {
     setIncomingOffer,
     setCallActive,
     setCallTargetId,
+    setVideoActive,
     setCurrentChat,
     sendSignal,
     signalingPeers,
@@ -70,6 +71,7 @@ export const IncomingCallModal = () => {
     bufferedCandidates.current = [];
     setIncomingOffer(offerWithCandidates);
     setCallTargetId(String(incomingOffer.from));
+    if (incomingOffer.withVideo) setVideoActive(true);
     // Open the chat with the caller — set chat first, then navigate to home
     setCurrentChat(String(incomingOffer.from));
     setCallActive(true);
@@ -126,12 +128,15 @@ export const IncomingCallModal = () => {
             fontWeight: 700,
             color: '#fff',
           }}>
-            {callerName ? callerName[0].toUpperCase() : <Phone size={28} color="#fff" />}
+            {callerName ? callerName[0].toUpperCase() : incomingOffer?.withVideo ? <Video size={28} color="#fff" /> : <Phone size={28} color="#fff" />}
           </div>
         )}
         <h2 style={{ margin: '0 0 4px 0', color: '#fff', fontSize: 20 }}>{callerName}</h2>
-        <p style={{ margin: '0 0 24px 0', color: '#aaa', fontSize: 14 }}>
-          {tr('call_incoming')} · {tr('call_calling_you')}
+        <p style={{ margin: '0 0 4px 0', color: '#aaa', fontSize: 14 }}>
+          {incomingOffer?.withVideo ? tr('call_video') || 'Video call' : tr('call_voice') || 'Voice call'}
+        </p>
+        <p style={{ margin: '0 0 24px 0', color: '#888', fontSize: 13 }}>
+          {tr('call_calling_you')}
         </p>
         <div style={{ display: 'flex', gap: 16, justifyContent: 'center' }}>
           <button
@@ -168,7 +173,7 @@ export const IncomingCallModal = () => {
             }}
             title={tr('call_accept')}
           >
-            <Phone size={24} />
+            {incomingOffer?.withVideo ? <Video size={24} /> : <Phone size={24} />}
           </button>
         </div>
       </div>

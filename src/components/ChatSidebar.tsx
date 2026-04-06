@@ -531,7 +531,7 @@ export const ChatSidebar: React.FC = () => {
     currentView, currentChat, currentSettingsPage,
     setCurrentChat, setCurrentSettingsPage, toggleTheme, theme,
     isMobileSidebarOpen, toggleMobileSidebar, setAuthToken,
-    friends, blockedContacts, pendingRequests, sendFriendRequest, acceptFriendRequest,
+    friends, blockedContacts, pendingRequests, sentRequests, sendFriendRequest, acceptFriendRequest,
     rejectFriendRequest, searchUsers,
     setCallActive, setCallTargetId, setVideoActive,
     removeFriend,
@@ -572,8 +572,9 @@ export const ChatSidebar: React.FC = () => {
 
   const handleSendRequest = async (userId: string) => {
     setAddError(''); setAddSuccess('');
+    const user = searchResults.find(u => String(u.id) === String(userId));
     try {
-      await sendFriendRequest(userId);
+      await sendFriendRequest(userId, user);
       setAddSuccess(tr('friends_request_sent'));
       setSearchResults([]); setAddQuery('');
     } catch (e: any) {
@@ -635,6 +636,24 @@ export const ChatSidebar: React.FC = () => {
               onChange={e => setSearchQuery(e.target.value)}
             />
           </div>
+
+          {/* Sent requests */}
+          {sentRequests.length > 0 && (
+            <>
+              <div className="section-title">{tr('friends_requests_sent') || 'Sent requests'} ({sentRequests.length})</div>
+              {sentRequests.map(user => (
+                <div key={user.id} className="chat-item" style={{ gap: 8 }}>
+                  <div className="chat-avatar">
+                    <Avatar name={user.nickname || user.username} avatar={user.avatar} size={36} />
+                  </div>
+                  <div className="chat-info" style={{ flex: 1 }}>
+                    <div className="chat-name">{user.nickname || user.username}</div>
+                    <div className="chat-message">{tr('friends_request_pending') || 'Request sent'}</div>
+                  </div>
+                </div>
+              ))}
+            </>
+          )}
 
           {/* Pending requests */}
           {pendingRequests.length > 0 && (
