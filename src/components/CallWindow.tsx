@@ -360,6 +360,11 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
       if (!_call.remoteStream) {
         _call.remoteStream = stream;
         _attachRemoteRef?.current(stream);
+      } else if (stream.id === _call.remoteStream.id) {
+        // New track added to the existing remote stream (e.g. camera enabled mid-call)
+        if (event.track.kind === 'video') {
+          _attachRemoteRef?.current(stream);
+        }
       } else if (stream.id !== _call.remoteStream.id) {
         _call.remoteScreenStream = stream;
         _attachRemoteScreenRef?.current(stream);
@@ -687,12 +692,39 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
         <button className="icon-btn glass-btn" style={{ background: 'red' }} onClick={() => stopCall()}>X</button>
         <button
           className="icon-btn glass-btn"
-          onClick={() => {
+          onClick={async () => {
             const newState = !isVideoActive;
             setVideoActive(newState);
-            if (_call.cameraStream) {
-              _call.cameraStream.getVideoTracks().forEach(track => { track.enabled = newState; });
+
+            if (newState) {
+              // Turning ON: start camera if not running, add track to PC, renegotiate
+              try {
+                if (!_call.cameraStream?.active) await startCamera();
+                if (cameraVideoRef.current && _call.cameraStream)
+                  attachStreamToVideo(cameraVideoRef.current, _call.cameraStream, setLocalVideoStatus, true);
+
+                const pc = _call.pc;
+                if (pc && _call.cameraStream) {
+                  const videoTrack = _call.cameraStream.getVideoTracks()[0];
+                  if (videoTrack) {
+                    const senders = pc.getSenders();
+                    const existing = senders.find(s => s.track?.kind === 'video' && s.track?.id === videoTrack.id);
+                    if (!existing) {
+                      pc.addTrack(videoTrack, _call.localMediaStream);
+                      const offer = await pc.createOffer();
+                      await pc.setLocalDescription(offer);
+                      sendSignal({ type: 'offer', sdp: offer, to: _call.targetId!, withVideo: true });
+                    } else {
+                      videoTrack.enabled = true;
+                    }
+                  }
+                }
+              } catch { }
+            } else {
+              // Turning OFF: just disable the track, no renegotiation needed
+              _call.cameraStream?.getVideoTracks().forEach(t => { t.enabled = false; });
             }
+
             if (_call.targetId) sendSignal({ type: 'video-toggle', enabled: newState, to: _call.targetId });
           }}
         >

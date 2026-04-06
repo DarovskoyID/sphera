@@ -852,7 +852,7 @@ const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: (
       )}
 
       {/* Input row */}
-      <div style={{ display: 'flex', alignItems: 'center', width: '100%', position: 'relative' }}>
+      <div style={{ display: 'flex', gap : 8, alignItems: 'center', width: '100%', position: 'relative' }}>
         <input ref={fileInputRef} type="file" multiple style={{ display: 'none' }} onChange={handleFileSelect} />
         <button className="icon-btn glass-btn" title={tr('chat_attachment')} onClick={() => fileInputRef.current?.click()} disabled={uploading || pendingFiles.length >= MAX_FILES}>
           <Plus size={20} />

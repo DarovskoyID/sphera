@@ -4,29 +4,31 @@
 
 :root {
   /* Light Theme Colors */
-  --bg-primary: #ffffff;
-  --bg-secondary: #f5f5f5;
-  --bg-tertiary: #e8e8e8;
-  --bg-chat: #ffffff;
+  --bg-primary: #eef0f3;
+  --bg-secondary: #e3e5e8;
+  --bg-tertiary: #d6d9de;
+  --bg-chat: #f2f3f5;
+  --bg-server-sidebar: #c8ccd2;
+  --bg-chat-sidebar: #d6d9de;
 
-  --text-primary: #1a1a1a;
-  --text-secondary: #666666;
-  --text-tertiary: #999999;
+  --text-primary: #1e2124;
+  --text-secondary: #4f5660;
+  --text-tertiary: #7a8089;
 
   --accent-primary: #0070F3;
   --accent-hover: #005fd0;
   --accent-active: #004fb0;
 
-  --glass-bg: rgba(255, 255, 255, 0.7);
-  --glass-border: rgba(255, 255, 255, 0.3);
+  --glass-bg: rgba(220, 223, 228, 0.75);
+  --glass-border: rgba(0, 0, 0, 0.08);
   --glass-shadow: rgba(0, 0, 0, 0.1);
 
-  --message-own: #e3f2fd;
-  --message-other: #f5f5f5;
+  --message-own: #c9dff7;
+  --message-other: #d6d9de;
 
-  --border-color: #e0e0e0;
-  --hover-bg: #f5f5f5;
-  --active-bg: #e8e8e8;
+  --border-color: #c8ccd2;
+  --hover-bg: #d6d9de;
+  --active-bg: #cacdd3;
 
   --status-online: #43b581;
   --status-idle: #faa61a;
@@ -66,6 +68,8 @@ body.dark-theme {
   --bg-secondary: #2b2d31;
   --bg-tertiary: #313338;
   --bg-chat: #313338;
+  --bg-server-sidebar: #1e1f22;
+  --bg-chat-sidebar: #2b2d31;
 
   --text-primary: #f2f3f5;
   --text-secondary: #b5bac1;
@@ -143,7 +147,7 @@ svg {
    ================================ */
 
 .server-sidebar {
-  background-color: var(--bg-primary);
+  background-color: var(--bg-server-sidebar);
   border-right: 1px solid var(--border-color);
   display: flex;
   flex-direction: column;
@@ -491,7 +495,7 @@ svg {
    ================================ */
 
 .chat-sidebar {
-  background-color: var(--bg-secondary);
+  background-color: var(--bg-chat-sidebar);
   display: flex;
   flex-direction: column;
   overflow: hidden;

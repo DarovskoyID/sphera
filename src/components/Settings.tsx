@@ -577,7 +577,7 @@ const ACCENT_PRESETS = [
 const AppearanceSettings: React.FC = () => {
   const tr = useTranslation();
   const { s, setField } = useSettings();
-  const { setAccentColor } = useApp();
+  const { setAccentColor, theme, toggleTheme } = useApp();
   const [accent, setAccent] = useState(localStorage.getItem('accentColor') || '#0070F3');
 
   const pick = (c: string) => { setAccent(c); setAccentColor(c); };
@@ -588,7 +588,14 @@ const AppearanceSettings: React.FC = () => {
       <p>{tr('sa_desc')}</p>
       <h3 style={sectionH3}>{tr('sa_theme')}</h3>
       <label style={fieldLabel}>{tr('sa_app_theme')}
-        <select value={s.theme} onChange={e => setField('theme', e.target.value)} style={{ ...fieldInput, marginTop: 6 }}>
+        <select
+          value={theme}
+          onChange={e => {
+            setField('theme', e.target.value);
+            if (e.target.value !== theme) toggleTheme();
+          }}
+          style={{ ...fieldInput, marginTop: 6 }}
+        >
           <option value="dark">{tr('sa_dark')}</option>
           <option value="light">{tr('sa_light')}</option>
         </select>
