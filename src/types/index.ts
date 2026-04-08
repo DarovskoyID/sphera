@@ -67,6 +67,64 @@ export interface ServerChannel {
   voiceChannels: string[];
 }
 
+export type GuildMemberRole = 'owner' | 'admin' | 'member';
+
+export interface GuildMember {
+  id: string;
+  username: string;
+  nickname: string;
+  avatar: string;
+  status: 'online' | 'idle' | 'dnd' | 'offline';
+  role: GuildMemberRole;
+}
+
+export interface GuildChannel {
+  id: number;
+  name: string;
+  type: 'text' | 'voice';
+  topic: string;
+  position: number;
+}
+
+export interface Guild {
+  id: number;
+  name: string;
+  description: string;
+  icon: string;
+  banner: string;
+  owner_id: string;
+  invite_code: string;
+  my_role: GuildMemberRole;
+  members: GuildMember[];
+  channels: GuildChannel[];
+}
+
+export interface GuildMessage {
+  id: number;
+  author: {
+    id: string;
+    username: string;
+    nickname: string;
+    avatar: string;
+    status: string;
+  };
+  content: string;
+  created_at: string;
+  is_pinned: boolean;
+  reply_to?: {
+    id: number;
+    content: string;
+    author: { id: string; username: string; nickname?: string };
+  } | null;
+  attachments?: Array<{
+    id: number;
+    filename: string;
+    content_type: string;
+    file_size: number;
+    url: string;
+  }>;
+}
+
 export type ViewType = 'home' | 'server' | 'settings';
 
 export type MobilePanel = 'chat-list' | 'chat-view';
@@ -107,4 +165,8 @@ export interface AppState {
   chatConversationId: number | null;
   chatBlockedByOther: boolean;
   customEmojis: CustomEmoji[];
+  guilds: Guild[];
+  currentGuild: Guild | null;
+  currentGuildChannel: GuildChannel | null;
+  guildMessages: GuildMessage[];
 }

@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback, type ReactNode } from 'react';
-import type { AppState, ViewType, MobilePanel, ServerUser, PendingRequest, ChatMessage } from '../types';
+import type { AppState, ViewType, MobilePanel, ServerUser, PendingRequest, ChatMessage, Guild, GuildChannel, GuildMessage } from '../types';
 import type { CustomEmoji } from '../types';
 
 // ── Global error interception ────────────────────────────────────────────────
@@ -105,6 +105,26 @@ interface AppContextType extends AppState {
   showError: (message: string) => void;
   clearError: () => void;
   errorMessage: string | null;
+  guildKickNotification: { title: string; message: string } | null;
+  clearGuildKickNotification: () => void;
+  // Guild methods
+  loadGuilds: () => Promise<void>;
+  createGuild: (name: string, description?: string) => Promise<Guild | null>;
+  joinGuild: (inviteCode: string) => Promise<Guild | null>;
+  leaveGuild: (guildId: number) => Promise<void>;
+  deleteGuild: (guildId: number) => Promise<void>;
+  kickMember: (guildId: number, userId: string) => Promise<void>;
+  setMemberRole: (guildId: number, userId: string, role: 'admin' | 'member') => Promise<void>;
+  createChannel: (guildId: number, name: string, type?: 'text' | 'voice') => Promise<void>;
+  deleteChannel: (guildId: number, channelId: number) => Promise<void>;
+  selectGuild: (guild: Guild) => void;
+  selectGuildChannel: (channel: GuildChannel) => void;
+  sendGuildMessage: (text: string, replyToId?: number, attachmentIds?: number[]) => void;
+  scheduleGuildMessage: (text: string, delaySecs: number, replyToId?: number, attachmentIds?: number[]) => Promise<{ id: number; send_at: string } | null>;
+  loadOlderGuildMessages: () => Promise<boolean>;
+  deleteGuildMessage: (messageId: number) => Promise<void>;
+  pinGuildMessage: (messageId: number) => Promise<void>;
+  guildChannelWs: React.MutableRefObject<WebSocket | null>;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -159,6 +179,10 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       chatConversationId: null,
       chatBlockedByOther: false,
       customEmojis: [],
+      guilds: [],
+      currentGuild: null,
+      currentGuildChannel: null,
+      guildMessages: [],
     };
   });
 
@@ -169,6 +193,8 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const showError = useCallback((message: string) => setErrorMessage(message), []);
   const clearError = useCallback(() => setErrorMessage(null), []);
+  const [guildKickNotification, setGuildKickNotification] = useState<{ title: string; message: string } | null>(null);
+  const clearGuildKickNotification = useCallback(() => setGuildKickNotification(null), []);
 
   // Drain any errors that were queued before the context mounted, then
   // redirect all future console.error / window errors into the modal.
@@ -707,6 +733,276 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     };
   }, [state.authToken, state.currentServerIP]);
 
+  // ==================== Guild WebSocket ====================
+  const guildChannelWs = useRef<WebSocket | null>(null);
+
+  const _connectGuildWs = useCallback((guild: Guild, channel: GuildChannel, token: string, serverIP: string) => {
+    if (guildChannelWs.current) {
+      guildChannelWs.current.close();
+      guildChannelWs.current = null;
+    }
+    const wsUrl = serverIP.replace(/^http/, 'ws');
+    const ws = new WebSocket(`${wsUrl}/ws/guild/${guild.id}/channel/${channel.id}/?token=${token}`);
+    ws.onopen = () => { guildChannelWs.current = ws; };
+    ws.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      if (data.type === 'message_deleted') {
+        setState(prev => ({ ...prev, guildMessages: prev.guildMessages.filter(m => m.id !== data.id) }));
+      } else if (data.type === 'message_pinned') {
+        setState(prev => ({ ...prev, guildMessages: prev.guildMessages.map(m => m.id === data.id ? { ...m, is_pinned: data.is_pinned } : m) }));
+      } else if (data.type === 'guild_deleted') {
+        setState(prev => ({
+          ...prev,
+          guilds: prev.guilds.filter(g => g.id !== data.guild_id),
+          currentGuild: prev.currentGuild?.id === data.guild_id ? null : prev.currentGuild,
+          currentGuildChannel: prev.currentGuild?.id === data.guild_id ? null : prev.currentGuildChannel,
+          guildMessages: prev.currentGuild?.id === data.guild_id ? [] : prev.guildMessages,
+          currentView: prev.currentGuild?.id === data.guild_id ? 'home' : prev.currentView,
+          currentServer: prev.currentGuild?.id === data.guild_id ? 'home' : prev.currentServer,
+        }));
+      } else if (data.type === 'member_joined') {
+        setState(prev => {
+          if (!prev.currentGuild || prev.currentGuild.id !== guild.id) return prev;
+          const already = prev.currentGuild.members.some(m => m.id === data.member.id);
+          if (already) return prev;
+          return { ...prev, currentGuild: { ...prev.currentGuild, members: [...prev.currentGuild.members, data.member] } };
+        });
+      } else if (data.type === 'member_left') {
+        setState(prev => {
+          if (!prev.currentGuild || prev.currentGuild.id !== guild.id) return prev;
+          return { ...prev, currentGuild: { ...prev.currentGuild, members: prev.currentGuild.members.filter(m => m.id !== data.user_id) } };
+        });
+      } else if (data.type === 'member_kicked') {
+        setState(prev => {
+          if (!prev.currentGuild || prev.currentGuild.id !== guild.id) return prev;
+          const isSelf = String(data.user_id) === String(prev.userIDonServer);
+          if (isSelf) {
+            setGuildKickNotification({ title: 'guild_kicked_title', message: data.guild_name || guild.name });
+            return {
+              ...prev,
+              guilds: prev.guilds.filter(g => g.id !== guild.id),
+              currentGuild: null,
+              currentGuildChannel: null,
+              guildMessages: [],
+              currentView: 'home' as const,
+              currentServer: 'home',
+            };
+          }
+          return { ...prev, currentGuild: { ...prev.currentGuild, members: prev.currentGuild.members.filter(m => m.id !== data.user_id) } };
+        });
+      } else if (data.type === 'channel_created') {
+        setState(prev => {
+          if (!prev.currentGuild || prev.currentGuild.id !== guild.id) return prev;
+          const already = prev.currentGuild.channels.some(c => c.id === data.channel.id);
+          if (already) return prev;
+          return { ...prev, currentGuild: { ...prev.currentGuild, channels: [...prev.currentGuild.channels, data.channel] } };
+        });
+      } else if (data.type === 'channel_deleted') {
+        setState(prev => {
+          if (!prev.currentGuild || prev.currentGuild.id !== guild.id) return prev;
+          return { ...prev, currentGuild: { ...prev.currentGuild, channels: prev.currentGuild.channels.filter(c => c.id !== data.channel_id) } };
+        });
+      } else {
+        // Regular chat message — skip if already present (REST history race)
+        const msg: GuildMessage = data;
+        setState(prev => {
+          if (prev.guildMessages.some(m => m.id === msg.id)) return prev;
+          const msgs = [...prev.guildMessages, msg];
+          if (msgs.length > 500) msgs.splice(0, msgs.length - 500);
+          return { ...prev, guildMessages: msgs };
+        });
+      }
+    };
+    ws.onclose = () => { if (guildChannelWs.current === ws) guildChannelWs.current = null; };
+  }, []);
+
+  // ==================== Guild methods ====================
+  const loadGuilds = useCallback(async () => {
+    try {
+      const guilds: Guild[] = await apiGet('/api/guilds/', state.authToken, state.currentServerIP);
+      setState(prev => ({ ...prev, guilds }));
+    } catch (e) { reportError(e); }
+  }, [state.authToken, state.currentServerIP, apiGet]);
+
+  const createGuild = useCallback(async (name: string, description = ''): Promise<Guild | null> => {
+    try {
+      const guild: Guild = await apiPost('/api/guilds/', state.authToken, state.currentServerIP, { name, description });
+      setState(prev => ({ ...prev, guilds: [...prev.guilds, guild] }));
+      return guild;
+    } catch (e) { reportError(e); return null; }
+  }, [state.authToken, state.currentServerIP, apiPost]);
+
+  const joinGuild = useCallback(async (inviteCode: string): Promise<Guild | null> => {
+    try {
+      const guild: Guild = await apiPost('/api/guilds/join/', state.authToken, state.currentServerIP, { invite_code: inviteCode });
+      setState(prev => {
+        const already = prev.guilds.some(g => g.id === guild.id);
+        return { ...prev, guilds: already ? prev.guilds.map(g => g.id === guild.id ? guild : g) : [...prev.guilds, guild] };
+      });
+      return guild;
+    } catch (e) { reportError(e); return null; }
+  }, [state.authToken, state.currentServerIP, apiPost]);
+
+  const leaveGuild = useCallback(async (guildId: number) => {
+    await fetch(`${state.currentServerIP}/api/guilds/${guildId}/leave/`, {
+      method: 'DELETE', headers: { Authorization: `Bearer ${state.authToken}` },
+    });
+    setState(prev => ({
+      ...prev,
+      guilds: prev.guilds.filter(g => g.id !== guildId),
+      currentGuild: prev.currentGuild?.id === guildId ? null : prev.currentGuild,
+      currentGuildChannel: prev.currentGuild?.id === guildId ? null : prev.currentGuildChannel,
+      guildMessages: prev.currentGuild?.id === guildId ? [] : prev.guildMessages,
+      currentView: prev.currentGuild?.id === guildId ? 'home' : prev.currentView,
+      currentServer: prev.currentGuild?.id === guildId ? 'home' : prev.currentServer,
+    }));
+    if (guildChannelWs.current) { guildChannelWs.current.close(); guildChannelWs.current = null; }
+  }, [state.authToken, state.currentServerIP]);
+
+  const deleteGuild = useCallback(async (guildId: number) => {
+    await fetch(`${state.currentServerIP}/api/guilds/${guildId}/`, {
+      method: 'DELETE', headers: { Authorization: `Bearer ${state.authToken}` },
+    });
+    setState(prev => ({
+      ...prev,
+      guilds: prev.guilds.filter(g => g.id !== guildId),
+      currentGuild: prev.currentGuild?.id === guildId ? null : prev.currentGuild,
+      currentGuildChannel: prev.currentGuild?.id === guildId ? null : prev.currentGuildChannel,
+      guildMessages: prev.currentGuild?.id === guildId ? [] : prev.guildMessages,
+      currentView: prev.currentGuild?.id === guildId ? 'home' : prev.currentView,
+      currentServer: prev.currentGuild?.id === guildId ? 'home' : prev.currentServer,
+    }));
+    if (guildChannelWs.current) { guildChannelWs.current.close(); guildChannelWs.current = null; }
+  }, [state.authToken, state.currentServerIP]);
+
+  const kickMember = useCallback(async (guildId: number, userId: string) => {
+    await fetch(`${state.currentServerIP}/api/guilds/${guildId}/kick/${userId}/`, {
+      method: 'POST', headers: { Authorization: `Bearer ${state.authToken}` },
+    });
+    setState(prev => {
+      if (!prev.currentGuild || prev.currentGuild.id !== guildId) return prev;
+      return { ...prev, currentGuild: { ...prev.currentGuild, members: prev.currentGuild.members.filter(m => m.id !== userId) } };
+    });
+  }, [state.authToken, state.currentServerIP]);
+
+  const setMemberRole = useCallback(async (guildId: number, userId: string, role: 'admin' | 'member') => {
+    await apiPost(`/api/guilds/${guildId}/role/${userId}/`, state.authToken, state.currentServerIP, { role });
+    setState(prev => {
+      if (!prev.currentGuild || prev.currentGuild.id !== guildId) return prev;
+      return { ...prev, currentGuild: { ...prev.currentGuild, members: prev.currentGuild.members.map(m => m.id === userId ? { ...m, role } : m) } };
+    });
+  }, [state.authToken, state.currentServerIP, apiPost]);
+
+  const createChannel = useCallback(async (guildId: number, name: string, type: 'text' | 'voice' = 'text') => {
+    await apiPost(`/api/guilds/${guildId}/channels/`, state.authToken, state.currentServerIP, { name, type });
+  }, [state.authToken, state.currentServerIP, apiPost]);
+
+  const deleteChannel = useCallback(async (guildId: number, channelId: number) => {
+    await fetch(`${state.currentServerIP}/api/guilds/${guildId}/channels/${channelId}/`, {
+      method: 'DELETE', headers: { Authorization: `Bearer ${state.authToken}` },
+    });
+  }, [state.authToken, state.currentServerIP]);
+
+  const selectGuild = useCallback((guild: Guild) => {
+    setState(prev => ({
+      ...prev,
+      currentGuild: guild,
+      currentGuildChannel: null,
+      guildMessages: [],
+      currentView: 'server',
+      currentServer: String(guild.id),
+    }));
+    if (guildChannelWs.current) { guildChannelWs.current.close(); guildChannelWs.current = null; }
+  }, []);
+
+  const selectGuildChannel = useCallback((channel: GuildChannel) => {
+    setState(prev => {
+      if (!prev.currentGuild) return prev;
+      // Same channel already selected — do nothing
+      if (prev.currentGuildChannel?.id === channel.id) return prev;
+      _connectGuildWs(prev.currentGuild, channel, prev.authToken, prev.currentServerIP);
+      return { ...prev, currentGuildChannel: channel, guildMessages: [] };
+    });
+  }, [_connectGuildWs]);
+
+  // Load guild channel message history when channel changes
+  useEffect(() => {
+    if (!state.currentGuild || !state.currentGuildChannel || !state.authToken) return;
+    const { id: guildId } = state.currentGuild;
+    const { id: channelId } = state.currentGuildChannel;
+    apiGet(`/api/guilds/${guildId}/channels/${channelId}/messages/`, state.authToken, state.currentServerIP)
+      .then((msgs: GuildMessage[]) => setState(prev => {
+        // Merge: keep any WS messages that arrived after the REST snapshot
+        const ids = new Set(msgs.map(m => m.id));
+        const extra = prev.guildMessages.filter(m => !ids.has(m.id));
+        const merged = [...msgs, ...extra].sort((a, b) => a.id - b.id);
+        return { ...prev, guildMessages: merged };
+      }))
+      .catch(reportError);
+  }, [state.currentGuildChannel?.id]);
+
+  const sendGuildMessage = useCallback((text: string, replyToId?: number, attachmentIds?: number[]) => {
+    if (guildChannelWs.current?.readyState !== WebSocket.OPEN) return;
+    const payload: Record<string, unknown> = { message: text };
+    if (replyToId) payload.reply_to_id = replyToId;
+    if (attachmentIds?.length) payload.attachment_ids = attachmentIds;
+    guildChannelWs.current.send(JSON.stringify(payload));
+  }, []);
+
+  const scheduleGuildMessage = useCallback(async (text: string, delaySecs: number, replyToId?: number, attachmentIds?: number[]): Promise<{ id: number; send_at: string } | null> => {
+    if (!state.currentGuild || !state.currentGuildChannel) return null;
+    try {
+      const body: Record<string, unknown> = { content: text, delay_seconds: delaySecs };
+      if (replyToId) body.reply_to_id = replyToId;
+      if (attachmentIds?.length) body.attachment_ids = attachmentIds;
+      const res = await fetch(`${state.currentServerIP}/api/guilds/${state.currentGuild.id}/channels/${state.currentGuildChannel.id}/schedule/`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${state.authToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (res.ok) return await res.json();
+    } catch { /* ignore */ }
+    return null;
+  }, [state.currentGuild, state.currentGuildChannel, state.currentServerIP, state.authToken]);
+
+  const loadOlderGuildMessages = useCallback(async (): Promise<boolean> => {
+    if (!state.currentGuild || !state.currentGuildChannel) return false;
+    const firstMsg = state.guildMessages[0];
+    if (!firstMsg) return false;
+    try {
+      const older: GuildMessage[] = await apiGet(
+        `/api/guilds/${state.currentGuild.id}/channels/${state.currentGuildChannel.id}/messages/?before=${firstMsg.id}&limit=50`,
+        state.authToken, state.currentServerIP
+      );
+      if (older.length === 0) return false;
+      setState(prev => ({ ...prev, guildMessages: [...older, ...prev.guildMessages] }));
+      return true;
+    } catch (e) { reportError(e); return false; }
+  }, [state.currentGuild, state.currentGuildChannel, state.guildMessages, state.authToken, state.currentServerIP, apiGet]);
+
+  const deleteGuildMessage = useCallback(async (messageId: number) => {
+    if (!state.currentGuild) return;
+    await fetch(`${state.currentServerIP}/api/guilds/${state.currentGuild.id}/messages/${messageId}/`, {
+      method: 'DELETE', headers: { Authorization: `Bearer ${state.authToken}` },
+    });
+    setState(prev => ({ ...prev, guildMessages: prev.guildMessages.filter(m => m.id !== messageId) }));
+  }, [state.currentGuild, state.currentServerIP, state.authToken]);
+
+  const pinGuildMessage = useCallback(async (messageId: number) => {
+    if (!state.currentGuild) return;
+    await fetch(`${state.currentServerIP}/api/guilds/${state.currentGuild.id}/messages/${messageId}/pin/`, {
+      method: 'POST', headers: { Authorization: `Bearer ${state.authToken}` },
+    });
+  }, [state.currentGuild, state.currentServerIP, state.authToken]);
+
+  // Load guilds on login
+  useEffect(() => {
+    if (!state.authToken) { setState(prev => ({ ...prev, guilds: [], currentGuild: null, currentGuildChannel: null, guildMessages: [] })); return; }
+    apiGet('/api/guilds/', state.authToken, state.currentServerIP)
+      .then((guilds: Guild[]) => setState(prev => ({ ...prev, guilds })))
+      .catch(reportError);
+  }, [state.authToken]);
+
   const sendSignal = (data: any) => {
     if (signalingWs.current?.readyState === WebSocket.OPEN) {
       signalingWs.current.send(JSON.stringify(data));
@@ -823,6 +1119,25 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       showError,
       clearError,
       errorMessage,
+      guildKickNotification,
+      clearGuildKickNotification,
+      loadGuilds,
+      createGuild,
+      joinGuild,
+      leaveGuild,
+      deleteGuild,
+      kickMember,
+      setMemberRole,
+      createChannel,
+      deleteChannel,
+      selectGuild,
+      selectGuildChannel,
+      sendGuildMessage,
+      scheduleGuildMessage,
+      loadOlderGuildMessages,
+      deleteGuildMessage,
+      pinGuildMessage,
+      guildChannelWs,
     }}>
       {children}
     </AppContext.Provider>

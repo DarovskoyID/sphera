@@ -2,11 +2,12 @@ import asyncio
 import ujson
 from datetime import timedelta
 from django.utils import timezone
-from django.utils.dateparse import parse_datetime
 from channels.generic.websocket import AsyncWebsocketConsumer
 from channels.db import database_sync_to_async
-from django.db.models import Q
-from .models import Conversation, Message, Attachment, ScheduledMessage
+from .models import (
+    Conversation, Message, Attachment, ScheduledMessage,
+    GuildMembership, GuildMessage, GuildAttachment, GuildScheduledMessage,
+)
 from .encryption import encrypt_text
 from ionik_auth.models import User, BlockedUser
 
@@ -284,3 +285,262 @@ class ChatConsumer(AsyncWebsocketConsumer):
         if attachment_ids:
             Attachment.objects.filter(id__in=attachment_ids).update(message=msg)
         return msg.id
+
+
+class GuildChannelConsumer(AsyncWebsocketConsumer):
+    """WebSocket consumer for guild text channels."""
+
+    async def connect(self):
+        self.guild_id = self.scope['url_route']['kwargs']['guild_id']
+        self.channel_id = self.scope['url_route']['kwargs']['channel_id']
+        self.room_group = f'guild_channel_{self.channel_id}'
+        self.guild_group = f'guild_{self.guild_id}'
+
+        user = self.scope.get('user')
+        if not user or user.is_anonymous:
+            await self.close()
+            return
+
+        is_member = await self.check_membership(user.id)
+        if not is_member:
+            await self.close()
+            return
+
+        self.user_data = await self.get_user_data(user.id)
+
+        await self.channel_layer.group_add(self.room_group, self.channel_name)
+        await self.channel_layer.group_add(self.guild_group, self.channel_name)
+        await self.accept()
+
+        # Deliver any pending scheduled messages
+        pending = await self.get_pending_scheduled()
+        for item in pending:
+            asyncio.ensure_future(
+                self._deliver_scheduled(item['id'], item['send_at'])
+            )
+
+    async def disconnect(self, close_code):
+        await self.channel_layer.group_discard(self.room_group, self.channel_name)
+        await self.channel_layer.group_discard(self.guild_group, self.channel_name)
+
+    async def receive(self, text_data):
+        data = ujson.loads(text_data)
+        content = data.get('message', '').strip()
+        reply_to_id = data.get('reply_to_id')
+        attachment_ids = data.get('attachment_ids', [])
+        if isinstance(attachment_ids, int):
+            attachment_ids = [attachment_ids]
+
+        if not content and not attachment_ids:
+            return
+
+        msg_id = await self.save_message(content, reply_to_id, attachment_ids)
+        reply_to_data = None
+        if reply_to_id:
+            reply_to_data = await self.get_reply_data(int(reply_to_id))
+        attachments_data = []
+        if attachment_ids:
+            attachments_data = await self.get_attachments_data(attachment_ids)
+
+        msg_payload = {
+            'id': msg_id,
+            'author': self.user_data,
+            'content': content,
+            'created_at': timezone.now().isoformat(),
+            'reply_to': reply_to_data,
+            'attachments': attachments_data,
+            'is_pinned': False,
+        }
+
+        await self.channel_layer.group_send(
+            self.room_group,
+            {'type': 'chat_message', 'message': msg_payload},
+        )
+
+    async def guild_scheduled_queued(self, event):
+        from django.utils.timezone import make_aware
+        from django.utils.dateparse import parse_datetime
+        scheduled_id = event['scheduled_id']
+        send_at = parse_datetime(event['send_at'])
+        if send_at and send_at.tzinfo is None:
+            send_at = make_aware(send_at)
+        if send_at:
+            asyncio.ensure_future(self._deliver_scheduled(scheduled_id, send_at))
+
+    async def _deliver_scheduled(self, scheduled_id, send_at):
+        now = timezone.now()
+        delay = (send_at - now).total_seconds()
+        if delay > 0:
+            await asyncio.sleep(delay)
+        payload = await self.deliver_scheduled_message(scheduled_id)
+        if payload:
+            await self.channel_layer.group_send(
+                self.room_group,
+                {'type': 'chat_message', 'message': payload},
+            )
+
+    @database_sync_to_async
+    def get_pending_scheduled(self):
+        now = timezone.now()
+        qs = GuildScheduledMessage.objects.filter(
+            channel_id=self.channel_id,
+            is_sent=False,
+            send_at__lte=now + timedelta(hours=24),
+        ).values('id', 'send_at')
+        return list(qs)
+
+    @database_sync_to_async
+    def deliver_scheduled_message(self, scheduled_id):
+        try:
+            sched = GuildScheduledMessage.objects.select_related(
+                'author', 'reply_to', 'reply_to__author'
+            ).get(id=scheduled_id, channel_id=self.channel_id, is_sent=False)
+        except GuildScheduledMessage.DoesNotExist:
+            return None
+
+        real_msg = GuildMessage.objects.create(
+            channel_id=self.channel_id,
+            author=sched.author,
+            encrypted_content=sched.encrypted_content,
+            reply_to=sched.reply_to,
+        )
+        if sched.attachment_ids:
+            GuildAttachment.objects.filter(
+                id__in=sched.attachment_ids
+            ).update(message=real_msg)
+
+        sched.is_sent = True
+        sched.save(update_fields=['is_sent'])
+
+        author = sched.author
+        reply_to_data = None
+        if sched.reply_to:
+            reply_to_data = {
+                'id': sched.reply_to.id,
+                'content': sched.reply_to.content[:200],
+                'author': {
+                    'id': str(sched.reply_to.author.id),
+                    'username': sched.reply_to.author.username,
+                    'nickname': sched.reply_to.author.nickname or '',
+                },
+            }
+
+        attachments_data = []
+        if sched.attachment_ids:
+            for att in GuildAttachment.objects.filter(id__in=sched.attachment_ids):
+                attachments_data.append({
+                    'id': att.id,
+                    'filename': att.original_filename,
+                    'content_type': att.content_type,
+                    'file_size': att.file_size,
+                    'url': f'/api/guild-attachments/{att.id}/',
+                })
+
+        return {
+            'id': real_msg.id,
+            'author': {
+                'id': str(author.id),
+                'username': author.username,
+                'nickname': author.nickname or '',
+                'avatar': author.avatar.url if author.avatar else '',
+                'status': author.status,
+            },
+            'content': sched.content,
+            'created_at': real_msg.created_at.isoformat(),
+            'attachments': attachments_data,
+            'reply_to': reply_to_data,
+            'is_pinned': False,
+        }
+
+    async def chat_message(self, event):
+        await self.send(text_data=ujson.dumps(event['message']))
+
+    async def message_deleted(self, event):
+        await self.send(text_data=ujson.dumps({'type': 'message_deleted', 'id': event['id']}))
+
+    async def message_pinned(self, event):
+        await self.send(text_data=ujson.dumps({'type': 'message_pinned', 'id': event['id'], 'is_pinned': event['is_pinned']}))
+
+    # ── Guild-level events (received via guild_group) ──
+
+    async def guild_deleted(self, event):
+        await self.send(text_data=ujson.dumps({'type': 'guild_deleted', 'guild_id': event['guild_id']}))
+        await self.close()
+
+    async def member_joined(self, event):
+        await self.send(text_data=ujson.dumps({'type': 'member_joined', 'member': event['member']}))
+
+    async def member_left(self, event):
+        await self.send(text_data=ujson.dumps({'type': 'member_left', 'user_id': event['user_id']}))
+
+    async def member_kicked(self, event):
+        await self.send(text_data=ujson.dumps({'type': 'member_kicked', 'user_id': event['user_id'], 'guild_name': event.get('guild_name', '')}))
+
+    async def channel_created(self, event):
+        await self.send(text_data=ujson.dumps({'type': 'channel_created', 'channel': event['channel']}))
+
+    async def channel_deleted(self, event):
+        await self.send(text_data=ujson.dumps({'type': 'channel_deleted', 'channel_id': event['channel_id']}))
+
+    @database_sync_to_async
+    def check_membership(self, user_id):
+        return GuildMembership.objects.filter(guild_id=self.guild_id, user_id=user_id).exists()
+
+    @database_sync_to_async
+    def get_user_data(self, user_id):
+        user = User.objects.get(id=user_id)
+        # Use guild nickname if set
+        nickname = ''
+        try:
+            m = GuildMembership.objects.get(guild_id=self.guild_id, user_id=user_id)
+            nickname = m.nickname or user.nickname or ''
+        except GuildMembership.DoesNotExist:
+            nickname = user.nickname or ''
+        return {
+            'id': str(user.id),
+            'username': user.username,
+            'nickname': nickname,
+            'avatar': user.avatar.url if user.avatar else '',
+            'status': user.status,
+        }
+
+    @database_sync_to_async
+    def save_message(self, plaintext, reply_to_id=None, attachment_ids=None):
+        msg = GuildMessage.objects.create(
+            channel_id=self.channel_id,
+            author_id=int(self.user_data['id']),
+            encrypted_content=encrypt_text(plaintext or ''),
+            reply_to_id=reply_to_id,
+        )
+        if attachment_ids:
+            GuildAttachment.objects.filter(id__in=attachment_ids).update(message=msg)
+        return msg.id
+
+    @database_sync_to_async
+    def get_attachments_data(self, attachment_ids):
+        result = []
+        for att in GuildAttachment.objects.filter(
+            id__in=attachment_ids, channel_id=self.channel_id
+        ):
+            result.append({
+                'id': att.id,
+                'filename': att.original_filename,
+                'content_type': att.content_type,
+                'file_size': att.file_size,
+                'url': f'/api/guild-attachments/{att.id}/',
+            })
+        return result
+
+    @database_sync_to_async
+    def get_reply_data(self, reply_to_id):
+        try:
+            msg = GuildMessage.objects.select_related('author').get(
+                id=reply_to_id, channel_id=self.channel_id
+            )
+            return {
+                'id': msg.id,
+                'content': msg.content[:200],
+                'author': {'id': str(msg.author.id), 'username': msg.author.username, 'nickname': msg.author.nickname or ''},
+            }
+        except GuildMessage.DoesNotExist:
+            return None

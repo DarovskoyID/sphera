@@ -898,7 +898,7 @@ export const ChatSidebar: React.FC = () => {
 
 // ── User Profile Footer ───────────────────────────────────────────────────────
 
-const UserProfile: React.FC = () => {
+export const UserProfile: React.FC = () => {
   const { currentUser } = useApp();
   const tr = useTranslation();
   const [isMuted, setIsMuted] = useState(false);
