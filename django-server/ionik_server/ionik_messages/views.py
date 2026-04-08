@@ -14,6 +14,7 @@ from .models import Conversation, Message, Attachment, MessageReport, ScheduledM
 from .serializers import ConversationSerializer, MessageSerializer, AttachmentSerializer
 from .encryption import encrypt_bytes, decrypt_bytes, encrypt_text
 from ionik_auth.models import BlockedUser
+from .consumers import _voice_channels
 
 MAX_UPLOAD_SIZE = 50 * 1024 * 1024  # 50 MB
 
@@ -718,3 +719,23 @@ def guild_schedule_message(request, guild_id, channel_id):
     )
 
     return Response({'id': sched.id, 'send_at': send_at.isoformat()}, status=status.HTTP_201_CREATED)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def guild_voice_presence(request, guild_id):
+    """Return current voice channel participants for all voice channels in a guild."""
+    try:
+        GuildMembership.objects.get(guild_id=guild_id, user=request.user)
+    except GuildMembership.DoesNotExist:
+        return Response({'error': 'not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    result = {}
+    for ch_id, ch_data in _voice_channels.items():
+        if ch_data.get('_guild_id') != guild_id:
+            continue
+        members = [v for k, v in ch_data.items() if k != '_guild_id']
+        if members:
+            result[ch_id] = members
+
+    return Response(result)

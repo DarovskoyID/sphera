@@ -29,8 +29,8 @@ function getFileIcon(type: string) {
   return <File size={20} />;
 }
 
-/** Image that fetches with Authorization header and renders as blob URL */
-function AuthImage({ src, alt, style, onClick }: { src: string; alt: string; style?: React.CSSProperties; onClick?: () => void }) {
+/** Fetches media with Authorization header and renders as blob URL (image or video) */
+function AuthMedia({ src, contentType, filename }: { src: string; contentType: string; filename: string }) {
   const { authToken } = useApp();
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
 
@@ -50,13 +50,37 @@ function AuthImage({ src, alt, style, onClick }: { src: string; alt: string; sty
     };
   }, [src, authToken]);
 
-  if (!blobUrl) return <div style={{ ...style, background: 'var(--bg-tertiary)', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><FileImage size={24} style={{ opacity: 0.4 }} /></div>;
-  return <img src={blobUrl} alt={alt} style={style} onClick={onClick} />;
+  if (!blobUrl) {
+    return (
+      <div style={{ width: 200, height: 120, borderRadius: 8, background: 'var(--bg-tertiary)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginTop: 4 }}>
+        <div style={{ width: 20, height: 20, border: '2px solid var(--accent-primary)', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} />
+      </div>
+    );
+  }
+
+  if (contentType.startsWith('image/')) {
+    return (
+      <img
+        src={blobUrl}
+        alt={filename}
+        style={{ maxWidth: 320, maxHeight: 240, borderRadius: 8, display: 'block', cursor: 'pointer', marginTop: 4, objectFit: 'contain' }}
+        onClick={() => window.open(blobUrl, '_blank')}
+      />
+    );
+  }
+
+  return (
+    <video
+      src={blobUrl}
+      controls
+      style={{ maxWidth: 400, maxHeight: 280, borderRadius: 8, display: 'block', marginTop: 4 }}
+    />
+  );
 }
 
 function AttachmentView({ att }: { att: { id: number; filename: string; content_type: string; file_size: number; url: string } }) {
   const { currentServerIP, authToken } = useApp();
-  const isImage = att.content_type.startsWith('image/');
+  const isMedia = att.content_type.startsWith('image/') || att.content_type.startsWith('video/');
   const src = `${currentServerIP}${att.url}`;
 
   const handleDownload = async () => {
@@ -70,17 +94,8 @@ function AttachmentView({ att }: { att: { id: number; filename: string; content_
     } catch (e) { reportError(e); }
   };
 
-  if (isImage) {
-    return (
-      <div style={{ marginTop: 4 }}>
-        <AuthImage
-          src={src}
-          alt={att.filename}
-          style={{ maxWidth: 320, maxHeight: 240, borderRadius: 8, display: 'block', cursor: 'pointer', objectFit: 'contain' }}
-          onClick={handleDownload}
-        />
-      </div>
-    );
+  if (isMedia) {
+    return <AuthMedia src={src} contentType={att.content_type} filename={att.filename} />;
   }
 
   return (

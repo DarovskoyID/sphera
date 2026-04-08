@@ -136,6 +136,14 @@ export interface CustomEmoji {
   created_by: string;
 }
 
+export interface VoiceParticipant {
+  id: string;
+  username: string;
+  nickname: string;
+  avatar: string;
+  muted: boolean;
+}
+
 export interface AppState {
   currentView: ViewType;
   currentServer: string;
@@ -169,4 +177,7 @@ export interface AppState {
   currentGuild: Guild | null;
   currentGuildChannel: GuildChannel | null;
   guildMessages: GuildMessage[];
+  currentVoiceChannel: GuildChannel | null;
+  voiceParticipants: VoiceParticipant[];
+  voiceChannelParticipants: Record<number, VoiceParticipant[]>;
 }

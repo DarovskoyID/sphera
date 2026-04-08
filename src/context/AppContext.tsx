@@ -125,6 +125,13 @@ interface AppContextType extends AppState {
   deleteGuildMessage: (messageId: number) => Promise<void>;
   pinGuildMessage: (messageId: number) => Promise<void>;
   guildChannelWs: React.MutableRefObject<WebSocket | null>;
+  joinVoiceChannel: (channel: GuildChannel) => void;
+  leaveVoiceChannel: () => void;
+  setVoiceMuted: (muted: boolean) => void;
+  sendVoiceSignal: (toUserId: string, payload: unknown) => void;
+  voiceWs: React.MutableRefObject<WebSocket | null>;
+  voiceSignalHandler: React.MutableRefObject<((data: unknown) => void) | null>;
+  voiceLocalStream: React.MutableRefObject<MediaStream | null>;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -183,6 +190,9 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       currentGuild: null,
       currentGuildChannel: null,
       guildMessages: [],
+      currentVoiceChannel: null,
+      voiceParticipants: [],
+      voiceChannelParticipants: {},
     };
   });
 
@@ -802,6 +812,14 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
           if (!prev.currentGuild || prev.currentGuild.id !== guild.id) return prev;
           return { ...prev, currentGuild: { ...prev.currentGuild, channels: prev.currentGuild.channels.filter(c => c.id !== data.channel_id) } };
         });
+      } else if (data.type === 'voice_presence_update') {
+        setState(prev => ({
+          ...prev,
+          voiceChannelParticipants: {
+            ...prev.voiceChannelParticipants,
+            [data.channel_id]: data.participants,
+          },
+        }));
       } else {
         // Regular chat message — skip if already present (REST history race)
         const msg: GuildMessage = data;
@@ -911,6 +929,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       guildMessages: [],
       currentView: 'server',
       currentServer: String(guild.id),
+      voiceChannelParticipants: {},
     }));
     if (guildChannelWs.current) { guildChannelWs.current.close(); guildChannelWs.current = null; }
   }, []);
@@ -994,6 +1013,82 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       method: 'POST', headers: { Authorization: `Bearer ${state.authToken}` },
     });
   }, [state.currentGuild, state.currentServerIP, state.authToken]);
+
+  // ==================== Guild Voice ====================
+  const voiceWs = useRef<WebSocket | null>(null);
+
+  const joinVoiceChannel = useCallback((channel: GuildChannel) => {
+    if (voiceWs.current) {
+      voiceWs.current.close();
+      voiceWs.current = null;
+    }
+    setState(prev => ({ ...prev, currentVoiceChannel: channel, voiceParticipants: [] }));
+
+    const wsUrl = state.currentServerIP.replace(/^http/, 'ws');
+    const guildId = state.currentGuild?.id;
+    if (!guildId) return;
+    const ws = new WebSocket(`${wsUrl}/ws/guild/${guildId}/voice/${channel.id}/?token=${state.authToken}`);
+    voiceWs.current = ws;
+
+    ws.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      if (data.type === 'voice_participants') {
+        setState(prev => ({ ...prev, voiceParticipants: data.participants }));
+      } else if (data.type === 'voice_user_joined') {
+        setState(prev => ({
+          ...prev,
+          voiceParticipants: prev.voiceParticipants.some(p => p.id === data.user.id)
+            ? prev.voiceParticipants
+            : [...prev.voiceParticipants, data.user],
+        }));
+      } else if (data.type === 'voice_user_left') {
+        setState(prev => ({
+          ...prev,
+          voiceParticipants: prev.voiceParticipants.filter(p => p.id !== data.user_id),
+        }));
+      } else if (data.type === 'voice_mute_changed') {
+        setState(prev => ({
+          ...prev,
+          voiceParticipants: prev.voiceParticipants.map(p =>
+            p.id === data.user_id ? { ...p, muted: data.muted } : p
+          ),
+        }));
+      } else if (data.type === 'signal') {
+        // Forward incoming WebRTC signal to voice room handler
+        voiceSignalHandler.current?.(data);
+      }
+    };
+
+    ws.onclose = () => {
+      setState(prev => {
+        if (prev.currentVoiceChannel?.id !== channel.id) return prev;
+        return { ...prev, currentVoiceChannel: null, voiceParticipants: [] };
+      });
+    };
+  }, [state.currentServerIP, state.authToken, state.currentGuild?.id]);
+
+  const leaveVoiceChannel = useCallback(() => {
+    voiceWs.current?.close();
+    voiceWs.current = null;
+    setState(prev => ({ ...prev, currentVoiceChannel: null, voiceParticipants: [] }));
+  }, []);
+
+  const setVoiceMuted = useCallback((muted: boolean) => {
+    if (voiceWs.current?.readyState === WebSocket.OPEN) {
+      voiceWs.current.send(JSON.stringify({ type: 'voice_mute', muted }));
+    }
+  }, []);
+
+  const sendVoiceSignal = useCallback((toUserId: string, payload: unknown) => {
+    if (voiceWs.current?.readyState === WebSocket.OPEN) {
+      voiceWs.current.send(JSON.stringify({ type: 'signal', to: toUserId, payload }));
+    }
+  }, []);
+
+  // Ref for voice room to register its signal handler
+  const voiceSignalHandler = useRef<((data: unknown) => void) | null>(null);
+  // Ref to local MediaStream so UserProfile controls can mute/deafen
+  const voiceLocalStream = useRef<MediaStream | null>(null);
 
   // Load guilds on login
   useEffect(() => {
@@ -1138,6 +1233,13 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       deleteGuildMessage,
       pinGuildMessage,
       guildChannelWs,
+      joinVoiceChannel,
+      leaveVoiceChannel,
+      setVoiceMuted,
+      sendVoiceSignal,
+      voiceWs,
+      voiceSignalHandler,
+      voiceLocalStream,
     }}>
       {children}
     </AppContext.Provider>

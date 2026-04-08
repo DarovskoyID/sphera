@@ -899,11 +899,31 @@ export const ChatSidebar: React.FC = () => {
 // ── User Profile Footer ───────────────────────────────────────────────────────
 
 export const UserProfile: React.FC = () => {
-  const { currentUser } = useApp();
+  const { currentUser, currentVoiceChannel, setVoiceMuted, voiceLocalStream } = useApp();
   const tr = useTranslation();
   const [isMuted, setIsMuted] = useState(false);
   const [isDeafened, setIsDeafened] = useState(false);
   const displayName = currentUser?.nickname || currentUser?.username || 'You';
+
+  const inVoice = !!currentVoiceChannel;
+
+  const handleMute = () => {
+    const next = !isMuted;
+    setIsMuted(next);
+    if (inVoice) {
+      setVoiceMuted(next);
+      voiceLocalStream.current?.getAudioTracks().forEach(t => { t.enabled = !next; });
+    }
+  };
+
+  const handleDeafen = () => {
+    const next = !isDeafened;
+    setIsDeafened(next);
+    // Deafen mutes all remote audio via the ref exposed from GuildVoiceRoom
+    if (inVoice) {
+      voiceLocalStream.current?.getAudioTracks().forEach(t => { t.enabled = !next && !isMuted; });
+    }
+  };
 
   return (
     <div className="user-profile-section glass-panel">
@@ -926,7 +946,7 @@ export const UserProfile: React.FC = () => {
       <div className="profile-controls">
         <button
           className={`profile-icon-btn glass-btn ${isMuted ? 'muted' : ''}`}
-          onClick={() => setIsMuted(!isMuted)}
+          onClick={handleMute}
           title={tr('profile_mute')}
         >
           <svg viewBox="0 0 24 24" fill="currentColor">
@@ -935,7 +955,7 @@ export const UserProfile: React.FC = () => {
         </button>
         <button
           className={`profile-icon-btn glass-btn ${isDeafened ? 'muted' : ''}`}
-          onClick={() => setIsDeafened(!isDeafened)}
+          onClick={handleDeafen}
           title={tr('profile_deafen')}
         >
           <svg viewBox="0 0 24 24" fill="currentColor">

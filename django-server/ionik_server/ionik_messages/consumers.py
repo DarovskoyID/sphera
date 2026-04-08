@@ -11,6 +11,9 @@ from .models import (
 from .encryption import encrypt_text
 from ionik_auth.models import User, BlockedUser
 
+# In-memory registry: {channel_id: {user_id: {id, username, nickname, avatar, muted}}}
+_voice_channels: dict = {}
+
 
 class ChatConsumer(AsyncWebsocketConsumer):
     async def connect(self):
@@ -312,6 +315,18 @@ class GuildChannelConsumer(AsyncWebsocketConsumer):
         await self.channel_layer.group_add(self.guild_group, self.channel_name)
         await self.accept()
 
+        # Send current voice presence snapshot for this guild's voice channels only
+        for ch_id, ch_data in _voice_channels.items():
+            if ch_data.get('_guild_id') != self.guild_id:
+                continue
+            members = [v for k, v in ch_data.items() if k != '_guild_id']
+            if members:
+                await self.send(text_data=ujson.dumps({
+                    'type': 'voice_presence_update',
+                    'channel_id': ch_id,
+                    'participants': members,
+                }))
+
         # Deliver any pending scheduled messages
         pending = await self.get_pending_scheduled()
         for item in pending:
@@ -482,6 +497,13 @@ class GuildChannelConsumer(AsyncWebsocketConsumer):
     async def channel_deleted(self, event):
         await self.send(text_data=ujson.dumps({'type': 'channel_deleted', 'channel_id': event['channel_id']}))
 
+    async def voice_presence_update(self, event):
+        await self.send(text_data=ujson.dumps({
+            'type': 'voice_presence_update',
+            'channel_id': event['channel_id'],
+            'participants': event['participants'],
+        }))
+
     @database_sync_to_async
     def check_membership(self, user_id):
         return GuildMembership.objects.filter(guild_id=self.guild_id, user_id=user_id).exists()
@@ -544,3 +566,164 @@ class GuildChannelConsumer(AsyncWebsocketConsumer):
             }
         except GuildMessage.DoesNotExist:
             return None
+
+
+class GuildVoiceConsumer(AsyncWebsocketConsumer):
+    """Presence-only consumer for guild voice channels.
+    Tracks who is in the channel and relays WebRTC signaling between them.
+    """
+
+    async def connect(self):
+        self.guild_id = self.scope['url_route']['kwargs']['guild_id']
+        self.channel_id = self.scope['url_route']['kwargs']['channel_id']
+        self.room_group = f'guild_voice_{self.channel_id}'
+
+        user = self.scope.get('user')
+        if not user or user.is_anonymous:
+            await self.close()
+            return
+
+        is_member = await self.check_membership(user.id)
+        if not is_member:
+            await self.close()
+            return
+
+        self.user_info = await self.get_user_info(user.id)
+        self.user_id = str(user.id)
+
+        await self.channel_layer.group_add(self.room_group, self.channel_name)
+        await self.accept()
+
+        # Register in voice channel: {channel_id: {'_guild_id': int, user_id: user_info, ...}}
+        if self.channel_id not in _voice_channels:
+            _voice_channels[self.channel_id] = {'_guild_id': self.guild_id}
+        _voice_channels[self.channel_id][self.user_id] = self.user_info
+
+        # Send current participants list to the joining user (exclude _guild_id sentinel)
+        participants = [v for k, v in _voice_channels[self.channel_id].items() if k != '_guild_id']
+        await self.send(text_data=ujson.dumps({
+            'type': 'voice_participants',
+            'participants': participants,
+        }))
+
+        # Notify voice room participants that this user joined
+        await self.channel_layer.group_send(
+            self.room_group,
+            {'type': 'voice_user_joined', 'user': self.user_info, 'from_user': self.user_id},
+        )
+
+        # Notify ALL guild members (guild text WS group) so they see presence without being in voice
+        guild_group = f'guild_{self.guild_id}'
+        all_participants = [v for k, v in _voice_channels[self.channel_id].items() if k != '_guild_id']
+        await self.channel_layer.group_send(
+            guild_group,
+            {
+                'type': 'voice_presence_update',
+                'channel_id': self.channel_id,
+                'participants': all_participants,
+            },
+        )
+
+    async def disconnect(self, close_code):
+        # Remove from registry
+        if self.channel_id in _voice_channels:
+            _voice_channels[self.channel_id].pop(self.user_id, None)
+            if not _voice_channels[self.channel_id]:
+                del _voice_channels[self.channel_id]
+
+        await self.channel_layer.group_discard(self.room_group, self.channel_name)
+
+        # Notify voice room participants
+        await self.channel_layer.group_send(
+            self.room_group,
+            {'type': 'voice_user_left', 'user_id': self.user_id},
+        )
+
+        # Notify ALL guild members
+        guild_group = f'guild_{self.guild_id}'
+        remaining = [v for k, v in _voice_channels.get(self.channel_id, {}).items() if k != '_guild_id']
+        await self.channel_layer.group_send(
+            guild_group,
+            {
+                'type': 'voice_presence_update',
+                'channel_id': self.channel_id,
+                'participants': remaining,
+            },
+        )
+
+    async def receive(self, text_data):
+        data = ujson.loads(text_data)
+        msg_type = data.get('type')
+
+        if msg_type == 'voice_mute':
+            # Update muted state and broadcast
+            muted = bool(data.get('muted', False))
+            if self.channel_id in _voice_channels and self.user_id in _voice_channels[self.channel_id]:
+                _voice_channels[self.channel_id][self.user_id]['muted'] = muted
+            await self.channel_layer.group_send(
+                self.room_group,
+                {'type': 'voice_mute_changed', 'user_id': self.user_id, 'muted': muted},
+            )
+
+        elif msg_type == 'signal':
+            # Forward WebRTC signal to specific target user in this channel
+            target_id = str(data.get('to', ''))
+            await self.channel_layer.group_send(
+                self.room_group,
+                {
+                    'type': 'voice_signal',
+                    'from_user': self.user_id,
+                    'to_user': target_id,
+                    'payload': data.get('payload'),
+                },
+            )
+
+    # ── Channel layer handlers ──
+
+    async def voice_user_joined(self, event):
+        if event['from_user'] == self.user_id:
+            return  # Don't send to self
+        await self.send(text_data=ujson.dumps({
+            'type': 'voice_user_joined',
+            'user': event['user'],
+        }))
+
+    async def voice_user_left(self, event):
+        await self.send(text_data=ujson.dumps({
+            'type': 'voice_user_left',
+            'user_id': event['user_id'],
+        }))
+
+    async def voice_mute_changed(self, event):
+        await self.send(text_data=ujson.dumps({
+            'type': 'voice_mute_changed',
+            'user_id': event['user_id'],
+            'muted': event['muted'],
+        }))
+
+    async def voice_signal(self, event):
+        # Only deliver to intended recipient
+        if event['to_user'] != self.user_id:
+            return
+        await self.send(text_data=ujson.dumps({
+            'type': 'signal',
+            'from': event['from_user'],
+            'payload': event['payload'],
+        }))
+
+    @database_sync_to_async
+    def check_membership(self, user_id):
+        return GuildMembership.objects.filter(
+            guild_id=self.guild_id, user_id=user_id
+        ).exists()
+
+    @database_sync_to_async
+    def get_user_info(self, user_id):
+        user = User.objects.get(id=user_id)
+        return {
+            'id': str(user.id),
+            'username': user.username,
+            'nickname': user.nickname or '',
+            'avatar': user.avatar.url if user.avatar else '',
+            'muted': False,
+        }

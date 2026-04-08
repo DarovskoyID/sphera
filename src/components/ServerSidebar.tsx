@@ -144,7 +144,7 @@ export const ServerSidebar: React.FC = () => {
               <GuildIcon
                 key={guild.id}
                 guild={guild}
-                active={currentGuild?.id === guild.id}
+                active={currentServer === String(guild.id)}
                 onClick={() => selectGuild(guild)}
               />
             ))}

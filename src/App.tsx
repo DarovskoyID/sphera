@@ -8,6 +8,7 @@ import { GuildChatMain } from './components/GuildChatMain';
 import { AuthScreen } from './components/AuthScreen';
 import { IncomingCallModal } from './components/IncomingCallModal';
 import { CallWindow } from './components/CallWindow';
+import { GuildVoiceRoom } from './components/GuildVoiceRoom';
 
 function GuildKickNotification() {
   const { guildKickNotification, clearGuildKickNotification } = useApp();
@@ -69,7 +70,7 @@ function ErrorModal() {
 }
 
 function AppContent() {
-  const { authToken, isCallActive, currentView, currentChat, mobileActivePanel, isMobileSidebarOpen, toggleMobileSidebar, currentGuild } = useApp();
+  const { authToken, isCallActive, currentView, currentChat, mobileActivePanel, isMobileSidebarOpen, toggleMobileSidebar, currentGuild, currentVoiceChannel } = useApp();
 
   if (!authToken) {
     return <AuthScreen />;
@@ -97,6 +98,7 @@ function AppContent() {
       )}
       <IncomingCallModal />
       {isCallActive && !inChat && <CallWindow />}
+      {currentVoiceChannel && <GuildVoiceRoom />}
       <ErrorModal />
       <GuildKickNotification />
     </div>

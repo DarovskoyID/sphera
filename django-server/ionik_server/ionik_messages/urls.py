@@ -30,4 +30,5 @@ urlpatterns = [
     path('guilds/<int:guild_id>/channels/<int:channel_id>/upload/', views.guild_upload_attachment),
     path('guilds/<int:guild_id>/channels/<int:channel_id>/schedule/', views.guild_schedule_message),
     path('guild-attachments/<int:attachment_id>/', views.guild_download_attachment),
+    path('guilds/<int:guild_id>/voice-presence/', views.guild_voice_presence),
 ]
