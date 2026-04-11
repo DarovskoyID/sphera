@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { Hash, Send, Pin, Trash2, CornerUpLeft, Plus, Smile, Clock, X, Download, FileText, FileImage, FileVideo, FileAudio, File } from 'lucide-react';
+import { Hash, Send, Pin, Trash2, CornerUpLeft, Plus, Smile, Clock, X, Download, FileText, FileImage, FileVideo, FileAudio, File, ChevronLeft } from 'lucide-react';
 import { useApp, reportError } from '../context/AppContext';
 import { useTranslation } from '../i18n/useTranslation';
 import { EmojiPicker, MessageText } from './EmojiPicker';
@@ -63,7 +63,7 @@ function AuthMedia({ src, contentType, filename }: { src: string; contentType: s
       <img
         src={blobUrl}
         alt={filename}
-        style={{ maxWidth: 320, maxHeight: 240, borderRadius: 8, display: 'block', cursor: 'pointer', marginTop: 4, objectFit: 'contain' }}
+        style={{ maxWidth: 'min(320px, 100%)', maxHeight: 240, borderRadius: 8, display: 'block', cursor: 'pointer', marginTop: 4, objectFit: 'contain' }}
         onClick={() => window.open(blobUrl, '_blank')}
       />
     );
@@ -73,7 +73,7 @@ function AuthMedia({ src, contentType, filename }: { src: string; contentType: s
     <video
       src={blobUrl}
       controls
-      style={{ maxWidth: 400, maxHeight: 280, borderRadius: 8, display: 'block', marginTop: 4 }}
+      style={{ maxWidth: 'min(400px, 100%)', maxHeight: 280, borderRadius: 8, display: 'block', marginTop: 4 }}
     />
   );
 }
@@ -204,6 +204,7 @@ export const GuildChatMain: React.FC = () => {
     currentGuild, currentGuildChannel, guildMessages,
     sendGuildMessage, scheduleGuildMessage, loadOlderGuildMessages,
     userIDonServer, currentServerIP, authToken,
+    setMobileActivePanel,
   } = useApp();
   const tr = useTranslation();
 
@@ -347,7 +348,7 @@ export const GuildChatMain: React.FC = () => {
 
   if (!currentGuildChannel) {
     return (
-      <div className="chat-main guild-chat-main guild-welcome">
+      <div className="guild-chat-main guild-welcome">
         <Hash size={64} style={{ opacity: 0.15 }} />
         <h2>{currentGuild.name}</h2>
         <p style={{ opacity: 0.5 }}>{currentGuild.description || tr('guild_select_channel')}</p>
@@ -375,10 +376,17 @@ export const GuildChatMain: React.FC = () => {
   }
 
   return (
-    <div className="chat-main guild-chat-main">
+    <div className="guild-chat-main">
       {/* Header */}
       <div className="chat-header">
-        <Hash size={18} style={{ opacity: 0.7 }} />
+        <button
+          className="mobile-back-btn"
+          style={{ display: 'none', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', padding: '0 6px 0 0', alignItems: 'center' }}
+          onClick={() => setMobileActivePanel('guild-channels')}
+        >
+          <ChevronLeft size={22} />
+        </button>
+        <Hash size={18} style={{ opacity: 0.7 }} className="desktop-only-icon" />
         <span className="chat-header-name">{currentGuildChannel.name}</span>
         {currentGuildChannel.topic && (
           <span className="chat-header-topic">{currentGuildChannel.topic}</span>

@@ -158,8 +158,8 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     const savedToken = localStorage.getItem('authToken') || '';
 
     return {
-      currentView: savedServer === 'home' ? 'home' : savedServer === 'settings' ? 'settings' : 'server',
-      currentServer: savedServer,
+      currentView: savedServer === 'settings' ? 'settings' : 'home',
+      currentServer: (savedServer === 'home' || savedServer === 'settings') ? savedServer : 'home',
       currentChat: savedChat,
       currentChannel: savedChannel,
       currentSettingsPage: '',
@@ -314,20 +314,33 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
   }, [state.authToken, state.currentServerIP]);
 
   const blockUser = useCallback(async (userId: string) => {
-    await fetch(`${state.currentServerIP}/api/auth/block/`, {
+    const res = await fetch(`${state.currentServerIP}/api/auth/block/`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${state.authToken}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ user_id: userId }),
     });
-    // Move from friends → blockedContacts so the DM stays visible
+    // API returns the blocked user's info — use it directly so the list always updates
+    const data = res.ok ? await res.json() : null;
+    const blockedUser: ServerUser | null = data?.blocked ?? null;
+
     setState(prev => {
-      const blocked = prev.friends.find(f => String(f.id) === String(userId));
+      const fromFriends = prev.friends.find(f => String(f.id) === String(userId));
+      const blockedEntry = blockedUser ?? fromFriends ?? null;
       return {
         ...prev,
         friends: prev.friends.filter(f => String(f.id) !== String(userId)),
-        blockedContacts: blocked
-          ? [...prev.blockedContacts.filter(u => String(u.id) !== String(userId)), blocked]
+        pendingRequests: prev.pendingRequests.filter(r => String(r.id) !== String(userId)),
+        sentRequests: prev.sentRequests.filter(r => String(r.id) !== String(userId)),
+        blockedContacts: blockedEntry
+          ? [...prev.blockedContacts.filter(u => String(u.id) !== String(userId)), blockedEntry]
           : prev.blockedContacts,
+        guilds: prev.guilds.map(g => ({
+          ...g,
+          members: g.members.filter(m => String(m.id) !== String(userId)),
+        })),
+        currentGuild: prev.currentGuild
+          ? { ...prev.currentGuild, members: prev.currentGuild.members.filter(m => String(m.id) !== String(userId)) }
+          : null,
       };
     });
   }, [state.authToken, state.currentServerIP]);
@@ -466,6 +479,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
               chatMessages: [],
               chatConversationId: null,
               currentChat: '',
+              mobileActivePanel: 'chat-list' as MobilePanel,
               // Also remove from blocked contacts if this was a blocked DM
               blockedContacts: prev.blockedContacts.filter(
                 u => String(u.id) !== String(prev.currentChat)
@@ -662,23 +676,37 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
         return;
       }
       if (data.type === 'blocked') {
-        // Someone blocked me — disable messaging if their chat is open
+        // Someone blocked me — remove them from my friends list and guild member lists
+        const blockerId = String(data.by_user_id);
         setState(prev => ({
           ...prev,
-          chatBlockedByOther: String(data.by_user_id) === String(prev.currentChat)
+          chatBlockedByOther: blockerId === String(prev.currentChat)
             ? true
             : prev.chatBlockedByOther,
+          friends: prev.friends.filter(f => String(f.id) !== blockerId),
+          pendingRequests: prev.pendingRequests.filter(r => String(r.id) !== blockerId),
+          sentRequests: prev.sentRequests.filter(r => String(r.id) !== blockerId),
+          guilds: prev.guilds.map(g => ({
+            ...g,
+            members: g.members.filter(m => String(m.id) !== blockerId),
+          })),
+          currentGuild: prev.currentGuild ? {
+            ...prev.currentGuild,
+            members: prev.currentGuild.members.filter(m => String(m.id) !== blockerId),
+          } : null,
         }));
         return;
       }
       if (data.type === 'unblocked') {
-        // Someone unblocked me — re-enable messaging if their chat is open
+        // Someone unblocked me — re-enable messaging, reload friends to restore them
+        const unblockerId = String(data.by_user_id);
         setState(prev => ({
           ...prev,
-          chatBlockedByOther: String(data.by_user_id) === String(prev.currentChat)
+          chatBlockedByOther: unblockerId === String(prev.currentChat)
             ? false
             : prev.chatBlockedByOther,
         }));
+        loadFriends();
         return;
       }
       if (data.type === 'friend-request') {
@@ -696,6 +724,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
           friends: prev.friends.filter(f => String(f.id) !== String(data.user.id)),
           // If their chat is open, close it
           currentChat: String(prev.currentChat) === String(data.user.id) ? '' : prev.currentChat,
+          mobileActivePanel: String(prev.currentChat) === String(data.user.id) ? 'chat-list' as MobilePanel : prev.mobileActivePanel,
         }));
         return;
       }
@@ -784,20 +813,22 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
         });
       } else if (data.type === 'member_kicked') {
         setState(prev => {
-          if (!prev.currentGuild || prev.currentGuild.id !== guild.id) return prev;
           const isSelf = String(data.user_id) === String(prev.userIDonServer);
           if (isSelf) {
             setGuildKickNotification({ title: 'guild_kicked_title', message: data.guild_name || guild.name });
+            const isCurrentGuild = prev.currentGuild?.id === guild.id;
             return {
               ...prev,
               guilds: prev.guilds.filter(g => g.id !== guild.id),
-              currentGuild: null,
-              currentGuildChannel: null,
-              guildMessages: [],
-              currentView: 'home' as const,
-              currentServer: 'home',
+              currentGuild: isCurrentGuild ? null : prev.currentGuild,
+              currentGuildChannel: isCurrentGuild ? null : prev.currentGuildChannel,
+              guildMessages: isCurrentGuild ? [] : prev.guildMessages,
+              currentView: isCurrentGuild ? 'home' as const : prev.currentView,
+              currentServer: isCurrentGuild ? 'home' : prev.currentServer,
             };
           }
+          // Someone else was kicked — remove from member list if this is the current guild
+          if (!prev.currentGuild || prev.currentGuild.id !== guild.id) return prev;
           return { ...prev, currentGuild: { ...prev.currentGuild, members: prev.currentGuild.members.filter(m => m.id !== data.user_id) } };
         });
       } else if (data.type === 'channel_created') {
@@ -922,25 +953,33 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
   }, [state.authToken, state.currentServerIP]);
 
   const selectGuild = useCallback((guild: Guild) => {
-    setState(prev => ({
-      ...prev,
-      currentGuild: guild,
-      currentGuildChannel: null,
-      guildMessages: [],
-      currentView: 'server',
-      currentServer: String(guild.id),
-      voiceChannelParticipants: {},
-    }));
-    if (guildChannelWs.current) { guildChannelWs.current.close(); guildChannelWs.current = null; }
-  }, []);
+    setState(prev => {
+      // Already on this guild — just show channel list on mobile, preserve chat
+      if (prev.currentGuild?.id === guild.id && prev.currentView === 'server') {
+        return { ...prev, mobileActivePanel: 'guild-channels' as MobilePanel };
+      }
+      // Switching to a different guild — close old WS, don't auto-select a channel
+      if (guildChannelWs.current) { guildChannelWs.current.close(); guildChannelWs.current = null; }
+      return {
+        ...prev,
+        currentGuild: guild,
+        currentGuildChannel: null,
+        guildMessages: [],
+        currentView: 'server',
+        currentServer: String(guild.id),
+        voiceChannelParticipants: {},
+        mobileActivePanel: 'guild-channels' as MobilePanel,
+      };
+    });
+  }, [_connectGuildWs]);
 
   const selectGuildChannel = useCallback((channel: GuildChannel) => {
     setState(prev => {
       if (!prev.currentGuild) return prev;
-      // Same channel already selected — do nothing
-      if (prev.currentGuildChannel?.id === channel.id) return prev;
-      _connectGuildWs(prev.currentGuild, channel, prev.authToken, prev.currentServerIP);
-      return { ...prev, currentGuildChannel: channel, guildMessages: [] };
+      if (prev.currentGuildChannel?.id !== channel.id) {
+        _connectGuildWs(prev.currentGuild, channel, prev.authToken, prev.currentServerIP);
+      }
+      return { ...prev, currentGuildChannel: channel, guildMessages: prev.currentGuildChannel?.id === channel.id ? prev.guildMessages : [], mobileActivePanel: 'guild-chat' as MobilePanel };
     });
   }, [_connectGuildWs]);
 
@@ -1090,11 +1129,13 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
   // Ref to local MediaStream so UserProfile controls can mute/deafen
   const voiceLocalStream = useRef<MediaStream | null>(null);
 
-  // Load guilds on login
+  // Load guilds on login; restore saved guild on refresh
   useEffect(() => {
     if (!state.authToken) { setState(prev => ({ ...prev, guilds: [], currentGuild: null, currentGuildChannel: null, guildMessages: [] })); return; }
     apiGet('/api/guilds/', state.authToken, state.currentServerIP)
-      .then((guilds: Guild[]) => setState(prev => ({ ...prev, guilds })))
+      .then((guilds: Guild[]) => {
+        setState(prev => ({ ...prev, guilds }));
+      })
       .catch(reportError);
   }, [state.authToken]);
 
@@ -1123,6 +1164,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
   const setCurrentView = (view: ViewType) => setState(prev => ({ ...prev, currentView: view }));
 
   const setCurrentServer = (serverId: string) => {
+    const isLeavingServer = serverId === 'home' || serverId === 'settings';
     setState(prev => ({
       ...prev,
       currentServer: serverId,
@@ -1130,6 +1172,8 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       currentChat: serverId === 'home' ? '' : prev.currentChat,
       isMobileSidebarOpen: false,
       mobileActivePanel: 'chat-list' as MobilePanel,
+      // Clear guild state when navigating away from server view
+      ...(isLeavingServer ? { currentGuild: null, currentGuildChannel: null, guildMessages: [] } : {}),
     }));
   };
 
@@ -1162,7 +1206,50 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
 
   const setAuthToken = (token: string) => {
     localStorage.setItem('authToken', token);
-    setState(prev => ({ ...prev, authToken: token }));
+    if (!token) {
+      // Logout — close all sockets and reset to clean state
+      signalingWs.current?.close();
+      signalingWs.current = null;
+      guildChannelWs.current?.close();
+      guildChannelWs.current = null;
+      voiceWs.current?.close();
+      voiceWs.current = null;
+      voiceLocalStream.current?.getTracks().forEach(t => t.stop());
+      voiceLocalStream.current = null;
+      voiceSignalHandler.current = null;
+      localStorage.removeItem('messengerCurrentServer');
+      localStorage.removeItem('messengerCurrentChat');
+      localStorage.removeItem('messengerCurrentChannel');
+      setState(prev => ({
+        ...prev,
+        authToken: '',
+        currentUser: null,
+        friends: [],
+        blockedContacts: [],
+        pendingRequests: [],
+        sentRequests: [],
+        chatMessages: [],
+        chatConversationId: null,
+        chatBlockedByOther: false,
+        customEmojis: [],
+        guilds: [],
+        currentGuild: null,
+        currentGuildChannel: null,
+        guildMessages: [],
+        currentVoiceChannel: null,
+        voiceParticipants: [],
+        voiceChannelParticipants: {},
+        currentView: 'home',
+        currentServer: 'home',
+        currentChat: '',
+        callTargetId: null,
+        incomingOffer: null,
+        isCallActive: false,
+        callStatus: 'inactive',
+      }));
+    } else {
+      setState(prev => ({ ...prev, authToken: token }));
+    }
   };
 
   return (

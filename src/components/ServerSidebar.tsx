@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
 import { Settings, Home, Plus, LogIn, X } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { useTranslation } from '../i18n/useTranslation';
@@ -114,6 +114,30 @@ export const ServerSidebar: React.FC = () => {
   const [showAddMenu, setShowAddMenu] = useState(false);
   const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null);
   const addBtnRef = useRef<HTMLButtonElement>(null);
+  const addMenuRef = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    const el = addMenuRef.current;
+    if (!el || !menuPos) return;
+    const { width, height } = el.getBoundingClientRect();
+    const vw = window.innerWidth;
+    const vh = window.innerHeight - 68;
+    const x = Math.min(Math.max(menuPos.x, 8), vw - width - 8);
+    const y = Math.min(Math.max(menuPos.y, 8), vh - height);
+    if (x !== menuPos.x || y !== menuPos.y) setMenuPos({ x, y });
+  }, [menuPos?.x, menuPos?.y]);
+
+  useEffect(() => {
+    if (!showAddMenu) return;
+    const handler = (e: MouseEvent) => {
+      if (addMenuRef.current && !addMenuRef.current.contains(e.target as Node) &&
+          addBtnRef.current && !addBtnRef.current.contains(e.target as Node)) {
+        setShowAddMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [showAddMenu]);
 
   return (
     <>
@@ -167,9 +191,9 @@ export const ServerSidebar: React.FC = () => {
 
       {showAddMenu && menuPos && (
         <div
+          ref={addMenuRef}
           className="context-menu"
           style={{ position: 'fixed', left: menuPos.x, top: menuPos.y, minWidth: 180, zIndex: 9999 }}
-          onMouseLeave={() => setShowAddMenu(false)}
         >
           <button className="context-menu-item" onClick={() => { setShowAddMenu(false); setShowCreate(true); }}>
             <Plus size={14} /> Create Server

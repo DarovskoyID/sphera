@@ -1662,7 +1662,20 @@ svg {
     height: 100%;
     width: auto;
     flex-wrap: nowrap;
-    justify-content: center;
+    justify-content: flex-start;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 0 var(--spacing-sm);
+  }
+
+  .server-sidebar .server-guild-scroll {
+    flex-direction: row;
+    overflow-x: auto;
+    overflow-y: hidden;
+    height: 100%;
+    min-height: 0;
+    padding: 0;
+    gap: var(--spacing-sm);
   }
 
   .server-sidebar .server-icon {
@@ -1791,6 +1804,7 @@ svg {
   .icon-btn {
     width: 36px;
     height: 36px;
+    flex-shrink: 0;
   }
 
   .icon-btn svg {
@@ -2269,9 +2283,10 @@ input:focus-visible {
 .guild-chat-main {
   display: flex;
   flex-direction: column;
-  background: var(--bg-chat);
+  background-color: var(--bg-chat);
   overflow: hidden;
   height: 100%;
+  transition: background-color var(--transition-normal);
 }
 
 .guild-welcome {
@@ -2303,10 +2318,12 @@ input:focus-visible {
 .messages-list {
   flex: 1;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: var(--spacing-md) var(--spacing-lg);
   display: flex;
   flex-direction: column;
   gap: 0;
+  min-width: 0;
 }
 
 .messages-list::-webkit-scrollbar {
@@ -2321,9 +2338,11 @@ input:focus-visible {
 .guild-messages-list {
   flex: 1;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: var(--spacing-sm) 0 var(--spacing-md);
   display: flex;
   flex-direction: column;
+  min-width: 0;
 }
 
 .guild-messages-list::-webkit-scrollbar {
@@ -2358,6 +2377,8 @@ input:focus-visible {
   padding: 2px var(--spacing-sm) 2px 0;
   border-radius: var(--radius-sm);
   transition: background var(--transition-fast);
+  min-width: 0;
+  overflow: hidden;
 }
 
 .message-group:hover {
@@ -2431,6 +2452,7 @@ input:focus-visible {
   align-items: flex-start;
   gap: 0;
   padding-left: 0;
+  min-width: 0;
 }
 
 .message-group-compact .message-content-row {
@@ -3577,5 +3599,189 @@ input[type="range"] {
 
   .settings-welcome-screen {
     display: none !important;
+  }
+}
+
+/* ================================
+   GUILD VIEW — MOBILE PANELS
+   ================================ */
+@media (max-width: 768px) {
+
+  /* Override the desktop guild grid — use same flex as the base mobile layout */
+  .app-container:has(.guild-sidebar) {
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    height: 100vh;
+    overflow: hidden;
+    grid-template-columns: unset;
+  }
+
+  /* Guild sidebar — default: visible */
+  .guild-sidebar {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: calc(100% - 60px);
+    z-index: 10;
+    border-right: none;
+    box-shadow: none;
+    transform: translateX(0);
+  }
+
+  /* Guild chat — default: hidden, no transition (prevents mount-flash) */
+  .guild-chat-main {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: calc(100% - 60px);
+    z-index: 20;
+    transform: translateX(100%);
+    transition: none !important;
+  }
+
+  /* guild-chat panel: animate BOTH elements (this is the visible transition) */
+  .mobile-panel-guild-chat .guild-sidebar {
+    transform: translateX(-100%);
+    transition: transform var(--transition-normal);
+  }
+  .mobile-panel-guild-chat .guild-chat-main {
+    transform: translateX(0);
+    transition: transform var(--transition-normal) !important;
+  }
+
+  /* guild-channels panel: sidebar animates in, chat hides INSTANTLY (no transition)
+     Instant hide prevents mount-flash: browser paints at natural pos then would
+     transition to 100% — removing transition here means it snaps immediately */
+  .mobile-panel-guild-channels .guild-sidebar {
+    transform: translateX(0);
+    transition: transform var(--transition-normal);
+  }
+  .mobile-panel-guild-channels .guild-chat-main {
+    transform: translateX(100%);
+    transition: none !important;
+  }
+
+  /* Back buttons — show on mobile */
+  .guild-sidebar .mobile-back-btn,
+  .guild-chat-main .mobile-back-btn {
+    display: flex !important;
+  }
+
+  /* Guild channel list must not overflow its flex parent */
+  .guild-channel-list {
+    min-height: 0;
+    flex: 1;
+    overflow-y: auto;
+  }
+
+  /* Members panel — shrink on mobile, scroll inside */
+  .guild-members-panel {
+    height: auto;
+    max-height: 35vh;
+    flex-shrink: 1;
+    min-height: 0;
+  }
+
+  /* Members list scrollable */
+  .members-list {
+    overflow-y: auto;
+    min-height: 0;
+  }
+
+  /* Guild messages list must fill and scroll properly */
+  .guild-messages-list {
+    min-height: 0;
+    flex: 1;
+    overflow-y: auto;
+  }
+
+  /* Hide desktop hash icon duplicate in header */
+  .desktop-only-icon {
+    display: none !important;
+  }
+
+  /* Compact channel items */
+  .channel-item {
+    padding: 10px 8px;
+    font-size: 15px;
+    min-height: 44px;
+  }
+
+  /* Voice bar above dock */
+  .guild-voice-connected-bar {
+    bottom: 60px;
+  }
+
+  /* Modals */
+  .modal-box {
+    width: 95% !important;
+    max-width: 420px !important;
+    margin: 0 auto;
+  }
+
+  /* Emoji picker constrained */
+  .emoji-picker-popup {
+    max-height: 50vh;
+    width: 96vw;
+    left: 2vw;
+    right: 2vw;
+  }
+
+  /* Context menus */
+  .context-menu {
+    max-width: 88vw;
+  }
+
+  /* Guild settings dropdown scrollable */
+  .guild-settings-dropdown {
+    max-height: 55vh;
+    overflow-y: auto;
+  }
+
+  /* Auth screen */
+  .auth-container {
+    padding: var(--spacing-md);
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+  }
+
+  /* Prevent iOS zoom on input focus */
+  input, textarea, select {
+    font-size: 16px !important;
+  }
+
+  /* Touch targets */
+  .chat-item,
+  .server-icon {
+    min-height: 44px;
+  }
+
+  .icon-btn,
+  .profile-icon-btn {
+    width: 44px;
+    height: 44px;
+    min-height: unset;
+    flex-shrink: 0;
+  }
+
+  /* Hide channel topic on mobile — too narrow */
+  .chat-header-topic {
+    display: none;
+  }
+
+  /* User profile bar */
+  .user-profile-section {
+    flex-shrink: 0;
+  }
+
+  /* Profile modal */
+  .profile-modal-content {
+    width: 100% !important;
+    max-width: 100% !important;
+    max-height: 90vh;
   }
 }

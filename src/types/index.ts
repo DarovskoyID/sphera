@@ -127,7 +127,7 @@ export interface GuildMessage {
 
 export type ViewType = 'home' | 'server' | 'settings';
 
-export type MobilePanel = 'chat-list' | 'chat-view';
+export type MobilePanel = 'chat-list' | 'chat-view' | 'guild-channels' | 'guild-chat' | 'guild-members';
 
 export interface CustomEmoji {
   id: number;

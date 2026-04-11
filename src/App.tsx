@@ -10,6 +10,7 @@ import { IncomingCallModal } from './components/IncomingCallModal';
 import { CallWindow } from './components/CallWindow';
 import { GuildVoiceRoom } from './components/GuildVoiceRoom';
 
+
 function GuildKickNotification() {
   const { guildKickNotification, clearGuildKickNotification } = useApp();
   const tr = useTranslation();
@@ -70,7 +71,7 @@ function ErrorModal() {
 }
 
 function AppContent() {
-  const { authToken, isCallActive, currentView, currentChat, mobileActivePanel, isMobileSidebarOpen, toggleMobileSidebar, currentGuild, currentVoiceChannel } = useApp();
+  const { authToken, isCallActive, currentView, currentChat, mobileActivePanel, currentGuild, currentVoiceChannel } = useApp();
 
   if (!authToken) {
     return <AuthScreen />;
@@ -82,9 +83,6 @@ function AppContent() {
   return (
     <div className={`app-container mobile-panel-${mobileActivePanel}`}>
       <ServerSidebar />
-      {isMobileSidebarOpen && (
-        <div className="mobile-overlay" onClick={toggleMobileSidebar} />
-      )}
       {inGuild ? (
         <>
           <GuildSidebar />

@@ -1,5 +1,5 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { Hash, Volume2, Plus, Trash2, LogOut, Copy, Users, ChevronDown, ChevronRight, Crown, Shield, UserPlus, Ban, User, MicOff, PhoneOff } from 'lucide-react';
+import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
+import { Hash, Volume2, Plus, Trash2, LogOut, Copy, Users, ChevronDown, ChevronRight, Crown, Shield, UserPlus, Ban, User, MicOff, PhoneOff, ShieldOff } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { useTranslation } from '../i18n/useTranslation';
 import { ProfileModal, type ProfileUser } from './ProfileModal';
@@ -32,12 +32,21 @@ function MemberContextMenu({
     return () => document.removeEventListener('mousedown', handler);
   }, [onClose]);
 
-  // Clamp so menu never goes off bottom of screen
-  const menuHeight = 160;
-  const top = Math.min(pos.y, window.innerHeight - menuHeight);
+  const [adjustedPos, setAdjustedPos] = useState({ x: pos.x, y: pos.y });
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const { width, height } = el.getBoundingClientRect();
+    const vw = window.innerWidth;
+    const vh = window.innerHeight - 68; // 60px mobile nav + 8px margin
+    setAdjustedPos({
+      x: Math.min(Math.max(pos.x, 8), vw - width - 8),
+      y: Math.min(Math.max(pos.y, 8), vh - height),
+    });
+  }, [pos.x, pos.y]);
 
   return (
-    <div ref={ref} className="context-menu" style={{ position: 'fixed', left: pos.x, top, minWidth: 190, zIndex: 9999 }}>
+    <div ref={ref} className="context-menu" style={{ position: 'fixed', left: adjustedPos.x, top: adjustedPos.y, minWidth: 190, zIndex: 9999 }}>
       <button className="context-menu-item" onClick={() => { onOpenProfile(); onClose(); }}>
         <User size={13} /> {tr('guild_view_profile')}
       </button>
@@ -56,12 +65,12 @@ function MemberContextMenu({
           <Shield size={13} /> {tr('guild_remove_admin')}
         </button>
       )}
-      {!isSelf && canManage && (
+      {!isSelf && canManage && member.role !== 'owner' && !(myRole === 'admin' && member.role === 'admin') && (
         <button className="context-menu-item danger" onClick={() => { kickMember(guildId, member.id); onClose(); }}>
           <Trash2 size={13} /> {tr('guild_kick')}
         </button>
       )}
-      {!isSelf && (myRole === 'owner' || myRole === 'admin') && (
+      {!isSelf && member.role !== 'owner' && (myRole === 'owner' || myRole === 'admin') && !(myRole === 'admin' && member.role === 'admin') && (
         <button className="context-menu-item danger" onClick={() => { kickMember(guildId, member.id); blockUser(member.id); onClose(); }}>
           <Ban size={13} /> {tr('guild_block')}
         </button>
@@ -135,6 +144,8 @@ export const GuildSidebar: React.FC = () => {
     createChannel, deleteChannel, deleteGuild, leaveGuild,
     joinVoiceChannel, leaveVoiceChannel, currentVoiceChannel,
     voiceChannelParticipants, currentServerIP, authToken,
+    blockedContacts, unblockUser,
+    setMobileActivePanel,
   } = useApp();
   const tr = useTranslation();
 
@@ -200,9 +211,16 @@ export const GuildSidebar: React.FC = () => {
   return (
     <div className="guild-sidebar">
       {/* Header */}
-      <div className="guild-sidebar-header" onClick={() => setShowSettings(v => !v)}>
-        <span className="guild-name">{currentGuild.name}</span>
-        <ChevronDown size={16} style={{ transform: showSettings ? 'rotate(180deg)' : 'none', transition: '0.15s' }} />
+      <div className="guild-sidebar-header">
+        <button
+          className="mobile-back-btn"
+          style={{ display: 'none', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', padding: '0 4px 0 0', alignItems: 'center' }}
+          onClick={() => setMobileActivePanel('chat-list')}
+        >
+          <ChevronRight size={18} style={{ transform: 'rotate(180deg)' }} />
+        </button>
+        <span className="guild-name" style={{ flex: 1, cursor: 'pointer' }} onClick={() => setShowSettings(v => !v)}>{currentGuild.name}</span>
+        <ChevronDown size={16} style={{ transform: showSettings ? 'rotate(180deg)' : 'none', transition: '0.15s', cursor: 'pointer' }} onClick={() => setShowSettings(v => !v)} />
       </div>
 
       {showSettings && (
@@ -219,6 +237,37 @@ export const GuildSidebar: React.FC = () => {
             <button className="context-menu-item danger" onClick={() => leaveGuild(currentGuild.id)}>
               <LogOut size={13} /> {tr('guild_leave_server')}
             </button>
+          )}
+
+          {/* Blocked users list */}
+          {blockedContacts.length > 0 && (
+            <>
+              <div style={{ borderTop: '1px solid var(--border-color)', margin: '4px 0' }} />
+              <div style={{ padding: '4px 10px 2px', fontSize: 10, fontWeight: 700, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                <Ban size={10} style={{ display: 'inline', marginRight: 4 }} />
+                Blocked — {blockedContacts.length}
+              </div>
+              {blockedContacts.map(u => (
+                <div key={u.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 10px' }}>
+                  {u.avatar
+                    ? <img src={u.avatar} alt="" style={{ width: 22, height: 22, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />
+                    : <div style={{ width: 22, height: 22, borderRadius: '50%', background: '#f97316', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, color: '#fff', fontWeight: 700, flexShrink: 0 }}>
+                        {(u.nickname || u.username)[0]?.toUpperCase()}
+                      </div>
+                  }
+                  <span style={{ flex: 1, fontSize: 12, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {u.nickname || u.username}
+                  </span>
+                  <button
+                    onClick={() => unblockUser(u.id)}
+                    title="Unblock"
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#3ba55c', display: 'flex', alignItems: 'center', padding: 2, flexShrink: 0 }}
+                  >
+                    <ShieldOff size={13} />
+                  </button>
+                </div>
+              ))}
+            </>
           )}
         </div>
       )}
@@ -315,35 +364,6 @@ export const GuildSidebar: React.FC = () => {
           })}
         </div>
       </div>
-
-      {/* Voice connected bar — shown above members when in a voice channel */}
-      {currentVoiceChannel && (
-        <div style={{
-          display: 'flex', alignItems: 'center', gap: 8,
-          padding: '6px 10px',
-          background: 'rgba(59,165,92,0.12)',
-          borderTop: '1px solid rgba(59,165,92,0.25)',
-          borderBottom: '1px solid rgba(59,165,92,0.25)',
-          flexShrink: 0,
-        }}>
-          <Volume2 size={13} style={{ color: '#3ba55c', flexShrink: 0 }} />
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 10, color: '#3ba55c', fontWeight: 600, lineHeight: 1 }}>Voice Connected</div>
-            <div style={{ fontSize: 11, color: 'var(--text-secondary, #888)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{currentVoiceChannel.name}</div>
-          </div>
-          <button
-            onClick={leaveVoiceChannel}
-            title="Disconnect"
-            style={{
-              background: 'none', border: 'none', cursor: 'pointer',
-              color: '#ed4245', padding: 4, borderRadius: 4,
-              display: 'flex', alignItems: 'center',
-            }}
-          >
-            <PhoneOff size={14} />
-          </button>
-        </div>
-      )}
 
       {/* Members — fixed height */}
       <div className="guild-members-panel">

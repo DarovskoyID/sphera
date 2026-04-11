@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useLayoutEffect } from 'react';
 import { Phone, Video, Search, Menu, ArrowLeft, Plus, Smile, Send, FileText, FileImage, FileVideo, FileAudio, File, Download, X, MoreHorizontal, Reply, Copy, Trash2, Flag, Pin, Clock, Ban } from 'lucide-react';
 import type { ChatAttachment, ChatMessage as ChatMessageType } from '../types';
 import { useApp, reportError } from '../context/AppContext';
@@ -430,11 +430,23 @@ const MessageContextMenu: React.FC<{
     return () => document.removeEventListener('mousedown', handler);
   }, [onClose]);
 
-  // Adjust so menu doesn't go off-screen
+  const [adjustedPos, setAdjustedPos] = useState({ x: menu.x, y: menu.y });
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const { width, height } = el.getBoundingClientRect();
+    const vw = window.innerWidth;
+    const vh = window.innerHeight - 68;
+    setAdjustedPos({
+      x: Math.min(Math.max(menu.x, 8), vw - width - 8),
+      y: Math.min(Math.max(menu.y, 8), vh - height),
+    });
+  }, [menu.x, menu.y]);
+
   const style: React.CSSProperties = {
     position: 'fixed',
-    top: menu.y,
-    left: menu.x,
+    top: adjustedPos.y,
+    left: adjustedPos.x,
     zIndex: 9000,
     background: 'var(--bg-primary, #1a1a2e)',
     border: '1px solid var(--border-color, #333)',
@@ -625,13 +637,7 @@ const MessagesContainer: React.FC<{
   const openCtx = useCallback((e: React.MouseEvent, msg: ChatMessageType) => {
     e.preventDefault();
     e.stopPropagation();
-    const vw = window.innerWidth;
-    const vh = window.innerHeight;
-    const menuW = 190;
-    const menuH = 220;
-    const x = e.clientX + menuW > vw ? vw - menuW - 8 : e.clientX;
-    const y = e.clientY + menuH > vh ? vh - menuH - 8 : e.clientY;
-    setCtxMenu({ x, y, msg });
+    setCtxMenu({ x: e.clientX, y: e.clientY, msg });
   }, []);
 
   const closeCtx = useCallback(() => setCtxMenu(null), []);

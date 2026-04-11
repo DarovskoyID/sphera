@@ -10,9 +10,7 @@ from .models import (
 )
 from .encryption import encrypt_text
 from ionik_auth.models import User, BlockedUser
-
-# In-memory registry: {channel_id: {user_id: {id, username, nickname, avatar, muted}}}
-_voice_channels: dict = {}
+from .voice_state import _voice_channels
 
 
 class ChatConsumer(AsyncWebsocketConsumer):

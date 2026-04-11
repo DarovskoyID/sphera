@@ -14,7 +14,7 @@ from .models import Conversation, Message, Attachment, MessageReport, ScheduledM
 from .serializers import ConversationSerializer, MessageSerializer, AttachmentSerializer
 from .encryption import encrypt_bytes, decrypt_bytes, encrypt_text
 from ionik_auth.models import BlockedUser
-from .consumers import _voice_channels
+from .voice_state import _voice_channels
 
 MAX_UPLOAD_SIZE = 50 * 1024 * 1024  # 50 MB
 
@@ -406,6 +406,16 @@ def guild_join(request):
         guild = Guild.objects.get(invite_code=invite_code)
     except Guild.DoesNotExist:
         return Response({'error': 'invalid invite code'}, status=status.HTTP_404_NOT_FOUND)
+
+    # Check if any current member has blocked the joiner or vice versa
+    member_ids = GuildMembership.objects.filter(guild=guild).values_list('user_id', flat=True)
+    blocked_exists = BlockedUser.objects.filter(
+        Q(blocker=request.user, blocked_id__in=member_ids) |
+        Q(blocker_id__in=member_ids, blocked=request.user)
+    ).exists()
+    if blocked_exists:
+        return Response({'error': 'You cannot join this server'}, status=status.HTTP_403_FORBIDDEN)
+
     membership, created = GuildMembership.objects.get_or_create(guild=guild, user=request.user, defaults={'role': 'member'})
     # Notify guild members
     channel_layer = get_channel_layer()
@@ -441,6 +451,9 @@ def guild_leave(request, guild_id):
         f'guild_{guild_id}',
         {'type': 'member_left', 'user_id': str(request.user.id)},
     )
+    # Delete guild if no members remain
+    if not GuildMembership.objects.filter(guild=guild).exists():
+        guild.delete()
     return Response(status=status.HTTP_204_NO_CONTENT)
 
 
@@ -450,16 +463,27 @@ def guild_kick(request, guild_id, user_id):
     try:
         guild = Guild.objects.get(id=guild_id)
         my_membership = GuildMembership.objects.get(guild=guild, user=request.user)
+        target_membership = GuildMembership.objects.get(guild=guild, user_id=user_id)
     except (Guild.DoesNotExist, GuildMembership.DoesNotExist):
         return Response({'error': 'not found'}, status=status.HTTP_404_NOT_FOUND)
+    # Only owner/admin can kick
     if my_membership.role not in ('owner', 'admin'):
         return Response({'error': 'forbidden'}, status=status.HTTP_403_FORBIDDEN)
-    GuildMembership.objects.filter(guild=guild, user_id=user_id).delete()
+    # Nobody can kick the owner
+    if target_membership.role == 'owner':
+        return Response({'error': 'cannot kick the owner'}, status=status.HTTP_403_FORBIDDEN)
+    # Admin cannot kick another admin
+    if my_membership.role == 'admin' and target_membership.role == 'admin':
+        return Response({'error': 'admins cannot kick other admins'}, status=status.HTTP_403_FORBIDDEN)
+    target_membership.delete()
     channel_layer = get_channel_layer()
     async_to_sync(channel_layer.group_send)(
         f'guild_{guild_id}',
         {'type': 'member_kicked', 'user_id': str(user_id), 'guild_name': guild.name},
     )
+    # Delete guild if no members remain
+    if not GuildMembership.objects.filter(guild=guild).exists():
+        guild.delete()
     return Response(status=status.HTTP_204_NO_CONTENT)
 
 
