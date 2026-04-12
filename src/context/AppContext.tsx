@@ -1,6 +1,9 @@
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback, type ReactNode } from 'react';
 import type { AppState, ViewType, MobilePanel, ServerUser, PendingRequest, ChatMessage, Guild, GuildChannel, GuildMessage } from '../types';
 import type { CustomEmoji } from '../types';
+import { SERVER_IPS } from '../config/servers';
+import { resolveServerIP } from '../utils/resolveServer';
+
 
 // ── Global error interception ────────────────────────────────────────────────
 // Captures errors before the context mounts, then drains them once it's ready.
@@ -20,10 +23,7 @@ export function reportError(e: unknown) {
   _dispatch(msg);
 }
 
-// Intercept console.error
-const _origConsoleError = console.error.bind(console);
 console.error = (...args: unknown[]) => {
-  _origConsoleError(...args);
   const msg = args.map(a => (a instanceof Error ? a.message : String(a))).join(' ');
   _dispatch(msg);
 };
@@ -172,7 +172,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       isVideoActive: false,
       SpeakersActive: ["", ""],
       callStatus: 'inactive',
-      currentServerIP: 'http://127.0.0.1:8000',
+      currentServerIP: SERVER_IPS[0] ?? 'http://127.0.0.1:8000',
       userIDonServer: '',
       authToken: savedToken,
       currentUser: null,
@@ -195,6 +195,13 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       voiceChannelParticipants: {},
     };
   });
+
+  // Resolve the best server IP on startup
+  useEffect(() => {
+    resolveServerIP().then(ip => {
+      setState(prev => prev.currentServerIP === ip ? prev : { ...prev, currentServerIP: ip });
+    });
+  }, []);
 
   const signalingWs = useRef<WebSocket | null>(null);
   const [signalingPeers, setSignalingPeers] = useState<Array<{ id: string; name: string }>>([]);
@@ -753,6 +760,26 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
         }));
         return;
       }
+      if (data.type === 'new_message_notification') {
+        if ((window as any).AndroidBridge) {
+          (window as any).AndroidBridge.showMessageNotification(
+            data.sender_name || '',
+            data.content || ''
+          );
+        }
+        return;
+      }
+      if (data.type === 'offer' && data.from) {
+        setState(prev => {
+          if (prev.isCallActive) return prev;
+          if ((window as any).AndroidBridge) {
+            const callerFriend = prev.friends.find((f: any) => String(f.id) === String(data.from));
+            const callerName = callerFriend?.nickname || callerFriend?.username || String(data.from);
+            (window as any).AndroidBridge.showCallNotification(callerName, !!data.withVideo);
+          }
+          return { ...prev, incomingOffer: data };
+        });
+      }
       if (onSignalingMessage.current) {
         onSignalingMessage.current(data);
       }
@@ -760,15 +787,35 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
 
     ws.onclose = () => {
       signalingWs.current = null;
-      setState(prev => prev.currentUser
-        ? { ...prev, currentUser: { ...prev.currentUser, status: 'offline' } }
-        : prev
-      );
+      setState(prev => ({
+        ...prev,
+        // Clear a pending incoming offer — it's now stale since the signaling channel is gone.
+        // The active call itself (isCallActive) is left alone because WebRTC can survive
+        // a brief signaling disconnection once media is flowing.
+        incomingOffer: null,
+        ...(prev.currentUser ? { currentUser: { ...prev.currentUser, status: 'offline' } } : {}),
+      }));
     };
+    ws.onerror = () => {};
 
     return () => {
-      ws.close();
-      signalingWs.current = null;
+      // Clear the ref only if it still points at THIS socket.
+      // A concurrent remount (React Strict Mode) may have already replaced it.
+      if (signalingWs.current === ws) signalingWs.current = null;
+
+      if (ws.readyState === WebSocket.CONNECTING) {
+        // Socket hasn't opened yet (React Strict Mode double-invoke).
+        // Let the handshake finish then close cleanly — avoids the browser error.
+        // Null out ALL handlers so the stale close doesn't corrupt app state.
+        ws.onopen = () => ws.close();
+        ws.onclose = () => {};
+        ws.onerror = () => {};
+        ws.onmessage = () => {};
+      } else {
+        ws.onclose = () => {};   // prevent stale close from firing setState
+        ws.onmessage = () => {};
+        ws.close();
+      }
     };
   }, [state.authToken, state.currentServerIP]);
 
@@ -1140,8 +1187,9 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
   }, [state.authToken]);
 
   const sendSignal = (data: any) => {
-    if (signalingWs.current?.readyState === WebSocket.OPEN) {
-      signalingWs.current.send(JSON.stringify(data));
+    const ws = signalingWs.current;
+    if (ws?.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify(data));
     }
   };
 

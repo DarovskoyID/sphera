@@ -67,17 +67,27 @@ class SignalingConsumer(AsyncWebsocketConsumer):
         if not getattr(self, 'authed', False):
             return
 
-        SignalingConsumer._users.pop(self.user_id, None)
+        # Only remove from _users if THIS connection is still the active one.
+        # If the client reconnected (e.g. React Strict Mode double-mount or network
+        # blip), a newer connection has already replaced our entry — evicting it
+        # would make the user invisible to callers even though they are online.
+        current = SignalingConsumer._users.get(self.user_id)
+        if current and current['channel'] == self.channel_name:
+            SignalingConsumer._users.pop(self.user_id, None)
 
-        await self.channel_layer.group_discard('signaling', self.channel_name)
-        await self.channel_layer.group_discard(f'user_{self.user_id}', self.channel_name)
+            await self.channel_layer.group_discard('signaling', self.channel_name)
+            await self.channel_layer.group_discard(f'user_{self.user_id}', self.channel_name)
 
-        await self._set_status('offline')
+            await self._set_status('offline')
 
-        friend_ids = await self._get_friend_ids()
-        await self._notify_friends(friend_ids, 'offline')
+            friend_ids = await self._get_friend_ids()
+            await self._notify_friends(friend_ids, 'offline')
 
-        await self._broadcast_peer_list()
+            await self._broadcast_peer_list()
+        else:
+            # Stale connection closed — just clean up channel groups silently
+            await self.channel_layer.group_discard('signaling', self.channel_name)
+            await self.channel_layer.group_discard(f'user_{self.user_id}', self.channel_name)
 
     # ── Signaling messages ────────────────────────────────────────────────────
 
@@ -92,6 +102,9 @@ class SignalingConsumer(AsyncWebsocketConsumer):
             })
 
     async def signal_forward(self, event):
+        await self.send(text_data=json.dumps(event['data']))
+
+    async def new_message_notification(self, event):
         await self.send(text_data=json.dumps(event['data']))
 
     async def block_notify(self, event):

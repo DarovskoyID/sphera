@@ -96,8 +96,7 @@ export const GuildVoiceRoom: React.FC = () => {
         entry.makingOffer = true;
         await pc.setLocalDescription();
         sendVoiceSignal(remoteId, { type: 'offer', sdp: pc.localDescription });
-      } catch (e) {
-        console.warn('onnegotiationneeded error', e);
+      } catch {
       } finally {
         entry.makingOffer = false;
       }
@@ -150,8 +149,7 @@ export const GuildVoiceRoom: React.FC = () => {
             if (!entry.ignoreOffer) throw e;
           }
         }
-      } catch (e) {
-        console.warn('Voice signal error:', e);
+      } catch {
       }
     };
 

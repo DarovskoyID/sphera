@@ -64,6 +64,9 @@ export const IncomingCallModal = () => {
 
   const accept = () => {
     if (!incomingOffer) return;
+    if ((window as any).AndroidBridge) {
+      (window as any).AndroidBridge.cancelCallNotification();
+    }
     const offerWithCandidates = {
       ...incomingOffer,
       bufferedCandidates: [...bufferedCandidates.current],
@@ -79,6 +82,9 @@ export const IncomingCallModal = () => {
 
   const reject = () => {
     if (!incomingOffer) return;
+    if ((window as any).AndroidBridge) {
+      (window as any).AndroidBridge.cancelCallNotification();
+    }
     sendSignal({ type: 'call-rejected', to: incomingOffer.from });
     bufferedCandidates.current = [];
     setIncomingOffer(null);

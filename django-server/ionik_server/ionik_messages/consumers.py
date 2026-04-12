@@ -90,6 +90,20 @@ class ChatConsumer(AsyncWebsocketConsumer):
             {'type': 'chat_message', 'message': msg_payload},
         )
 
+        # Push a notification to every recipient via their always-on signaling WS
+        sender_name = self.user_data.get('nickname') or self.user_data.get('username', '')
+        notification = {
+            'type': 'new_message_notification',
+            'sender_id': self.user_data.get('id', ''),
+            'sender_name': sender_name,
+            'content': content if content else ('\U0001f4ce Attachment' if attachment_ids else ''),
+        }
+        for pid in await self.get_other_participant_ids():
+            await self.channel_layer.group_send(
+                f'user_{pid}',
+                {'type': 'new.message.notification', 'data': notification},
+            )
+
     async def chat_message(self, event):
         await self.send(text_data=ujson.dumps(event['message']))
 
@@ -211,6 +225,14 @@ class ChatConsumer(AsyncWebsocketConsumer):
             'reply_to': reply_to_data,
             'is_pinned': False,
         }
+
+    @database_sync_to_async
+    def get_other_participant_ids(self):
+        ids = list(
+            Conversation.objects.filter(id=self.conversation_id)
+            .values_list('participants__id', flat=True)
+        )
+        return [str(pid) for pid in ids if str(pid) != str(self.user_data['id'])]
 
     @database_sync_to_async
     def check_participant(self, user_id):

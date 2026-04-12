@@ -1,6 +1,6 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
 import { Maximize2, Minimize2 } from 'lucide-react';
-import { useApp } from '../context/AppContext';
+import { useApp, reportError } from '../context/AppContext';
 
 // ── Module-level helpers (never redefined) ────────────────────────────────────
 
@@ -56,6 +56,7 @@ const _call = {
   pc: null as RTCPeerConnection | null,
   audioStream: null as MediaStream | null,
   cameraStream: null as MediaStream | null,
+  cameraPromise: null as Promise<boolean> | null,
   screenStream: null as MediaStream | null,
   localMediaStream: new MediaStream(),
   remoteStream: null as MediaStream | null,
@@ -94,6 +95,9 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
   const screenVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const remoteScreenVideoRef = useRef<HTMLVideoElement>(null);
+
+  // Ref so PC event handlers can always reach the latest stopCall closure
+  const stopCallFnRef = useRef<((notifyRemote?: boolean) => void) | null>(null);
 
   // Visual state — initialised from module-level so it's correct after remount
   const [remoteVideoStatus, setRemoteVideoStatus] = useState<string>(
@@ -165,15 +169,62 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
 
   const startAudio = async () => {
     if (_call.audioStream?.active) return;
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    _call.audioStream = stream;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      _call.audioStream = stream;
+    } catch (e) {
+      reportError(e);
+    }
   };
 
-  const startCamera = async (): Promise<boolean> => {
-    if (_call.cameraStream?.active) return true;
-    const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-    _call.cameraStream = stream;
-    return true;
+  const startCamera = (): Promise<boolean> => {
+    if (_call.cameraStream?.active) return Promise.resolve(true);
+    // Stop any stale inactive tracks so the OS releases the camera device before we request it again
+    if (_call.cameraStream && !_call.cameraStream.active) {
+      _call.cameraStream.getTracks().forEach(t => t.stop());
+      _call.cameraStream = null;
+    }
+    // Return the in-flight promise if one exists so concurrent callers
+    // share a single getUserMedia call instead of racing.
+    if (_call.cameraPromise) return _call.cameraPromise;
+
+    const tryGetCamera = async (): Promise<MediaStream> => {
+      // 1. Try requesting by specific deviceId — more reliable on some Windows drivers
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const cam = devices.find(d => d.kind === 'videoinput');
+        if (cam?.deviceId) {
+          return await navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: cam.deviceId } } });
+        }
+      } catch { /* fall through */ }
+
+      // 2. Bare request
+      try {
+        return await navigator.mediaDevices.getUserMedia({ video: true });
+      } catch (e) {
+        const err = e as DOMException;
+        // NotReadableError = hardware busy; give the driver 600ms to release and retry once
+        if (err.name === 'NotReadableError') {
+          await new Promise(r => setTimeout(r, 600));
+          return await navigator.mediaDevices.getUserMedia({ video: true });
+        }
+        throw e;
+      }
+    };
+
+    _call.cameraPromise = (async () => {
+      try {
+        const stream = await tryGetCamera();
+        _call.cameraStream = stream;
+        return true;
+      } catch {
+        setVideoActive(false);
+        return false;
+      } finally {
+        _call.cameraPromise = null;
+      }
+    })();
+    return _call.cameraPromise;
   };
 
   const addLocalTracks = (pc: RTCPeerConnection) => {
@@ -282,6 +333,7 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
     _call.screenStream?.getTracks().forEach(t => t.stop());
     _call.audioStream = null;
     _call.cameraStream = null;
+    _call.cameraPromise = null;
     _call.screenStream = null;
     _call.localMediaStream = new MediaStream();
     if (cameraVideoRef.current) cameraVideoRef.current.srcObject = null;
@@ -353,6 +405,18 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
       if (event.candidate) sendSignal({ type: 'candidate', candidate: event.candidate, to: remoteId });
     };
 
+    pc.oniceconnectionstatechange = () => {
+      if (pc.iceConnectionState === 'failed' && _call.pc === pc) {
+        stopCallFnRef.current?.(false);
+      }
+    };
+
+    pc.onconnectionstatechange = () => {
+      if (pc.connectionState === 'failed' && _call.pc === pc) {
+        stopCallFnRef.current?.(false);
+      }
+    };
+
     pc.ontrack = (event) => {
       const stream = event.streams[0];
       if (!stream) return;
@@ -389,13 +453,12 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
   // ==================== Local video useEffect ====================
   useEffect(() => {
     if (!isVideoActive) return;
-    const init = async () => {
-      if (!_call.cameraStream?.active) await startCamera();
-      if (cameraVideoRef.current && _call.cameraStream) {
+    (async () => {
+      const ok = await startCamera();
+      if (ok && cameraVideoRef.current && _call.cameraStream) {
         attachStreamToVideo(cameraVideoRef.current, _call.cameraStream, setLocalVideoStatus, true);
       }
-    };
-    init();
+    })();
   }, [isVideoActive]);
 
   // ==================== Screen sharing useEffect ====================
@@ -602,6 +665,20 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
     setVideoActive(false);
     setDemonstrationActive(false);
   };
+
+  // Keep the ref pointing at the latest stopCall so PC event handlers always reach it
+  stopCallFnRef.current = stopCall;
+
+  // Release all media tracks when the page unloads so the OS camera device is freed
+  useEffect(() => {
+    const cleanup = () => {
+      _call.audioStream?.getTracks().forEach(t => t.stop());
+      _call.cameraStream?.getTracks().forEach(t => t.stop());
+      _call.screenStream?.getTracks().forEach(t => t.stop());
+    };
+    window.addEventListener('beforeunload', cleanup);
+    return () => window.removeEventListener('beforeunload', cleanup);
+  }, []);
 
   // ==================== UI ====================
   const remoteUser = remotePeerId ? friends.find(f => String(f.id) === remotePeerId) : null;
