@@ -7,6 +7,7 @@ from django.db import models
 
 
 class User(AbstractUser):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     nickname = models.CharField(max_length=50, blank=True, default='')
     avatar = models.ImageField(upload_to='avatars/', blank=True, null=True)
     bio = models.CharField(max_length=200, blank=True, default='')
@@ -26,6 +27,7 @@ class User(AbstractUser):
 
 
 class Friendship(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     STATUS_CHOICES = [
         ('pending', 'Pending'),
         ('accepted', 'Accepted'),
@@ -53,6 +55,7 @@ class Friendship(models.Model):
 
 
 class BlockedUser(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     blocker = models.ForeignKey(
         User, on_delete=models.CASCADE,
         related_name='blocked_users',
@@ -71,6 +74,7 @@ class BlockedUser(models.Model):
 
 
 class UserSettings(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     user = models.OneToOneField(
         User, on_delete=models.CASCADE,
         related_name='settings',
@@ -125,6 +129,7 @@ class UserSettings(models.Model):
 
 
 class UserDevice(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     user = models.ForeignKey(
         User, on_delete=models.CASCADE,
         related_name='devices',
@@ -157,6 +162,7 @@ def _emoji_upload_path(instance, filename):
 
 
 class CustomEmoji(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     name = models.SlugField(max_length=50, unique=True)
     image = models.ImageField(upload_to=_emoji_upload_path)
     created_by = models.ForeignKey(

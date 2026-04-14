@@ -502,7 +502,7 @@ const BlockedContextMenu: React.FC<{
     onClose();
     try {
       await unblockUser(user.id);
-      if (isActive) setCurrentChat('');
+      // Keep the current chat open — the user now appears as a friend
     } catch (e) { reportError(e); }
   };
 
@@ -557,7 +557,7 @@ export const ChatSidebar: React.FC = () => {
     currentView, currentChat, currentSettingsPage,
     setCurrentChat, setCurrentSettingsPage, toggleTheme, theme,
     isMobileSidebarOpen, toggleMobileSidebar, setAuthToken,
-    friends, pendingRequests, sentRequests, sendFriendRequest, acceptFriendRequest,
+    friends, blockedContacts, pendingRequests, sentRequests, sendFriendRequest, acceptFriendRequest,
     rejectFriendRequest, searchUsers,
     setCallActive, setCallTargetId, setVideoActive,
     removeFriend,
@@ -572,9 +572,13 @@ export const ChatSidebar: React.FC = () => {
   const [addSuccess, setAddSuccess] = useState('');
   const [showLogoutModal, setShowLogoutModal] = useState(false);
   const [ctxMenu, setCtxMenu] = useState<CtxState>(null);
+  const [blockedCtxMenu, setBlockedCtxMenu] = useState<BlockedCtxState>(null);
   const [profileFriend, setProfileFriend] = useState<FriendInfo | null>(null);
   const filteredFriends = friends.filter(f =>
     (f.nickname || f.username).toLowerCase().includes(searchQuery.toLowerCase())
+  );
+  const filteredBlocked = blockedContacts.filter(u =>
+    (u.nickname || u.username).toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   const sidebarTitle = currentView === 'settings'
@@ -604,11 +608,11 @@ export const ChatSidebar: React.FC = () => {
     }
   };
 
-  const handleAccept = async (id: number) => {
+  const handleAccept = async (id: string) => {
     try { await acceptFriendRequest(id); } catch (e) { reportError(e); }
   };
 
-  const handleReject = async (id: number) => {
+  const handleReject = async (id: string) => {
     try { await rejectFriendRequest(id); } catch (e) { reportError(e); }
   };
 
@@ -617,6 +621,11 @@ export const ChatSidebar: React.FC = () => {
     const x = e.clientX;
     const y = e.clientY;
     setCtxMenu({ x, y, friend });
+  }, []);
+
+  const handleBlockedContextMenu = useCallback((e: React.MouseEvent, user: FriendInfo) => {
+    e.preventDefault();
+    setBlockedCtxMenu({ x: e.clientX, y: e.clientY, user });
   }, []);
 
   const handleProfileCall = (withVideo: boolean) => {
@@ -785,10 +794,35 @@ export const ChatSidebar: React.FC = () => {
             </div>
           ))}
 
-          {filteredFriends.length === 0 && !showAddFriend && pendingRequests.length === 0 && (
+          {filteredFriends.length === 0 && filteredBlocked.length === 0 && !showAddFriend && pendingRequests.length === 0 && (
             <div style={{ padding: '16px 12px', color: 'var(--text-secondary)', fontSize: 13, textAlign: 'center' }}>
               {tr('friends_none')} <UserPlus size={12} style={{ display: 'inline' }} />
             </div>
+          )}
+
+          {/* Blocked contacts — kept visible so the user can still read the history */}
+          {filteredBlocked.length > 0 && (
+            <>
+              <div style={{ padding: '8px 12px 2px', fontSize: 10, fontWeight: 700, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'flex', alignItems: 'center', gap: 4 }}>
+                <Ban size={10} /> Blocked
+              </div>
+              {filteredBlocked.map(user => (
+                <div
+                  key={user.id}
+                  className={`chat-item ${String(currentChat) === String(user.id) ? 'active' : ''}`}
+                  onClick={() => setCurrentChat(user.id)}
+                  onContextMenu={e => handleBlockedContextMenu(e, user as FriendInfo)}
+                >
+                  <div className="chat-avatar" style={{ position: 'relative' }}>
+                    <Avatar name={user.nickname || user.username} avatar={user.avatar} size={36} />
+                  </div>
+                  <div className="chat-info">
+                    <div className="chat-name">{user.nickname || user.username}</div>
+                    <div className="chat-message" style={{ fontSize: 11, color: '#f97316' }}>Blocked</div>
+                  </div>
+                </div>
+              ))}
+            </>
           )}
         </div>
       )}
@@ -862,6 +896,13 @@ export const ChatSidebar: React.FC = () => {
           ctx={ctxMenu}
           onClose={() => setCtxMenu(null)}
           onOpenProfile={f => setProfileFriend(f)}
+        />
+      )}
+
+      {blockedCtxMenu && (
+        <BlockedContextMenu
+          ctx={blockedCtxMenu}
+          onClose={() => setBlockedCtxMenu(null)}
         />
       )}
 

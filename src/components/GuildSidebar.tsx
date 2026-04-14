@@ -154,8 +154,12 @@ export const GuildSidebar: React.FC = () => {
   const [newChName, setNewChName] = useState('');
   const [showSettings, setShowSettings] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleteInput, setDeleteInput] = useState('');
+  type VoicePresenceMap = Record<string, Array<{ id: string; username: string; nickname: string; avatar: string; muted: boolean }>>;
+
   // Local REST-polled voice presence (channel_id → participants[])
-  const [localVoicePresence, setLocalVoicePresence] = useState<Record<number, Array<{ id: string; username: string; nickname: string; avatar: string; muted: boolean }>>>({});
+  const [localVoicePresence, setLocalVoicePresence] = useState<VoicePresenceMap>({});
 
   // Fetch voice presence on mount + every 3 seconds
   useEffect(() => {
@@ -165,11 +169,8 @@ export const GuildSidebar: React.FC = () => {
         headers: { Authorization: `Bearer ${authToken}` },
       })
         .then(r => r.ok ? r.json() : {})
-        .then((data: Record<string, Array<{ id: string; username: string; nickname: string; avatar: string; muted: boolean }>>) => {
-          // Convert string keys back to number keys
-          const parsed: Record<number, Array<{ id: string; username: string; nickname: string; avatar: string; muted: boolean }>> = {};
-          for (const k of Object.keys(data)) parsed[Number(k)] = data[k];
-          setLocalVoicePresence(parsed);
+        .then((data: VoicePresenceMap) => {
+          setLocalVoicePresence(data);
         })
         .catch(() => {});
     };
@@ -178,12 +179,8 @@ export const GuildSidebar: React.FC = () => {
     return () => clearInterval(interval);
   }, [currentGuild?.id, authToken, currentServerIP]);
 
-  // Merge WS-realtime updates into local presence
-  const mergedPresence: Record<number, Array<{ id: string; username: string; nickname: string; avatar: string; muted: boolean }>> = { ...localVoicePresence };
-  for (const k of Object.keys(voiceChannelParticipants)) {
-    const num = Number(k);
-    mergedPresence[num] = (voiceChannelParticipants as Record<number, Array<{ id: string; username: string; nickname: string; avatar: string; muted: boolean }>>)[num];
-  }
+  // Merge WS-realtime updates into local presence (WS updates take priority)
+  const mergedPresence: VoicePresenceMap = { ...localVoicePresence, ...voiceChannelParticipants };
 
   if (!currentGuild) return null;
 
@@ -229,7 +226,7 @@ export const GuildSidebar: React.FC = () => {
             <Copy size={13} /> {copied ? tr('guild_copied') : tr('guild_copy_invite')}
           </button>
           {myRole === 'owner' && (
-            <button className="context-menu-item danger" onClick={() => deleteGuild(currentGuild.id)}>
+            <button className="context-menu-item danger" onClick={() => { setShowSettings(false); setDeleteInput(''); setShowDeleteConfirm(true); }}>
               <Trash2 size={13} /> {tr('guild_delete_server')}
             </button>
           )}
@@ -388,6 +385,51 @@ export const GuildSidebar: React.FC = () => {
       </div>
 
       <UserProfile />
+
+      {showDeleteConfirm && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9500 }}>
+          <div style={{ background: 'var(--bg-secondary)', borderRadius: 12, padding: 28, maxWidth: 420, width: '90%', border: '1px solid var(--border-color)' }}>
+            <h3 style={{ margin: '0 0 8px', color: '#ef4444', fontSize: 18, fontWeight: 700 }}>{tr('guild_delete_server')}</h3>
+            <p style={{ margin: '0 0 16px', color: 'var(--text-secondary)', fontSize: 14, lineHeight: 1.5 }}>
+              This action is <strong style={{ color: 'var(--text-primary)' }}>permanent</strong> and cannot be undone.
+              All channels, messages, and members will be lost.<br /><br />
+              Type <strong style={{ color: 'var(--text-primary)' }}>{currentGuild.name}</strong> to confirm:
+            </p>
+            <input
+              autoFocus
+              value={deleteInput}
+              onChange={e => setDeleteInput(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Escape') { setShowDeleteConfirm(false); setDeleteInput(''); } }}
+              placeholder={currentGuild.name}
+              style={{
+                width: '100%', boxSizing: 'border-box', padding: '10px 12px',
+                background: 'var(--bg-tertiary)', color: 'var(--text-primary)',
+                border: '1px solid var(--border-color)', borderRadius: 8, fontSize: 14,
+                marginBottom: 20, outline: 'none',
+              }}
+            />
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => { setShowDeleteConfirm(false); setDeleteInput(''); }}
+                style={{ padding: '9px 20px', background: 'var(--bg-tertiary)', color: 'var(--text-primary)', border: '1px solid var(--border-color)', borderRadius: 8, fontSize: 14, cursor: 'pointer' }}>
+                Cancel
+              </button>
+              <button
+                disabled={deleteInput !== currentGuild.name}
+                onClick={() => { deleteGuild(currentGuild.id); setShowDeleteConfirm(false); setDeleteInput(''); }}
+                style={{
+                  padding: '9px 20px', background: deleteInput === currentGuild.name ? '#ef4444' : 'var(--bg-tertiary)',
+                  color: deleteInput === currentGuild.name ? '#fff' : 'var(--text-tertiary)',
+                  border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 600,
+                  cursor: deleteInput === currentGuild.name ? 'pointer' : 'not-allowed',
+                  transition: 'background 0.15s, color 0.15s',
+                }}>
+                Delete Server
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

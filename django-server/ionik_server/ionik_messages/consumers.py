@@ -2,6 +2,7 @@ import asyncio
 import ujson
 from datetime import timedelta
 from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 from channels.generic.websocket import AsyncWebsocketConsumer
 from channels.db import database_sync_to_async
 from .models import (
@@ -61,11 +62,11 @@ class ChatConsumer(AsyncWebsocketConsumer):
         if attachment_ids:
             coros.append(self.get_attachments_data(attachment_ids))
         if reply_to_id:
-            coros.append(self.get_reply_data(int(reply_to_id)))
+            coros.append(self.get_reply_data(reply_to_id))
 
         results = await asyncio.gather(*coros, return_exceptions=True)
 
-        msg_id = results[0] if isinstance(results[0], int) else None
+        msg_id = results[0] if not isinstance(results[0], Exception) else None
         idx = 1
         attachments_data = []
         if attachment_ids:
@@ -76,7 +77,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
             reply_to_data = results[idx] if not isinstance(results[idx], Exception) else None
 
         msg_payload = {
-            'id': msg_id,
+            'id': str(msg_id) if msg_id is not None else None,
             'author': self.user_data,
             'content': content,
             'created_at': timezone.now().isoformat(),
@@ -136,7 +137,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
         if send_at:
             asyncio.ensure_future(self._deliver_scheduled(scheduled_id, send_at))
 
-    async def _deliver_scheduled(self, scheduled_id: int, send_at):
+    async def _deliver_scheduled(self, scheduled_id, send_at):
         """Sleep until send_at, then deliver the scheduled message."""
         now = timezone.now()
         if send_at.tzinfo is None:
@@ -164,7 +165,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
         return list(qs)
 
     @database_sync_to_async
-    def deliver_scheduled_message(self, scheduled_id: int):
+    def deliver_scheduled_message(self, scheduled_id):
         try:
             msg = ScheduledMessage.objects.select_related(
                 'author', 'reply_to', 'reply_to__author'
@@ -190,7 +191,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
         reply_to_data = None
         if msg.reply_to:
             reply_to_data = {
-                'id': msg.reply_to.id,
+                'id': str(msg.reply_to.id),
                 'content': msg.reply_to.content[:200],
                 'author': {
                     'id': str(msg.reply_to.author.id),
@@ -203,7 +204,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
         if msg.attachment_ids:
             for att in Attachment.objects.filter(id__in=msg.attachment_ids):
                 attachments_data.append({
-                    'id': att.id,
+                    'id': str(att.id),
                     'filename': att.original_filename,
                     'content_type': att.content_type,
                     'file_size': att.file_size,
@@ -211,7 +212,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 })
 
         return {
-            'id': real_msg.id,
+            'id': str(real_msg.id),
             'author': {
                 'id': str(author.id),
                 'username': author.username,
@@ -271,7 +272,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
         result = []
         for att in Attachment.objects.filter(id__in=attachment_ids, conversation_id=self.conversation_id):
             result.append({
-                'id': att.id,
+                'id': str(att.id),
                 'filename': att.original_filename,
                 'content_type': att.content_type,
                 'file_size': att.file_size,
@@ -286,7 +287,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 id=reply_to_id, conversation_id=self.conversation_id
             )
             return {
-                'id': msg.id,
+                'id': str(msg.id),
                 'content': msg.content[:200],
                 'author': {
                     'id': str(msg.author.id),
@@ -301,21 +302,21 @@ class ChatConsumer(AsyncWebsocketConsumer):
     def save_message(self, plaintext, attachment_ids=None, reply_to_id=None):
         msg = Message.objects.create(
             conversation_id=self.conversation_id,
-            author_id=int(self.user_data['id']),
+            author_id=self.user_data['id'],
             encrypted_content=encrypt_text(plaintext or ''),
             reply_to_id=reply_to_id,
         )
         if attachment_ids:
             Attachment.objects.filter(id__in=attachment_ids).update(message=msg)
-        return msg.id
+        return str(msg.id)
 
 
 class GuildChannelConsumer(AsyncWebsocketConsumer):
     """WebSocket consumer for guild text channels."""
 
     async def connect(self):
-        self.guild_id = self.scope['url_route']['kwargs']['guild_id']
-        self.channel_id = self.scope['url_route']['kwargs']['channel_id']
+        self.guild_id = str(self.scope['url_route']['kwargs']['guild_id'])
+        self.channel_id = str(self.scope['url_route']['kwargs']['channel_id'])
         self.room_group = f'guild_channel_{self.channel_id}'
         self.guild_group = f'guild_{self.guild_id}'
 
@@ -372,7 +373,7 @@ class GuildChannelConsumer(AsyncWebsocketConsumer):
         msg_id = await self.save_message(content, reply_to_id, attachment_ids)
         reply_to_data = None
         if reply_to_id:
-            reply_to_data = await self.get_reply_data(int(reply_to_id))
+            reply_to_data = await self.get_reply_data(reply_to_id)
         attachments_data = []
         if attachment_ids:
             attachments_data = await self.get_attachments_data(attachment_ids)
@@ -394,7 +395,6 @@ class GuildChannelConsumer(AsyncWebsocketConsumer):
 
     async def guild_scheduled_queued(self, event):
         from django.utils.timezone import make_aware
-        from django.utils.dateparse import parse_datetime
         scheduled_id = event['scheduled_id']
         send_at = parse_datetime(event['send_at'])
         if send_at and send_at.tzinfo is None:
@@ -451,7 +451,7 @@ class GuildChannelConsumer(AsyncWebsocketConsumer):
         reply_to_data = None
         if sched.reply_to:
             reply_to_data = {
-                'id': sched.reply_to.id,
+                'id': str(sched.reply_to.id),
                 'content': sched.reply_to.content[:200],
                 'author': {
                     'id': str(sched.reply_to.author.id),
@@ -464,7 +464,7 @@ class GuildChannelConsumer(AsyncWebsocketConsumer):
         if sched.attachment_ids:
             for att in GuildAttachment.objects.filter(id__in=sched.attachment_ids):
                 attachments_data.append({
-                    'id': att.id,
+                    'id': str(att.id),
                     'filename': att.original_filename,
                     'content_type': att.content_type,
                     'file_size': att.file_size,
@@ -472,7 +472,7 @@ class GuildChannelConsumer(AsyncWebsocketConsumer):
                 })
 
         return {
-            'id': real_msg.id,
+            'id': str(real_msg.id),
             'author': {
                 'id': str(author.id),
                 'username': author.username,
@@ -550,13 +550,13 @@ class GuildChannelConsumer(AsyncWebsocketConsumer):
     def save_message(self, plaintext, reply_to_id=None, attachment_ids=None):
         msg = GuildMessage.objects.create(
             channel_id=self.channel_id,
-            author_id=int(self.user_data['id']),
+            author_id=self.user_data['id'],
             encrypted_content=encrypt_text(plaintext or ''),
             reply_to_id=reply_to_id,
         )
         if attachment_ids:
             GuildAttachment.objects.filter(id__in=attachment_ids).update(message=msg)
-        return msg.id
+        return str(msg.id)
 
     @database_sync_to_async
     def get_attachments_data(self, attachment_ids):
@@ -565,7 +565,7 @@ class GuildChannelConsumer(AsyncWebsocketConsumer):
             id__in=attachment_ids, channel_id=self.channel_id
         ):
             result.append({
-                'id': att.id,
+                'id': str(att.id),
                 'filename': att.original_filename,
                 'content_type': att.content_type,
                 'file_size': att.file_size,
@@ -580,12 +580,83 @@ class GuildChannelConsumer(AsyncWebsocketConsumer):
                 id=reply_to_id, channel_id=self.channel_id
             )
             return {
-                'id': msg.id,
+                'id': str(msg.id),
                 'content': msg.content[:200],
                 'author': {'id': str(msg.author.id), 'username': msg.author.username, 'nickname': msg.author.nickname or ''},
             }
         except GuildMessage.DoesNotExist:
             return None
+
+
+class GuildPresenceConsumer(AsyncWebsocketConsumer):
+    """Guild-level WS: subscribes to guild group only (no channel).
+    Used when a user has selected a guild but hasn't opened any channel,
+    so they still receive member join/leave/kick and channel events.
+    """
+
+    async def connect(self):
+        self.guild_id = str(self.scope['url_route']['kwargs']['guild_id'])
+        self.guild_group = f'guild_{self.guild_id}'
+
+        user = self.scope.get('user')
+        if not user or user.is_anonymous:
+            await self.close()
+            return
+
+        is_member = await self._check_membership(user.id)
+        if not is_member:
+            await self.close()
+            return
+
+        await self.channel_layer.group_add(self.guild_group, self.channel_name)
+        await self.accept()
+
+    async def disconnect(self, close_code):
+        await self.channel_layer.group_discard(self.guild_group, self.channel_name)
+
+    async def receive(self, text_data):
+        pass  # No client→server messages needed
+
+    async def guild_deleted(self, event):
+        await self.send(text_data=ujson.dumps({'type': 'guild_deleted', 'guild_id': event['guild_id']}))
+        await self.close()
+
+    async def member_joined(self, event):
+        await self.send(text_data=ujson.dumps({'type': 'member_joined', 'member': event['member']}))
+
+    async def member_left(self, event):
+        await self.send(text_data=ujson.dumps({'type': 'member_left', 'user_id': event['user_id']}))
+
+    async def member_kicked(self, event):
+        await self.send(text_data=ujson.dumps({
+            'type': 'member_kicked',
+            'user_id': event['user_id'],
+            'guild_name': event.get('guild_name', ''),
+        }))
+
+    async def channel_created(self, event):
+        await self.send(text_data=ujson.dumps({'type': 'channel_created', 'channel': event['channel']}))
+
+    async def channel_deleted(self, event):
+        await self.send(text_data=ujson.dumps({'type': 'channel_deleted', 'channel_id': event['channel_id']}))
+
+    async def voice_presence_update(self, event):
+        await self.send(text_data=ujson.dumps({
+            'type': 'voice_presence_update',
+            'channel_id': event['channel_id'],
+            'participants': event['participants'],
+        }))
+
+    async def member_role_updated(self, event):
+        await self.send(text_data=ujson.dumps({
+            'type': 'member_role_updated',
+            'user_id': event['user_id'],
+            'role': event['role'],
+        }))
+
+    @database_sync_to_async
+    def _check_membership(self, user_id):
+        return GuildMembership.objects.filter(guild_id=self.guild_id, user_id=user_id).exists()
 
 
 class GuildVoiceConsumer(AsyncWebsocketConsumer):
@@ -594,8 +665,8 @@ class GuildVoiceConsumer(AsyncWebsocketConsumer):
     """
 
     async def connect(self):
-        self.guild_id = self.scope['url_route']['kwargs']['guild_id']
-        self.channel_id = self.scope['url_route']['kwargs']['channel_id']
+        self.guild_id = str(self.scope['url_route']['kwargs']['guild_id'])
+        self.channel_id = str(self.scope['url_route']['kwargs']['channel_id'])
         self.room_group = f'guild_voice_{self.channel_id}'
 
         user = self.scope.get('user')
@@ -645,10 +716,16 @@ class GuildVoiceConsumer(AsyncWebsocketConsumer):
         )
 
     async def disconnect(self, close_code):
+        # Guard: connect() may have returned early before setting user_id
+        if not getattr(self, 'user_id', None):
+            await self.channel_layer.group_discard(self.room_group, self.channel_name)
+            return
+
         # Remove from registry
         if self.channel_id in _voice_channels:
             _voice_channels[self.channel_id].pop(self.user_id, None)
-            if not _voice_channels[self.channel_id]:
+            # Remove channel entry if only the sentinel '_guild_id' key remains
+            if set(_voice_channels[self.channel_id].keys()) <= {'_guild_id'}:
                 del _voice_channels[self.channel_id]
 
         await self.channel_layer.group_discard(self.room_group, self.channel_name)

@@ -138,6 +138,7 @@ svg {
 .app-container {
   display: grid;
   grid-template-columns: 72px 260px 1fr;
+  grid-template-rows: 100vh;
   height: 100vh;
   overflow: hidden;
 }
@@ -792,6 +793,7 @@ svg {
   flex-direction: column;
   background-color: var(--bg-chat);
   overflow: hidden;
+  min-height: 0;
   transition: background-color var(--transition-normal);
 }
 
@@ -849,10 +851,9 @@ svg {
 /* Messages Container */
 .messages-container {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   padding: var(--spacing-lg);
-  display: flex;
-  flex-direction: column;
 }
 
 .messages-container::-webkit-scrollbar {
@@ -2285,6 +2286,7 @@ input:focus-visible {
   flex-direction: column;
   background-color: var(--bg-chat);
   overflow: hidden;
+  min-height: 0;
   height: 100%;
   transition: background-color var(--transition-normal);
 }
@@ -2315,28 +2317,9 @@ input:focus-visible {
   flex: 1;
 }
 
-.messages-list {
-  flex: 1;
-  overflow-y: auto;
-  overflow-x: hidden;
-  padding: var(--spacing-md) var(--spacing-lg);
-  display: flex;
-  flex-direction: column;
-  gap: 0;
-  min-width: 0;
-}
-
-.messages-list::-webkit-scrollbar {
-  width: 6px;
-}
-
-.messages-list::-webkit-scrollbar-thumb {
-  background: var(--border-color);
-  border-radius: 3px;
-}
-
 .guild-messages-list {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
   padding: var(--spacing-sm) 0 var(--spacing-md);

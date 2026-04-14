@@ -94,7 +94,7 @@ def conversation_delete(request, conversation_id):
     channel_layer = get_channel_layer()
     async_to_sync(channel_layer.group_send)(
         f'chat_{conversation_id}',
-        {'type': 'conversation_deleted', 'conversation_id': conversation_id},
+        {'type': 'conversation_deleted', 'conversation_id': str(conversation_id)},
     )
 
     convo.delete()  # cascades messages, attachments, scheduled messages
@@ -114,7 +114,11 @@ def message_list(request, conversation_id):
 
     qs = convo.messages.select_related('author', 'reply_to', 'reply_to__author').prefetch_related('attachments').order_by('-created_at')
     if before_id:
-        qs = qs.filter(id__lt=int(before_id))
+        try:
+            anchor = convo.messages.get(id=before_id)
+            qs = qs.filter(created_at__lt=anchor.created_at)
+        except convo.messages.model.DoesNotExist:
+            pass
     messages = list(qs[:limit])
     messages.reverse()
 
@@ -143,7 +147,7 @@ def delete_message(request, message_id):
     channel_layer = get_channel_layer()
     async_to_sync(channel_layer.group_send)(
         f'chat_{conversation_id}',
-        {'type': 'message_deleted', 'message_id': message_id}
+        {'type': 'message_deleted', 'message_id': str(message_id)}
     )
 
     return Response(status=status.HTTP_204_NO_CONTENT)
@@ -163,7 +167,7 @@ def pin_message(request, message_id):
     channel_layer = get_channel_layer()
     async_to_sync(channel_layer.group_send)(
         f'chat_{msg.conversation_id}',
-        {'type': 'message_pinned', 'message_id': message_id, 'is_pinned': msg.is_pinned}
+        {'type': 'message_pinned', 'message_id': str(message_id), 'is_pinned': msg.is_pinned}
     )
 
     return Response({'is_pinned': msg.is_pinned})
@@ -240,7 +244,7 @@ def list_scheduled(request, conversation_id):
         is_sent=False,
     ).order_by('send_at')
     data = [
-        {'id': m.id, 'send_at': m.send_at.isoformat(), 'content': m.content}
+        {'id': str(m.id), 'send_at': m.send_at.isoformat(), 'content': m.content}
         for m in qs
     ]
     return Response(data)
@@ -282,13 +286,13 @@ def schedule_message(request, conversation_id):
         f'chat_{conversation_id}',
         {
             'type': 'scheduled_message_queued',
-            'scheduled_id': msg.id,
+            'scheduled_id': str(msg.id),
             'send_at': send_at.isoformat(),
         },
     )
 
     return Response(
-        {'id': msg.id, 'send_at': send_at.isoformat()},
+        {'id': str(msg.id), 'send_at': send_at.isoformat()},
         status=status.HTTP_201_CREATED,
     )
 
@@ -325,14 +329,14 @@ def _guild_data(guild, user):
     channels = []
     for ch in guild.channels.all():
         channels.append({
-            'id': ch.id,
+            'id': str(ch.id),
             'name': ch.name,
             'type': ch.channel_type,
             'topic': ch.topic,
             'position': ch.position,
         })
     return {
-        'id': guild.id,
+        'id': str(guild.id),
         'name': guild.name,
         'description': guild.description,
         'icon': guild.icon.url if guild.icon else '',
@@ -392,7 +396,7 @@ def guild_detail(request, guild_id):
     channel_layer = get_channel_layer()
     async_to_sync(channel_layer.group_send)(
         f'guild_{guild_id}',
-        {'type': 'guild_deleted', 'guild_id': guild_id},
+        {'type': 'guild_deleted', 'guild_id': str(guild_id)},
     )
     guild.delete()
     return Response(status=status.HTTP_204_NO_CONTENT)
@@ -477,9 +481,14 @@ def guild_kick(request, guild_id, user_id):
         return Response({'error': 'admins cannot kick other admins'}, status=status.HTTP_403_FORBIDDEN)
     target_membership.delete()
     channel_layer = get_channel_layer()
+    kick_payload = {'type': 'member_kicked', 'user_id': str(user_id), 'guild_name': guild.name}
+    # Broadcast to all guild members who are browsing any channel
+    async_to_sync(channel_layer.group_send)(f'guild_{guild_id}', kick_payload)
+    # Also notify the kicked user directly via their signaling WS (covers the case
+    # where they are not currently browsing a channel in this guild)
     async_to_sync(channel_layer.group_send)(
-        f'guild_{guild_id}',
-        {'type': 'member_kicked', 'user_id': str(user_id), 'guild_name': guild.name},
+        f'user_{user_id}',
+        {'type': 'guild.kicked', 'user_id': str(user_id), 'guild_name': guild.name, 'guild_id': str(guild_id)},
     )
     # Delete guild if no members remain
     if not GuildMembership.objects.filter(guild=guild).exists():
@@ -516,7 +525,7 @@ def guild_channel_list_create(request, guild_id):
         return Response({'error': 'not found'}, status=status.HTTP_404_NOT_FOUND)
 
     if request.method == 'GET':
-        channels = [{'id': ch.id, 'name': ch.name, 'type': ch.channel_type, 'topic': ch.topic, 'position': ch.position}
+        channels = [{'id': str(ch.id), 'name': ch.name, 'type': ch.channel_type, 'topic': ch.topic, 'position': ch.position}
                     for ch in guild.channels.all()]
         return Response(channels)
 
@@ -534,9 +543,9 @@ def guild_channel_list_create(request, guild_id):
     channel_layer = get_channel_layer()
     async_to_sync(channel_layer.group_send)(
         f'guild_{guild_id}',
-        {'type': 'channel_created', 'channel': {'id': ch.id, 'name': ch.name, 'type': ch.channel_type, 'topic': ch.topic, 'position': ch.position}},
+        {'type': 'channel_created', 'channel': {'id': str(ch.id), 'name': ch.name, 'type': ch.channel_type, 'topic': ch.topic, 'position': ch.position}},
     )
-    return Response({'id': ch.id, 'name': ch.name, 'type': ch.channel_type, 'topic': ch.topic, 'position': ch.position}, status=status.HTTP_201_CREATED)
+    return Response({'id': str(ch.id), 'name': ch.name, 'type': ch.channel_type, 'topic': ch.topic, 'position': ch.position}, status=status.HTTP_201_CREATED)
 
 
 @api_view(['DELETE'])
@@ -554,7 +563,7 @@ def guild_channel_delete(request, guild_id, channel_id):
     channel_layer = get_channel_layer()
     async_to_sync(channel_layer.group_send)(
         f'guild_{guild_id}',
-        {'type': 'channel_deleted', 'channel_id': channel_id},
+        {'type': 'channel_deleted', 'channel_id': str(channel_id)},
     )
     return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -573,13 +582,17 @@ def guild_channel_messages(request, guild_id, channel_id):
     before_id = request.GET.get('before')
     qs = ch.messages.select_related('author', 'reply_to', 'reply_to__author').prefetch_related('attachments').order_by('-created_at')
     if before_id:
-        qs = qs.filter(id__lt=int(before_id))
+        try:
+            anchor = ch.messages.get(id=before_id)
+            qs = qs.filter(created_at__lt=anchor.created_at)
+        except ch.messages.model.DoesNotExist:
+            pass
     msgs = list(qs[:limit])
     msgs.reverse()
 
     def serialize(m):
         return {
-            'id': m.id,
+            'id': str(m.id),
             'author': {
                 'id': str(m.author.id),
                 'username': m.author.username,
@@ -591,13 +604,13 @@ def guild_channel_messages(request, guild_id, channel_id):
             'created_at': m.created_at.isoformat(),
             'is_pinned': m.is_pinned,
             'reply_to': {
-                'id': m.reply_to.id,
+                'id': str(m.reply_to.id),
                 'content': m.reply_to.content,
                 'author': {'id': str(m.reply_to.author.id), 'username': m.reply_to.author.username},
             } if m.reply_to else None,
             'attachments': [
                 {
-                    'id': att.id,
+                    'id': str(att.id),
                     'filename': att.original_filename,
                     'content_type': att.content_type,
                     'file_size': att.file_size,
@@ -626,7 +639,7 @@ def guild_message_delete(request, guild_id, message_id):
     channel_layer = get_channel_layer()
     async_to_sync(channel_layer.group_send)(
         f'guild_channel_{channel_id}',
-        {'type': 'message_deleted', 'id': message_id},
+        {'type': 'message_deleted', 'id': str(message_id)},
     )
     return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -645,7 +658,7 @@ def guild_message_pin(request, guild_id, message_id):
     channel_layer = get_channel_layer()
     async_to_sync(channel_layer.group_send)(
         f'guild_channel_{msg.channel_id}',
-        {'type': 'message_pinned', 'id': message_id, 'is_pinned': msg.is_pinned},
+        {'type': 'message_pinned', 'id': str(message_id), 'is_pinned': msg.is_pinned},
     )
     return Response({'is_pinned': msg.is_pinned})
 
@@ -679,7 +692,7 @@ def guild_upload_attachment(request, guild_id, channel_id):
     att.file.save(f'{uuid.uuid4().hex}.enc', ContentFile(encrypted), save=True)
 
     return Response({
-        'id': att.id,
+        'id': str(att.id),
         'filename': att.original_filename,
         'content_type': att.content_type,
         'file_size': att.file_size,
@@ -739,10 +752,10 @@ def guild_schedule_message(request, guild_id, channel_id):
     channel_layer = get_channel_layer()
     async_to_sync(channel_layer.group_send)(
         f'guild_channel_{channel_id}',
-        {'type': 'guild_scheduled_queued', 'scheduled_id': sched.id, 'send_at': send_at.isoformat()},
+        {'type': 'guild_scheduled_queued', 'scheduled_id': str(sched.id), 'send_at': send_at.isoformat()},
     )
 
-    return Response({'id': sched.id, 'send_at': send_at.isoformat()}, status=status.HTTP_201_CREATED)
+    return Response({'id': str(sched.id), 'send_at': send_at.isoformat()}, status=status.HTTP_201_CREATED)
 
 
 @api_view(['GET'])
@@ -754,12 +767,13 @@ def guild_voice_presence(request, guild_id):
     except GuildMembership.DoesNotExist:
         return Response({'error': 'not found'}, status=status.HTTP_404_NOT_FOUND)
 
+    guild_id_str = str(guild_id)
     result = {}
     for ch_id, ch_data in _voice_channels.items():
-        if ch_data.get('_guild_id') != guild_id:
+        if ch_data.get('_guild_id') != guild_id_str:
             continue
         members = [v for k, v in ch_data.items() if k != '_guild_id']
         if members:
-            result[ch_id] = members
+            result[str(ch_id)] = members
 
     return Response(result)

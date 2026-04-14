@@ -155,7 +155,7 @@ export const EmojiPicker: React.FC<Props> = ({ onSelect, onClose, anchorRef }) =
     finally { setCreating(false); }
   };
 
-  const handleDeleteCustom = async (id: number) => {
+  const handleDeleteCustom = async (id: string) => {
     await fetch(`${currentServerIP}/api/auth/emojis/${id}/`, {
       method: 'DELETE',
       headers: { Authorization: `Bearer ${authToken}` },
@@ -400,10 +400,7 @@ export const EmojiPicker: React.FC<Props> = ({ onSelect, onClose, anchorRef }) =
             )}
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
               {customEmojis.map(e => (
-                <div key={e.id} style={{ position: 'relative' }}
-                  onMouseEnter={ev => { const d = ev.currentTarget.querySelector('.del-btn') as HTMLElement; if (d) d.style.display = 'flex'; }}
-                  onMouseLeave={ev => { const d = ev.currentTarget.querySelector('.del-btn') as HTMLElement; if (d) d.style.display = 'none'; }}
-                >
+                <div key={e.id} style={{ position: 'relative' }}>
                   <button
                     onClick={() => handleSelect(`:${e.name}:`)}
                     title={`:${e.name}:`}
@@ -414,9 +411,9 @@ export const EmojiPicker: React.FC<Props> = ({ onSelect, onClose, anchorRef }) =
                   </button>
                   {e.created_by === currentUser?.username && (
                     <button
-                      className="del-btn"
                       onClick={() => handleDeleteCustom(e.id)}
-                      style={{ display: 'none', position: 'absolute', top: 2, right: 2, background: '#ff444488', border: 'none', borderRadius: 4, padding: 2, cursor: 'pointer', color: '#fff', alignItems: 'center', justifyContent: 'center' }}
+                      title="Delete emoji"
+                      style={{ display: 'flex', position: 'absolute', top: 2, right: 2, background: '#ff444488', border: 'none', borderRadius: 4, padding: 2, cursor: 'pointer', color: '#fff', alignItems: 'center', justifyContent: 'center' }}
                     >
                       <Trash2 size={10} />
                     </button>

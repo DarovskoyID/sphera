@@ -5,6 +5,7 @@ from ionik_messages.encryption import encrypt_text, decrypt_text
 
 
 class Conversation(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     participants = models.ManyToManyField(settings.AUTH_USER_MODEL, related_name='conversations')
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -14,6 +15,7 @@ class Conversation(models.Model):
 
 
 class Message(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     conversation = models.ForeignKey(Conversation, on_delete=models.CASCADE, related_name='messages')
     author = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='sent_messages')
     encrypted_content = models.TextField()
@@ -44,6 +46,7 @@ def _attachment_upload_path(instance, filename):
 
 
 class Attachment(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     conversation = models.ForeignKey(Conversation, on_delete=models.CASCADE, related_name='attachments')
     uploader = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
     message = models.ForeignKey(
@@ -60,6 +63,7 @@ class Attachment(models.Model):
 
 
 class MessageReport(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     reporter = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='reports')
     message = models.ForeignKey(Message, on_delete=models.CASCADE, related_name='reports')
     created_at = models.DateTimeField(auto_now_add=True)
@@ -73,6 +77,7 @@ class MessageReport(models.Model):
 
 class Guild(models.Model):
     """A Discord-like server (guild)."""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     name = models.CharField(max_length=100)
     description = models.TextField(blank=True)
     icon = models.ImageField(upload_to='guild_icons/', null=True, blank=True)
@@ -92,6 +97,7 @@ class Guild(models.Model):
 
 
 class GuildMembership(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     ROLE_CHOICES = [('owner', 'Owner'), ('admin', 'Admin'), ('member', 'Member')]
     guild = models.ForeignKey(Guild, on_delete=models.CASCADE, related_name='memberships')
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='guild_memberships')
@@ -107,6 +113,7 @@ class GuildMembership(models.Model):
 
 
 class GuildChannel(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     CHANNEL_TYPE_CHOICES = [('text', 'Text'), ('voice', 'Voice')]
     guild = models.ForeignKey(Guild, on_delete=models.CASCADE, related_name='channels')
     name = models.CharField(max_length=100)
@@ -123,6 +130,7 @@ class GuildChannel(models.Model):
 
 
 class GuildMessage(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     channel = models.ForeignKey(GuildChannel, on_delete=models.CASCADE, related_name='messages')
     author = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='guild_messages')
     encrypted_content = models.TextField()
@@ -149,6 +157,7 @@ class GuildMessage(models.Model):
 
 
 class GuildAttachment(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     channel = models.ForeignKey(GuildChannel, on_delete=models.CASCADE, related_name='attachments')
     uploader = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
     message = models.ForeignKey(GuildMessage, on_delete=models.SET_NULL, null=True, blank=True, related_name='attachments')
@@ -163,6 +172,7 @@ class GuildAttachment(models.Model):
 
 
 class GuildScheduledMessage(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     channel = models.ForeignKey(GuildChannel, on_delete=models.CASCADE, related_name='scheduled_messages')
     author = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
     encrypted_content = models.TextField()
@@ -181,6 +191,7 @@ class GuildScheduledMessage(models.Model):
 
 
 class ScheduledMessage(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     conversation = models.ForeignKey(Conversation, on_delete=models.CASCADE, related_name='scheduled_messages')
     author = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
     encrypted_content = models.TextField()

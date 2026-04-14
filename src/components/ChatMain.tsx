@@ -129,7 +129,7 @@ const ChatHeader: React.FC<{
 
 // ── ChatView — holds reply state, wires header + messages + input ─────────────
 
-type ScheduledItem = { id: number; send_at: string; content: string };
+type ScheduledItem = { id: string; send_at: string; content: string };
 
 const MessageSearchBar: React.FC<{
   query: string;
@@ -185,7 +185,7 @@ const ChatView: React.FC = () => {
     listScheduled(chatConversationId).then(setScheduled);
   }, [chatConversationId]);
 
-  const handleCancelScheduled = useCallback(async (id: number) => {
+  const handleCancelScheduled = useCallback(async (id: string) => {
     await cancelScheduledMessage(id);
     setScheduled(prev => prev.filter(s => s.id !== id));
   }, [cancelScheduledMessage]);
@@ -258,7 +258,7 @@ const ChatView: React.FC = () => {
   );
 };
 
-const ScheduledBanner: React.FC<{ item: ScheduledItem; onCancel: (id: number) => void }> = ({ item, onCancel }) => {
+const ScheduledBanner: React.FC<{ item: ScheduledItem; onCancel: (id: string) => void }> = ({ item, onCancel }) => {
   const [remaining, setRemaining] = useState(() => Math.max(0, Math.round((new Date(item.send_at).getTime() - Date.now()) / 1000)));
 
   useEffect(() => {

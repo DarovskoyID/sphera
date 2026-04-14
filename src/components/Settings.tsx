@@ -186,7 +186,7 @@ export const Settings: React.FC = () => {
 
 const ProfileSettings: React.FC = () => {
   const tr = useTranslation();
-  const { currentUser, currentServerIP, authToken } = useApp();
+  const { currentUser, currentServerIP, authToken, setCurrentUser } = useApp();
   const [nickname, setNickname] = useState(currentUser?.nickname || '');
   const [bio, setBio] = useState(currentUser?.bio || '');
   const [saving, setSaving] = useState(false);
@@ -211,6 +211,9 @@ const ProfileSettings: React.FC = () => {
       if (avatarFile) fd.append('avatar', avatarFile);
       const res = await fetch(`${currentServerIP}/api/auth/me/update/`, { method: 'PATCH', headers: { 'Authorization': `Bearer ${authToken}` }, body: fd });
       if (!res.ok) throw new Error('Failed');
+      const updatedUser = await res.json();
+      const avatarUrl = updatedUser.avatar ? `${currentServerIP}${updatedUser.avatar}` : (currentUser?.avatar || '');
+      setCurrentUser({ ...updatedUser, avatar: avatarUrl });
       setMsg({ text: tr('sp_saved'), type: 'ok' }); setAvatarFile(null);
     } catch { setMsg({ text: tr('sp_save_fail'), type: 'err' }); }
     setSaving(false);
@@ -380,7 +383,7 @@ interface BlockedEntry { id: number; blocked: ServerUser; created_at: string; }
 
 const PrivacySettings: React.FC = () => {
   const tr = useTranslation();
-  const { currentServerIP, authToken, searchUsers } = useApp();
+  const { currentServerIP, authToken, searchUsers, unblockUser, blockedContacts } = useApp();
   const [blocked, setBlocked] = useState<BlockedEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [blockQuery, setBlockQuery] = useState('');
@@ -401,7 +404,7 @@ const PrivacySettings: React.FC = () => {
     if (!blockQuery.trim()) return; setError('');
     try {
       const results = await searchUsers(blockQuery);
-      const blockedIds = blocked.map(b => String(b.blocked.id));
+      const blockedIds = blockedContacts.map(u => String(u.id));
       setSearchResults(results.filter(u => !blockedIds.includes(String(u.id))));
       if (results.length === 0) setError('No users found');
     } catch (e) { reportError(e); }
@@ -415,7 +418,10 @@ const PrivacySettings: React.FC = () => {
   };
 
   const handleUnblock = async (userId: string) => {
-    try { await fetch(`${currentServerIP}/api/auth/unblock/${userId}/`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${authToken}` } }); setBlocked(prev => prev.filter(b => String(b.blocked.id) !== userId)); } catch (e) { reportError(e); }
+    try {
+      await unblockUser(userId);
+      setBlocked(prev => prev.filter(b => String(b.blocked.id) !== userId));
+    } catch (e) { reportError(e); }
   };
 
   return (
@@ -437,7 +443,7 @@ const PrivacySettings: React.FC = () => {
 
       <div style={divider} />
 
-      <h3 style={sectionH3}>{tr('sprv_blocked')} ({blocked.length})</h3>
+      <h3 style={sectionH3}>{tr('sprv_blocked')} ({blockedContacts.length})</h3>
 
       <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
         <input style={{ ...fieldInput, flex: 1 }} placeholder={tr('sprv_search_block')} value={blockQuery} onChange={e => setBlockQuery(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleSearch()} />

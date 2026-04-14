@@ -17,7 +17,7 @@ export interface ServerUser {
 }
 
 export interface PendingRequest {
-  id: number;
+  id: string;
   from_user: ServerUser;
   to_user: ServerUser;
   status: string;
@@ -25,7 +25,7 @@ export interface PendingRequest {
 }
 
 export interface ChatAttachment {
-  id: number;
+  id: string;
   filename: string;
   content_type: string;
   file_size: number;
@@ -33,7 +33,7 @@ export interface ChatAttachment {
 }
 
 export interface ChatMessage {
-  id: number;
+  id: string;
   author: {
     id: string;
     username: string;
@@ -45,7 +45,7 @@ export interface ChatMessage {
   created_at: string;
   attachments?: ChatAttachment[];
   reply_to?: {
-    id: number;
+    id: string;
     content: string;
     author: { id: string; username: string; nickname?: string };
     deleted?: boolean;
@@ -79,7 +79,7 @@ export interface GuildMember {
 }
 
 export interface GuildChannel {
-  id: number;
+  id: string;
   name: string;
   type: 'text' | 'voice';
   topic: string;
@@ -87,7 +87,7 @@ export interface GuildChannel {
 }
 
 export interface Guild {
-  id: number;
+  id: string;
   name: string;
   description: string;
   icon: string;
@@ -100,7 +100,7 @@ export interface Guild {
 }
 
 export interface GuildMessage {
-  id: number;
+  id: string;
   author: {
     id: string;
     username: string;
@@ -112,12 +112,12 @@ export interface GuildMessage {
   created_at: string;
   is_pinned: boolean;
   reply_to?: {
-    id: number;
+    id: string;
     content: string;
     author: { id: string; username: string; nickname?: string };
   } | null;
   attachments?: Array<{
-    id: number;
+    id: string;
     filename: string;
     content_type: string;
     file_size: number;
@@ -130,7 +130,7 @@ export type ViewType = 'home' | 'server' | 'settings';
 export type MobilePanel = 'chat-list' | 'chat-view' | 'guild-channels' | 'guild-chat' | 'guild-members';
 
 export interface CustomEmoji {
-  id: number;
+  id: string;
   name: string;
   image_url: string;
   created_by: string;
@@ -170,7 +170,7 @@ export interface AppState {
   callTargetId: string | null;
   incomingOffer: any | null;
   chatMessages: ChatMessage[];
-  chatConversationId: number | null;
+  chatConversationId: string | null;
   chatBlockedByOther: boolean;
   customEmojis: CustomEmoji[];
   guilds: Guild[];
@@ -179,5 +179,5 @@ export interface AppState {
   guildMessages: GuildMessage[];
   currentVoiceChannel: GuildChannel | null;
   voiceParticipants: VoiceParticipant[];
-  voiceChannelParticipants: Record<number, VoiceParticipant[]>;
+  voiceChannelParticipants: Record<string, VoiceParticipant[]>;
 }

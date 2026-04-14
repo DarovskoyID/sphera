@@ -113,6 +113,20 @@ class SignalingConsumer(AsyncWebsocketConsumer):
     async def peer_list_update(self, event):
         await self.send(text_data=json.dumps(event['data']))
 
+    async def user_profile_update(self, event):
+        await self.send(text_data=json.dumps({
+            'type': 'profile_update',
+            'user': event['user'],
+        }))
+
+    async def guild_kicked(self, event):
+        await self.send(text_data=json.dumps({
+            'type': 'guild_kicked_direct',
+            'user_id': event['user_id'],
+            'guild_name': event.get('guild_name', ''),
+            'guild_id': event.get('guild_id', ''),
+        }))
+
     # ── Presence helpers ──────────────────────────────────────────────────────
 
     async def _notify_friends(self, friend_ids: list, status: str):

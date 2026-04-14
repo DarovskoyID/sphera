@@ -92,11 +92,25 @@ def update_profile(request):
     )
     if serializer.is_valid():
         serializer.save()
-        return Response(
-            UserSerializer(
-                request.user, context={'request': request}
-            ).data
-        )
+        user = request.user
+        user.refresh_from_db()
+        response_data = UserSerializer(user, context={'request': request}).data
+
+        # Broadcast profile change to all connected signaling clients
+        channel_layer = get_channel_layer()
+        async_to_sync(channel_layer.group_send)('signaling', {
+            'type': 'user.profile.update',
+            'user': {
+                'id': str(user.id),
+                'username': user.username,
+                'nickname': user.nickname or '',
+                'avatar': user.avatar.url if user.avatar else '',
+                'bio': user.bio or '',
+                'status': user.status,
+            },
+        })
+
+        return Response(response_data)
     return Response(
         serializer.errors, status=status.HTTP_400_BAD_REQUEST
     )
