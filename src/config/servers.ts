@@ -4,5 +4,5 @@
  * one that responds. Add or remove entries as needed.
  */
 export const SERVER_IPS: string[] = [
-  'http://192.168.0.116:8000',
+  'http://127.0.0.1:8000',
 ];

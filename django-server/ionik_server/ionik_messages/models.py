@@ -6,12 +6,25 @@ from ionik_messages.encryption import encrypt_text, decrypt_text
 
 class Conversation(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    participants = models.ManyToManyField(settings.AUTH_USER_MODEL, related_name='conversations')
+    participants = models.ManyToManyField(
+        settings.AUTH_USER_MODEL,
+        through='ConversationParticipant',
+        related_name='conversations',
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
         names = ', '.join(u.username for u in self.participants.all()[:3])
         return f'Conversation({names})'
+
+
+class ConversationParticipant(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    conversation = models.ForeignKey(Conversation, on_delete=models.CASCADE, related_name='+')
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='+')
+
+    class Meta:
+        unique_together = ('conversation', 'user')
 
 
 class Message(models.Model):

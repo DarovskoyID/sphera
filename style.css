@@ -1712,7 +1712,7 @@ svg {
     top: 0;
     left: 0;
     width: 100%;
-    height: calc(100% - 60px);
+    height: calc(100%);
     z-index: 20;
     transition: transform var(--transition-normal);
     transform: translateX(100%);
@@ -1732,6 +1732,53 @@ svg {
   }
   .mobile-panel-chat-view .chat-main {
     transform: translateX(0);
+  }
+
+  /* Hide server dock in DM chat/call — panels fill full height */
+  .mobile-panel-chat-view .server-sidebar {
+    display: none !important;
+  }
+  .mobile-panel-chat-view .chat-sidebar,
+  .mobile-panel-chat-view .chat-main {
+    height: 100%;
+  }
+  /* Voice banner sits at bottom edge when dock is hidden */
+  .mobile-panel-chat-view .app-voice-banner {
+    bottom: 0;
+  }
+  /* When voice-connected in chat-view: only subtract banner height */
+  .mobile-panel-chat-view.voice-connected .chat-sidebar,
+  .mobile-panel-chat-view.voice-connected .chat-main {
+    height: calc(100% - 42px) !important;
+  }
+
+  /* Voice Connected banner — integrated between panels and server dock */
+  .app-voice-banner {
+    display: flex !important;
+    align-items: center;
+    gap: 8px;
+    position: absolute;
+    bottom: 60px;
+    left: 0;
+    right: 0;
+    padding: 6px 10px;
+    background: rgba(59, 165, 92, 0.12);
+    border-top: 1px solid rgba(59, 165, 92, 0.25);
+    border-bottom: 1px solid rgba(59, 165, 92, 0.25);
+    z-index: 9;
+  }
+
+  /* Shrink panels so they don't cover the banner area */
+  .voice-connected .chat-sidebar,
+  .voice-connected .chat-main,
+  .voice-connected .guild-sidebar,
+  .voice-connected .guild-chat-main {
+    height: calc(100% - 60px - 42px) !important;
+  }
+
+  /* Hide the sidebar's own banner on mobile — app-voice-banner handles it */
+  .voice-banner-sidebar {
+    display: none !important;
   }
 
   /* --- Show mobile-only buttons --- */
@@ -1848,7 +1895,7 @@ svg {
     top: 0;
     left: 0;
     width: 100vw;
-    height: calc(100vh - 60px) !important;
+    height: calc(100vh) !important;
     z-index: 300;
     flex-direction: column;
   }

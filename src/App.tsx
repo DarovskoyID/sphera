@@ -1,5 +1,6 @@
 import { AppProvider, useApp } from './context/AppContext';
 import { useTranslation } from './i18n/useTranslation';
+import { useState, useEffect } from 'react';
 import { ServerSidebar } from './components/ServerSidebar';
 import { ChatSidebar } from './components/ChatSidebar';
 import { ChatMain } from './components/ChatMain';
@@ -9,6 +10,18 @@ import { AuthScreen } from './components/AuthScreen';
 import { IncomingCallModal } from './components/IncomingCallModal';
 import { CallWindow } from './components/CallWindow';
 import { GuildVoiceRoom } from './components/GuildVoiceRoom';
+import { Volume2, PhoneOff } from 'lucide-react';
+
+function useMobile() {
+  const [isMobile, setIsMobile] = useState(() => window.matchMedia('(max-width: 768px)').matches);
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 768px)');
+    const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches);
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  }, []);
+  return isMobile;
+}
 
 
 function GuildKickNotification() {
@@ -71,7 +84,8 @@ function ErrorModal() {
 }
 
 function AppContent() {
-  const { authToken, isCallActive, currentView, currentChat, mobileActivePanel, currentGuild, currentVoiceChannel } = useApp();
+  const { authToken, isCallActive, currentView, currentChat, mobileActivePanel, currentGuild, currentVoiceChannel, leaveVoiceChannel } = useApp();
+  const isMobile = useMobile();
 
   if (!authToken) {
     return <AuthScreen />;
@@ -81,7 +95,7 @@ function AppContent() {
   const inGuild = currentView === 'server' && !!currentGuild;
 
   return (
-    <div className={`app-container mobile-panel-${mobileActivePanel}`}>
+    <div className={`app-container mobile-panel-${mobileActivePanel}${currentVoiceChannel ? ' voice-connected' : ''}`}>
       <ServerSidebar />
       {inGuild ? (
         <>
@@ -93,6 +107,20 @@ function AppContent() {
           <ChatSidebar />
           <ChatMain />
         </>
+      )}
+      {isMobile && currentVoiceChannel && (
+        <div className="app-voice-banner">
+          <Volume2 size={13} style={{ color: '#3ba55c', flexShrink: 0 }} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 10, color: '#3ba55c', fontWeight: 600, lineHeight: 1 }}>Voice Connected</div>
+            <div style={{ fontSize: 11, color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {currentGuild ? `${currentGuild.name} / ${currentVoiceChannel.name}` : currentVoiceChannel.name}
+            </div>
+          </div>
+          <button onClick={leaveVoiceChannel} title="Disconnect" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ed4245', padding: 4, borderRadius: 4, display: 'flex', alignItems: 'center' }}>
+            <PhoneOff size={14} />
+          </button>
+        </div>
       )}
       <IncomingCallModal />
       {isCallActive && !inChat && <CallWindow />}

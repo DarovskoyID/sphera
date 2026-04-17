@@ -309,7 +309,7 @@ const FriendContextMenu: React.FC<{
   const isActiveFriend = String(currentChat) === String(friend.id);
 
   // Returns the existing conversation id without creating a new one if absent
-  const getConvoId = async (): Promise<number | null> => {
+  const getConvoId = async (): Promise<string | null> => {
     if (isActiveFriend && chatConversationId) return chatConversationId;
     try {
       const res = await fetch(`${currentServerIP}/api/conversations/create/`, {
@@ -318,7 +318,7 @@ const FriendContextMenu: React.FC<{
         body: JSON.stringify({ user_id: friend.id }),
       });
       if (!res.ok) return null;
-      return (await res.json()).id as number;
+      return (await res.json()).id as string;
     } catch { return null; }
   };
 
@@ -485,7 +485,7 @@ const BlockedContextMenu: React.FC<{
   const { user } = ctx;
   const isActive = String(currentChat) === String(user.id);
 
-  const getConvoId = async (): Promise<number | null> => {
+  const getConvoId = async (): Promise<string | null> => {
     if (isActive && chatConversationId) return chatConversationId;
     try {
       const res = await fetch(`${currentServerIP}/api/conversations/create/`, {
@@ -494,7 +494,7 @@ const BlockedContextMenu: React.FC<{
         body: JSON.stringify({ user_id: user.id }),
       });
       if (!res.ok) return null;
-      return (await res.json()).id as number;
+      return (await res.json()).id as string;
     } catch { return null; }
   };
 
@@ -921,7 +921,7 @@ export const ChatSidebar: React.FC = () => {
 // ── User Profile Footer ───────────────────────────────────────────────────────
 
 export const UserProfile: React.FC = () => {
-  const { currentUser, currentVoiceChannel, leaveVoiceChannel, setVoiceMuted, voiceLocalStream } = useApp();
+  const { currentUser, currentVoiceChannel, leaveVoiceChannel, setVoiceMuted, voiceLocalStream, currentGuild } = useApp();
   const tr = useTranslation();
   const [isMuted, setIsMuted] = useState(false);
   const [isDeafened, setIsDeafened] = useState(false);
@@ -950,7 +950,7 @@ export const UserProfile: React.FC = () => {
   return (
     <>
     {currentVoiceChannel && (
-      <div style={{
+      <div className="voice-banner-sidebar" style={{
         display: 'flex', alignItems: 'center', gap: 8,
         padding: '6px 10px', flexShrink: 0,
         background: 'rgba(59,165,92,0.12)',
@@ -960,7 +960,9 @@ export const UserProfile: React.FC = () => {
         <Volume2 size={13} style={{ color: '#3ba55c', flexShrink: 0 }} />
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 10, color: '#3ba55c', fontWeight: 600, lineHeight: 1 }}>Voice Connected</div>
-          <div style={{ fontSize: 11, color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{currentVoiceChannel.name}</div>
+          <div style={{ fontSize: 11, color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {currentGuild ? `${currentGuild.name} / ${currentVoiceChannel.name}` : currentVoiceChannel.name}
+          </div>
         </div>
         <button onClick={leaveVoiceChannel} title="Disconnect" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ed4245', padding: 4, borderRadius: 4, display: 'flex', alignItems: 'center' }}>
           <PhoneOff size={14} />

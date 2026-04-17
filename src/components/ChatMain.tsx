@@ -415,9 +415,9 @@ const MessageContextMenu: React.FC<{
   isOwn: boolean;
   onClose: () => void;
   onReply: (msg: ChatMessageType) => void;
-  onDelete: (id: number) => void;
-  onPin: (id: number) => void;
-  onReport: (id: number) => void;
+  onDelete: (id: string) => void;
+  onPin: (id: string) => void;
+  onReport: (id: string) => void;
   onCopy: (text: string) => void;
 }> = ({ menu, isOwn, onClose, onReply, onDelete, onPin, onReport, onCopy }) => {
   const ref = useRef<HTMLDivElement>(null);
@@ -743,10 +743,10 @@ const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: (
     });
   }, []);
 
-  const uploadFiles = useCallback(async (files: PendingFile[]): Promise<number[]> => {
+  const uploadFiles = useCallback(async (files: PendingFile[]): Promise<string[]> => {
     if (!chatConversationId || files.length === 0) return [];
     setUploading(true);
-    const attachmentIds: number[] = [];
+    const attachmentIds: string[] = [];
     try {
       const results = await Promise.all(
         files.map(async ({ file }) => {
@@ -756,7 +756,7 @@ const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: (
             `${currentServerIP}/api/conversations/${chatConversationId}/upload/`,
             { method: 'POST', headers: { Authorization: `Bearer ${authToken}` }, body: form }
           );
-          if (res.ok) { const d = await res.json(); return d.id as number; }
+          if (res.ok) { const d = await res.json(); return d.id as string; }
           return null;
         })
       );

@@ -8,7 +8,7 @@ import type { GuildMessage } from '../types';
 const MAX_FILES = 10;
 
 type PendingFile = { file: File; preview?: string };
-type ScheduledItem = { id: number; send_at: string; content: string };
+type ScheduledItem = { id: string; send_at: string; content: string };
 
 function formatTime(iso: string) {
   const d = new Date(iso);
@@ -78,7 +78,7 @@ function AuthMedia({ src, contentType, filename }: { src: string; contentType: s
   );
 }
 
-function AttachmentView({ att }: { att: { id: number; filename: string; content_type: string; file_size: number; url: string } }) {
+function AttachmentView({ att }: { att: { id: string; filename: string; content_type: string; file_size: number; url: string } }) {
   const { currentServerIP, authToken } = useApp();
   const isMedia = att.content_type.startsWith('image/') || att.content_type.startsWith('video/');
   const src = `${currentServerIP}${att.url}`;
@@ -291,10 +291,10 @@ export const GuildChatMain: React.FC = () => {
     setPendingFiles(prev => { prev.forEach(f => { if (f.preview) URL.revokeObjectURL(f.preview); }); return []; });
   }, []);
 
-  const uploadFiles = useCallback(async (files: PendingFile[]): Promise<number[]> => {
+  const uploadFiles = useCallback(async (files: PendingFile[]): Promise<string[]> => {
     if (!currentGuild || !currentGuildChannel || files.length === 0) return [];
     setUploading(true);
-    const ids: number[] = [];
+    const ids: string[] = [];
     try {
       const results = await Promise.all(files.map(async ({ file }) => {
         const form = new FormData();
@@ -303,7 +303,7 @@ export const GuildChatMain: React.FC = () => {
           `${currentServerIP}/api/guilds/${currentGuild.id}/channels/${currentGuildChannel.id}/upload/`,
           { method: 'POST', headers: { Authorization: `Bearer ${authToken}` }, body: form }
         );
-        if (res.ok) { const d = await res.json(); return d.id as number; }
+        if (res.ok) { const d = await res.json(); return d.id as string; }
         return null;
       }));
       results.forEach(id => { if (id != null) ids.push(id); });

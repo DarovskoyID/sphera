@@ -2,6 +2,17 @@ import { useRef, useEffect, useState, useCallback } from 'react';
 import { Maximize2, Minimize2 } from 'lucide-react';
 import { useApp, reportError } from '../context/AppContext';
 
+function useMobile() {
+  const [isMobile, setIsMobile] = useState(() => window.matchMedia('(max-width: 768px)').matches);
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 768px)');
+    const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches);
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  }, []);
+  return isMobile;
+}
+
 // ── Module-level helpers (never redefined) ────────────────────────────────────
 
 const UserAvatar = ({ name, avatar, size = 80 }: { name: string; avatar: string; size?: number }) => (
@@ -680,6 +691,8 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
     return () => window.removeEventListener('beforeunload', cleanup);
   }, []);
 
+  const isMobile = useMobile();
+
   // ==================== UI ====================
   const remoteUser = remotePeerId ? friends.find(f => String(f.id) === remotePeerId) : null;
   const remoteName = remoteUser?.nickname || remoteUser?.username || remotePeerId || '?';
@@ -698,7 +711,7 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
     ? { position: 'fixed', inset: 0, width: '100vw', height: '100vh', zIndex: 9500, background: '#111', display: 'flex', flexDirection: 'column' }
     : inline
       ? { height: 420, background: '#111', display: 'flex', flexDirection: 'column' }
-      : { position: 'fixed', bottom: 0, right: 0, width: 480, height: 420, zIndex: 9500, background: '#111', display: 'flex', flexDirection: 'column', borderRadius: '12px 12px 0 0', boxShadow: '0 -4px 32px rgba(0,0,0,0.7)' };
+      : { position: 'fixed', bottom: 0, right: 0, zIndex: 9500, background: '#111', display: 'flex', flexDirection: 'column', borderRadius: '12px 12px 0 0', boxShadow: '0 -4px 32px rgba(0,0,0,0.7)' };
 
   return (
     <div className="call-window" style={outerStyle}>
@@ -725,7 +738,7 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
       </div>
 
       {/* Video grid */}
-      <div style={{ flex: 1, display: 'grid', gridTemplateColumns: `repeat(${cols}, 1fr)`, gridAutoRows: '1fr', gap: 3, padding: 3, minHeight: 0, overflow: 'hidden' }}>
+      <div style={{ flex: 1, display: 'grid', gridTemplateColumns: !isMobile ? `repeat(${cols}, 1fr)` : undefined, gridAutoRows: '1fr', gap: 3, padding: 3, minHeight: 0, overflow: 'hidden' }}>
         <Tile id="local" label="You" expandedTile={expandedTile} setExpandedTile={setExpandedTile}>
           <video ref={cameraVideoRef} autoPlay muted playsInline style={{ ...videoFill, display: isVideoActive ? 'block' : 'none' }} />
           {!isVideoActive && (
