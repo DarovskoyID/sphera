@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback, type ReactNode } from 'react';
-import type { AppState, ViewType, MobilePanel, ServerUser, PendingRequest, ChatMessage, Guild, GuildChannel, GuildMessage } from '../types';
+import type { AppState, ViewType, MobilePanel, ServerUser, PendingRequest, ChatMessage, Guild, GuildChannel, GuildMessage, GuildRole, GuildEmoji, GuildSticker, GuildSound, GuildInviteData, GuildAuditLogEntry } from '../types';
 import type { CustomEmoji } from '../types';
 import { SERVER_IPS } from '../config/servers';
 import { resolveServerIP } from '../utils/resolveServer';
@@ -123,6 +123,26 @@ interface AppContextType extends AppState {
   clearGuildKickNotification: () => void;
   // Guild methods
   loadGuilds: () => Promise<void>;
+  updateGuild: (guildId: string, data: { name?: string; description?: string; tag?: string; icon?: File | null; banner?: File | null; removeIcon?: boolean; removeBanner?: boolean; boost_level?: number; verification_level?: string; default_notifications?: string; explicit_content_filter?: string; require_2fa?: boolean }) => Promise<void>;
+  loadGuildEmojis: (guildId: string) => Promise<GuildEmoji[]>;
+  uploadGuildEmoji: (guildId: string, name: string, file: File) => Promise<GuildEmoji | null>;
+  deleteGuildEmoji: (guildId: string, emojiId: string) => Promise<void>;
+  loadGuildStickers: (guildId: string) => Promise<GuildSticker[]>;
+  uploadGuildSticker: (guildId: string, name: string, description: string, file: File) => Promise<GuildSticker | null>;
+  deleteGuildSticker: (guildId: string, stickerId: string) => Promise<void>;
+  loadGuildSounds: (guildId: string) => Promise<GuildSound[]>;
+  uploadGuildSound: (guildId: string, name: string, file: File) => Promise<GuildSound | null>;
+  deleteGuildSound: (guildId: string, soundId: string) => Promise<void>;
+  loadGuildRoles: (guildId: string) => Promise<GuildRole[]>;
+  createGuildRole: (guildId: string, data: { name: string; color: string; permissions: string[] }) => Promise<GuildRole | null>;
+  updateGuildRole: (guildId: string, roleId: string, data: Partial<{ name: string; color: string; permissions: string[]; position: number }>) => Promise<GuildRole | null>;
+  deleteGuildRole: (guildId: string, roleId: string) => Promise<void>;
+  assignMemberRole: (guildId: string, userId: string, roleId: string) => Promise<void>;
+  removeMemberRole: (guildId: string, userId: string, roleId: string) => Promise<void>;
+  loadGuildInvites: (guildId: string) => Promise<GuildInviteData[]>;
+  createGuildInvite: (guildId: string, data: { max_uses?: number; expires_hours?: number }) => Promise<GuildInviteData | null>;
+  revokeGuildInvite: (guildId: string, inviteId: string) => Promise<void>;
+  loadGuildAuditLog: (guildId: string) => Promise<GuildAuditLogEntry[]>;
   createGuild: (name: string, description?: string) => Promise<Guild | null>;
   joinGuild: (inviteCode: string) => Promise<Guild | null>;
   leaveGuild: (guildId: string) => Promise<void>;
@@ -1156,6 +1176,190 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     if (guildPresenceWs.current) { guildPresenceWs.current.close(); guildPresenceWs.current = null; }
   }, [state.authToken, state.currentServerIP]);
 
+  const updateGuild = useCallback(async (guildId: string, data: { name?: string; description?: string; tag?: string; icon?: File | null; banner?: File | null; removeIcon?: boolean; removeBanner?: boolean; boost_level?: number; verification_level?: string; default_notifications?: string; explicit_content_filter?: string; require_2fa?: boolean }) => {
+    const form = new FormData();
+    if (data.name !== undefined) form.append('name', data.name);
+    if (data.description !== undefined) form.append('description', data.description);
+    if (data.tag !== undefined) form.append('tag', data.tag);
+    if (data.icon) form.append('icon', data.icon);
+    if (data.banner) form.append('banner', data.banner);
+    if (data.removeIcon) form.append('remove_icon', 'true');
+    if (data.removeBanner) form.append('remove_banner', 'true');
+    if (data.boost_level !== undefined) form.append('boost_level', String(data.boost_level));
+    if (data.verification_level !== undefined) form.append('verification_level', data.verification_level);
+    if (data.default_notifications !== undefined) form.append('default_notifications', data.default_notifications);
+    if (data.explicit_content_filter !== undefined) form.append('explicit_content_filter', data.explicit_content_filter);
+    if (data.require_2fa !== undefined) form.append('require_2fa', data.require_2fa ? 'true' : 'false');
+    try {
+      const res = await fetch(`${state.currentServerIP}/api/guilds/${guildId}/`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${state.authToken}` },
+        body: form,
+      });
+      if (!res.ok) throw new Error(`${res.status}`);
+      const updated: Guild = await res.json();
+      setState(prev => ({
+        ...prev,
+        guilds: prev.guilds.map(g => g.id === guildId ? updated : g),
+        currentGuild: prev.currentGuild?.id === guildId ? updated : prev.currentGuild,
+      }));
+    } catch (e) { reportError(e); }
+  }, [state.authToken, state.currentServerIP]);
+
+  const loadGuildEmojis = useCallback(async (guildId: string): Promise<GuildEmoji[]> => {
+    try {
+      const data: GuildEmoji[] = await apiGet(`/api/guilds/${guildId}/emojis/`, state.authToken, state.currentServerIP);
+      return data.map(e => ({ ...e, image: e.image ? `${state.currentServerIP}${e.image}` : e.image }));
+    } catch { return []; }
+  }, [state.authToken, state.currentServerIP, apiGet]);
+
+  const uploadGuildEmoji = useCallback(async (guildId: string, name: string, file: File): Promise<GuildEmoji | null> => {
+    try {
+      const form = new FormData();
+      form.append('name', name);
+      form.append('image', file);
+      const res = await fetch(`${state.currentServerIP}/api/guilds/${guildId}/emojis/`, {
+        method: 'POST', headers: { Authorization: `Bearer ${state.authToken}` }, body: form,
+      });
+      if (!res.ok) throw new Error(`${res.status}`);
+      const e: GuildEmoji = await res.json();
+      return { ...e, image: e.image ? `${state.currentServerIP}${e.image}` : e.image };
+    } catch (err) { reportError(err); return null; }
+  }, [state.authToken, state.currentServerIP]);
+
+  const deleteGuildEmoji = useCallback(async (guildId: string, emojiId: string) => {
+    await fetch(`${state.currentServerIP}/api/guilds/${guildId}/emojis/${emojiId}/`, {
+      method: 'DELETE', headers: { Authorization: `Bearer ${state.authToken}` },
+    });
+  }, [state.authToken, state.currentServerIP]);
+
+  const loadGuildStickers = useCallback(async (guildId: string): Promise<GuildSticker[]> => {
+    try {
+      const data: GuildSticker[] = await apiGet(`/api/guilds/${guildId}/stickers/`, state.authToken, state.currentServerIP);
+      return data.map(s => ({ ...s, image: s.image ? `${state.currentServerIP}${s.image}` : s.image }));
+    } catch { return []; }
+  }, [state.authToken, state.currentServerIP, apiGet]);
+
+  const uploadGuildSticker = useCallback(async (guildId: string, name: string, description: string, file: File): Promise<GuildSticker | null> => {
+    try {
+      const form = new FormData();
+      form.append('name', name);
+      form.append('description', description);
+      form.append('image', file);
+      const res = await fetch(`${state.currentServerIP}/api/guilds/${guildId}/stickers/`, {
+        method: 'POST', headers: { Authorization: `Bearer ${state.authToken}` }, body: form,
+      });
+      if (!res.ok) throw new Error(`${res.status}`);
+      const s: GuildSticker = await res.json();
+      return { ...s, image: s.image ? `${state.currentServerIP}${s.image}` : s.image };
+    } catch (err) { reportError(err); return null; }
+  }, [state.authToken, state.currentServerIP]);
+
+  const deleteGuildSticker = useCallback(async (guildId: string, stickerId: string) => {
+    await fetch(`${state.currentServerIP}/api/guilds/${guildId}/stickers/${stickerId}/`, {
+      method: 'DELETE', headers: { Authorization: `Bearer ${state.authToken}` },
+    });
+  }, [state.authToken, state.currentServerIP]);
+
+  const loadGuildSounds = useCallback(async (guildId: string): Promise<GuildSound[]> => {
+    try {
+      const data: GuildSound[] = await apiGet(`/api/guilds/${guildId}/sounds/`, state.authToken, state.currentServerIP);
+      return data.map(s => ({ ...s, url: s.url ? `${state.currentServerIP}${s.url}` : s.url }));
+    } catch { return []; }
+  }, [state.authToken, state.currentServerIP, apiGet]);
+
+  const uploadGuildSound = useCallback(async (guildId: string, name: string, file: File): Promise<GuildSound | null> => {
+    try {
+      const form = new FormData();
+      form.append('name', name);
+      form.append('file', file);
+      const res = await fetch(`${state.currentServerIP}/api/guilds/${guildId}/sounds/`, {
+        method: 'POST', headers: { Authorization: `Bearer ${state.authToken}` }, body: form,
+      });
+      if (!res.ok) throw new Error(`${res.status}`);
+      const s: GuildSound = await res.json();
+      return { ...s, url: s.url ? `${state.currentServerIP}${s.url}` : s.url };
+    } catch (err) { reportError(err); return null; }
+  }, [state.authToken, state.currentServerIP]);
+
+  const deleteGuildSound = useCallback(async (guildId: string, soundId: string) => {
+    await fetch(`${state.currentServerIP}/api/guilds/${guildId}/sounds/${soundId}/`, {
+      method: 'DELETE', headers: { Authorization: `Bearer ${state.authToken}` },
+    });
+  }, [state.authToken, state.currentServerIP]);
+
+  const loadGuildRoles = useCallback(async (guildId: string): Promise<GuildRole[]> => {
+    try { return await apiGet(`/api/guilds/${guildId}/roles/`, state.authToken, state.currentServerIP); }
+    catch { return []; }
+  }, [state.authToken, state.currentServerIP, apiGet]);
+
+  const createGuildRole = useCallback(async (guildId: string, data: { name: string; color: string; permissions: string[] }): Promise<GuildRole | null> => {
+    try {
+      const res = await fetch(`${state.currentServerIP}/api/guilds/${guildId}/roles/`, {
+        method: 'POST', headers: { Authorization: `Bearer ${state.authToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+      if (!res.ok) throw new Error(`${res.status}`);
+      return res.json();
+    } catch (err) { reportError(err); return null; }
+  }, [state.authToken, state.currentServerIP]);
+
+  const updateGuildRole = useCallback(async (guildId: string, roleId: string, data: Partial<{ name: string; color: string; permissions: string[]; position: number }>): Promise<GuildRole | null> => {
+    try {
+      const res = await fetch(`${state.currentServerIP}/api/guilds/${guildId}/roles/${roleId}/`, {
+        method: 'PATCH', headers: { Authorization: `Bearer ${state.authToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+      if (!res.ok) throw new Error(`${res.status}`);
+      return res.json();
+    } catch (err) { reportError(err); return null; }
+  }, [state.authToken, state.currentServerIP]);
+
+  const deleteGuildRole = useCallback(async (guildId: string, roleId: string) => {
+    await fetch(`${state.currentServerIP}/api/guilds/${guildId}/roles/${roleId}/`, {
+      method: 'DELETE', headers: { Authorization: `Bearer ${state.authToken}` },
+    });
+  }, [state.authToken, state.currentServerIP]);
+
+  const assignMemberRole = useCallback(async (guildId: string, userId: string, roleId: string) => {
+    await fetch(`${state.currentServerIP}/api/guilds/${guildId}/members/${userId}/roles/${roleId}/`, {
+      method: 'POST', headers: { Authorization: `Bearer ${state.authToken}` },
+    });
+  }, [state.authToken, state.currentServerIP]);
+
+  const removeMemberRole = useCallback(async (guildId: string, userId: string, roleId: string) => {
+    await fetch(`${state.currentServerIP}/api/guilds/${guildId}/members/${userId}/roles/${roleId}/`, {
+      method: 'DELETE', headers: { Authorization: `Bearer ${state.authToken}` },
+    });
+  }, [state.authToken, state.currentServerIP]);
+
+  const loadGuildInvites = useCallback(async (guildId: string): Promise<GuildInviteData[]> => {
+    try { return await apiGet(`/api/guilds/${guildId}/invites/`, state.authToken, state.currentServerIP); }
+    catch { return []; }
+  }, [state.authToken, state.currentServerIP, apiGet]);
+
+  const createGuildInvite = useCallback(async (guildId: string, data: { max_uses?: number; expires_hours?: number }): Promise<GuildInviteData | null> => {
+    try {
+      const res = await fetch(`${state.currentServerIP}/api/guilds/${guildId}/invites/`, {
+        method: 'POST', headers: { Authorization: `Bearer ${state.authToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+      if (!res.ok) throw new Error(`${res.status}`);
+      return res.json();
+    } catch (err) { reportError(err); return null; }
+  }, [state.authToken, state.currentServerIP]);
+
+  const revokeGuildInvite = useCallback(async (guildId: string, inviteId: string) => {
+    await fetch(`${state.currentServerIP}/api/guilds/${guildId}/invites/${inviteId}/`, {
+      method: 'DELETE', headers: { Authorization: `Bearer ${state.authToken}` },
+    });
+  }, [state.authToken, state.currentServerIP]);
+
+  const loadGuildAuditLog = useCallback(async (guildId: string): Promise<GuildAuditLogEntry[]> => {
+    try { return await apiGet(`/api/guilds/${guildId}/audit-log/`, state.authToken, state.currentServerIP); }
+    catch { return []; }
+  }, [state.authToken, state.currentServerIP, apiGet]);
+
   const kickMember = useCallback(async (guildId: string, userId: string) => {
     await fetch(`${state.currentServerIP}/api/guilds/${guildId}/kick/${userId}/`, {
       method: 'POST', headers: { Authorization: `Bearer ${state.authToken}` },
@@ -1432,7 +1636,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
   const setCallActive = (active: boolean) => setState(prev => ({ ...prev, isCallActive: active }));
   const setDemonstrationActive = (v: boolean) => setState(prev => ({ ...prev, isDemonstrationActive: v }));
   const setVideoActive = (v: boolean) => setState(prev => ({ ...prev, isVideoActive: v }));
-  const setSpeakersActive = (v: Array<string>) => setState(prev => ({ ...prev, SpeakersActive: v }));
+  const setSpeakersActive = useCallback((v: Array<string>) => setState(prev => ({ ...prev, SpeakersActive: v })), []);
   const setCallStatus = (s: 'active' | 'ringing' | 'connection' | 'inactive') => setState(prev => ({ ...prev, callStatus: s }));
   const setCurrentServerIP = (ip: string) => setState(prev => ({ ...prev, currentServerIP: ip }));
   const setUserIDonServer = (id: string) => setState(prev => ({ ...prev, userIDonServer: id }));
@@ -1541,6 +1745,26 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       guildKickNotification,
       clearGuildKickNotification,
       loadGuilds,
+      updateGuild,
+      loadGuildEmojis,
+      uploadGuildEmoji,
+      deleteGuildEmoji,
+      loadGuildStickers,
+      uploadGuildSticker,
+      deleteGuildSticker,
+      loadGuildSounds,
+      uploadGuildSound,
+      deleteGuildSound,
+      loadGuildRoles,
+      createGuildRole,
+      updateGuildRole,
+      deleteGuildRole,
+      assignMemberRole,
+      removeMemberRole,
+      loadGuildInvites,
+      createGuildInvite,
+      revokeGuildInvite,
+      loadGuildAuditLog,
       createGuild,
       joinGuild,
       leaveGuild,

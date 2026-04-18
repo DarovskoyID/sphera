@@ -1,10 +1,11 @@
 import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
-import { Hash, Volume2, Plus, Trash2, LogOut, Copy, Users, ChevronDown, ChevronRight, Crown, Shield, UserPlus, Ban, User, MicOff, PhoneOff, ShieldOff } from 'lucide-react';
+import { Hash, Volume2, Plus, Trash2, LogOut, Copy, Users, ChevronDown, ChevronRight, Crown, Shield, UserPlus, Ban, User, MicOff, ShieldOff, Settings } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { useTranslation } from '../i18n/useTranslation';
 import { ProfileModal, type ProfileUser } from './ProfileModal';
 import { UserProfile } from './ChatSidebar';
-import type { GuildChannel, GuildMember } from '../types';
+import { GuildSettingsModal } from './GuildSettings';
+import type { GuildMember } from '../types';
 
 // ── Member context menu ──────────────────────────────────────────────────────
 function MemberContextMenu({
@@ -12,7 +13,7 @@ function MemberContextMenu({
 }: {
   member: GuildMember;
   myRole: string;
-  guildId: number;
+  guildId: string;
   pos: { x: number; y: number };
   onClose: () => void;
   onOpenProfile: () => void;
@@ -80,7 +81,7 @@ function MemberContextMenu({
 }
 
 // ── Member row ───────────────────────────────────────────────────────────────
-function MemberRow({ member, myRole, guildId }: { member: GuildMember; myRole: string; guildId: number }) {
+function MemberRow({ member, myRole, guildId }: { member: GuildMember; myRole: string; guildId: string }) {
   const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null);
   const [showProfile, setShowProfile] = useState(false);
 
@@ -137,22 +138,94 @@ function MemberRow({ member, myRole, guildId }: { member: GuildMember; myRole: s
   );
 }
 
+// ── Voice participant row ────────────────────────────────────────────────────
+function VoiceParticipantRow({ participant, myRole, guildId, members }: {
+  participant: { id: string; username: string; nickname: string; avatar: string; muted: boolean };
+  myRole: string;
+  guildId: string;
+  members: GuildMember[];
+}) {
+  const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null);
+  const [showProfile, setShowProfile] = useState(false);
+  const { SpeakersActive } = useApp();
+  const isSpeaking = !participant.muted && SpeakersActive.includes(participant.id);
+
+  const member: GuildMember = members.find(m => String(m.id) === String(participant.id)) ?? {
+    id: participant.id,
+    username: participant.username,
+    nickname: participant.nickname,
+    avatar: participant.avatar,
+    status: 'online',
+    role: 'member',
+  };
+
+  const profileUser: ProfileUser = {
+    id: member.id,
+    username: member.username,
+    nickname: member.nickname,
+    avatar: member.avatar,
+    status: member.status,
+  };
+
+  return (
+    <>
+      <div
+        style={{
+          display: 'flex', alignItems: 'center', gap: 8,
+          padding: '3px 4px', cursor: 'pointer', borderRadius: 6,
+          outline: isSpeaking ? '2px solid var(--accent-primary)' : '2px solid transparent',
+          background: isSpeaking ? 'rgba(var(--accent-primary-rgb, 88,101,242), 0.08)' : 'transparent',
+          transition: 'outline 0.1s, background 0.1s',
+        }}
+        onContextMenu={e => { e.preventDefault(); setMenuPos({ x: e.clientX, y: e.clientY }); }}
+        onClick={() => setShowProfile(true)}
+      >
+        {participant.avatar ? (
+          <img src={participant.avatar} alt="" style={{ width: 24, height: 24, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />
+        ) : (
+          <div style={{ width: 24, height: 24, borderRadius: '50%', background: 'var(--accent-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, color: '#fff', fontWeight: 700, flexShrink: 0 }}>
+            {(participant.nickname || participant.username)[0]?.toUpperCase()}
+          </div>
+        )}
+        <span style={{ fontSize: 13, color: isSpeaking ? 'var(--accent-primary)' : 'var(--text-secondary, #888)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, fontWeight: isSpeaking ? 600 : 400 }}>
+          {participant.nickname || participant.username}
+        </span>
+        {participant.muted && <MicOff size={12} style={{ color: '#ed4245', flexShrink: 0 }} />}
+      </div>
+
+      {menuPos && (
+        <MemberContextMenu
+          member={member} myRole={myRole} guildId={guildId}
+          pos={menuPos}
+          onClose={() => setMenuPos(null)}
+          onOpenProfile={() => setShowProfile(true)}
+        />
+      )}
+
+      {showProfile && (
+        <ProfileModal user={profileUser} onClose={() => setShowProfile(false)} />
+      )}
+    </>
+  );
+}
+
 // ── Main sidebar ─────────────────────────────────────────────────────────────
 export const GuildSidebar: React.FC = () => {
   const {
     currentGuild, currentGuildChannel, selectGuildChannel,
     createChannel, deleteChannel, deleteGuild, leaveGuild,
     joinVoiceChannel, leaveVoiceChannel, currentVoiceChannel,
-    voiceChannelParticipants, currentServerIP, authToken,
+    voiceChannelParticipants, voiceParticipants, currentServerIP, authToken,
     blockedContacts, unblockUser,
     setMobileActivePanel,
   } = useApp();
   const tr = useTranslation();
 
-  const [showChannelMenu, setShowChannelMenu] = useState<number | null>(null);
+  const [showChannelMenu, setShowChannelMenu] = useState<string | null>(null);
   const [addingChannel, setAddingChannel] = useState<'text' | 'voice' | null>(null);
   const [newChName, setNewChName] = useState('');
   const [showSettings, setShowSettings] = useState(false);
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [copied, setCopied] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleteInput, setDeleteInput] = useState('');
@@ -180,7 +253,11 @@ export const GuildSidebar: React.FC = () => {
   }, [currentGuild?.id, authToken, currentServerIP]);
 
   // Merge WS-realtime updates into local presence (WS updates take priority)
-  const mergedPresence: VoicePresenceMap = { ...localVoicePresence, ...voiceChannelParticipants };
+  const mergedPresence: VoicePresenceMap = {
+    ...localVoicePresence,
+    ...voiceChannelParticipants,
+    ...(currentVoiceChannel ? { [currentVoiceChannel.id]: voiceParticipants } : {}),
+  };
 
   if (!currentGuild) return null;
 
@@ -225,6 +302,11 @@ export const GuildSidebar: React.FC = () => {
           <button className="context-menu-item" onClick={handleCopyInvite}>
             <Copy size={13} /> {copied ? tr('guild_copied') : tr('guild_copy_invite')}
           </button>
+          {isAdmin && (
+            <button className="context-menu-item" onClick={() => { setShowSettings(false); setShowSettingsModal(true); }}>
+              <Settings size={13} /> Server Settings
+            </button>
+          )}
           {myRole === 'owner' && (
             <button className="context-menu-item danger" onClick={() => { setShowSettings(false); setDeleteInput(''); setShowDeleteConfirm(true); }}>
               <Trash2 size={13} /> {tr('guild_delete_server')}
@@ -340,19 +422,13 @@ export const GuildSidebar: React.FC = () => {
                 {participants.length > 0 && (
                   <div style={{ paddingLeft: 28, display: 'flex', flexDirection: 'column', gap: 2, marginBottom: 2 }}>
                     {participants.map(p => (
-                      <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '1px 0' }}>
-                        {p.avatar ? (
-                          <img src={p.avatar} alt="" style={{ width: 16, height: 16, borderRadius: '50%', objectFit: 'cover' }} />
-                        ) : (
-                          <div style={{ width: 16, height: 16, borderRadius: '50%', background: 'var(--accent-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, color: '#fff', fontWeight: 700 }}>
-                            {(p.nickname || p.username)[0]?.toUpperCase()}
-                          </div>
-                        )}
-                        <span style={{ fontSize: 11, color: 'var(--text-secondary, #888)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {p.nickname || p.username}
-                        </span>
-                        {p.muted && <MicOff size={10} style={{ color: '#ed4245', flexShrink: 0 }} />}
-                      </div>
+                      <VoiceParticipantRow
+                        key={p.id}
+                        participant={p}
+                        myRole={myRole}
+                        guildId={currentGuild.id}
+                        members={currentGuild.members}
+                      />
                     ))}
                   </div>
                 )}
@@ -385,6 +461,8 @@ export const GuildSidebar: React.FC = () => {
       </div>
 
       <UserProfile />
+
+      {showSettingsModal && <GuildSettingsModal onClose={() => setShowSettingsModal(false)} />}
 
       {showDeleteConfirm && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9500 }}>

@@ -10,7 +10,7 @@ from rest_framework.response import Response
 from rest_framework import status
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
-from .models import Conversation, Message, Attachment, MessageReport, ScheduledMessage, Guild, GuildMembership, GuildChannel, GuildMessage, GuildAttachment, GuildScheduledMessage
+from .models import Conversation, Message, Attachment, MessageReport, ScheduledMessage, Guild, GuildMembership, GuildChannel, GuildMessage, GuildAttachment, GuildScheduledMessage, GuildEmoji, GuildSticker, GuildSound, GuildRole, GuildMemberRole, GuildInvite, GuildAuditLog
 from .serializers import ConversationSerializer, MessageSerializer, AttachmentSerializer
 from .encryption import encrypt_bytes, decrypt_bytes, encrypt_text
 from ionik_auth.models import BlockedUser
@@ -313,10 +313,19 @@ def cancel_scheduled_message(request, scheduled_id):
 
 # ─────────────────────────── Guild (server) views ───────────────────────────
 
+def _log(guild, actor, action, target_id='', target_username='', details=None):
+    GuildAuditLog.objects.create(
+        guild=guild, action=action,
+        actor_id=str(actor.id), actor_username=actor.username,
+        target_id=target_id, target_username=target_username,
+        details=details or {},
+    )
+
+
 def _guild_data(guild, user):
     membership = guild.memberships.filter(user=user).first()
     members = []
-    for m in guild.memberships.select_related('user').all():
+    for m in guild.memberships.select_related('user').prefetch_related('custom_role_assignments').all():
         u = m.user
         members.append({
             'id': str(u.id),
@@ -325,6 +334,7 @@ def _guild_data(guild, user):
             'avatar': u.avatar.url if u.avatar else '',
             'status': u.status,
             'role': m.role,
+            'custom_roles': [str(r.role_id) for r in m.custom_role_assignments.all()],
         })
     channels = []
     for ch in guild.channels.all():
@@ -339,10 +349,16 @@ def _guild_data(guild, user):
         'id': str(guild.id),
         'name': guild.name,
         'description': guild.description,
+        'tag': guild.tag,
         'icon': guild.icon.url if guild.icon else '',
         'banner': guild.banner.url if guild.banner else '',
         'owner_id': str(guild.owner_id),
         'invite_code': guild.invite_code,
+        'boost_level': guild.boost_level,
+        'verification_level': guild.verification_level,
+        'default_notifications': guild.default_notifications,
+        'explicit_content_filter': guild.explicit_content_filter,
+        'require_2fa': guild.require_2fa,
         'my_role': membership.role if membership else '',
         'members': members,
         'channels': channels,
@@ -384,10 +400,29 @@ def guild_detail(request, guild_id):
     if request.method == 'PATCH':
         if membership.role not in ('owner', 'admin'):
             return Response({'error': 'forbidden'}, status=status.HTTP_403_FORBIDDEN)
-        for field in ('name', 'description'):
+        for field in ('name', 'description', 'tag', 'verification_level', 'default_notifications', 'explicit_content_filter'):
             if field in request.data:
                 setattr(guild, field, request.data[field])
+        if 'boost_level' in request.data and membership.role == 'owner':
+            guild.boost_level = int(request.data['boost_level'])
+        if 'require_2fa' in request.data and membership.role == 'owner':
+            guild.require_2fa = request.data['require_2fa'] in (True, 'true', '1')
+        if 'icon' in request.FILES:
+            if guild.icon:
+                guild.icon.delete(save=False)
+            guild.icon = request.FILES['icon']
+        if 'banner' in request.FILES:
+            if guild.banner:
+                guild.banner.delete(save=False)
+            guild.banner = request.FILES['banner']
+        if request.data.get('remove_icon') == 'true' and guild.icon:
+            guild.icon.delete(save=False)
+            guild.icon = None
+        if request.data.get('remove_banner') == 'true' and guild.banner:
+            guild.banner.delete(save=False)
+            guild.banner = None
         guild.save()
+        _log(guild, request.user, 'guild_update', details={'name': guild.name})
         return Response(_guild_data(guild, request.user))
 
     # DELETE — owner only
@@ -406,10 +441,24 @@ def guild_detail(request, guild_id):
 @permission_classes([IsAuthenticated])
 def guild_join(request):
     invite_code = request.data.get('invite_code', '').strip()
+    # Check GuildInvite table first, then fall back to Guild.invite_code
+    custom_invite = None
     try:
-        guild = Guild.objects.get(invite_code=invite_code)
-    except Guild.DoesNotExist:
-        return Response({'error': 'invalid invite code'}, status=status.HTTP_404_NOT_FOUND)
+        custom_invite = GuildInvite.objects.select_related('guild').get(code=invite_code, is_active=True)
+        if custom_invite.expires_at and custom_invite.expires_at < timezone.now():
+            custom_invite.is_active = False
+            custom_invite.save()
+            return Response({'error': 'invite expired'}, status=status.HTTP_400_BAD_REQUEST)
+        if custom_invite.max_uses and custom_invite.uses >= custom_invite.max_uses:
+            custom_invite.is_active = False
+            custom_invite.save()
+            return Response({'error': 'invite has reached max uses'}, status=status.HTTP_400_BAD_REQUEST)
+        guild = custom_invite.guild
+    except GuildInvite.DoesNotExist:
+        try:
+            guild = Guild.objects.get(invite_code=invite_code)
+        except Guild.DoesNotExist:
+            return Response({'error': 'invalid invite code'}, status=status.HTTP_404_NOT_FOUND)
 
     # Check if any current member has blocked the joiner or vice versa
     member_ids = GuildMembership.objects.filter(guild=guild).values_list('user_id', flat=True)
@@ -421,6 +470,9 @@ def guild_join(request):
         return Response({'error': 'You cannot join this server'}, status=status.HTTP_403_FORBIDDEN)
 
     membership, created = GuildMembership.objects.get_or_create(guild=guild, user=request.user, defaults={'role': 'member'})
+    if custom_invite and created:
+        custom_invite.uses += 1
+        custom_invite.save()
     # Notify guild members
     channel_layer = get_channel_layer()
     u = request.user
@@ -479,7 +531,9 @@ def guild_kick(request, guild_id, user_id):
     # Admin cannot kick another admin
     if my_membership.role == 'admin' and target_membership.role == 'admin':
         return Response({'error': 'admins cannot kick other admins'}, status=status.HTTP_403_FORBIDDEN)
+    target_username = target_membership.user.username
     target_membership.delete()
+    _log(guild, request.user, 'member_kick', target_id=str(user_id), target_username=target_username)
     channel_layer = get_channel_layer()
     kick_payload = {'type': 'member_kicked', 'user_id': str(user_id), 'guild_name': guild.name}
     # Broadcast to all guild members who are browsing any channel
@@ -512,6 +566,7 @@ def guild_set_role(request, guild_id, user_id):
         return Response({'error': 'role must be admin or member'}, status=status.HTTP_400_BAD_REQUEST)
     target_membership.role = new_role
     target_membership.save(update_fields=['role'])
+    _log(guild, request.user, 'member_role_set', target_id=str(user_id), target_username=target_membership.user.username, details={'role': new_role})
     return Response({'role': new_role})
 
 
@@ -777,3 +832,281 @@ def guild_voice_presence(request, guild_id):
             result[str(ch_id)] = members
 
     return Response(result)
+
+
+# ── Emoji ─────────────────────────────────────────────────────────────────────
+@api_view(['GET', 'POST'])
+@permission_classes([IsAuthenticated])
+def guild_emojis(request, guild_id):
+    try:
+        guild = Guild.objects.get(id=guild_id)
+        membership = GuildMembership.objects.get(guild=guild, user=request.user)
+    except (Guild.DoesNotExist, GuildMembership.DoesNotExist):
+        return Response({'error': 'not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    if request.method == 'GET':
+        return Response([{'id': str(e.id), 'name': e.name, 'image': e.image.url} for e in guild.emojis.all()])
+
+    if membership.role not in ('owner', 'admin'):
+        return Response({'error': 'forbidden'}, status=status.HTTP_403_FORBIDDEN)
+    name = request.data.get('name', '').strip()
+    if not name or 'image' not in request.FILES:
+        return Response({'error': 'name and image required'}, status=status.HTTP_400_BAD_REQUEST)
+    emoji = GuildEmoji.objects.create(guild=guild, name=name, image=request.FILES['image'], uploader=request.user)
+    _log(guild, request.user, 'emoji_create', details={'name': name})
+    return Response({'id': str(emoji.id), 'name': emoji.name, 'image': emoji.image.url}, status=status.HTTP_201_CREATED)
+
+
+@api_view(['DELETE'])
+@permission_classes([IsAuthenticated])
+def guild_emoji_delete(request, guild_id, emoji_id):
+    try:
+        guild = Guild.objects.get(id=guild_id)
+        membership = GuildMembership.objects.get(guild=guild, user=request.user)
+        emoji = GuildEmoji.objects.get(id=emoji_id, guild=guild)
+    except (Guild.DoesNotExist, GuildMembership.DoesNotExist, GuildEmoji.DoesNotExist):
+        return Response({'error': 'not found'}, status=status.HTTP_404_NOT_FOUND)
+    if membership.role not in ('owner', 'admin'):
+        return Response({'error': 'forbidden'}, status=status.HTTP_403_FORBIDDEN)
+    _log(guild, request.user, 'emoji_delete', details={'name': emoji.name})
+    emoji.image.delete(save=False)
+    emoji.delete()
+    return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+# ── Stickers ──────────────────────────────────────────────────────────────────
+@api_view(['GET', 'POST'])
+@permission_classes([IsAuthenticated])
+def guild_stickers(request, guild_id):
+    try:
+        guild = Guild.objects.get(id=guild_id)
+        membership = GuildMembership.objects.get(guild=guild, user=request.user)
+    except (Guild.DoesNotExist, GuildMembership.DoesNotExist):
+        return Response({'error': 'not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    if request.method == 'GET':
+        return Response([{'id': str(s.id), 'name': s.name, 'description': s.description, 'image': s.image.url} for s in guild.stickers.all()])
+
+    if membership.role not in ('owner', 'admin'):
+        return Response({'error': 'forbidden'}, status=status.HTTP_403_FORBIDDEN)
+    name = request.data.get('name', '').strip()
+    if not name or 'image' not in request.FILES:
+        return Response({'error': 'name and image required'}, status=status.HTTP_400_BAD_REQUEST)
+    sticker = GuildSticker.objects.create(
+        guild=guild, name=name, description=request.data.get('description', ''),
+        image=request.FILES['image'], uploader=request.user,
+    )
+    _log(guild, request.user, 'sticker_create', details={'name': name})
+    return Response({'id': str(sticker.id), 'name': sticker.name, 'description': sticker.description, 'image': sticker.image.url}, status=status.HTTP_201_CREATED)
+
+
+@api_view(['DELETE'])
+@permission_classes([IsAuthenticated])
+def guild_sticker_delete(request, guild_id, sticker_id):
+    try:
+        guild = Guild.objects.get(id=guild_id)
+        membership = GuildMembership.objects.get(guild=guild, user=request.user)
+        sticker = GuildSticker.objects.get(id=sticker_id, guild=guild)
+    except (Guild.DoesNotExist, GuildMembership.DoesNotExist, GuildSticker.DoesNotExist):
+        return Response({'error': 'not found'}, status=status.HTTP_404_NOT_FOUND)
+    if membership.role not in ('owner', 'admin'):
+        return Response({'error': 'forbidden'}, status=status.HTTP_403_FORBIDDEN)
+    _log(guild, request.user, 'sticker_delete', details={'name': sticker.name})
+    sticker.image.delete(save=False)
+    sticker.delete()
+    return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+# ── Sounds ────────────────────────────────────────────────────────────────────
+@api_view(['GET', 'POST'])
+@permission_classes([IsAuthenticated])
+def guild_sounds(request, guild_id):
+    try:
+        guild = Guild.objects.get(id=guild_id)
+        membership = GuildMembership.objects.get(guild=guild, user=request.user)
+    except (Guild.DoesNotExist, GuildMembership.DoesNotExist):
+        return Response({'error': 'not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    if request.method == 'GET':
+        return Response([{'id': str(s.id), 'name': s.name, 'url': s.file.url} for s in guild.sounds.all()])
+
+    if membership.role not in ('owner', 'admin'):
+        return Response({'error': 'forbidden'}, status=status.HTTP_403_FORBIDDEN)
+    name = request.data.get('name', '').strip()
+    if not name or 'file' not in request.FILES:
+        return Response({'error': 'name and file required'}, status=status.HTTP_400_BAD_REQUEST)
+    sound = GuildSound.objects.create(guild=guild, name=name, file=request.FILES['file'], uploader=request.user)
+    _log(guild, request.user, 'sound_create', details={'name': name})
+    return Response({'id': str(sound.id), 'name': sound.name, 'url': sound.file.url}, status=status.HTTP_201_CREATED)
+
+
+@api_view(['DELETE'])
+@permission_classes([IsAuthenticated])
+def guild_sound_delete(request, guild_id, sound_id):
+    try:
+        guild = Guild.objects.get(id=guild_id)
+        membership = GuildMembership.objects.get(guild=guild, user=request.user)
+        sound = GuildSound.objects.get(id=sound_id, guild=guild)
+    except (Guild.DoesNotExist, GuildMembership.DoesNotExist, GuildSound.DoesNotExist):
+        return Response({'error': 'not found'}, status=status.HTTP_404_NOT_FOUND)
+    if membership.role not in ('owner', 'admin'):
+        return Response({'error': 'forbidden'}, status=status.HTTP_403_FORBIDDEN)
+    _log(guild, request.user, 'sound_delete', details={'name': sound.name})
+    sound.file.delete(save=False)
+    sound.delete()
+    return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+# ── Roles ─────────────────────────────────────────────────────────────────────
+@api_view(['GET', 'POST'])
+@permission_classes([IsAuthenticated])
+def guild_roles(request, guild_id):
+    try:
+        guild = Guild.objects.get(id=guild_id)
+        membership = GuildMembership.objects.get(guild=guild, user=request.user)
+    except (Guild.DoesNotExist, GuildMembership.DoesNotExist):
+        return Response({'error': 'not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    if request.method == 'GET':
+        return Response([{'id': str(r.id), 'name': r.name, 'color': r.color, 'permissions': r.permissions, 'position': r.position} for r in guild.custom_roles.all()])
+
+    if membership.role not in ('owner', 'admin'):
+        return Response({'error': 'forbidden'}, status=status.HTTP_403_FORBIDDEN)
+    name = request.data.get('name', '').strip()
+    if not name:
+        return Response({'error': 'name required'}, status=status.HTTP_400_BAD_REQUEST)
+    role = GuildRole.objects.create(
+        guild=guild, name=name,
+        color=request.data.get('color', '#99aab5'),
+        permissions=request.data.get('permissions', []),
+        position=guild.custom_roles.count(),
+    )
+    _log(guild, request.user, 'role_create', details={'name': name})
+    return Response({'id': str(role.id), 'name': role.name, 'color': role.color, 'permissions': role.permissions, 'position': role.position}, status=status.HTTP_201_CREATED)
+
+
+@api_view(['PATCH', 'DELETE'])
+@permission_classes([IsAuthenticated])
+def guild_role_detail(request, guild_id, role_id):
+    try:
+        guild = Guild.objects.get(id=guild_id)
+        membership = GuildMembership.objects.get(guild=guild, user=request.user)
+        role = GuildRole.objects.get(id=role_id, guild=guild)
+    except (Guild.DoesNotExist, GuildMembership.DoesNotExist, GuildRole.DoesNotExist):
+        return Response({'error': 'not found'}, status=status.HTTP_404_NOT_FOUND)
+    if membership.role not in ('owner', 'admin'):
+        return Response({'error': 'forbidden'}, status=status.HTTP_403_FORBIDDEN)
+
+    if request.method == 'PATCH':
+        for field in ('name', 'color', 'permissions', 'position'):
+            if field in request.data:
+                setattr(role, field, request.data[field])
+        role.save()
+        _log(guild, request.user, 'role_update', details={'name': role.name})
+        return Response({'id': str(role.id), 'name': role.name, 'color': role.color, 'permissions': role.permissions, 'position': role.position})
+
+    _log(guild, request.user, 'role_delete', details={'name': role.name})
+    role.delete()
+    return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+@api_view(['POST', 'DELETE'])
+@permission_classes([IsAuthenticated])
+def guild_member_role(request, guild_id, user_id, role_id):
+    try:
+        guild = Guild.objects.get(id=guild_id)
+        membership = GuildMembership.objects.get(guild=guild, user=request.user)
+        target_m = GuildMembership.objects.get(guild=guild, user_id=user_id)
+        role = GuildRole.objects.get(id=role_id, guild=guild)
+    except (Guild.DoesNotExist, GuildMembership.DoesNotExist, GuildRole.DoesNotExist):
+        return Response({'error': 'not found'}, status=status.HTTP_404_NOT_FOUND)
+    if membership.role not in ('owner', 'admin'):
+        return Response({'error': 'forbidden'}, status=status.HTTP_403_FORBIDDEN)
+
+    if request.method == 'POST':
+        GuildMemberRole.objects.get_or_create(membership=target_m, role=role)
+        _log(guild, request.user, 'member_role_assign', target_id=str(user_id), target_username=target_m.user.username, details={'role': role.name})
+        return Response({'ok': True})
+
+    GuildMemberRole.objects.filter(membership=target_m, role=role).delete()
+    _log(guild, request.user, 'member_role_remove', target_id=str(user_id), target_username=target_m.user.username, details={'role': role.name})
+    return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+# ── Invites ───────────────────────────────────────────────────────────────────
+@api_view(['GET', 'POST'])
+@permission_classes([IsAuthenticated])
+def guild_invites(request, guild_id):
+    try:
+        guild = Guild.objects.get(id=guild_id)
+        membership = GuildMembership.objects.get(guild=guild, user=request.user)
+    except (Guild.DoesNotExist, GuildMembership.DoesNotExist):
+        return Response({'error': 'not found'}, status=status.HTTP_404_NOT_FOUND)
+    if membership.role not in ('owner', 'admin'):
+        return Response({'error': 'forbidden'}, status=status.HTTP_403_FORBIDDEN)
+
+    if request.method == 'GET':
+        invites = guild.invites.filter(is_active=True).select_related('creator')
+        return Response([{
+            'id': str(i.id), 'code': i.code,
+            'creator': {'id': str(i.creator.id), 'username': i.creator.username} if i.creator else None,
+            'max_uses': i.max_uses, 'uses': i.uses,
+            'expires_at': i.expires_at.isoformat() if i.expires_at else None,
+            'created_at': i.created_at.isoformat(),
+        } for i in invites])
+
+    import secrets as _s
+    from datetime import timedelta as _td
+    expires_hours = request.data.get('expires_hours')
+    max_uses = request.data.get('max_uses')
+    invite = GuildInvite.objects.create(
+        guild=guild, creator=request.user,
+        max_uses=int(max_uses) if max_uses else None,
+        expires_at=timezone.now() + _td(hours=int(expires_hours)) if expires_hours else None,
+    )
+    _log(guild, request.user, 'invite_create', details={'code': invite.code})
+    return Response({
+        'id': str(invite.id), 'code': invite.code,
+        'creator': {'id': str(request.user.id), 'username': request.user.username},
+        'max_uses': invite.max_uses, 'uses': invite.uses,
+        'expires_at': invite.expires_at.isoformat() if invite.expires_at else None,
+        'created_at': invite.created_at.isoformat(),
+    }, status=status.HTTP_201_CREATED)
+
+
+@api_view(['DELETE'])
+@permission_classes([IsAuthenticated])
+def guild_invite_revoke(request, guild_id, invite_id):
+    try:
+        guild = Guild.objects.get(id=guild_id)
+        membership = GuildMembership.objects.get(guild=guild, user=request.user)
+        invite = GuildInvite.objects.get(id=invite_id, guild=guild)
+    except (Guild.DoesNotExist, GuildMembership.DoesNotExist, GuildInvite.DoesNotExist):
+        return Response({'error': 'not found'}, status=status.HTTP_404_NOT_FOUND)
+    if membership.role not in ('owner', 'admin'):
+        return Response({'error': 'forbidden'}, status=status.HTTP_403_FORBIDDEN)
+    invite.is_active = False
+    invite.save()
+    _log(guild, request.user, 'invite_revoke', details={'code': invite.code})
+    return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+# ── Audit log ─────────────────────────────────────────────────────────────────
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def guild_audit_log(request, guild_id):
+    try:
+        guild = Guild.objects.get(id=guild_id)
+        membership = GuildMembership.objects.get(guild=guild, user=request.user)
+    except (Guild.DoesNotExist, GuildMembership.DoesNotExist):
+        return Response({'error': 'not found'}, status=status.HTTP_404_NOT_FOUND)
+    if membership.role not in ('owner', 'admin'):
+        return Response({'error': 'forbidden'}, status=status.HTTP_403_FORBIDDEN)
+    logs = guild.audit_logs.all()[:100]
+    return Response([{
+        'id': str(lg.id), 'action': lg.action,
+        'actor': {'id': lg.actor_id, 'username': lg.actor_username},
+        'target': {'id': lg.target_id, 'username': lg.target_username} if lg.target_id else None,
+        'details': lg.details,
+        'created_at': lg.created_at.isoformat(),
+    } for lg in logs])

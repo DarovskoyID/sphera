@@ -2,8 +2,8 @@ import React, { useEffect, useRef, useCallback, useState } from 'react';
 import { useApp } from '../context/AppContext';
 
 const ICE_SERVERS = [{ urls: 'stun:stun.l.google.com:19302' }];
+const SPEAKING_THRESHOLD = 15; // 0–255 RMS; tune as needed
 
-// Audio element for a single remote stream
 function AudioEl({ stream }: { stream: MediaStream }) {
   const ref = useRef<HTMLAudioElement>(null);
   useEffect(() => {
@@ -26,12 +26,59 @@ export const GuildVoiceRoom: React.FC = () => {
     voiceSignalHandler,
     voiceLocalStream,
     userIDonServer,
+    setSpeakersActive,
   } = useApp();
 
   const peers = useRef<Map<string, PeerEntry>>(new Map());
   const remoteStreams = useRef<Map<string, MediaStream>>(new Map());
   const [, forceUpdate] = useState(0);
   const rerender = useCallback(() => forceUpdate(n => n + 1), []);
+
+  // ── Audio analysis ─────────────────────────────────────────────────────────
+  const audioCtx = useRef<AudioContext | null>(null);
+  const analysers = useRef<Map<string, { analyser: AnalyserNode; data: Uint8Array<ArrayBuffer> }>>(new Map());
+
+  const getAudioCtx = useCallback((): AudioContext => {
+    if (!audioCtx.current) audioCtx.current = new AudioContext();
+    return audioCtx.current;
+  }, []);
+
+  const setupAnalyser = useCallback((userId: string, stream: MediaStream) => {
+    if (analysers.current.has(userId)) return;
+    try {
+      const ctx = getAudioCtx();
+      const source = ctx.createMediaStreamSource(stream);
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 256;
+      analyser.smoothingTimeConstant = 0.3;
+      source.connect(analyser);
+      analysers.current.set(userId, { analyser, data: new Uint8Array(analyser.frequencyBinCount) });
+    } catch { /* mic permission denied or stream inactive */ }
+  }, [getAudioCtx]);
+
+  // Poll every 80 ms and push speaking user IDs into shared state
+  useEffect(() => {
+    const id = setInterval(() => {
+      const speaking: string[] = [];
+      analysers.current.forEach(({ analyser, data }, userId) => {
+        analyser.getByteFrequencyData(data);
+        const avg = data.reduce((a, b) => a + b, 0) / data.length;
+        if (avg > SPEAKING_THRESHOLD) speaking.push(userId);
+      });
+      setSpeakersActive(speaking);
+    }, 80);
+    return () => clearInterval(id);
+  }, [setSpeakersActive]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      analysers.current.clear();
+      audioCtx.current?.close();
+      audioCtx.current = null;
+      setSpeakersActive([]);
+    };
+  }, [setSpeakersActive]);
 
   // ── Start local media ──────────────────────────────────────────────────────
   useEffect(() => {
@@ -41,6 +88,13 @@ export const GuildVoiceRoom: React.FC = () => {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
         if (cancelled) { stream.getTracks().forEach(t => t.stop()); return; }
         voiceLocalStream.current = stream;
+        setupAnalyser(userIDonServer, stream);
+        // Add tracks to peers created before media was ready (race condition fix)
+        peers.current.forEach(({ pc }) => {
+          if (pc.getSenders().filter(s => s.track).length === 0) {
+            stream.getTracks().forEach(t => pc.addTrack(t, stream));
+          }
+        });
       } catch {
         // mic denied — still join without audio
       }
@@ -49,8 +103,9 @@ export const GuildVoiceRoom: React.FC = () => {
       cancelled = true;
       voiceLocalStream.current?.getTracks().forEach(t => t.stop());
       voiceLocalStream.current = null;
+      analysers.current.delete(userIDonServer);
     };
-  }, [voiceLocalStream]);
+  }, [voiceLocalStream, setupAnalyser, userIDonServer]);
 
   // ── Cleanup all peers on unmount ───────────────────────────────────────────
   useEffect(() => {
@@ -69,28 +124,25 @@ export const GuildVoiceRoom: React.FC = () => {
     const entry: PeerEntry = { pc, makingOffer: false, ignoreOffer: false };
     peers.current.set(remoteId, entry);
 
-    // Add local tracks
     if (voiceLocalStream.current) {
       voiceLocalStream.current.getTracks().forEach(t =>
         pc.addTrack(t, voiceLocalStream.current!)
       );
     }
 
-    // Remote audio
     pc.ontrack = (e) => {
       const stream = e.streams[0] ?? new MediaStream([e.track]);
       remoteStreams.current.set(remoteId, stream);
+      setupAnalyser(remoteId, stream);
       rerender();
     };
 
-    // ICE candidates
     pc.onicecandidate = (e) => {
       if (e.candidate) {
         sendVoiceSignal(remoteId, { type: 'candidate', candidate: e.candidate.toJSON() });
       }
     };
 
-    // Negotiation needed — only the "polite" side defers, but here we trigger offers
     pc.onnegotiationneeded = async () => {
       try {
         entry.makingOffer = true;
@@ -103,7 +155,7 @@ export const GuildVoiceRoom: React.FC = () => {
     };
 
     return entry;
-  }, [sendVoiceSignal, rerender, voiceLocalStream]);
+  }, [sendVoiceSignal, rerender, voiceLocalStream, setupAnalyser]);
 
   // ── Signal handler (perfect negotiation) ──────────────────────────────────
   useEffect(() => {
@@ -119,29 +171,21 @@ export const GuildVoiceRoom: React.FC = () => {
       const { from, payload } = msg;
       if (!from || !payload) return;
 
-      // "polite" peer = the one with the numerically higher user ID
-      // "impolite" peer = lower ID — never backs down from its offer
       const polite = userIDonServer > from;
-
       const entry = getOrCreatePeer(from);
       const { pc } = entry;
 
       try {
         if (payload.type === 'offer') {
-          const offerCollision =
-            entry.makingOffer || pc.signalingState !== 'stable';
-
+          const offerCollision = entry.makingOffer || pc.signalingState !== 'stable';
           entry.ignoreOffer = !polite && offerCollision;
           if (entry.ignoreOffer) return;
-
           await pc.setRemoteDescription(new RTCSessionDescription(payload.sdp!));
           await pc.setLocalDescription();
           sendVoiceSignal(from, { type: 'answer', sdp: pc.localDescription });
-
         } else if (payload.type === 'answer') {
-          if (pc.signalingState === 'stable') return; // already settled, ignore
+          if (pc.signalingState === 'stable') return;
           await pc.setRemoteDescription(new RTCSessionDescription(payload.sdp!));
-
         } else if (payload.type === 'candidate') {
           try {
             await pc.addIceCandidate(new RTCIceCandidate(payload.candidate!));
@@ -159,16 +203,13 @@ export const GuildVoiceRoom: React.FC = () => {
   // ── Connect to new participants, clean up departed ones ────────────────────
   const connectedRef = useRef<Set<string>>(new Set());
   useEffect(() => {
-    // Connect to any participant we haven't connected to yet
     voiceParticipants.forEach(p => {
       if (p.id === userIDonServer) return;
       if (connectedRef.current.has(p.id)) return;
       connectedRef.current.add(p.id);
 
-      // Only the "impolite" (lower ID) side initiates — prevents glare
       if (userIDonServer < p.id) {
         const entry = getOrCreatePeer(p.id);
-        // Trigger negotiation by adding tracks if not done yet
         if (voiceLocalStream.current) {
           const senders = entry.pc.getSenders();
           if (senders.length === 0) {
@@ -177,20 +218,17 @@ export const GuildVoiceRoom: React.FC = () => {
             );
           }
         }
-      }
-      // The "polite" (higher ID) side waits for an offer from the other side
-      // but we still create the peer entry so it's ready to receive signals
-      else {
+      } else {
         getOrCreatePeer(p.id);
       }
     });
 
-    // Clean up peers whose participants have left
     peers.current.forEach((entry, uid) => {
       if (!voiceParticipants.find(p => p.id === uid)) {
         entry.pc.close();
         peers.current.delete(uid);
         remoteStreams.current.delete(uid);
+        analysers.current.delete(uid);
         connectedRef.current.delete(uid);
         rerender();
       }

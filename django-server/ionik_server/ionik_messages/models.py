@@ -93,11 +93,17 @@ class Guild(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     name = models.CharField(max_length=100)
     description = models.TextField(blank=True)
+    tag = models.CharField(max_length=8, blank=True, default='')
     icon = models.ImageField(upload_to='guild_icons/', null=True, blank=True)
     banner = models.ImageField(upload_to='guild_banners/', null=True, blank=True)
     owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='owned_guilds')
     created_at = models.DateTimeField(auto_now_add=True)
     invite_code = models.CharField(max_length=16, unique=True, blank=True)
+    boost_level = models.PositiveIntegerField(default=0)
+    verification_level = models.CharField(max_length=20, default='none')
+    default_notifications = models.CharField(max_length=20, default='all')
+    explicit_content_filter = models.CharField(max_length=30, default='disabled')
+    require_2fa = models.BooleanField(default=False)
 
     def save(self, *args, **kwargs):
         if not self.invite_code:
@@ -220,3 +226,107 @@ class ScheduledMessage(models.Model):
 
     def __str__(self):
         return f'Scheduled by {self.author.username} at {self.send_at}'
+
+
+class GuildEmoji(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    guild = models.ForeignKey(Guild, on_delete=models.CASCADE, related_name='emojis')
+    name = models.CharField(max_length=50)
+    image = models.ImageField(upload_to='guild_emojis/')
+    uploader = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name='+')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('guild', 'name')
+
+    def __str__(self):
+        return f':{self.name}: ({self.guild.name})'
+
+
+class GuildSticker(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    guild = models.ForeignKey(Guild, on_delete=models.CASCADE, related_name='stickers')
+    name = models.CharField(max_length=50)
+    description = models.CharField(max_length=200, blank=True)
+    image = models.ImageField(upload_to='guild_stickers/')
+    uploader = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name='+')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f'{self.name} ({self.guild.name})'
+
+
+class GuildSound(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    guild = models.ForeignKey(Guild, on_delete=models.CASCADE, related_name='sounds')
+    name = models.CharField(max_length=50)
+    file = models.FileField(upload_to='guild_sounds/')
+    uploader = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name='+')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f'{self.name} ({self.guild.name})'
+
+
+class GuildRole(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    guild = models.ForeignKey(Guild, on_delete=models.CASCADE, related_name='custom_roles')
+    name = models.CharField(max_length=50)
+    color = models.CharField(max_length=7, default='#99aab5')
+    permissions = models.JSONField(default=list)
+    position = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['position', 'created_at']
+
+    def __str__(self):
+        return f'{self.name} ({self.guild.name})'
+
+
+class GuildMemberRole(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    membership = models.ForeignKey(GuildMembership, on_delete=models.CASCADE, related_name='custom_role_assignments')
+    role = models.ForeignKey(GuildRole, on_delete=models.CASCADE, related_name='member_assignments')
+
+    class Meta:
+        unique_together = ('membership', 'role')
+
+
+class GuildInvite(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    guild = models.ForeignKey(Guild, on_delete=models.CASCADE, related_name='invites')
+    creator = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name='+')
+    code = models.CharField(max_length=16, unique=True, blank=True)
+    max_uses = models.PositiveIntegerField(null=True, blank=True)
+    uses = models.PositiveIntegerField(default=0)
+    expires_at = models.DateTimeField(null=True, blank=True)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def save(self, *args, **kwargs):
+        if not self.code:
+            import secrets
+            self.code = secrets.token_urlsafe(8)[:8]
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f'Invite {self.code} for {self.guild.name}'
+
+
+class GuildAuditLog(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    guild = models.ForeignKey(Guild, on_delete=models.CASCADE, related_name='audit_logs')
+    action = models.CharField(max_length=50)
+    actor_id = models.CharField(max_length=40)
+    actor_username = models.CharField(max_length=150)
+    target_id = models.CharField(max_length=40, blank=True)
+    target_username = models.CharField(max_length=150, blank=True)
+    details = models.JSONField(default=dict)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'{self.action} by {self.actor_username} in {self.guild.name}'

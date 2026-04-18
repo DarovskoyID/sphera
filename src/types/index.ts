@@ -76,6 +76,7 @@ export interface GuildMember {
   avatar: string;
   status: 'online' | 'idle' | 'dnd' | 'offline';
   role: GuildMemberRole;
+  custom_roles: string[];
 }
 
 export interface GuildChannel {
@@ -90,13 +91,65 @@ export interface Guild {
   id: string;
   name: string;
   description: string;
+  tag: string;
   icon: string;
   banner: string;
   owner_id: string;
   invite_code: string;
+  boost_level: number;
+  verification_level: string;
+  default_notifications: string;
+  explicit_content_filter: string;
+  require_2fa: boolean;
   my_role: GuildMemberRole;
   members: GuildMember[];
   channels: GuildChannel[];
+}
+
+export interface GuildRole {
+  id: string;
+  name: string;
+  color: string;
+  permissions: string[];
+  position: number;
+}
+
+export interface GuildEmoji {
+  id: string;
+  name: string;
+  image: string;
+}
+
+export interface GuildSticker {
+  id: string;
+  name: string;
+  description: string;
+  image: string;
+}
+
+export interface GuildSound {
+  id: string;
+  name: string;
+  url: string;
+}
+
+export interface GuildInviteData {
+  id: string;
+  code: string;
+  creator: { id: string; username: string } | null;
+  max_uses: number | null;
+  uses: number;
+  expires_at: string | null;
+  created_at: string;
+}
+
+export interface GuildAuditLogEntry {
+  id: string;
+  action: string;
+  actor: { id: string; username: string };
+  target: { id: string; username: string } | null;
+  details: Record<string, unknown>;
+  created_at: string;
 }
 
 export interface GuildMessage {
