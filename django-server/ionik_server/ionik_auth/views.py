@@ -9,7 +9,7 @@ from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
-from .models import User, Friendship, BlockedUser, UserDevice, UserSettings, CustomEmoji
+from .models import User, Friendship, BlockedUser, UserDevice, UserSettings, CustomEmoji, FcmToken
 from .serializers import (
     RegisterSerializer, UserSerializer, FriendshipSerializer,
     ProfileUpdateSerializer, BlockedUserSerializer,
@@ -572,4 +572,17 @@ def emoji_delete(request, emoji_id):
         return Response({'error': 'not found'}, status=status.HTTP_404_NOT_FOUND)
     emoji.image.delete(save=False)
     emoji.delete()
+    return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+@api_view(['POST', 'DELETE'])
+@permission_classes([IsAuthenticated])
+def fcm_token(request):
+    token = (request.data or {}).get('token', '').strip()
+    if not token:
+        return Response({'error': 'token required'}, status=status.HTTP_400_BAD_REQUEST)
+    if request.method == 'POST':
+        FcmToken.objects.update_or_create(token=token, defaults={'user': request.user})
+        return Response({'ok': True})
+    FcmToken.objects.filter(user=request.user, token=token).delete()
     return Response(status=status.HTTP_204_NO_CONTENT)

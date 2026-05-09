@@ -71,9 +71,10 @@ const ChatHeader: React.FC<{
   const displayName = chatUser.nickname || chatUser.username;
 
   const startCall = (withVideo = false) => {
+    // Prevent camera from turning on when starting a voice call (state can persist from a previous call)
+    setVideoActive(withVideo);
     setCallTargetId(chatUser.id);
     setCallActive(true);
-    if (withVideo) setVideoActive(true);
   };
 
   return (
@@ -503,9 +504,10 @@ function highlightText(text: string, query: string): React.ReactNode {
   );
 }
 
-const MessageRow = React.memo(({ msg, isOwn, onContextMenu, onReply, customEmojis, searchQuery }: {
+const MessageRow = React.memo(({ msg, isOwn, isFirstInGroup, onContextMenu, onReply, customEmojis, searchQuery }: {
   msg: ChatMessageType;
   isOwn: boolean;
+  isFirstInGroup: boolean;
   onContextMenu: (e: React.MouseEvent, msg: ChatMessageType) => void;
   onReply: (msg: ChatMessageType) => void;
   customEmojis: CustomEmoji[];
@@ -520,9 +522,9 @@ const MessageRow = React.memo(({ msg, isOwn, onContextMenu, onReply, customEmoji
 
   return (
     <div
-      className={`message-item ${isOwn ? 'own' : ''}`}
+      className={`message-item ${isOwn ? 'own' : ''} ${isFirstInGroup ? '' : 'compact'}`}
       style={{
-        minHeight: MSG_HEIGHT, position: 'relative',
+        minHeight: isFirstInGroup ? MSG_HEIGHT : undefined, position: 'relative',
         background: isSearchMatch
           ? 'rgba(255,200,0,0.07)'
           : msg.is_pinned ? 'rgba(0,112,243,0.08)' : undefined,
@@ -536,26 +538,20 @@ const MessageRow = React.memo(({ msg, isOwn, onContextMenu, onReply, customEmoji
           <Pin size={12} />
         </div>
       )}
-      <div className="message-avatar">
-        {msg.author.avatar && !avatarError
-          ? <img src={msg.author.avatar} alt={displayName} style={{ width: 36, height: 36, borderRadius: '50%', objectFit: 'cover' }} onError={() => setAvatarError(true)} />
-          : <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'var(--accent-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 700, fontSize: 14 }}>
-              {displayName[0].toUpperCase()}
-            </div>
+      <div className="message-avatar-slot">
+        {isFirstInGroup
+          ? (msg.author.avatar && !avatarError
+              ? <img src={msg.author.avatar} alt={displayName} style={{ width: 36, height: 36, borderRadius: '50%', objectFit: 'cover' }} onError={() => setAvatarError(true)} />
+              : <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'var(--accent-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 700, fontSize: 14 }}>
+                  {displayName[0].toUpperCase()}
+                </div>
+            )
+          : null
         }
       </div>
       <div className="message-content" style={{ flex: 1, minWidth: 0 }}>
-        <div className="message-header">
-          <span className="message-author">{displayName}</span>
-          <span className="message-timestamp">{time}</span>
-        </div>
         {msg.reply_to && (
-          <div style={{
-            borderLeft: '3px solid var(--accent-primary)',
-            paddingLeft: 8, marginBottom: 4,
-            color: 'var(--text-secondary)', fontSize: 12,
-            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-          }}>
+          <div className="message-reply-preview">
             {msg.reply_to.deleted ? (
               <span style={{ fontStyle: 'italic', opacity: 0.6 }}>Message deleted</span>
             ) : (
@@ -568,17 +564,30 @@ const MessageRow = React.memo(({ msg, isOwn, onContextMenu, onReply, customEmoji
             )}
           </div>
         )}
-        {msg.content && (
-          <div className="message-text">
-            {searchQuery?.trim()
-              ? highlightText(msg.content, searchQuery)
-              : <MessageText text={msg.content} customEmojis={customEmojis} />
-            }
-          </div>
-        )}
-        {msg.attachments?.map(att => (
-          <AttachmentView key={att.id} att={att} />
-        ))}
+        <div className="message-bubble">
+          {msg.content && (
+            <div className="message-text">
+              {isFirstInGroup && (
+                <div className="message-author-bubble">{displayName}</div>
+              )}
+              <div className="message-line">
+                <span className="message-body">
+                  {searchQuery?.trim()
+                    ? highlightText(msg.content, searchQuery)
+                    : <MessageText text={msg.content} customEmojis={customEmojis} />
+                  }
+                </span>
+                <span className="message-timestamp">{time}</span>
+              </div>
+            </div>
+          )}
+          {msg.attachments?.map(att => (
+            <AttachmentView key={att.id} att={att} />
+          ))}
+          {!msg.content && msg.attachments?.length && (
+            <span className="message-timestamp message-timestamp-standalone">{time}</span>
+          )}
+        </div>
       </div>
       {hovered && (
         <div style={{ position: 'absolute', top: 4, right: msg.is_pinned ? 28 : 8, display: 'flex', gap: 4 }}>
@@ -663,17 +672,22 @@ const MessagesContainer: React.FC<{
               {searchQuery.trim() ? 'No messages match your search.' : tr('chat_no_messages')}
             </div>
           )}
-          {filteredMessages.map((msg, i) => (
+          {filteredMessages.map((msg, i) => {
+            const prev = filteredMessages[i - 1];
+            const isFirstInGroup = !prev || String(prev.author.id) !== String(msg.author.id);
+            return (
             <MessageRow
               key={msg.id || `tmp-${i}`}
               msg={msg}
               isOwn={String(msg.author.id) === String(userIDonServer)}
+              isFirstInGroup={isFirstInGroup}
               onContextMenu={openCtx}
               onReply={onReply}
               customEmojis={customEmojis}
               searchQuery={searchQuery}
             />
-          ))}
+            );
+          })}
         </div>
       </div>
     </>

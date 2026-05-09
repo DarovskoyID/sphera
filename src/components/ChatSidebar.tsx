@@ -632,9 +632,10 @@ export const ChatSidebar: React.FC = () => {
     if (!profileFriend) return;
     setProfileFriend(null);
     setCurrentChat(profileFriend.id);
+    // Prevent camera from turning on when starting a voice call (state can persist from a previous call)
+    setVideoActive(withVideo);
     setCallTargetId(profileFriend.id);
     setCallActive(true);
-    if (withVideo) setVideoActive(true);
   };
 
   const handleProfileRemove = async () => {

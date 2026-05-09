@@ -31,6 +31,7 @@ interface SettingsData {
   chat_show_timestamps: boolean;
   chat_emoji_reactions: boolean;
   chat_compact_mode: boolean;
+  chat_message_spacing: number;
   data_app_improvements: boolean;
   data_personalization: boolean;
   streamer_mode: boolean;
@@ -50,7 +51,7 @@ const defaultSettings: SettingsData = {
   notify_all_server_messages: false, notify_friend_requests: true, sound_message: true, sound_incoming_call: true,
   theme: 'dark', show_timestamps: true, show_avatars: true,
   auto_input_sensitivity: true, echo_cancellation: true, noise_suppression: true,
-  chat_show_timestamps: true, chat_emoji_reactions: true, chat_compact_mode: false,
+  chat_show_timestamps: true, chat_emoji_reactions: true, chat_compact_mode: false, chat_message_spacing: 4,
   data_app_improvements: true, data_personalization: true,
   streamer_mode: false, streamer_hide_info: false, streamer_disable_notifs: false,
   developer_mode: false, hardware_acceleration: false,
@@ -146,6 +147,11 @@ export const Settings: React.FC = () => {
       return newS;
     });
   }, [saveToApi]);
+
+  // Apply chat_message_spacing as CSS variable whenever it changes
+  useEffect(() => {
+    document.documentElement.style.setProperty('--chat-message-gap', `${s.chat_message_spacing}px`);
+  }, [s.chat_message_spacing]);
 
   if (!currentSettingsPage || !loaded) return null;
 
@@ -652,12 +658,50 @@ const VoiceVideoSettings: React.FC = () => {
 
 const ChatSettings: React.FC = () => {
   const tr = useTranslation();
+  const { s, setField } = useSettings();
+  const [spacingRaw, setSpacingRaw] = useState(String(s.chat_message_spacing));
+  const [spacingErr, setSpacingErr] = useState('');
+
+  const handleSpacingChange = (val: string) => {
+    setSpacingRaw(val);
+    const n = parseInt(val, 10);
+    if (val.trim() === '' || isNaN(n)) {
+      setSpacingErr('Enter a number between 0 and 50');
+      return;
+    }
+    if (n < 0 || n > 50) {
+      setSpacingErr('Value must be between 0 and 50');
+      return;
+    }
+    setSpacingErr('');
+    setField('chat_message_spacing', n);
+  };
+
   return (
   <section>
     <h1>{tr('sc_title')}</h1>
     <Check label={tr('sc_timestamps')} field="chat_show_timestamps" />
     <Check label={tr('sc_emoji')} field="chat_emoji_reactions" />
     <Check label={tr('sc_compact')} field="chat_compact_mode" />
+    <div style={{ ...card, marginTop: 16 }}>
+      <h3 style={sectionH3}>Message Spacing</h3>
+      <div style={fieldLabel as React.CSSProperties}>Gap between messages (px)</div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <input
+          type="number"
+          min={0}
+          max={50}
+          step={1}
+          value={spacingRaw}
+          onChange={e => handleSpacingChange(e.target.value)}
+          style={{ ...fieldInput, width: 100 }}
+        />
+        <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
+          px (0 – 50)
+        </span>
+      </div>
+      {spacingErr && <div style={statusMsg('err')}>{spacingErr}</div>}
+    </div>
   </section>
   );
 };

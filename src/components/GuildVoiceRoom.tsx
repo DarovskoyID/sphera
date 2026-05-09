@@ -1,7 +1,17 @@
 import React, { useEffect, useRef, useCallback, useState } from 'react';
 import { useApp } from '../context/AppContext';
 
-const ICE_SERVERS = [{ urls: 'stun:stun.l.google.com:19302' }];
+const ICE_SERVERS = [
+  { urls: 'stun:bottomweb.ru:3478' },
+  {
+    urls: [
+      'turn:bottomweb.ru:3478?transport=udp',
+      'turn:bottomweb.ru:3478?transport=tcp',
+    ],
+    username: 'ionikuser',
+    credential: 'ionikturn123',
+  },
+];
 const SPEAKING_THRESHOLD = 15; // 0–255 RMS; tune as needed
 
 function AudioEl({ stream }: { stream: MediaStream }) {

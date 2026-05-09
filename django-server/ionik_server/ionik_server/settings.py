@@ -10,6 +10,17 @@ DEBUG = True
 
 ALLOWED_HOSTS = ['*']
 
+# When served over TLS the browser sends the Origin / Referer with https://.
+# Django CSRF rejects requests if the origin isn't whitelisted explicitly.
+CSRF_TRUSTED_ORIGINS = [
+    'https://bottomweb.ru',
+    'https://bottomweb.ru:8000',
+    'https://bottomweb.ru:8082',
+    'https://localhost',
+    'https://localhost:8000',
+]
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+
 INSTALLED_APPS = [
     'daphne',
     'django.contrib.admin',
@@ -119,6 +130,10 @@ SIMPLE_JWT = {
 
 # Fernet key for encrypting chat messages at rest
 MESSAGE_ENCRYPTION_KEY = 'B_jCzvYRndN90PQCee5x7RwE5R-AjJ_WN_m0d3beh1Q='
+
+# Firebase service account key — download from:
+# Firebase Console → Project Settings → Service Accounts → Generate new private key
+FIREBASE_CREDENTIALS = BASE_DIR / 'serviceAccountKey.json'
 
 LANGUAGE_CODE = 'en-us'
 TIME_ZONE = 'UTC'

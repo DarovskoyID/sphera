@@ -1,17 +1,6 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
 import { Maximize2, Minimize2 } from 'lucide-react';
-import { useApp, reportError } from '../context/AppContext';
-
-function useMobile() {
-  const [isMobile, setIsMobile] = useState(() => window.matchMedia('(max-width: 768px)').matches);
-  useEffect(() => {
-    const mq = window.matchMedia('(max-width: 768px)');
-    const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches);
-    mq.addEventListener('change', handler);
-    return () => mq.removeEventListener('change', handler);
-  }, []);
-  return isMobile;
-}
+import { useApp } from '../context/AppContext';
 
 // ── Module-level helpers (never redefined) ────────────────────────────────────
 
@@ -67,7 +56,6 @@ const _call = {
   pc: null as RTCPeerConnection | null,
   audioStream: null as MediaStream | null,
   cameraStream: null as MediaStream | null,
-  cameraPromise: null as Promise<boolean> | null,
   screenStream: null as MediaStream | null,
   localMediaStream: new MediaStream(),
   remoteStream: null as MediaStream | null,
@@ -106,9 +94,7 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
   const screenVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const remoteScreenVideoRef = useRef<HTMLVideoElement>(null);
-
-  // Ref so PC event handlers can always reach the latest stopCall closure
-  const stopCallFnRef = useRef<((notifyRemote?: boolean) => void) | null>(null);
+  const remoteAudioRef = useRef<HTMLAudioElement>(null);
 
   // Visual state — initialised from module-level so it's correct after remount
   const [remoteVideoStatus, setRemoteVideoStatus] = useState<string>(
@@ -144,10 +130,14 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
     }
     if (_call.remoteStream && remoteVideoRef.current) {
       remoteVideoRef.current.srcObject = _call.remoteStream;
-      remoteVideoRef.current.muted = false;
+      remoteVideoRef.current.muted = true;
       remoteVideoRef.current.playsInline = true;
       remoteVideoRef.current.play().catch(() => {});
       setRemoteVideoStatus('видео играет');
+    }
+    if (_call.remoteStream && remoteAudioRef.current) {
+      remoteAudioRef.current.srcObject = _call.remoteStream;
+      remoteAudioRef.current.play().catch(() => {});
     }
     if (_call.screenStream?.active && screenVideoRef.current) {
       screenVideoRef.current.srcObject = _call.screenStream;
@@ -178,64 +168,35 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
     };
   };
 
-  const startAudio = async () => {
-    if (_call.audioStream?.active) return;
+  const startAudioVideo = async (wantVideo: boolean) => {
+    const needAudio = !_call.audioStream?.active;
+    const needVideo = wantVideo && !_call.cameraStream?.active;
+    if (!needAudio && !needVideo) return;
+
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      _call.audioStream = stream;
-    } catch (e) {
-      reportError(e);
+      if (needAudio && needVideo) {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
+        const audioOnly = new MediaStream(stream.getAudioTracks());
+        const videoOnly = new MediaStream(stream.getVideoTracks());
+        _call.audioStream = audioOnly;
+        _call.cameraStream = videoOnly;
+      } else if (needAudio) {
+        _call.audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      } else if (needVideo) {
+        _call.cameraStream = await navigator.mediaDevices.getUserMedia({ video: true });
+      }
+    } catch {
+      if (needAudio && !_call.audioStream?.active) {
+        try { _call.audioStream = await navigator.mediaDevices.getUserMedia({ audio: true }); } catch { }
+      }
     }
   };
 
-  const startCamera = (): Promise<boolean> => {
-    if (_call.cameraStream?.active) return Promise.resolve(true);
-    // Stop any stale inactive tracks so the OS releases the camera device before we request it again
-    if (_call.cameraStream && !_call.cameraStream.active) {
-      _call.cameraStream.getTracks().forEach(t => t.stop());
-      _call.cameraStream = null;
-    }
-    // Return the in-flight promise if one exists so concurrent callers
-    // share a single getUserMedia call instead of racing.
-    if (_call.cameraPromise) return _call.cameraPromise;
+  const startAudio = async () => { await startAudioVideo(false); };
 
-    const tryGetCamera = async (): Promise<MediaStream> => {
-      // 1. Try requesting by specific deviceId — more reliable on some Windows drivers
-      try {
-        const devices = await navigator.mediaDevices.enumerateDevices();
-        const cam = devices.find(d => d.kind === 'videoinput');
-        if (cam?.deviceId) {
-          return await navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: cam.deviceId } } });
-        }
-      } catch { /* fall through */ }
-
-      // 2. Bare request
-      try {
-        return await navigator.mediaDevices.getUserMedia({ video: true });
-      } catch (e) {
-        const err = e as DOMException;
-        // NotReadableError = hardware busy; give the driver 600ms to release and retry once
-        if (err.name === 'NotReadableError') {
-          await new Promise(r => setTimeout(r, 600));
-          return await navigator.mediaDevices.getUserMedia({ video: true });
-        }
-        throw e;
-      }
-    };
-
-    _call.cameraPromise = (async () => {
-      try {
-        const stream = await tryGetCamera();
-        _call.cameraStream = stream;
-        return true;
-      } catch {
-        setVideoActive(false);
-        return false;
-      } finally {
-        _call.cameraPromise = null;
-      }
-    })();
-    return _call.cameraPromise;
+  const startCamera = async (): Promise<boolean> => {
+    await startAudioVideo(true);
+    return !!_call.cameraStream?.active;
   };
 
   const addLocalTracks = (pc: RTCPeerConnection) => {
@@ -344,7 +305,6 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
     _call.screenStream?.getTracks().forEach(t => t.stop());
     _call.audioStream = null;
     _call.cameraStream = null;
-    _call.cameraPromise = null;
     _call.screenStream = null;
     _call.localMediaStream = new MediaStream();
     if (cameraVideoRef.current) cameraVideoRef.current.srcObject = null;
@@ -354,6 +314,14 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
 
   // ==================== WebRTC ====================
   const attachRemoteStream = useCallback((stream: MediaStream) => {
+    const audioEl = remoteAudioRef.current;
+    if (audioEl) {
+      audioEl.srcObject = stream;
+      audioEl.autoplay = true;
+      audioEl.volume = 1;
+      audioEl.play().catch(() => {});
+    }
+
     const videoEl = remoteVideoRef.current;
     if (!videoEl) return;
     videoEl.srcObject = stream;
@@ -361,27 +329,10 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
     videoEl.playsInline = true;
     const tryPlay = () => {
       videoEl.play()
-        .then(() => {
-          if (stream.getVideoTracks().length > 0) {
-            setRemoteVideoStatus('видео играет');
-            setTimeout(() => { if (videoEl) videoEl.muted = false; }, 1000);
-          } else {
-            // Audio-only stream — unmute immediately, keep video status as "no video"
-            videoEl.muted = false;
-          }
-        })
+        .then(() => setRemoteVideoStatus('видео играет'))
         .catch(() => setTimeout(tryPlay, 500));
     };
     tryPlay();
-
-    // Also watch for video tracks being added later (remote enables camera mid-call)
-    stream.onaddtrack = (e) => {
-      if (e.track.kind === 'video') setRemoteVideoStatus('видео играет');
-    };
-    stream.onremovetrack = (e) => {
-      if (e.track.kind === 'video' && stream.getVideoTracks().length === 0)
-        setRemoteVideoStatus('нет видео');
-    };
   }, []);
 
   const attachRemoteScreenStream = useCallback((stream: MediaStream) => {
@@ -416,31 +367,12 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
       if (event.candidate) sendSignal({ type: 'candidate', candidate: event.candidate, to: remoteId });
     };
 
-    pc.oniceconnectionstatechange = () => {
-      if (pc.iceConnectionState === 'failed' && _call.pc === pc) {
-        stopCallFnRef.current?.(false);
-      }
-    };
-
-    pc.onconnectionstatechange = () => {
-      if (pc.connectionState === 'failed' && _call.pc === pc) {
-        stopCallFnRef.current?.(false);
-      }
-    };
-
     pc.ontrack = (event) => {
       const stream = event.streams[0];
       if (!stream) return;
 
-      if (!_call.remoteStream) {
-        _call.remoteStream = stream;
-        _attachRemoteRef?.current(stream);
-      } else if (stream.id === _call.remoteStream.id) {
-        // New track added to the existing remote stream (e.g. camera enabled mid-call)
-        if (event.track.kind === 'video') {
-          _attachRemoteRef?.current(stream);
-        }
-      } else if (stream.id !== _call.remoteStream.id) {
+      // Screen share = different stream id from main remote stream
+      if (_call.remoteStream && stream.id !== _call.remoteStream.id) {
         _call.remoteScreenStream = stream;
         _attachRemoteScreenRef?.current(stream);
         setRemoteScreenActive(true);
@@ -455,7 +387,13 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
           _clearRemoteScreenRef?.current();
           setRemoteScreenActive(false);
         };
+        return;
       }
+
+      // Re-attach on every track event so a late audio track (arriving after video)
+      // is picked up by the audio element on Android (srcObject snapshots tracks).
+      _call.remoteStream = stream;
+      _attachRemoteRef?.current(stream);
     };
 
     return pc;
@@ -464,12 +402,13 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
   // ==================== Local video useEffect ====================
   useEffect(() => {
     if (!isVideoActive) return;
-    (async () => {
-      const ok = await startCamera();
-      if (ok && cameraVideoRef.current && _call.cameraStream) {
+    const init = async () => {
+      if (!_call.cameraStream?.active) await startCamera();
+      if (cameraVideoRef.current && _call.cameraStream) {
         attachStreamToVideo(cameraVideoRef.current, _call.cameraStream, setLocalVideoStatus, true);
       }
-    })();
+    };
+    init();
   }, [isVideoActive]);
 
   // ==================== Screen sharing useEffect ====================
@@ -570,24 +509,27 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
     _call.hasAutoCalled = true;
     const targetId = String(callTargetId);
     setCallTargetId(null);
-    callPeer(targetId, isVideoActive);
+    callPeer(targetId);
   }, [callTargetId]);
 
   // ==================== Call peer ====================
-  const callPeer = async (peerId: string, withVideo: boolean) => {
+  const callPeer = async (peerId: string) => {
     _call.targetId = String(peerId);
     setRemotePeerId(String(peerId));
     _call.pendingCandidates = [];
 
-    try { await startAudio(); } catch { }
-    if (withVideo) {
-      try {
-        if (!_call.cameraStream?.active) await startCamera();
-        if (cameraVideoRef.current && _call.cameraStream) {
-          attachStreamToVideo(cameraVideoRef.current, _call.cameraStream, setLocalVideoStatus, true);
-        }
-      } catch { }
-    }
+    // Read latest call mode from React state (set by ChatHeader.startCall just before)
+    const wantVideo = isVideoActive;
+
+    try {
+      // Voice call → request only audio.
+      // Video call → request audio+video TOGETHER (separate getUserMedia calls
+      // on Android Chrome silently kill the audio track of the previous one).
+      await startAudioVideo(wantVideo);
+      if (wantVideo && cameraVideoRef.current && _call.cameraStream) {
+        attachStreamToVideo(cameraVideoRef.current, _call.cameraStream, setLocalVideoStatus, true);
+      }
+    } catch { }
 
     const pc = createPeerConnection(String(peerId));
     _call.pc = pc;
@@ -595,7 +537,7 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
 
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
-    sendSignal({ type: 'offer', sdp: offer, to: peerId, withVideo });
+    sendSignal({ type: 'offer', sdp: offer, withVideo: wantVideo, to: peerId });
   };
 
   const processIncomingOffer = async (msg: any) => {
@@ -603,6 +545,9 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
     setRemotePeerId(senderId);
     _call.hasAutoCalled = true;
     setCallTargetId(null);
+
+    const wantVideo = !!msg.withVideo;
+    setVideoActive(wantVideo);
 
     try {
       if (_call.pc) _call.pc.close();
@@ -614,18 +559,12 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
 
       const pc = _call.pc;
 
-      try { await startAudio(); } catch { }
-      if (msg.withVideo) {
-        try {
-          if (!_call.cameraStream?.active) {
-            await startCamera();
-            setVideoActive(true);
-          }
-          if (cameraVideoRef.current && _call.cameraStream) {
-            attachStreamToVideo(cameraVideoRef.current, _call.cameraStream, setLocalVideoStatus, true);
-          }
-        } catch { }
-      }
+      try {
+        await startAudioVideo(wantVideo);
+        if (wantVideo && cameraVideoRef.current && _call.cameraStream) {
+          attachStreamToVideo(cameraVideoRef.current, _call.cameraStream, setLocalVideoStatus, true);
+        }
+      } catch { }
 
       await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
       addLocalTracks(pc);
@@ -663,6 +602,7 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
     _call.remoteScreenActive = false;
 
     if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
+    if (remoteAudioRef.current) remoteAudioRef.current.srcObject = null;
     if (remoteScreenVideoRef.current) remoteScreenVideoRef.current.srcObject = null;
 
     if (notifyRemote && targetId) sendSignal({ type: 'call-end', to: targetId });
@@ -677,22 +617,6 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
     setDemonstrationActive(false);
   };
 
-  // Keep the ref pointing at the latest stopCall so PC event handlers always reach it
-  stopCallFnRef.current = stopCall;
-
-  // Release all media tracks when the page unloads so the OS camera device is freed
-  useEffect(() => {
-    const cleanup = () => {
-      _call.audioStream?.getTracks().forEach(t => t.stop());
-      _call.cameraStream?.getTracks().forEach(t => t.stop());
-      _call.screenStream?.getTracks().forEach(t => t.stop());
-    };
-    window.addEventListener('beforeunload', cleanup);
-    return () => window.removeEventListener('beforeunload', cleanup);
-  }, []);
-
-  const isMobile = useMobile();
-
   // ==================== UI ====================
   const remoteUser = remotePeerId ? friends.find(f => String(f.id) === remotePeerId) : null;
   const remoteName = remoteUser?.nickname || remoteUser?.username || remotePeerId || '?';
@@ -701,6 +625,13 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
   const tileCount = 2 + (isDemonstrationActive ? 1 : 0) + (remoteScreenActive ? 1 : 0);
   const cols = Math.min(tileCount, 2);
 
+  const callBtnStyle = (bg: string): React.CSSProperties => ({
+    width: 48, height: 48, borderRadius: '50%', border: 'none',
+    background: bg, color: '#fff', fontWeight: 700, fontSize: 16,
+    cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+    flexShrink: 0,
+  });
+
   const videoFill: React.CSSProperties = { width: '100%', height: '100%', objectFit: 'contain', display: 'block' };
   const placeholderStyle: React.CSSProperties = {
     display: 'flex', flexDirection: 'column', alignItems: 'center',
@@ -708,10 +639,10 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
   };
 
   const outerStyle: React.CSSProperties = windowExpanded
-    ? { position: 'fixed', inset: 0, width: '100vw', height: '100vh', zIndex: 9500, background: '#111', display: 'flex', flexDirection: 'column' }
+    ? { position: 'fixed', inset: 0, width: '100vw', height: '100svh', zIndex: 9500, background: '#111', display: 'flex', flexDirection: 'column', paddingBottom: 'max(env(safe-area-inset-bottom), 24px)' }
     : inline
       ? { height: 420, background: '#111', display: 'flex', flexDirection: 'column' }
-      : { position: 'fixed', bottom: 0, right: 0, zIndex: 9500, background: '#111', display: 'flex', flexDirection: 'column', borderRadius: '12px 12px 0 0', boxShadow: '0 -4px 32px rgba(0,0,0,0.7)' };
+      : { position: 'fixed', bottom: 0, right: 0, width: 480, height: 420, zIndex: 9500, background: '#111', display: 'flex', flexDirection: 'column', borderRadius: '12px 12px 0 0', boxShadow: '0 -4px 32px rgba(0,0,0,0.7)' };
 
   return (
     <div className="call-window" style={outerStyle}>
@@ -738,7 +669,7 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
       </div>
 
       {/* Video grid */}
-      <div style={{ flex: 1, display: 'grid', gridTemplateColumns: !isMobile ? `repeat(${cols}, 1fr)` : undefined, gridAutoRows: '1fr', gap: 3, padding: 3, minHeight: 0, overflow: 'hidden' }}>
+      <div style={{ flex: 1, display: 'grid', gridTemplateColumns: `repeat(${cols}, 1fr)`, gridAutoRows: '1fr', gap: 3, padding: 3, minHeight: 0, overflow: 'hidden' }}>
         <Tile id="local" label="You" expandedTile={expandedTile} setExpandedTile={setExpandedTile}>
           <video ref={cameraVideoRef} autoPlay muted playsInline style={{ ...videoFill, display: isVideoActive ? 'block' : 'none' }} />
           {!isVideoActive && (
@@ -752,10 +683,10 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
         <Tile id="remote" label={remoteName} expandedTile={expandedTile} setExpandedTile={setExpandedTile}>
           <video
             ref={remoteVideoRef} autoPlay muted playsInline
-            style={{ ...videoFill, display: remoteVideoStatus === 'видео играет' ? 'block' : 'none' }}
-            onClick={() => { if (remoteVideoRef.current) remoteVideoRef.current.muted = false; }}
+            style={{ ...videoFill, display: remoteVideoStatus !== 'видео выключено' ? 'block' : 'none' }}
           />
-          {remoteVideoStatus !== 'видео играет' && (
+          <audio ref={remoteAudioRef} autoPlay playsInline style={{ display: 'none' }} />
+          {remoteVideoStatus === 'видео выключено' && (
             <div style={placeholderStyle}>
               <UserAvatar name={remoteName} avatar={remoteAvatar} size={48} />
               <span style={{ color: '#fff', fontWeight: 600, fontSize: 13 }}>{remoteName}</span>
@@ -777,56 +708,27 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
         )}
       </div>
 
-      {/* Controls */}
-      <div style={{ padding: '7px 0', width: '100%', display: 'flex', gap: 10, justifyContent: 'center', flexShrink: 0 }}>
-        <button className="icon-btn glass-btn" style={{ background: 'red' }} onClick={() => stopCall()}>X</button>
+      {/* Controls — pinned to bottom of call window, always visible above system bar */}
+      <div style={{ paddingTop: 10, paddingBottom: 'calc(10px + max(env(safe-area-inset-bottom), 24px))', width: '100%', display: 'flex', gap: 10, justifyContent: 'center', flexShrink: 0, background: 'rgba(0,0,0,0.85)', position: 'relative', zIndex: 5 }}>
+        <button onClick={() => stopCall()} style={callBtnStyle('#e0245e')}>X</button>
         <button
-          className="icon-btn glass-btn"
-          onClick={async () => {
+          onClick={() => {
             const newState = !isVideoActive;
             setVideoActive(newState);
-
-            if (newState) {
-              // Turning ON: start camera if not running, add track to PC, renegotiate
-              try {
-                if (!_call.cameraStream?.active) await startCamera();
-                if (cameraVideoRef.current && _call.cameraStream)
-                  attachStreamToVideo(cameraVideoRef.current, _call.cameraStream, setLocalVideoStatus, true);
-
-                const pc = _call.pc;
-                if (pc && _call.cameraStream) {
-                  const videoTrack = _call.cameraStream.getVideoTracks()[0];
-                  if (videoTrack) {
-                    const senders = pc.getSenders();
-                    const existing = senders.find(s => s.track?.kind === 'video' && s.track?.id === videoTrack.id);
-                    if (!existing) {
-                      pc.addTrack(videoTrack, _call.localMediaStream);
-                      const offer = await pc.createOffer();
-                      await pc.setLocalDescription(offer);
-                      sendSignal({ type: 'offer', sdp: offer, to: _call.targetId!, withVideo: true });
-                    } else {
-                      videoTrack.enabled = true;
-                    }
-                  }
-                }
-              } catch { }
-            } else {
-              // Turning OFF: just disable the track, no renegotiation needed
-              _call.cameraStream?.getVideoTracks().forEach(t => { t.enabled = false; });
+            if (_call.cameraStream) {
+              _call.cameraStream.getVideoTracks().forEach(track => { track.enabled = newState; });
             }
-
             if (_call.targetId) sendSignal({ type: 'video-toggle', enabled: newState, to: _call.targetId });
           }}
-        >
-          C
-        </button>
-        <button className="icon-btn glass-btn" onClick={() => {
+          style={callBtnStyle('#3a3d44')}
+        >C</button>
+        <button onClick={() => {
           if (_call.audioStream) {
             _call.audioStream.getAudioTracks().forEach(track => { track.enabled = !track.enabled; });
           }
-        }}>M</button>
-        <button className="icon-btn glass-btn">H</button>
-        <button className="icon-btn glass-btn" onClick={() => setDemonstrationActive(!isDemonstrationActive)}>D</button>
+        }} style={callBtnStyle('#3a3d44')}>M</button>
+        <button style={callBtnStyle('#3a3d44')}>H</button>
+        <button onClick={() => setDemonstrationActive(!isDemonstrationActive)} style={callBtnStyle('#3a3d44')}>D</button>
       </div>
     </div>
   );

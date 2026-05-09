@@ -93,17 +93,25 @@ class ChatConsumer(AsyncWebsocketConsumer):
 
         # Push a notification to every recipient via their always-on signaling WS
         sender_name = self.user_data.get('nickname') or self.user_data.get('username', '')
+        notif_content = content if content else ('\U0001f4ce Attachment' if attachment_ids else '')
         notification = {
             'type': 'new_message_notification',
             'sender_id': self.user_data.get('id', ''),
             'sender_name': sender_name,
-            'content': content if content else ('\U0001f4ce Attachment' if attachment_ids else ''),
+            'content': notif_content,
         }
-        for pid in await self.get_other_participant_ids():
+        other_ids = await self.get_other_participant_ids()
+        for pid in other_ids:
             await self.channel_layer.group_send(
                 f'user_{pid}',
                 {'type': 'new.message.notification', 'data': notification},
             )
+        # FCM push for participants whose app may be killed / screen off
+        await self.push_fcm_to_users(other_ids, {
+            'type': 'message',
+            'sender_name': sender_name,
+            'content': notif_content,
+        })
 
     async def chat_message(self, event):
         await self.send(text_data=ujson.dumps(event['message']))
@@ -226,6 +234,12 @@ class ChatConsumer(AsyncWebsocketConsumer):
             'reply_to': reply_to_data,
             'is_pinned': False,
         }
+
+    @database_sync_to_async
+    def push_fcm_to_users(self, user_ids, data):
+        from ionik_server.fcm import send_to_user
+        for uid in user_ids:
+            send_to_user(uid, data)
 
     @database_sync_to_async
     def get_other_participant_ids(self):
@@ -393,6 +407,15 @@ class GuildChannelConsumer(AsyncWebsocketConsumer):
             {'type': 'chat_message', 'message': msg_payload},
         )
 
+        # FCM push to guild members whose app may be killed / screen off
+        sender_name = self.user_data.get('nickname') or self.user_data.get('username', '')
+        member_ids = await self.get_guild_member_ids_except_self()
+        await self.push_fcm_to_users(member_ids, {
+            'type': 'message',
+            'sender_name': sender_name,
+            'content': content,
+        })
+
     async def guild_scheduled_queued(self, event):
         from django.utils.timezone import make_aware
         scheduled_id = event['scheduled_id']
@@ -413,6 +436,22 @@ class GuildChannelConsumer(AsyncWebsocketConsumer):
                 self.room_group,
                 {'type': 'chat_message', 'message': payload},
             )
+
+    @database_sync_to_async
+    def push_fcm_to_users(self, user_ids, data):
+        from ionik_server.fcm import send_to_user
+        for uid in user_ids:
+            send_to_user(uid, data)
+
+    @database_sync_to_async
+    def get_guild_member_ids_except_self(self):
+        from ionik_messages.models import GuildMembership
+        ids = list(
+            GuildMembership.objects.filter(guild_id=self.guild_id)
+            .exclude(user_id=self.user_data['id'])
+            .values_list('user_id', flat=True)
+        )
+        return [str(uid) for uid in ids]
 
     @database_sync_to_async
     def get_pending_scheduled(self):

@@ -2,6 +2,15 @@ import { SERVER_IPS } from '../config/servers';
 
 const TIMEOUT_MS = 3000;
 
+const pageIsHttps = typeof window !== 'undefined' && window.location.protocol === 'https:';
+
+/** Upgrade http:// → https:// when the page itself is loaded over HTTPS. */
+export function upgradeProtocol(url: string): string {
+  if (!pageIsHttps) return url;
+  if (url.startsWith('http://')) return 'https://' + url.slice('http://'.length);
+  return url;
+}
+
 /**
  * Probes each IP from SERVER_IPS in parallel.
  * Returns the first one that responds (any HTTP status counts —

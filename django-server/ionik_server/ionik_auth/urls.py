@@ -43,4 +43,6 @@ urlpatterns = [
     path('emojis/', views.emoji_list),
     path('emojis/create/', views.emoji_create),
     path('emojis/<uuid:emoji_id>/', views.emoji_delete),
+    # FCM device token (POST = register, DELETE = unregister)
+    path('fcm-token/', views.fcm_token),
 ]

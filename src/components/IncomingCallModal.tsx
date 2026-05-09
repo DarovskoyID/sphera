@@ -9,7 +9,6 @@ export const IncomingCallModal = () => {
     incomingOffer,
     setIncomingOffer,
     setCallActive,
-    setCallTargetId,
     setVideoActive,
     setCurrentChat,
     sendSignal,
@@ -62,33 +61,43 @@ export const IncomingCallModal = () => {
   const callerName = callerFriend?.nickname || callerFriend?.username || callerPeer?.name || String(incomingOffer?.from ?? '');
   const callerAvatar = callerFriend?.avatar || '';
 
-  const accept = () => {
-    if (!incomingOffer) return;
+  const acceptCall = (forceVideo?: boolean) => {
+    if (!incomingOfferRef.current) return;
+    const offer = incomingOfferRef.current;
     if ((window as any).AndroidBridge) {
       (window as any).AndroidBridge.cancelCallNotification();
     }
     const offerWithCandidates = {
-      ...incomingOffer,
+      ...offer,
+      withVideo: forceVideo !== undefined ? forceVideo : offer.withVideo,
       bufferedCandidates: [...bufferedCandidates.current],
     };
     bufferedCandidates.current = [];
     setIncomingOffer(offerWithCandidates);
-    setCallTargetId(String(incomingOffer.from));
-    if (incomingOffer.withVideo) setVideoActive(true);
-    // Open the chat with the caller — set chat first, then navigate to home
-    setCurrentChat(String(incomingOffer.from));
+    setVideoActive(!!offerWithCandidates.withVideo);
+    setCurrentChat(String(offer.from));
     setCallActive(true);
   };
 
   const reject = () => {
-    if (!incomingOffer) return;
+    if (!incomingOfferRef.current) return;
     if ((window as any).AndroidBridge) {
       (window as any).AndroidBridge.cancelCallNotification();
     }
-    sendSignal({ type: 'call-rejected', to: incomingOffer.from });
+    sendSignal({ type: 'call-rejected', to: incomingOfferRef.current.from });
     bufferedCandidates.current = [];
     setIncomingOffer(null);
   };
+
+  // Expose callbacks for native Android to trigger accept/decline
+  useEffect(() => {
+    (window as any).ionikAcceptCall = (withVideo?: boolean) => acceptCall(withVideo);
+    (window as any).ionikDeclineCall = () => reject();
+    return () => {
+      delete (window as any).ionikAcceptCall;
+      delete (window as any).ionikDeclineCall;
+    };
+  });
 
   if (isCallActive || !incomingOffer) return null;
 
@@ -164,7 +173,7 @@ export const IncomingCallModal = () => {
             <PhoneOff size={24} />
           </button>
           <button
-            onClick={accept}
+            onClick={() => acceptCall()}
             style={{
               width: 56,
               height: 56,

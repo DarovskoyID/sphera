@@ -108,6 +108,7 @@ class UserSettings(models.Model):
     chat_show_timestamps = models.BooleanField(default=True)
     chat_emoji_reactions = models.BooleanField(default=True)
     chat_compact_mode = models.BooleanField(default=False)
+    chat_message_spacing = models.PositiveSmallIntegerField(default=4)
     # Data & Privacy
     data_app_improvements = models.BooleanField(default=True)
     data_personalization = models.BooleanField(default=True)
@@ -154,6 +155,15 @@ class UserDevice(models.Model):
 
     def __str__(self):
         return f"{self.user} - {self.device_name} ({self.ip_address})"
+
+
+class FcmToken(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='fcm_tokens')
+    token = models.TextField(unique=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"{self.user} — {self.token[:20]}..."
 
 
 def _emoji_upload_path(instance, filename):

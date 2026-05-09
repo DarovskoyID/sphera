@@ -2,6 +2,7 @@ import json
 from channels.generic.websocket import AsyncWebsocketConsumer
 from channels.db import database_sync_to_async
 from django.db.models import Q
+from asgiref.sync import sync_to_async
 
 
 class SignalingConsumer(AsyncWebsocketConsumer):
@@ -95,11 +96,26 @@ class SignalingConsumer(AsyncWebsocketConsumer):
         data = json.loads(text_data)
         target_id = str(data.get('to', ''))
         target = SignalingConsumer._users.get(target_id)
+        signal_type = data.get('type', '')
         if target:
             await self.channel_layer.send(target['channel'], {
                 'type': 'signal.forward',
                 'data': {**data, 'from': self.user_id},
             })
+        elif signal_type == 'offer':
+            # Target is offline — send FCM call notification so their device wakes up
+            caller_name = SignalingConsumer._users.get(self.user_id, {}).get('name', '') or self.user_id
+            with_video = str(data.get('withVideo', data.get('with_video', False))).lower()
+            await self._push_fcm_call(target_id, caller_name, with_video)
+
+    @database_sync_to_async
+    def _push_fcm_call(self, target_id, caller_name, with_video):
+        from ionik_server.fcm import send_to_user
+        send_to_user(target_id, {
+            'type': 'call',
+            'caller_name': caller_name,
+            'with_video': with_video,
+        })
 
     async def signal_forward(self, event):
         await self.send(text_data=json.dumps(event['data']))

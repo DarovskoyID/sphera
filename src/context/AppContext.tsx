@@ -70,6 +70,7 @@ function shadeColor(hex: string, pct: number): string {
 }
 // Apply on load
 applyAccent(localStorage.getItem('accentColor') || DEFAULT_ACCENT);
+document.documentElement.style.setProperty('--chat-message-gap', '4px');
 
 interface AppContextType extends AppState {
   setCurrentView: (view: ViewType) => void;
@@ -330,6 +331,31 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     };
     load();
   }, [state.authToken]);
+
+  // ==================== FCM token registration (Android push notifications) ====================
+  useEffect(() => {
+    if (!state.authToken || !state.currentServerIP) return;
+
+    const registerToken = (token: string) => {
+      fetch(`${state.currentServerIP}/api/auth/fcm-token/`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${state.authToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ token }),
+      }).catch(() => {/* silent — non-critical */});
+    };
+
+    (window as any).ionikOnFcmToken = registerToken;
+
+    // Request the token from Android if the bridge is available
+    if ((window as any).AndroidBridge?.requestFcmToken) {
+      (window as any).AndroidBridge.requestFcmToken();
+    }
+
+    return () => { (window as any).ionikOnFcmToken = undefined; };
+  }, [state.authToken, state.currentServerIP]);
 
   // ==================== Friends actions ====================
   const loadFriends = useCallback(async () => {
