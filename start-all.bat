@@ -85,35 +85,31 @@ powershell -NoProfile -Command "Get-NetTCPConnection -LocalPort 8000 -ErrorActio
 start "ionik-django" cmd /k ^"cd /d "%DJANGO_DIR%" ^&^& "%PYTHON%" manage.py migrate --noinput ^&^& "%PYTHON%" -m daphne -b 0.0.0.0 -p 8000 ionik_server.asgi:application^"
 echo        Done.
 
-:: ─── 6. STUN / TURN server (pion turn — native Windows) ─────────────────────
+:: ─── 6. STUN / TURN server (coturn via WSL) ─────────────────────────────────
 
-echo [6/6] Starting STUN/TURN server (pion turn) ...
+echo [6/6] Starting STUN/TURN server (coturn via WSL) ...
 
-:: Build turn-server.exe if missing
-if not exist "%TURN_EXE%" (
-    echo        turn-server.exe not found -- building from Go sources ...
-    if not exist "%GO_EXE%" (
-        echo [ERROR] Go not installed at %GO_EXE%
-        echo  Fix: winget install GoLang.Go
-        pause & exit /b 1
-    )
-    pushd "%TURN_DIR%"
-    "%GO_EXE%" mod tidy
-    "%GO_EXE%" build -o turn-server.exe .
-    popd
-    if not exist "%TURN_EXE%" (
-        echo [ERROR] go build failed
-        pause & exit /b 1
-    )
-    echo        Build OK.
+:: Verify coturn config exists in WSL home
+wsl -e bash -c "test -f ~/turnserver.conf" >nul 2>&1
+if errorlevel 1 (
+    echo [ERROR] ~/turnserver.conf not found in WSL.
+    echo        Configure coturn first - see project docs.
+    pause & exit /b 1
 )
 
-:: Stop anything currently bound to 3478
+:: Ensure TURN user exists in SQLite DB (idempotent)
+wsl -e bash -c "test -s ~/turndb && sqlite3 ~/turndb 'SELECT 1 FROM turnusers_lt WHERE name=\"ionikuser\" LIMIT 1' | grep -q 1 || turnadmin -a -u ionikuser -r bottomweb.ru -p ionikturn123 -b ~/turndb >/dev/null 2>&1; exit 0" >nul 2>&1
+
+:: Stop anything currently bound to 3478 on Windows side (pion remnants etc.)
 powershell -NoProfile -Command "Get-NetUDPEndpoint -LocalPort 3478 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }"
 powershell -NoProfile -Command "Get-NetTCPConnection -LocalPort 3478 -State Listen -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }"
-wsl -d Ubuntu -u root -- bash -c "systemctl stop coturn 2>/dev/null; killall -9 turnserver 2>/dev/null; exit 0" >nul 2>&1
-timeout /t 2 >nul
-start "ionik-turn" "%TURN_EXE%" -public-ip 89.208.74.21 -port 3478 -realm ionik.local -users ionikuser=ionikturn123 -relay-min 49160 -relay-max 49200
+
+:: Stop existing coturn in WSL
+wsl -e bash -c "pkill -9 turnserver 2>/dev/null; exit 0" >nul 2>&1
+timeout /t 1 >nul
+
+:: Start coturn in WSL (background, log to ~/coturn.log)
+start "ionik-coturn" wsl -e bash -c "turnserver -c ~/turnserver.conf > ~/coturn.log 2>&1"
 echo        Done.
 
 :: ─── Summary ──────────────────────────────────────────────────────────────────
@@ -133,9 +129,26 @@ pause >nul
 
 echo.
 echo Stopping services...
+
+:: Close child cmd windows (Django + coturn launchers)
 taskkill /f /fi "windowtitle eq ionik-django*" >nul 2>&1
+taskkill /f /fi "windowtitle eq ionik-coturn*" >nul 2>&1
 taskkill /f /fi "windowtitle eq ionik-turn*"   >nul 2>&1
-"%NGINX_DIR%\nginx.exe" -s stop                >nul 2>&1
+
+:: Daphne (python.exe) listening on 8000 — kill by port
+powershell -NoProfile -Command "Get-NetTCPConnection -LocalPort 8000 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }" >nul 2>&1
+
+:: coturn inside WSL
+wsl -e bash -c "pkill -9 turnserver 2>/dev/null; exit 0" >nul 2>&1
+
+:: nginx — graceful then force
+"%NGINX_DIR%\nginx.exe" -s stop >nul 2>&1
+timeout /t 1 >nul
+taskkill /f /im nginx.exe >nul 2>&1
+
+:: Any leftover pion turn server (if user still had it)
+taskkill /f /im turn-server.exe >nul 2>&1
+
 echo Done. Bye!
 timeout /t 2 >nul
 

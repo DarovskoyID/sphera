@@ -96,6 +96,12 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
   const remoteScreenVideoRef = useRef<HTMLVideoElement>(null);
   const remoteAudioRef = useRef<HTMLAudioElement>(null);
 
+  // Keep latest value of isVideoActive accessible from async functions (closures
+  // capture the value at call time, but isVideoActive may have just been set by
+  // ChatHeader.startCall and not yet propagated through this render).
+  const isVideoActiveRef = useRef(isVideoActive);
+  isVideoActiveRef.current = isVideoActive;
+
   // Visual state — initialised from module-level so it's correct after remount
   const [remoteVideoStatus, setRemoteVideoStatus] = useState<string>(
     _call.remoteStream ? 'видео играет' : 'нет видео'
@@ -313,13 +319,19 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
   };
 
   // ==================== WebRTC ====================
+  // Remote audio plays through a dedicated <audio> element (no autoplay block
+  // for hidden audio elements after a user gesture). Remote video plays muted
+  // through a <video> element (visual only — sound comes from <audio>).
   const attachRemoteStream = useCallback((stream: MediaStream) => {
     const audioEl = remoteAudioRef.current;
     if (audioEl) {
       audioEl.srcObject = stream;
       audioEl.autoplay = true;
       audioEl.volume = 1;
-      audioEl.play().catch(() => {});
+      const tryPlayAudio = () => {
+        audioEl.play().catch(() => setTimeout(tryPlayAudio, 500));
+      };
+      tryPlayAudio();
     }
 
     const videoEl = remoteVideoRef.current;
@@ -361,7 +373,17 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
   _clearRemoteScreenRef = _clearRemoteScreenLocalRef;
 
   const createPeerConnection = (remoteId: string): RTCPeerConnection => {
-    const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
+    const host = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
+    const pc = new RTCPeerConnection({
+      iceServers: [
+        { urls: `stun:${host}:3478` },
+        {
+          urls: [`turn:${host}:3478?transport=udp`, `turn:${host}:3478?transport=tcp`],
+          username: 'ionikuser',
+          credential: 'ionikturn123',
+        },
+      ],
+    });
 
     pc.onicecandidate = (event) => {
       if (event.candidate) sendSignal({ type: 'candidate', candidate: event.candidate, to: remoteId });
@@ -514,12 +536,30 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
 
   // ==================== Call peer ====================
   const callPeer = async (peerId: string) => {
+    // Close any leftover RTCPeerConnection from a previous call — otherwise its
+    // UDP sockets / ICE state can interfere with the new connection's ICE
+    // gathering, causing iceConnectionState=disconnected on subsequent calls.
+    if (_call.pc) {
+      try { _call.pc.close(); } catch { }
+      _call.pc = null;
+    }
+    _call.remoteStream = null;
+    _call.remoteScreenStream = null;
+
     _call.targetId = String(peerId);
     setRemotePeerId(String(peerId));
     _call.pendingCandidates = [];
 
-    // Read latest call mode from React state (set by ChatHeader.startCall just before)
-    const wantVideo = isVideoActive;
+    // Read latest call mode from a ref (avoids stale closure value)
+    const wantVideo = isVideoActiveRef.current;
+
+    // For voice calls clear any stale camera stream from a previous call so the
+    // local "Video off" placeholder shows instead of an empty black <video>.
+    if (!wantVideo && _call.cameraStream) {
+      _call.cameraStream.getTracks().forEach(t => t.stop());
+      _call.cameraStream = null;
+      if (cameraVideoRef.current) cameraVideoRef.current.srcObject = null;
+    }
 
     try {
       // Voice call → request only audio.
@@ -535,9 +575,11 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
     _call.pc = pc;
     addLocalTracks(pc);
 
-    const offer = await pc.createOffer();
-    await pc.setLocalDescription(offer);
-    sendSignal({ type: 'offer', sdp: offer, withVideo: wantVideo, to: peerId });
+    try {
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      sendSignal({ type: 'offer', sdp: offer, withVideo: wantVideo, to: peerId });
+    } catch { }
   };
 
   const processIncomingOffer = async (msg: any) => {
@@ -548,6 +590,13 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
 
     const wantVideo = !!msg.withVideo;
     setVideoActive(wantVideo);
+
+    // Clear stale camera stream from a previous call when this is voice-only
+    if (!wantVideo && _call.cameraStream) {
+      _call.cameraStream.getTracks().forEach(t => t.stop());
+      _call.cameraStream = null;
+      if (cameraVideoRef.current) cameraVideoRef.current.srcObject = null;
+    }
 
     try {
       if (_call.pc) _call.pc.close();
@@ -712,12 +761,40 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
       <div style={{ paddingTop: 10, paddingBottom: 'calc(10px + max(env(safe-area-inset-bottom), 24px))', width: '100%', display: 'flex', gap: 10, justifyContent: 'center', flexShrink: 0, background: 'rgba(0,0,0,0.85)', position: 'relative', zIndex: 5 }}>
         <button onClick={() => stopCall()} style={callBtnStyle('#e0245e')}>X</button>
         <button
-          onClick={() => {
+          onClick={async () => {
             const newState = !isVideoActive;
-            setVideoActive(newState);
-            if (_call.cameraStream) {
-              _call.cameraStream.getVideoTracks().forEach(track => { track.enabled = newState; });
+            if (newState) {
+              // Acquire camera if we don't have one yet (voice call → enabling video)
+              if (!_call.cameraStream?.active) {
+                try {
+                  const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+                  _call.cameraStream = stream;
+                } catch { return; }
+              } else {
+                _call.cameraStream.getVideoTracks().forEach(t => { t.enabled = true; });
+              }
+              if (cameraVideoRef.current && _call.cameraStream) {
+                attachStreamToVideo(cameraVideoRef.current, _call.cameraStream, setLocalVideoStatus, true);
+              }
+              // If video track isn't yet on the peer connection, add it and renegotiate.
+              if (_call.pc && _call.targetId && _call.cameraStream) {
+                const videoTrack = _call.cameraStream.getVideoTracks()[0];
+                const senders = _call.pc.getSenders();
+                if (videoTrack && !senders.some(s => s.track?.id === videoTrack.id)) {
+                  _call.pc.addTrack(videoTrack, _call.localMediaStream);
+                  try {
+                    const offer = await _call.pc.createOffer();
+                    await _call.pc.setLocalDescription(offer);
+                    sendSignal({ type: 'offer', sdp: offer, withVideo: true, to: _call.targetId });
+                  } catch { }
+                }
+              }
+            } else {
+              if (_call.cameraStream) {
+                _call.cameraStream.getVideoTracks().forEach(t => { t.enabled = false; });
+              }
             }
+            setVideoActive(newState);
             if (_call.targetId) sendSignal({ type: 'video-toggle', enabled: newState, to: _call.targetId });
           }}
           style={callBtnStyle('#3a3d44')}
