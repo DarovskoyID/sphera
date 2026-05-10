@@ -863,14 +863,14 @@ svg {
 .messages-list {
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-md);
+  gap: var(--chat-message-gap, 16px);
 }
 
 /* Message Item */
 .message-item {
   display: flex;
   gap: var(--spacing-md);
-  padding: var(--spacing-sm);
+  padding: 2px var(--spacing-sm);
   border-radius: var(--radius-md);
   transition: background-color var(--transition-fast);
 }
@@ -914,10 +914,7 @@ svg {
   font-size: 15px;
   line-height: 1.5;
   color: var(--text-primary);
-  word-wrap: break-word;
-  overflow-wrap: break-word;
-  word-break: break-word;
-  hyphens: auto;
+  overflow-wrap: anywhere;
 }
 
 .message-item.own {
@@ -925,23 +922,62 @@ svg {
 }
 
 .message-item.own .message-content {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
+  text-align: right;
 }
 
 .message-item.own .message-text {
+  display: inline-block;
+  text-align: left;
   background-color: var(--message-own);
   padding: var(--spacing-sm) var(--spacing-md);
   border-radius: var(--radius-md);
   border-bottom-right-radius: 4px;
+  max-width: 80%;
 }
 
 .message-item:not(.own) .message-text {
+  display: inline-block;
   background-color: var(--message-other);
   padding: var(--spacing-sm) var(--spacing-md);
   border-radius: var(--radius-md);
   border-bottom-left-radius: 4px;
+  max-width: 80%;
+}
+
+.message-timestamp {
+  padding-left: 4px;
+}
+
+/* Author name above the bubble line — pinned to the right for own messages */
+.message-item.own .message-author-bubble {
+  text-align: right;
+  display: block;
+}
+
+/* message-line is the row that holds body + timestamp + read-receipt.
+   For own messages we put receipt + time on the LEFT of the body. */
+.message-line {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+/* For own messages: receipt + time on the LEFT, body fills the rest */
+.message-item.own .message-timestamp {
+  padding-left: 0;
+  padding-right: 6px;
+  order: 2;
+}
+
+.message-item.own .message-body {
+  order: 3;
+  flex: 1;
+}
+
+/* Read receipt (svg from lucide) sits LEFTMOST for own messages */
+.message-item.own .message-line > svg {
+  order: 1;
 }
 
 /* Date Divider */
@@ -1644,12 +1680,12 @@ svg {
     bottom: 0;
     left: 0;
     width: 100%;
-    height: calc(60px + var(--safe-bottom));
+    height: calc(60px);
     z-index: 100;
     flex-direction: row;
     border-right: none;
     border-top: 1px solid var(--border-color);
-    padding: 0 var(--spacing-sm) var(--safe-bottom);
+    padding: 0 var(--spacing-sm);
     overflow-x: auto;
     overflow-y: hidden;
   }
@@ -1685,7 +1721,7 @@ svg {
     top: 0;
     left: 0;
     width: 100%;
-    height: calc(100% - 60px - var(--safe-bottom));
+    height: calc(100% - 60px);
     z-index: 10;
     transition: transform var(--transition-normal);
     transform: translateX(0);
@@ -1696,7 +1732,7 @@ svg {
     top: 0;
     left: 0;
     width: 100%;
-    height: calc(100% - 60px - var(--safe-bottom));
+    height: calc(100% - 60px);
     z-index: 20;
     transition: transform var(--transition-normal);
     transform: translateX(100%);
@@ -1831,13 +1867,12 @@ svg {
     top: 0;
     left: 0;
     width: 100vw;
-    height: calc(100svh - 60px - var(--safe-bottom)) !important;
+    height: calc(100svh - 60px) !important;
     z-index: 300;
     flex-direction: column;
   }
 
   .call-window video {
-    max-width: 45vw;
     height: auto;
   }
 }

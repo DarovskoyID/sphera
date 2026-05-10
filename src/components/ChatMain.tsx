@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useLayoutEffect } from 'react';
-import { Phone, Video, Search, Menu, ArrowLeft, Plus, Smile, Send, FileText, FileImage, FileVideo, FileAudio, File, Download, X, MoreHorizontal, Reply, Copy, Trash2, Flag, Pin, Clock, Ban } from 'lucide-react';
+import { Phone, Video, Search, Menu, ArrowLeft, Plus, Smile, Send, FileText, FileImage, FileVideo, FileAudio, File, Download, X, MoreHorizontal, Reply, Copy, Trash2, Flag, Pin, Clock, Ban, Check, CheckCheck } from 'lucide-react';
 import type { ChatAttachment, ChatMessage as ChatMessageType } from '../types';
 import { useApp, reportError } from '../context/AppContext';
 import { Settings } from './Settings';
@@ -504,6 +504,24 @@ function highlightText(text: string, query: string): React.ReactNode {
   );
 }
 
+// ── Read receipt indicator ────────────────────────────────────────────────────
+// ✓        = sent (server has the id)
+// ✓        = clock if id missing (still sending)
+// ✓✓       = delivered to recipient (their chat WS connected)
+// ✓✓ blue  = read (recipient opened the chat)
+const ReadReceipt: React.FC<{ msg: ChatMessageType }> = ({ msg }) => {
+  if (!msg.id || String(msg.id).startsWith('tmp-')) {
+    return <Clock size={13} style={{ marginLeft: 4, color: 'var(--text-tertiary)', verticalAlign: 'middle' }} />;
+  }
+  if (msg.read_at) {
+    return <CheckCheck size={14} style={{ marginLeft: 4, width: 15, color: '#3a8ee6', verticalAlign: 'middle' }} />;
+  }
+  if (msg.delivered_at) {
+    return <CheckCheck size={14} style={{ marginLeft: 4, width: 15, color: 'var(--text-tertiary)', verticalAlign: 'middle' }} />;
+  }
+  return <Check size={14} style={{ marginLeft: 4, width: 15, color: 'var(--text-tertiary)', verticalAlign: 'middle' }} />;
+};
+
 const MessageRow = React.memo(({ msg, isOwn, isFirstInGroup, onContextMenu, onReply, customEmojis, searchQuery }: {
   msg: ChatMessageType;
   isOwn: boolean;
@@ -578,6 +596,7 @@ const MessageRow = React.memo(({ msg, isOwn, isFirstInGroup, onContextMenu, onRe
                   }
                 </span>
                 <span className="message-timestamp">{time}</span>
+                {isOwn && <ReadReceipt msg={msg} />}
               </div>
             </div>
           )}
@@ -585,7 +604,10 @@ const MessageRow = React.memo(({ msg, isOwn, isFirstInGroup, onContextMenu, onRe
             <AttachmentView key={att.id} att={att} />
           ))}
           {!msg.content && msg.attachments?.length && (
-            <span className="message-timestamp message-timestamp-standalone">{time}</span>
+            <span className="message-timestamp message-timestamp-standalone">
+              {time}
+              {isOwn && <ReadReceipt msg={msg} />}
+            </span>
           )}
         </div>
       </div>

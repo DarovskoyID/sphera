@@ -575,6 +575,8 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
 
         ws.onopen = () => {
           chatWs.current = ws;
+          // Tell server: I've opened the chat — mark all incoming as read.
+          try { ws.send(JSON.stringify({ type: 'mark_read' })); } catch { /* ignore */ }
         };
 
         ws.onmessage = (event) => {
@@ -611,6 +613,20 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
               ...prev,
               chatMessages: prev.chatMessages.map(m =>
                 m.id === data.id ? { ...m, is_pinned: data.is_pinned } : m
+              ),
+            }));
+          } else if (data.type === 'message_status') {
+            const ids: string[] = data.ids || [];
+            const field: 'delivered_at' | 'read_at' = data.field;
+            const ts: string = data.ts;
+            setState(prev => ({
+              ...prev,
+              chatMessages: prev.chatMessages.map(m =>
+                ids.includes(String(m.id))
+                  ? (field === 'read_at'
+                      ? { ...m, read_at: ts, delivered_at: m.delivered_at || ts }
+                      : { ...m, delivered_at: ts })
+                  : m
               ),
             }));
           } else {

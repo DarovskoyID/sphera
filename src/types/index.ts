@@ -51,6 +51,8 @@ export interface ChatMessage {
     deleted?: boolean;
   } | null;
   is_pinned?: boolean;
+  delivered_at?: string | null;
+  read_at?: string | null;
 }
 
 export interface ServerChannel {

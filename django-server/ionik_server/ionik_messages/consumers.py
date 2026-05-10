@@ -39,11 +39,31 @@ class ChatConsumer(AsyncWebsocketConsumer):
         for item in pending:
             asyncio.ensure_future(self._deliver_scheduled(item['id'], item['send_at']))
 
+        # Mark all incoming (other-author) messages without delivered_at as delivered
+        delivered = await self.mark_delivered(user.id)
+        if delivered:
+            await self.channel_layer.group_send(
+                self.room_group,
+                {'type': 'message_status', 'ids': delivered, 'field': 'delivered_at', 'ts': timezone.now().isoformat()},
+            )
+
     async def disconnect(self, close_code):
         await self.channel_layer.group_discard(self.room_group, self.channel_name)
 
     async def receive(self, text_data):
         data = ujson.loads(text_data)
+
+        # Read-receipt command: client opened the chat, mark unread incoming messages as read
+        if data.get('type') == 'mark_read':
+            user = self.scope.get('user')
+            read = await self.mark_read(user.id)
+            if read:
+                await self.channel_layer.group_send(
+                    self.room_group,
+                    {'type': 'message_status', 'ids': read, 'field': 'read_at', 'ts': timezone.now().isoformat()},
+                )
+            return
+
         content = data.get('message', '').strip()
         attachment_ids = data.get('attachment_ids', [])
         if isinstance(attachment_ids, int):
@@ -115,6 +135,14 @@ class ChatConsumer(AsyncWebsocketConsumer):
 
     async def chat_message(self, event):
         await self.send(text_data=ujson.dumps(event['message']))
+
+    async def message_status(self, event):
+        await self.send(text_data=ujson.dumps({
+            'type': 'message_status',
+            'ids': event['ids'],
+            'field': event['field'],
+            'ts': event['ts'],
+        }))
 
     async def message_deleted(self, event):
         await self.send(text_data=ujson.dumps({
@@ -240,6 +268,34 @@ class ChatConsumer(AsyncWebsocketConsumer):
         from ionik_server.fcm import send_to_user
         for uid in user_ids:
             send_to_user(uid, data)
+
+    @database_sync_to_async
+    def mark_delivered(self, user_id):
+        """Mark all messages by OTHER authors in this conversation as delivered.
+        Returns list of message ids that were just updated."""
+        qs = Message.objects.filter(
+            conversation_id=self.conversation_id,
+            delivered_at__isnull=True,
+        ).exclude(author_id=user_id)
+        ids = [str(mid) for mid in qs.values_list('id', flat=True)]
+        if ids:
+            qs.update(delivered_at=timezone.now())
+        return ids
+
+    @database_sync_to_async
+    def mark_read(self, user_id):
+        """Mark all messages by OTHER authors as read."""
+        qs = Message.objects.filter(
+            conversation_id=self.conversation_id,
+            read_at__isnull=True,
+        ).exclude(author_id=user_id)
+        ids = [str(mid) for mid in qs.values_list('id', flat=True)]
+        if ids:
+            now = timezone.now()
+            # Also fill delivered_at for messages that somehow weren't marked
+            Message.objects.filter(id__in=ids, delivered_at__isnull=True).update(delivered_at=now)
+            qs.update(read_at=now)
+        return ids
 
     @database_sync_to_async
     def get_other_participant_ids(self):
