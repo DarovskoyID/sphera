@@ -1,12 +1,13 @@
 import React, { useEffect, useRef, useCallback, useState } from 'react';
 import { useApp } from '../context/AppContext';
 
+const TURN_HOST = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
 const ICE_SERVERS = [
-  { urls: 'stun:bottomweb.ru:3478' },
+  { urls: `stun:${TURN_HOST}:3478` },
   {
     urls: [
-      'turn:bottomweb.ru:3478?transport=udp',
-      'turn:bottomweb.ru:3478?transport=tcp',
+      `turn:${TURN_HOST}:3478?transport=udp`,
+      `turn:${TURN_HOST}:3478?transport=tcp`,
     ],
     username: 'ionikuser',
     credential: 'ionikturn123',
