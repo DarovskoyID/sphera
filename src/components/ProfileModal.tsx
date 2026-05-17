@@ -85,7 +85,7 @@ export const ProfileModal: React.FC<{
         {/* Banner */}
         <div style={{
           height: 80,
-          background: 'linear-gradient(135deg, var(--accent-primary) 0%, var(--accent-active) 100%)',
+          background: 'var(--bg-tertiary)', borderBottom: '1px solid var(--border-color)',
           position: 'relative', flexShrink: 0,
         }}>
           <button onClick={onClose} style={{

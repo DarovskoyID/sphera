@@ -1,7 +1,8 @@
 @echo off
 setlocal EnableDelayedExpansion
 
-set "ROOT=%~dp0"
+set "ROOT=%~dp0..\.."
+set "ROOT=%ROOT%\"
 set "NGINX_DIR=D:\nginx-1.29.8"
 set "NGINX_HTML=%NGINX_DIR%\html"
 set "PYTHON=%ROOT%django-server\myenv\Scripts\python.exe"

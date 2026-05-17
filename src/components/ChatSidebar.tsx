@@ -123,7 +123,7 @@ const ProfileModal: React.FC<{
         {/* Banner */}
         <div style={{
           height: 80,
-          background: 'linear-gradient(135deg, var(--accent-primary) 0%, var(--accent-active) 100%)',
+          background: 'var(--bg-tertiary)', borderBottom: '1px solid var(--border-color)',
           position: 'relative',
           flexShrink: 0,
         }}>
@@ -596,6 +596,29 @@ export const ChatSidebar: React.FC = () => {
     }
   };
 
+  // Live search: debounce 300ms so users see suggestions as they type
+  useEffect(() => {
+    if (!showAddFriend) return;
+    const q = addQuery.trim();
+    if (!q) {
+      setSearchResults([]);
+      setAddError('');
+      return;
+    }
+    const t = setTimeout(async () => {
+      setAddError('');
+      try {
+        const results = await searchUsers(q);
+        setSearchResults(results);
+        if (results.length === 0) setAddError(tr('friends_no_users'));
+      } catch {
+        setAddError(tr('friends_search_failed'));
+      }
+    }, 300);
+    return () => clearTimeout(t);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [addQuery, showAddFriend]);
+
   const handleSendRequest = async (userId: string) => {
     setAddError(''); setAddSuccess('');
     const user = searchResults.find(u => String(u.id) === String(userId));
@@ -746,9 +769,8 @@ export const ChatSidebar: React.FC = () => {
                   value={addQuery}
                   onChange={e => setAddQuery(e.target.value)}
                   onKeyDown={e => e.key === 'Enter' && handleSearch()}
+                  style={{ flex: 1 }}
                 />
-                <button className="glass-btn" style={{ padding: '6px 10px', fontSize: 12, borderRadius: 8, whiteSpace: 'nowrap' }}
-                  onClick={handleSearch}>{tr('friends_find')}</button>
               </div>
               {addError && <div style={{ color: '#ef4444', fontSize: 12 }}>{addError}</div>}
               {addSuccess && <div style={{ color: '#22c55e', fontSize: 12 }}>{addSuccess}</div>}

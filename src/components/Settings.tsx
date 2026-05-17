@@ -244,7 +244,7 @@ const ProfileSettings: React.FC = () => {
       <p>{tr('sp_desc')}</p>
 
       <div style={{ ...card, padding: 0, overflow: 'hidden' }}>
-        <div style={{ height: 100, background: 'linear-gradient(135deg, var(--accent-primary), #7c3aed)' }} />
+        <div style={{ height: 88, background: 'var(--bg-tertiary)', borderBottom: '1px solid var(--border-color)' }} />
         <div style={{ padding: '0 20px 20px', marginTop: -40 }}>
           <div style={{ position: 'relative', display: 'inline-block' }}>
             {avatarSrc ? (

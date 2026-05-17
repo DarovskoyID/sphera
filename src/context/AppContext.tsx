@@ -330,7 +330,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       } catch (e) { reportError(e); }
     };
     load();
-  }, [state.authToken]);
+  }, [state.authToken, state.currentServerIP]);
 
   // ==================== FCM token registration (Android push notifications) ====================
   useEffect(() => {

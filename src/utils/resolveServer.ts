@@ -1,6 +1,6 @@
 import { SERVER_IPS } from '../config/servers';
 
-const TIMEOUT_MS = 3000;
+const TIMEOUT_MS = 1500;
 
 const pageIsHttps = typeof window !== 'undefined' && window.location.protocol === 'https:';
 
@@ -40,7 +40,6 @@ export async function resolveServerIP(): Promise<string> {
   try {
     return await Promise.any(SERVER_IPS.map(tryIP));
   } catch {
-    // All failed — fall back to first entry
     return SERVER_IPS[0];
   }
 }

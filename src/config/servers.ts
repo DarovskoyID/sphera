@@ -11,6 +11,11 @@
 
 // Use the same origin the page was loaded from so nginx proxies /api/ and /ws/
 // to Django — works for both HTTPS (bottomweb.ru:8082) and local HTTP (localhost:8084).
-export const SERVER_IPS: string[] = [
-  typeof window !== 'undefined' ? window.location.origin : 'http://127.0.0.1:8000',
-];
+const origin = typeof window !== 'undefined' ? window.location.origin : '';
+const isRealOrigin = origin
+  && origin !== 'null'
+  && !origin.startsWith('file://')
+  && !origin.includes('appassets.androidplatform.net');
+export const SERVER_IPS: string[] = isRealOrigin
+  ? [origin]
+  : ['https://bottomweb.ru:8082'];
