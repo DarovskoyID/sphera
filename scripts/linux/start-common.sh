@@ -3,9 +3,10 @@ set -euo pipefail
 
 MODE="${1:-}"
 if [ "$MODE" != "http" ] && [ "$MODE" != "ssl" ]; then
-    echo "Usage: $0 http|ssl"
+    echo "Usage: $0 http|ssl [--cert PATH --key PATH]"
     exit 1
 fi
+shift || true
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
@@ -26,6 +27,40 @@ COTURN_MIN_PORT="${IONIK_COTURN_MIN_PORT:-49152}"
 COTURN_MAX_PORT="${IONIK_COTURN_MAX_PORT:-65535}"
 COTURN_CONF="${IONIK_COTURN_CONF:-/etc/turnserver.conf}"
 PID_FILE="/tmp/ionik-daphne.pid"
+
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --cert|-c)
+            if [ -z "${2:-}" ]; then
+                echo "ERROR: $1 requires a certificate path."
+                exit 1
+            fi
+            SSL_CERT="$2"
+            shift 2
+            ;;
+        --key|-k)
+            if [ -z "${2:-}" ]; then
+                echo "ERROR: $1 requires a private key path."
+                exit 1
+            fi
+            SSL_KEY="$2"
+            shift 2
+            ;;
+        --help|-h)
+            echo "Usage: $0 http|ssl [--cert PATH --key PATH]"
+            echo ""
+            echo "SSL options:"
+            echo "  --cert, -c PATH   Path to fullchain/certificate PEM file"
+            echo "  --key,  -k PATH   Path to private key PEM file"
+            exit 0
+            ;;
+        *)
+            echo "Unknown option: $1"
+            echo "Run with --help for usage."
+            exit 1
+            ;;
+    esac
+done
 
 log() {
     echo ""
@@ -52,7 +87,7 @@ write_nginx_config() {
             echo "ERROR: SSL certificate files not found."
             echo "Expected cert: $SSL_CERT"
             echo "Expected key : $SSL_KEY"
-            echo "Set IONIK_SSL_CERT and IONIK_SSL_KEY if they are stored elsewhere."
+            echo "Pass --cert and --key, or set IONIK_SSL_CERT and IONIK_SSL_KEY."
             exit 1
         fi
 
