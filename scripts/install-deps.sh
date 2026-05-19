@@ -4,7 +4,6 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 DJANGO_DIR="$PROJECT_ROOT/django-server"
-STUN_DIR="$PROJECT_ROOT/stun-server"
 TURN_GO_DIR="$PROJECT_ROOT/turn-server-go"
 
 INSTALL_COTURN=1
@@ -28,7 +27,6 @@ for arg in "$@"; do
             echo "  - nginx"
             echo "  - coturn"
             echo "  - root Vite/React app"
-            echo "  - stun-server Node app"
             echo "  - django-server Python virtualenv"
             echo "  - turn-server-go Go modules"
             exit 0
@@ -251,9 +249,6 @@ echo "Python: $("$PYTHON_BIN" --version)"
 
 log "Installing root Node dependencies"
 npm_install "$PROJECT_ROOT"
-
-log "Installing stun-server Node dependencies"
-npm_install "$STUN_DIR"
 
 log "Installing Django Python dependencies"
 install_python_deps "$PYTHON_BIN"
