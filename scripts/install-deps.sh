@@ -8,21 +8,29 @@ STUN_DIR="$PROJECT_ROOT/stun-server"
 TURN_GO_DIR="$PROJECT_ROOT/turn-server-go"
 
 INSTALL_COTURN=1
+INSTALL_SYSTEM=1
 
 for arg in "$@"; do
     case "$arg" in
         --skip-coturn)
             INSTALL_COTURN=0
             ;;
+        --skip-system)
+            INSTALL_SYSTEM=0
+            ;;
         -h|--help)
-            echo "Usage: scripts/install-deps.sh [--skip-coturn]"
+            echo "Usage: scripts/install-deps.sh [--skip-coturn] [--skip-system]"
             echo ""
-            echo "Installs project dependencies for:"
+            echo "Installs system tools and project dependencies:"
+            echo "  - Node.js / npm"
+            echo "  - Python / pip / venv"
+            echo "  - Go"
+            echo "  - nginx"
+            echo "  - coturn"
             echo "  - root Vite/React app"
             echo "  - stun-server Node app"
             echo "  - django-server Python virtualenv"
             echo "  - turn-server-go Go modules"
-            echo "  - coturn via scripts/<platform>/coturn-install.sh"
             exit 0
             ;;
         *)
@@ -47,6 +55,91 @@ require_command() {
         echo "$install_hint"
         exit 1
     fi
+}
+
+install_system_deps_linux() {
+    if command -v apt-get >/dev/null 2>&1; then
+        sudo apt-get update -y
+        sudo apt-get install -y \
+            curl ca-certificates build-essential \
+            nodejs npm \
+            python3 python3-venv python3-pip \
+            golang-go \
+            nginx coturn
+    elif command -v dnf >/dev/null 2>&1; then
+        sudo dnf install -y \
+            curl ca-certificates gcc gcc-c++ make \
+            nodejs npm \
+            python3 python3-pip \
+            golang \
+            nginx coturn
+    elif command -v yum >/dev/null 2>&1; then
+        sudo yum install -y epel-release
+        sudo yum install -y \
+            curl ca-certificates gcc gcc-c++ make \
+            nodejs npm \
+            python3 python3-pip \
+            golang \
+            nginx coturn
+    else
+        echo "ERROR: unsupported Linux package manager."
+        echo "Install manually: nodejs npm python3 python3-pip python3-venv go nginx coturn"
+        exit 1
+    fi
+
+    if command -v systemctl >/dev/null 2>&1; then
+        sudo systemctl enable nginx 2>/dev/null || true
+        sudo systemctl enable coturn 2>/dev/null || true
+    fi
+}
+
+node_major_version() {
+    if ! command -v node >/dev/null 2>&1; then
+        echo 0
+        return
+    fi
+
+    node --version | sed -E 's/^v([0-9]+).*/\1/'
+}
+
+ensure_modern_node_on_apt() {
+    if ! command -v apt-get >/dev/null 2>&1; then
+        return
+    fi
+
+    if [ "$(node_major_version)" -ge 20 ]; then
+        return
+    fi
+
+    echo "Node.js 20+ is required. Installing Node.js LTS from NodeSource..."
+    curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
+    sudo apt-get install -y nodejs
+}
+
+install_system_deps_macos() {
+    if ! command -v brew >/dev/null 2>&1; then
+        echo "ERROR: Homebrew is required to install system tools on macOS."
+        echo "Install it from https://brew.sh and re-run this script."
+        exit 1
+    fi
+
+    brew update
+    brew install node python go nginx coturn
+}
+
+install_system_deps() {
+    case "$(uname -s)" in
+        Linux)
+            install_system_deps_linux
+            ;;
+        Darwin)
+            install_system_deps_macos
+            ;;
+        *)
+            echo "Skipping system dependency install: unsupported OS."
+            echo "Use scripts/windows/install-deps.bat on Windows."
+            ;;
+    esac
 }
 
 npm_install() {
@@ -121,8 +214,22 @@ install_coturn() {
 echo "=== Installing ionik dependencies ==="
 echo "Project root: $PROJECT_ROOT"
 
+if [ "$INSTALL_SYSTEM" -eq 1 ]; then
+    log "Installing system tools"
+    install_system_deps
+    ensure_modern_node_on_apt
+else
+    log "Skipping system tools"
+fi
+
 log "Checking required tools"
+require_command node "Install Node.js/npm and re-run this script."
 require_command npm "Install Node.js from https://nodejs.org or via your package manager."
+if [ "$(node_major_version)" -lt 20 ]; then
+    echo "ERROR: Node.js 20+ is required, found $(node --version)."
+    echo "Install a newer Node.js and re-run this script."
+    exit 1
+fi
 PYTHON_BIN="$(detect_python || true)"
 if [ -z "$PYTHON_BIN" ]; then
     echo "ERROR: python3/python not found."
@@ -132,6 +239,7 @@ fi
 echo "Node: $(node --version 2>/dev/null || echo unknown)"
 echo "npm : $(npm --version)"
 echo "Python: $("$PYTHON_BIN" --version)"
+"$PYTHON_BIN" -m pip --version >/dev/null 2>&1 || "$PYTHON_BIN" -m ensurepip --upgrade
 
 log "Installing root Node dependencies"
 npm_install "$PROJECT_ROOT"
@@ -142,14 +250,10 @@ npm_install "$STUN_DIR"
 log "Installing Django Python dependencies"
 install_python_deps "$PYTHON_BIN"
 
-if command -v go >/dev/null 2>&1; then
-    log "Downloading Go modules"
-    cd "$TURN_GO_DIR"
-    go mod download
-else
-    log "Skipping Go modules"
-    echo "Go is not installed. Install Go 1.21+ if you need turn-server-go."
-fi
+log "Downloading Go modules"
+require_command go "Install Go 1.21+ and re-run this script."
+cd "$TURN_GO_DIR"
+go mod download
 
 if [ "$INSTALL_COTURN" -eq 1 ]; then
     log "Installing coturn"
