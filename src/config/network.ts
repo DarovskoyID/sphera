@@ -1,4 +1,4 @@
-export const APP_HOST = '194.113.106.187';
+export const APP_HOST = 'start-ionik.ru';
 
 export const API_PROTOCOL = 'https';
 export const API_BASE_URL = `${API_PROTOCOL}://${APP_HOST}`;
