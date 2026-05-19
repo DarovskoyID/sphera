@@ -10,15 +10,23 @@ DEBUG = True
 
 ALLOWED_HOSTS = ['*']
 
+IONIK_DOMAIN = os.environ.get('IONIK_DOMAIN', 'bottomweb.ru')
+IONIK_CSRF_ORIGINS = os.environ.get('IONIK_CSRF_ORIGINS', '')
+
 # When served over TLS the browser sends the Origin / Referer with https://.
 # Django CSRF rejects requests if the origin isn't whitelisted explicitly.
 CSRF_TRUSTED_ORIGINS = [
-    'https://bottomweb.ru',
-    'https://bottomweb.ru:8000',
-    'https://bottomweb.ru:8082',
+    f'https://{IONIK_DOMAIN}',
+    f'https://{IONIK_DOMAIN}:8000',
     'https://localhost',
     'https://localhost:8000',
 ]
+if IONIK_CSRF_ORIGINS:
+    CSRF_TRUSTED_ORIGINS.extend(
+        origin.strip()
+        for origin in IONIK_CSRF_ORIGINS.split(',')
+        if origin.strip()
+    )
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
 INSTALLED_APPS = [

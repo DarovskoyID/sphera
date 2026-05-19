@@ -1,6 +1,7 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
 import { Maximize2, Minimize2 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
+import { getIceServers } from '../config/network';
 
 // ── Module-level helpers (never redefined) ────────────────────────────────────
 
@@ -373,19 +374,8 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
   _clearRemoteScreenRef = _clearRemoteScreenLocalRef;
 
   const createPeerConnection = (remoteId: string): RTCPeerConnection => {
-    const h = typeof window !== 'undefined' ? window.location.hostname : '';
-    const host = (h && h !== '' && !h.includes('appassets.androidplatform.net'))
-      ? h
-      : 'bottomweb.ru';
     const pc = new RTCPeerConnection({
-      iceServers: [
-        { urls: `stun:${host}:3478` },
-        {
-          urls: [`turn:${host}:3478?transport=udp`, `turn:${host}:3478?transport=tcp`],
-          username: 'ionikuser',
-          credential: 'ionikturn123',
-        },
-      ],
+      iceServers: getIceServers(),
     });
 
     pc.onicecandidate = (event) => {

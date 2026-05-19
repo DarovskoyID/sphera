@@ -1,18 +1,8 @@
 import React, { useEffect, useRef, useCallback, useState } from 'react';
 import { useApp } from '../context/AppContext';
+import { getIceServers } from '../config/network';
 
-const TURN_HOST = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
-const ICE_SERVERS = [
-  { urls: `stun:${TURN_HOST}:3478` },
-  {
-    urls: [
-      `turn:${TURN_HOST}:3478?transport=udp`,
-      `turn:${TURN_HOST}:3478?transport=tcp`,
-    ],
-    username: 'ionikuser',
-    credential: 'ionikturn123',
-  },
-];
+const ICE_SERVERS = getIceServers();
 const SPEAKING_THRESHOLD = 15; // 0–255 RMS; tune as needed
 
 function AudioEl({ stream }: { stream: MediaStream }) {
