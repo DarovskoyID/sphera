@@ -15,7 +15,7 @@ FRONTEND_DIR="$PROJECT_ROOT"
 VENV="$PROJECT_ROOT/django-server/.venv"
 
 APP_NAME="${IONIK_APP_NAME:-ionik}"
-DOMAIN="${IONIK_DOMAIN:-bottomweb.ru}"
+DOMAIN="${IONIK_DOMAIN:-start-ionik.ru}"
 WEB_ROOT="${IONIK_WEB_ROOT:-/var/www/ionik}"
 NGINX_CONF="/etc/nginx/sites-available/$APP_NAME.conf"
 NGINX_ENABLED="/etc/nginx/sites-enabled/$APP_NAME.conf"

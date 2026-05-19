@@ -10,7 +10,7 @@ DEBUG = True
 
 ALLOWED_HOSTS = ['*']
 
-IONIK_DOMAIN = os.environ.get('IONIK_DOMAIN', 'bottomweb.ru')
+IONIK_DOMAIN = os.environ.get('IONIK_DOMAIN', 'start-ionik.ru')
 IONIK_CSRF_ORIGINS = os.environ.get('IONIK_CSRF_ORIGINS', '')
 
 # When served over TLS the browser sends the Origin / Referer with https://.

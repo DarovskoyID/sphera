@@ -9,18 +9,7 @@ export const TURN_PORT = 3478;
 export const TURN_USERNAME = 'ionikuser';
 export const TURN_CREDENTIAL = 'ionikturn123';
 
-const browserOrigin = typeof window !== 'undefined' ? window.location.origin : '';
-const browserHostname = typeof window !== 'undefined' ? window.location.hostname : '';
-const isRealBrowserOrigin = Boolean(
-  browserOrigin
-  && browserOrigin !== 'null'
-  && !browserOrigin.startsWith('file://')
-  && !browserHostname.includes('appassets.androidplatform.net')
-);
-
-export const SERVER_IPS: string[] = isRealBrowserOrigin
-  ? [browserOrigin]
-  : [API_BASE_URL];
+export const SERVER_IPS: string[] = [API_BASE_URL];
 
 export const getIceServers = (): RTCIceServer[] => [
   { urls: `stun:${TURN_HOST}:${TURN_PORT}` },

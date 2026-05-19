@@ -5,7 +5,7 @@ echo "=== Installing coturn (TURN server) on Linux ==="
 
 MIN_PORT="${IONIK_COTURN_MIN_PORT:-49152}"
 MAX_PORT="${IONIK_COTURN_MAX_PORT:-65535}"
-REALM="${IONIK_TURN_REALM:-bottomweb.ru}"
+REALM="${IONIK_TURN_REALM:-start-ionik.ru}"
 TURN_USER="${IONIK_TURN_USER:-ionikuser}"
 TURN_PASS="${IONIK_TURN_PASS:-ionikturn123}"
 EXTERNAL_IP="${IONIK_TURN_EXTERNAL_IP:-}"
