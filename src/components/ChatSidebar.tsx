@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useLayoutEffect } from 'react';
 import {
   Sun, Moon, Search, Menu, UserPlus, Check, X, LogOut,
-  Phone, Video, Ban, BellOff, Copy, Trash2, UserMinus,
+  Phone, Video, Ban, BellOff, Copy, Trash2, UserMinus, Volume2, PhoneOff,
 } from 'lucide-react';
 import { useApp, reportError } from '../context/AppContext';
 import { useTranslation } from '../i18n/useTranslation';
@@ -123,7 +123,7 @@ const ProfileModal: React.FC<{
         {/* Banner */}
         <div style={{
           height: 80,
-          background: 'linear-gradient(135deg, var(--accent-primary) 0%, var(--accent-active) 100%)',
+          background: 'var(--bg-tertiary)', borderBottom: '1px solid var(--border-color)',
           position: 'relative',
           flexShrink: 0,
         }}>
@@ -281,6 +281,7 @@ const FriendContextMenu: React.FC<{
   } = useApp();
   const [showMuteMenu, setShowMuteMenu] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const [adjustedPos, setAdjustedPos] = useState({ x: ctx?.x ?? 0, y: ctx?.y ?? 0 });
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -290,13 +291,25 @@ const FriendContextMenu: React.FC<{
     return () => document.removeEventListener('mousedown', handler);
   }, [onClose]);
 
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el || !ctx) return;
+    const { width, height } = el.getBoundingClientRect();
+    const vw = window.innerWidth;
+    const vh = window.innerHeight - 68;
+    setAdjustedPos({
+      x: Math.min(Math.max(ctx.x, 8), vw - width - 8),
+      y: Math.min(Math.max(ctx.y, 8), vh - height),
+    });
+  }, [ctx?.x, ctx?.y]);
+
   if (!ctx) return null;
   const { friend } = ctx;
 
   const isActiveFriend = String(currentChat) === String(friend.id);
 
   // Returns the existing conversation id without creating a new one if absent
-  const getConvoId = async (): Promise<number | null> => {
+  const getConvoId = async (): Promise<string | null> => {
     if (isActiveFriend && chatConversationId) return chatConversationId;
     try {
       const res = await fetch(`${currentServerIP}/api/conversations/create/`, {
@@ -305,7 +318,7 @@ const FriendContextMenu: React.FC<{
         body: JSON.stringify({ user_id: friend.id }),
       });
       if (!res.ok) return null;
-      return (await res.json()).id as number;
+      return (await res.json()).id as string;
     } catch { return null; }
   };
 
@@ -351,7 +364,7 @@ const FriendContextMenu: React.FC<{
   const isMuted = getMuteExpiry(friend.id) > Date.now();
 
   const s: React.CSSProperties = {
-    position: 'fixed', top: ctx.y, left: ctx.x,
+    position: 'fixed', top: adjustedPos.y, left: adjustedPos.x,
     zIndex: 9100,
     background: 'var(--bg-primary)',
     border: '1px solid var(--border-color)',
@@ -448,6 +461,19 @@ const BlockedContextMenu: React.FC<{
 }> = ({ ctx, onClose }) => {
   const { currentServerIP, authToken, setCurrentChat, currentChat, chatConversationId, unblockUser, removeBlockedContact } = useApp();
   const ref = useRef<HTMLDivElement>(null);
+  const [adjustedPos, setAdjustedPos] = useState({ x: ctx?.x ?? 0, y: ctx?.y ?? 0 });
+
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el || !ctx) return;
+    const { width, height } = el.getBoundingClientRect();
+    const vw = window.innerWidth;
+    const vh = window.innerHeight - 68;
+    setAdjustedPos({
+      x: Math.min(Math.max(ctx.x, 8), vw - width - 8),
+      y: Math.min(Math.max(ctx.y, 8), vh - height),
+    });
+  }, [ctx?.x, ctx?.y]);
 
   useEffect(() => {
     const h = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) onClose(); };
@@ -459,7 +485,7 @@ const BlockedContextMenu: React.FC<{
   const { user } = ctx;
   const isActive = String(currentChat) === String(user.id);
 
-  const getConvoId = async (): Promise<number | null> => {
+  const getConvoId = async (): Promise<string | null> => {
     if (isActive && chatConversationId) return chatConversationId;
     try {
       const res = await fetch(`${currentServerIP}/api/conversations/create/`, {
@@ -468,7 +494,7 @@ const BlockedContextMenu: React.FC<{
         body: JSON.stringify({ user_id: user.id }),
       });
       if (!res.ok) return null;
-      return (await res.json()).id as number;
+      return (await res.json()).id as string;
     } catch { return null; }
   };
 
@@ -476,7 +502,7 @@ const BlockedContextMenu: React.FC<{
     onClose();
     try {
       await unblockUser(user.id);
-      if (isActive) setCurrentChat('');
+      // Keep the current chat open — the user now appears as a friend
     } catch (e) { reportError(e); }
   };
 
@@ -494,7 +520,7 @@ const BlockedContextMenu: React.FC<{
   };
 
   const s: React.CSSProperties = {
-    position: 'fixed', top: ctx.y, left: ctx.x, zIndex: 9100,
+    position: 'fixed', top: adjustedPos.y, left: adjustedPos.x, zIndex: 9100,
     background: 'var(--bg-primary)', border: '1px solid var(--border-color)',
     borderRadius: 10, boxShadow: '0 8px 32px rgba(0,0,0,0.6)',
     minWidth: 200, padding: '4px 0',
@@ -531,7 +557,7 @@ export const ChatSidebar: React.FC = () => {
     currentView, currentChat, currentSettingsPage,
     setCurrentChat, setCurrentSettingsPage, toggleTheme, theme,
     isMobileSidebarOpen, toggleMobileSidebar, setAuthToken,
-    friends, blockedContacts, pendingRequests, sendFriendRequest, acceptFriendRequest,
+    friends, blockedContacts, pendingRequests, sentRequests, sendFriendRequest, acceptFriendRequest,
     rejectFriendRequest, searchUsers,
     setCallActive, setCallTargetId, setVideoActive,
     removeFriend,
@@ -570,10 +596,34 @@ export const ChatSidebar: React.FC = () => {
     }
   };
 
+  // Live search: debounce 300ms so users see suggestions as they type
+  useEffect(() => {
+    if (!showAddFriend) return;
+    const q = addQuery.trim();
+    if (!q) {
+      setSearchResults([]);
+      setAddError('');
+      return;
+    }
+    const t = setTimeout(async () => {
+      setAddError('');
+      try {
+        const results = await searchUsers(q);
+        setSearchResults(results);
+        if (results.length === 0) setAddError(tr('friends_no_users'));
+      } catch {
+        setAddError(tr('friends_search_failed'));
+      }
+    }, 300);
+    return () => clearTimeout(t);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [addQuery, showAddFriend]);
+
   const handleSendRequest = async (userId: string) => {
     setAddError(''); setAddSuccess('');
+    const user = searchResults.find(u => String(u.id) === String(userId));
     try {
-      await sendFriendRequest(userId);
+      await sendFriendRequest(userId, user);
       setAddSuccess(tr('friends_request_sent'));
       setSearchResults([]); setAddQuery('');
     } catch (e: any) {
@@ -581,28 +631,34 @@ export const ChatSidebar: React.FC = () => {
     }
   };
 
-  const handleAccept = async (id: number) => {
+  const handleAccept = async (id: string) => {
     try { await acceptFriendRequest(id); } catch (e) { reportError(e); }
   };
 
-  const handleReject = async (id: number) => {
+  const handleReject = async (id: string) => {
     try { await rejectFriendRequest(id); } catch (e) { reportError(e); }
   };
 
   const handleFriendContextMenu = useCallback((e: React.MouseEvent, friend: FriendInfo) => {
     e.preventDefault();
-    const x = Math.min(e.clientX, window.innerWidth - 230);
-    const y = Math.min(e.clientY, window.innerHeight - 350);
+    const x = e.clientX;
+    const y = e.clientY;
     setCtxMenu({ x, y, friend });
+  }, []);
+
+  const handleBlockedContextMenu = useCallback((e: React.MouseEvent, user: FriendInfo) => {
+    e.preventDefault();
+    setBlockedCtxMenu({ x: e.clientX, y: e.clientY, user });
   }, []);
 
   const handleProfileCall = (withVideo: boolean) => {
     if (!profileFriend) return;
     setProfileFriend(null);
     setCurrentChat(profileFriend.id);
+    // Prevent camera from turning on when starting a voice call (state can persist from a previous call)
+    setVideoActive(withVideo);
     setCallTargetId(profileFriend.id);
     setCallActive(true);
-    if (withVideo) setVideoActive(true);
   };
 
   const handleProfileRemove = async () => {
@@ -635,6 +691,24 @@ export const ChatSidebar: React.FC = () => {
               onChange={e => setSearchQuery(e.target.value)}
             />
           </div>
+
+          {/* Sent requests */}
+          {sentRequests.length > 0 && (
+            <>
+              <div className="section-title">{tr('friends_requests_sent') || 'Sent requests'} ({sentRequests.length})</div>
+              {sentRequests.map(user => (
+                <div key={user.id} className="chat-item" style={{ gap: 8 }}>
+                  <div className="chat-avatar">
+                    <Avatar name={user.nickname || user.username} avatar={user.avatar} size={36} />
+                  </div>
+                  <div className="chat-info" style={{ flex: 1 }}>
+                    <div className="chat-name">{user.nickname || user.username}</div>
+                    <div className="chat-message">{tr('friends_request_pending') || 'Request sent'}</div>
+                  </div>
+                </div>
+              ))}
+            </>
+          )}
 
           {/* Pending requests */}
           {pendingRequests.length > 0 && (
@@ -695,9 +769,8 @@ export const ChatSidebar: React.FC = () => {
                   value={addQuery}
                   onChange={e => setAddQuery(e.target.value)}
                   onKeyDown={e => e.key === 'Enter' && handleSearch()}
+                  style={{ flex: 1 }}
                 />
-                <button className="glass-btn" style={{ padding: '6px 10px', fontSize: 12, borderRadius: 8, whiteSpace: 'nowrap' }}
-                  onClick={handleSearch}>{tr('friends_find')}</button>
               </div>
               {addError && <div style={{ color: '#ef4444', fontSize: 12 }}>{addError}</div>}
               {addSuccess && <div style={{ color: '#22c55e', fontSize: 12 }}>{addSuccess}</div>}
@@ -744,44 +817,35 @@ export const ChatSidebar: React.FC = () => {
             </div>
           ))}
 
-          {filteredBlocked.map(user => (
-            <div
-              key={user.id}
-              className={`chat-item ${String(currentChat) === String(user.id) ? 'active' : ''}`}
-              onClick={() => setCurrentChat(user.id)}
-              onContextMenu={e => {
-                e.preventDefault();
-                setBlockedCtxMenu({
-                  x: Math.min(e.clientX, window.innerWidth - 220),
-                  y: Math.min(e.clientY, window.innerHeight - 130),
-                  user: user as FriendInfo,
-                });
-              }}
-              style={{ opacity: 0.7 }}
-            >
-              <div className="chat-avatar" style={{ position: 'relative' }}>
-                <Avatar name={user.nickname || user.username} avatar={user.avatar} size={36} />
-                <span style={{
-                  position: 'absolute', bottom: -1, right: -1,
-                  width: 11, height: 11, borderRadius: '50%',
-                  background: STATUS_COLOR.blocked,
-                  border: '2px solid var(--bg-secondary)',
-                }} />
-              </div>
-              <div className="chat-info">
-                <div className="chat-name">{user.nickname || user.username}</div>
-                <div className="chat-message" style={{ display: 'flex', alignItems: 'center', gap: 4, color: '#f97316' }}>
-                  <Ban size={10} />
-                  <span>Blocked</span>
-                </div>
-              </div>
-            </div>
-          ))}
-
           {filteredFriends.length === 0 && filteredBlocked.length === 0 && !showAddFriend && pendingRequests.length === 0 && (
             <div style={{ padding: '16px 12px', color: 'var(--text-secondary)', fontSize: 13, textAlign: 'center' }}>
               {tr('friends_none')} <UserPlus size={12} style={{ display: 'inline' }} />
             </div>
+          )}
+
+          {/* Blocked contacts — kept visible so the user can still read the history */}
+          {filteredBlocked.length > 0 && (
+            <>
+              <div style={{ padding: '8px 12px 2px', fontSize: 10, fontWeight: 700, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'flex', alignItems: 'center', gap: 4 }}>
+                <Ban size={10} /> Blocked
+              </div>
+              {filteredBlocked.map(user => (
+                <div
+                  key={user.id}
+                  className={`chat-item ${String(currentChat) === String(user.id) ? 'active' : ''}`}
+                  onClick={() => setCurrentChat(user.id)}
+                  onContextMenu={e => handleBlockedContextMenu(e, user as FriendInfo)}
+                >
+                  <div className="chat-avatar" style={{ position: 'relative' }}>
+                    <Avatar name={user.nickname || user.username} avatar={user.avatar} size={36} />
+                  </div>
+                  <div className="chat-info">
+                    <div className="chat-name">{user.nickname || user.username}</div>
+                    <div className="chat-message" style={{ fontSize: 11, color: '#f97316' }}>Blocked</div>
+                  </div>
+                </div>
+              ))}
+            </>
           )}
         </div>
       )}
@@ -879,14 +943,55 @@ export const ChatSidebar: React.FC = () => {
 
 // ── User Profile Footer ───────────────────────────────────────────────────────
 
-const UserProfile: React.FC = () => {
-  const { currentUser } = useApp();
+export const UserProfile: React.FC = () => {
+  const { currentUser, currentVoiceChannel, leaveVoiceChannel, setVoiceMuted, voiceLocalStream, currentGuild } = useApp();
   const tr = useTranslation();
   const [isMuted, setIsMuted] = useState(false);
   const [isDeafened, setIsDeafened] = useState(false);
   const displayName = currentUser?.nickname || currentUser?.username || 'You';
 
+  const inVoice = !!currentVoiceChannel;
+
+  const handleMute = () => {
+    const next = !isMuted;
+    setIsMuted(next);
+    if (inVoice) {
+      setVoiceMuted(next);
+      voiceLocalStream.current?.getAudioTracks().forEach(t => { t.enabled = !next; });
+    }
+  };
+
+  const handleDeafen = () => {
+    const next = !isDeafened;
+    setIsDeafened(next);
+    // Deafen mutes all remote audio via the ref exposed from GuildVoiceRoom
+    if (inVoice) {
+      voiceLocalStream.current?.getAudioTracks().forEach(t => { t.enabled = !next && !isMuted; });
+    }
+  };
+
   return (
+    <>
+    {currentVoiceChannel && (
+      <div className="voice-banner-sidebar" style={{
+        display: 'flex', alignItems: 'center', gap: 8,
+        padding: '6px 10px', flexShrink: 0,
+        background: 'rgba(59,165,92,0.12)',
+        borderTop: '1px solid rgba(59,165,92,0.25)',
+        borderBottom: '1px solid rgba(59,165,92,0.25)',
+      }}>
+        <Volume2 size={13} style={{ color: '#3ba55c', flexShrink: 0 }} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 10, color: '#3ba55c', fontWeight: 600, lineHeight: 1 }}>Voice Connected</div>
+          <div style={{ fontSize: 11, color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {currentGuild ? `${currentGuild.name} / ${currentVoiceChannel.name}` : currentVoiceChannel.name}
+          </div>
+        </div>
+        <button onClick={leaveVoiceChannel} title="Disconnect" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ed4245', padding: 4, borderRadius: 4, display: 'flex', alignItems: 'center' }}>
+          <PhoneOff size={14} />
+        </button>
+      </div>
+    )}
     <div className="user-profile-section glass-panel">
       <button className="profile-avatar-btn">
         {currentUser?.avatar
@@ -907,7 +1012,7 @@ const UserProfile: React.FC = () => {
       <div className="profile-controls">
         <button
           className={`profile-icon-btn glass-btn ${isMuted ? 'muted' : ''}`}
-          onClick={() => setIsMuted(!isMuted)}
+          onClick={handleMute}
           title={tr('profile_mute')}
         >
           <svg viewBox="0 0 24 24" fill="currentColor">
@@ -916,7 +1021,7 @@ const UserProfile: React.FC = () => {
         </button>
         <button
           className={`profile-icon-btn glass-btn ${isDeafened ? 'muted' : ''}`}
-          onClick={() => setIsDeafened(!isDeafened)}
+          onClick={handleDeafen}
           title={tr('profile_deafen')}
         >
           <svg viewBox="0 0 24 24" fill="currentColor">
@@ -925,5 +1030,6 @@ const UserProfile: React.FC = () => {
         </button>
       </div>
     </div>
+    </>
   );
 };

@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { Phone, PhoneOff } from 'lucide-react';
+import { Phone, PhoneOff, Video } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { useTranslation } from '../i18n/useTranslation';
 
@@ -9,7 +9,7 @@ export const IncomingCallModal = () => {
     incomingOffer,
     setIncomingOffer,
     setCallActive,
-    setCallTargetId,
+    setVideoActive,
     setCurrentChat,
     sendSignal,
     signalingPeers,
@@ -61,26 +61,43 @@ export const IncomingCallModal = () => {
   const callerName = callerFriend?.nickname || callerFriend?.username || callerPeer?.name || String(incomingOffer?.from ?? '');
   const callerAvatar = callerFriend?.avatar || '';
 
-  const accept = () => {
-    if (!incomingOffer) return;
+  const acceptCall = (forceVideo?: boolean) => {
+    if (!incomingOfferRef.current) return;
+    const offer = incomingOfferRef.current;
+    if ((window as any).AndroidBridge) {
+      (window as any).AndroidBridge.cancelCallNotification();
+    }
     const offerWithCandidates = {
-      ...incomingOffer,
+      ...offer,
+      withVideo: forceVideo !== undefined ? forceVideo : offer.withVideo,
       bufferedCandidates: [...bufferedCandidates.current],
     };
     bufferedCandidates.current = [];
     setIncomingOffer(offerWithCandidates);
-    setCallTargetId(String(incomingOffer.from));
-    // Open the chat with the caller — set chat first, then navigate to home
-    setCurrentChat(String(incomingOffer.from));
+    setVideoActive(!!offerWithCandidates.withVideo);
+    setCurrentChat(String(offer.from));
     setCallActive(true);
   };
 
   const reject = () => {
-    if (!incomingOffer) return;
-    sendSignal({ type: 'call-rejected', to: incomingOffer.from });
+    if (!incomingOfferRef.current) return;
+    if ((window as any).AndroidBridge) {
+      (window as any).AndroidBridge.cancelCallNotification();
+    }
+    sendSignal({ type: 'call-rejected', to: incomingOfferRef.current.from });
     bufferedCandidates.current = [];
     setIncomingOffer(null);
   };
+
+  // Expose callbacks for native Android to trigger accept/decline
+  useEffect(() => {
+    (window as any).ionikAcceptCall = (withVideo?: boolean) => acceptCall(withVideo);
+    (window as any).ionikDeclineCall = () => reject();
+    return () => {
+      delete (window as any).ionikAcceptCall;
+      delete (window as any).ionikDeclineCall;
+    };
+  });
 
   if (isCallActive || !incomingOffer) return null;
 
@@ -126,12 +143,15 @@ export const IncomingCallModal = () => {
             fontWeight: 700,
             color: '#fff',
           }}>
-            {callerName ? callerName[0].toUpperCase() : <Phone size={28} color="#fff" />}
+            {callerName ? callerName[0].toUpperCase() : incomingOffer?.withVideo ? <Video size={28} color="#fff" /> : <Phone size={28} color="#fff" />}
           </div>
         )}
         <h2 style={{ margin: '0 0 4px 0', color: '#fff', fontSize: 20 }}>{callerName}</h2>
-        <p style={{ margin: '0 0 24px 0', color: '#aaa', fontSize: 14 }}>
-          {tr('call_incoming')} · {tr('call_calling_you')}
+        <p style={{ margin: '0 0 4px 0', color: '#aaa', fontSize: 14 }}>
+          {incomingOffer?.withVideo ? tr('call_video') || 'Video call' : tr('call_voice') || 'Voice call'}
+        </p>
+        <p style={{ margin: '0 0 24px 0', color: '#888', fontSize: 13 }}>
+          {tr('call_calling_you')}
         </p>
         <div style={{ display: 'flex', gap: 16, justifyContent: 'center' }}>
           <button
@@ -153,7 +173,7 @@ export const IncomingCallModal = () => {
             <PhoneOff size={24} />
           </button>
           <button
-            onClick={accept}
+            onClick={() => acceptCall()}
             style={{
               width: 56,
               height: 56,
@@ -168,7 +188,7 @@ export const IncomingCallModal = () => {
             }}
             title={tr('call_accept')}
           >
-            <Phone size={24} />
+            {incomingOffer?.withVideo ? <Video size={24} /> : <Phone size={24} />}
           </button>
         </div>
       </div>

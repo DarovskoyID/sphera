@@ -2,8 +2,32 @@ from urllib.parse import parse_qs
 from channels.middleware import BaseMiddleware
 from channels.db import database_sync_to_async
 from django.contrib.auth.models import AnonymousUser
+from django.http import HttpResponse
 from rest_framework_simplejwt.tokens import AccessToken
 from ionik_auth.models import User
+
+
+class AppOnlyMiddleware:
+    """
+    Blocks direct browser access to the server.
+    Every HTTP request must carry the custom header X-Ionik-Client: 1.
+    CORS pre-flight OPTIONS requests are allowed through so the browser
+    can negotiate the custom header before the real request is sent.
+    WebSocket connections are handled by ASGI/Channels and are not
+    affected by this WSGI middleware.
+    """
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        if (
+            request.method != 'OPTIONS'
+            and not request.path.startswith('/media/')
+            and request.headers.get('X-Ionik-Client') != '1'
+        ):
+            return HttpResponse()
+        return self.get_response(request)
 
 
 @database_sync_to_async

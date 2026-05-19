@@ -1,5 +1,7 @@
 /* Import existing styles from style.css */
 @import url('/style.css');
+/* Minimal override layer — calm, neutral, mass-market messenger look */
+@import url('./minimal.css');
 
 @keyframes spin {
   to { transform: rotate(360deg); }

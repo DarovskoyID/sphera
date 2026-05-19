@@ -10,6 +10,25 @@ DEBUG = True
 
 ALLOWED_HOSTS = ['*']
 
+IONIK_DOMAIN = os.environ.get('IONIK_DOMAIN', 'bottomweb.ru')
+IONIK_CSRF_ORIGINS = os.environ.get('IONIK_CSRF_ORIGINS', '')
+
+# When served over TLS the browser sends the Origin / Referer with https://.
+# Django CSRF rejects requests if the origin isn't whitelisted explicitly.
+CSRF_TRUSTED_ORIGINS = [
+    f'https://{IONIK_DOMAIN}',
+    f'https://{IONIK_DOMAIN}:8000',
+    'https://localhost',
+    'https://localhost:8000',
+]
+if IONIK_CSRF_ORIGINS:
+    CSRF_TRUSTED_ORIGINS.extend(
+        origin.strip()
+        for origin in IONIK_CSRF_ORIGINS.split(',')
+        if origin.strip()
+    )
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+
 INSTALLED_APPS = [
     'daphne',
     'django.contrib.admin',
@@ -30,6 +49,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
+    'ionik_server.middleware.AppOnlyMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -88,8 +108,20 @@ AUTH_PASSWORD_VALIDATORS = [
     {'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator'},
 ]
 
-# CORS — allow React dev server
+# CORS — allow React dev server and custom app header
 CORS_ALLOW_ALL_ORIGINS = True
+CORS_ALLOW_HEADERS = [
+    'accept',
+    'accept-encoding',
+    'authorization',
+    'content-type',
+    'dnt',
+    'origin',
+    'user-agent',
+    'x-csrftoken',
+    'x-requested-with',
+    'x-ionik-client',
+]
 
 # DRF
 REST_FRAMEWORK = {
@@ -106,6 +138,10 @@ SIMPLE_JWT = {
 
 # Fernet key for encrypting chat messages at rest
 MESSAGE_ENCRYPTION_KEY = 'B_jCzvYRndN90PQCee5x7RwE5R-AjJ_WN_m0d3beh1Q='
+
+# Firebase service account key — download from:
+# Firebase Console → Project Settings → Service Accounts → Generate new private key
+FIREBASE_CREDENTIALS = BASE_DIR / 'serviceAccountKey.json'
 
 LANGUAGE_CODE = 'en-us'
 TIME_ZONE = 'UTC'

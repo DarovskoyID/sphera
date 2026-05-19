@@ -7,6 +7,7 @@ from django.db import models
 
 
 class User(AbstractUser):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     nickname = models.CharField(max_length=50, blank=True, default='')
     avatar = models.ImageField(upload_to='avatars/', blank=True, null=True)
     bio = models.CharField(max_length=200, blank=True, default='')
@@ -26,6 +27,7 @@ class User(AbstractUser):
 
 
 class Friendship(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     STATUS_CHOICES = [
         ('pending', 'Pending'),
         ('accepted', 'Accepted'),
@@ -53,6 +55,7 @@ class Friendship(models.Model):
 
 
 class BlockedUser(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     blocker = models.ForeignKey(
         User, on_delete=models.CASCADE,
         related_name='blocked_users',
@@ -71,6 +74,7 @@ class BlockedUser(models.Model):
 
 
 class UserSettings(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     user = models.OneToOneField(
         User, on_delete=models.CASCADE,
         related_name='settings',
@@ -104,6 +108,7 @@ class UserSettings(models.Model):
     chat_show_timestamps = models.BooleanField(default=True)
     chat_emoji_reactions = models.BooleanField(default=True)
     chat_compact_mode = models.BooleanField(default=False)
+    chat_message_spacing = models.PositiveSmallIntegerField(default=4)
     # Data & Privacy
     data_app_improvements = models.BooleanField(default=True)
     data_personalization = models.BooleanField(default=True)
@@ -125,6 +130,7 @@ class UserSettings(models.Model):
 
 
 class UserDevice(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     user = models.ForeignKey(
         User, on_delete=models.CASCADE,
         related_name='devices',
@@ -151,12 +157,22 @@ class UserDevice(models.Model):
         return f"{self.user} - {self.device_name} ({self.ip_address})"
 
 
+class FcmToken(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='fcm_tokens')
+    token = models.TextField(unique=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"{self.user} — {self.token[:20]}..."
+
+
 def _emoji_upload_path(instance, filename):
     ext = os.path.splitext(filename)[1] or '.png'
     return f'emojis/{uuid.uuid4().hex}{ext}'
 
 
 class CustomEmoji(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     name = models.SlugField(max_length=50, unique=True)
     image = models.ImageField(upload_to=_emoji_upload_path)
     created_by = models.ForeignKey(

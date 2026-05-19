@@ -1,0 +1,549 @@
+/* ============================================================
+   MINIMAL OVERRIDE LAYER
+   Loaded after style.css. Flattens the Discord-style glass UI
+   into a calm, neutral messenger for a mass-market audience.
+   - System fonts only (offline, no external requests)
+   - Neutral palette, single accent
+   - No backdrop-filter / blur / glow
+   - Thin borders instead of heavy shadows
+   - Reduced radii, smaller motion
+   ============================================================ */
+
+:root {
+  /* Light */
+  --bg-primary:   #ffffff;
+  --bg-secondary: #f7f7f8;
+  --bg-tertiary:  #f0f0f1;
+  --bg-chat:      #ffffff;
+
+  --text-primary:   #18181b;
+  --text-secondary: #5b5b62;
+  --text-tertiary:  #8a8a92;
+
+  --accent-primary: #2563eb;
+  --accent-hover:   #1e54d6;
+  --accent-active:  #1a48b8;
+
+  --border-color: #e6e6e8;
+  --hover-bg:     #f2f2f4;
+  --active-bg:    #ebebee;
+
+  --message-own:   #e8f0fe;
+  --message-other: #f3f3f5;
+
+  --glass-bg:     #ffffff;
+  --glass-border: #e6e6e8;
+  --glass-shadow: transparent;
+
+  --status-online: #22a06b;
+  --status-idle:   #d39e00;
+  --status-dnd:    #d64545;
+  --status-offline:#9aa0a6;
+
+  --notification-bg: #d64545;
+  --unread-bg:       #2563eb;
+
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.04);
+  --shadow-md: 0 2px 8px rgba(0,0,0,0.06);
+  --shadow-lg: 0 6px 20px rgba(0,0,0,0.10);
+
+  --transition-fast:   0.12s ease;
+  --transition-normal: 0.16s ease;
+  --transition-slow:   0.24s ease;
+}
+
+body.dark-theme {
+  --bg-primary:   #0f0f11;
+  --bg-secondary: #161618;
+  --bg-tertiary:  #1c1c1f;
+  --bg-chat:      #0f0f11;
+
+  --text-primary:   #ededee;
+  --text-secondary: #a1a1aa;
+  --text-tertiary:  #71717a;
+
+  --accent-primary: #3b82f6;
+  --accent-hover:   #4d8ff7;
+  --accent-active:  #2e6ee0;
+
+  --border-color: #26262a;
+  --hover-bg:     #1e1e22;
+  --active-bg:    #26262a;
+
+  --message-own:   #1d2e4d;
+  --message-other: #1a1a1d;
+
+  --glass-bg:     #161618;
+  --glass-border: #26262a;
+  --glass-shadow: transparent;
+}
+
+/* ---------- Typography (offline system stack) ---------- */
+body, button, input, textarea, select {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+               "Helvetica Neue", Arial, sans-serif;
+  letter-spacing: 0;
+}
+body {
+  font-size: 14px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ---------- Kill global glass/gradient/glow ---------- */
+.glass-panel,
+.glass-btn,
+.call-btn {
+  background: var(--bg-secondary) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  border: 1px solid var(--border-color) !important;
+  box-shadow: none !important;
+  transition: background var(--transition-fast),
+              border-color var(--transition-fast),
+              color var(--transition-fast) !important;
+}
+.glass-btn::before,
+.glass-btn::after { display: none !important; }
+
+.glass-btn:hover {
+  background: var(--hover-bg) !important;
+  transform: none !important;
+  border-color: var(--border-color) !important;
+}
+.glass-btn:active {
+  background: var(--active-bg) !important;
+  transform: none !important;
+}
+
+/* ---------- Layout container ---------- */
+.app-container {
+  background: var(--bg-primary);
+}
+
+/* ---------- Server sidebar (leftmost rail) ---------- */
+.server-sidebar {
+  background: var(--bg-secondary);
+  border-right: 1px solid var(--border-color);
+}
+.server-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: var(--bg-tertiary) !important;
+  border: 1px solid var(--border-color) !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  color: var(--text-secondary);
+  transition: background var(--transition-fast),
+              border-radius var(--transition-fast),
+              color var(--transition-fast);
+}
+.server-icon:hover {
+  background: var(--hover-bg) !important;
+  border-radius: 12px;
+  color: var(--text-primary);
+}
+.server-icon.active {
+  background: var(--accent-primary) !important;
+  border-color: var(--accent-primary) !important;
+  color: #fff;
+  border-radius: 12px;
+}
+.server-icon::after {
+  left: -6px !important;
+  width: 3px !important;
+  background: var(--accent-primary) !important;
+  border-radius: 0 2px 2px 0 !important;
+}
+
+/* ---------- Middle sidebar (chats / channels) ---------- */
+.chat-sidebar,
+.guild-sidebar {
+  background: var(--bg-secondary);
+  border-right: 1px solid var(--border-color);
+}
+
+.search-bar {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  box-shadow: none;
+}
+.search-bar:focus-within {
+  border-color: var(--accent-primary);
+}
+.search-bar input {
+  background: transparent;
+  color: var(--text-primary);
+}
+/* Icon was being squeezed to 0 width by flex:1 input sibling */
+.search-bar .search-icon,
+.search-bar > svg {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+}
+
+.section-title {
+  color: var(--text-tertiary);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.chat-item,
+.channel-item,
+.settings-item {
+  border-radius: 8px;
+  transition: background var(--transition-fast);
+}
+.chat-item:hover,
+.channel-item:hover,
+.settings-item:hover {
+  background: var(--hover-bg);
+}
+.chat-item.active,
+.channel-item.active,
+.settings-item.active {
+  background: var(--active-bg);
+  color: var(--text-primary);
+}
+
+/* ---------- Chat header ---------- */
+.chat-header {
+  background: var(--bg-primary);
+  border-bottom: 1px solid var(--border-color);
+  box-shadow: none;
+}
+
+/* ---------- Main chat area ---------- */
+.chat-main,
+.messages-container {
+  background: var(--bg-chat);
+}
+
+/* ---------- Message bubbles ----------
+   Bubble lives on .message-text (inline-block, max-width:80%).
+   .message-content is a flex:1 wrapper — must stay transparent
+   so the background does not stretch across the whole row. */
+.message-content,
+.message-bubble {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+.message-item:hover {
+  background-color: transparent !important;
+}
+.message-item:not(.own) .message-text {
+  background-color: var(--message-other);
+  color: var(--text-primary);
+  border: 1px solid transparent;
+  box-shadow: none;
+  max-width: min(70%, 640px);
+}
+.message-item.own .message-text {
+  background-color: var(--message-own);
+  color: var(--text-primary);
+  border: 1px solid transparent;
+  box-shadow: none;
+  max-width: min(70%, 640px);
+}
+
+/* Wider bubbles on mobile so text doesn't break per-word */
+@media (max-width: 768px) {
+  .message-item:not(.own) .message-text,
+  .message-item.own .message-text {
+    max-width: 85%;
+  }
+
+  /* Server-sidebar dock is horizontal on mobile — make the inner
+     guild-scroll a flex row so icons line up correctly. */
+  .server-guild-scroll {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: var(--spacing-sm);
+  }
+
+  /* Guild panels — switch like DM panels (translateX), not stack */
+  .guild-sidebar,
+  .guild-chat-main {
+    position: absolute !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 100% !important;
+    height: calc(100% - 60px) !important;
+    z-index: 10;
+    transition: transform var(--transition-normal);
+  }
+  .guild-sidebar { transform: translateX(0); }
+  .guild-chat-main { transform: translateX(100%); z-index: 20; }
+
+  .mobile-panel-guild-channels .guild-sidebar { transform: translateX(0); }
+  .mobile-panel-guild-channels .guild-chat-main { transform: translateX(100%); }
+
+  .mobile-panel-guild-chat .guild-sidebar { transform: translateX(-100%); }
+  .mobile-panel-guild-chat .guild-chat-main { transform: translateX(0); }
+}
+
+.message-author,
+.message-author-bubble {
+  color: var(--text-secondary);
+  font-weight: 600;
+  font-size: 12px;
+}
+.message-timestamp {
+  color: var(--text-tertiary);
+  font-size: 11px;
+}
+
+/* Date divider */
+.date-divider {
+  color: var(--text-tertiary);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.date-divider::before,
+.date-divider::after {
+  background: var(--border-color);
+}
+
+/* ---------- Message input ---------- */
+.message-input-container {
+  background: var(--bg-primary);
+  border-top: 1px solid var(--border-color);
+  padding: 10px 14px;
+}
+.message-input,
+.message-input-container input,
+.message-input-container textarea {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  color: var(--text-primary);
+  padding: 10px 12px;
+  transition: border-color var(--transition-fast);
+}
+.message-input:focus,
+.message-input-container input:focus,
+.message-input-container textarea:focus {
+  border-color: var(--accent-primary);
+}
+
+/* ---------- Icon buttons ---------- */
+.icon-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  color: var(--text-secondary);
+  background: transparent;
+  border: none;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+.icon-btn:hover {
+  background: var(--hover-bg);
+  color: var(--text-primary);
+}
+.send-btn {
+  color: var(--accent-primary);
+}
+.send-btn:hover {
+  background: var(--hover-bg);
+  color: var(--accent-hover);
+}
+
+/* ---------- Avatars ---------- */
+.avatar,
+.user-avatar,
+.chat-avatar,
+.message-avatar {
+  border-radius: 50%;
+  box-shadow: none;
+  border: none;
+}
+
+/* ---------- Inputs (universal) ---------- */
+.field-input,
+input[type="text"],
+input[type="email"],
+input[type="password"],
+input[type="search"],
+input[type="number"],
+input[type="url"],
+input[type="tel"],
+textarea,
+select {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  color: var(--text-primary);
+  padding: 9px 12px;
+  font-size: 14px;
+  transition: border-color var(--transition-fast);
+}
+.field-input:focus,
+input:focus,
+textarea:focus,
+select:focus {
+  border-color: var(--accent-primary);
+  outline: none;
+}
+
+/* ---------- Buttons (general) ---------- */
+button.primary,
+.btn-primary,
+.settings-list button[type="submit"] {
+  background: var(--accent-primary) !important;
+  color: #fff !important;
+  border: 1px solid var(--accent-primary) !important;
+  border-radius: 8px !important;
+  padding: 9px 16px !important;
+  font-weight: 600 !important;
+  font-size: 13px !important;
+  box-shadow: none !important;
+  transition: background var(--transition-fast) !important;
+}
+button.primary:hover,
+.btn-primary:hover,
+.settings-list button[type="submit"]:hover {
+  background: var(--accent-hover) !important;
+  border-color: var(--accent-hover) !important;
+  transform: none !important;
+}
+
+/* ---------- Modals ---------- */
+.modal-overlay {
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+.modal,
+.modal-content,
+.modal-body {
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  box-shadow: var(--shadow-lg);
+}
+
+/* ---------- Context menu ---------- */
+.context-menu {
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  box-shadow: var(--shadow-md);
+  padding: 4px;
+}
+.context-menu-item {
+  border-radius: 6px;
+  padding: 7px 10px;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+.context-menu-item:hover {
+  background: var(--hover-bg);
+}
+
+/* ---------- Guild chat layout fix ----------
+   Without flex:1 the messages list collapses and the input
+   bar floats up under the header. */
+.guild-chat-main {
+  height: 100%;
+}
+.guild-messages-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+.guild-chat-main .message-input-area,
+.guild-chat-main .message-input-container {
+  flex-shrink: 0;
+}
+
+/* ---------- Profile preview banner — flatten gradient ---------- */
+.profile-banner-preview {
+  background: var(--bg-tertiary) !important;
+  border-bottom: 1px solid var(--border-color);
+  height: 96px !important;
+}
+
+/* ---------- User profile section (bottom of sidebar) ---------- */
+.user-profile,
+.user-profile-section {
+  background: var(--bg-tertiary);
+  border-top: 1px solid var(--border-color);
+  box-shadow: none;
+}
+
+/* ---------- Scrollbars (subtle) ---------- */
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border-radius: 4px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--text-tertiary);
+}
+
+/* ---------- Notification / unread badges ---------- */
+.notification-badge,
+.unread-badge {
+  background: var(--unread-bg);
+  color: #fff;
+  font-weight: 600;
+  font-size: 11px;
+  border-radius: 999px;
+  padding: 1px 6px;
+  min-width: 18px;
+  height: 18px;
+  box-shadow: none;
+}
+
+/* ---------- Typing indicator ---------- */
+.typing-indicator {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  box-shadow: none;
+}
+
+/* ---------- Call window (calmer) ---------- */
+.call-overlay {
+  background: rgba(0, 0, 0, 0.9);
+}
+.call-btn {
+  border-radius: 50% !important;
+}
+
+/* ---------- Focus visibility (accessibility) ---------- */
+:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* ---------- Reduce motion respect ---------- */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

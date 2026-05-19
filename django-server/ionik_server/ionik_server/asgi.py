@@ -8,15 +8,18 @@ from channels.routing import ProtocolTypeRouter, URLRouter
 from django.core.asgi import get_asgi_application
 from django.urls import path
 from ionik_server.middleware import JWTAuthMiddleware
-from ionik_messages.consumers import ChatConsumer
+from ionik_messages.consumers import ChatConsumer, GuildChannelConsumer, GuildPresenceConsumer, GuildVoiceConsumer
 from ionik_signaling.consumers import SignalingConsumer
 
 application = ProtocolTypeRouter({
     'http': get_asgi_application(),
     'websocket': JWTAuthMiddleware(
         URLRouter([
-            path('ws/chat/<int:conversation_id>/', ChatConsumer.as_asgi()),
+            path('ws/chat/<uuid:conversation_id>/', ChatConsumer.as_asgi()),
             path('ws/signaling/', SignalingConsumer.as_asgi()),
+            path('ws/guild/<uuid:guild_id>/', GuildPresenceConsumer.as_asgi()),
+            path('ws/guild/<uuid:guild_id>/channel/<uuid:channel_id>/', GuildChannelConsumer.as_asgi()),
+            path('ws/guild/<uuid:guild_id>/voice/<uuid:channel_id>/', GuildVoiceConsumer.as_asgi()),
         ])
     ),
 })

@@ -5,10 +5,13 @@ from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from channels.generic.websocket import AsyncWebsocketConsumer
 from channels.db import database_sync_to_async
-from django.db.models import Q
-from .models import Conversation, Message, Attachment, ScheduledMessage
+from .models import (
+    Conversation, Message, Attachment, ScheduledMessage,
+    GuildMembership, GuildMessage, GuildAttachment, GuildScheduledMessage,
+)
 from .encryption import encrypt_text
 from ionik_auth.models import User, BlockedUser
+from .voice_state import _voice_channels
 
 
 class ChatConsumer(AsyncWebsocketConsumer):
@@ -36,11 +39,31 @@ class ChatConsumer(AsyncWebsocketConsumer):
         for item in pending:
             asyncio.ensure_future(self._deliver_scheduled(item['id'], item['send_at']))
 
+        # Mark all incoming (other-author) messages without delivered_at as delivered
+        delivered = await self.mark_delivered(user.id)
+        if delivered:
+            await self.channel_layer.group_send(
+                self.room_group,
+                {'type': 'message_status', 'ids': delivered, 'field': 'delivered_at', 'ts': timezone.now().isoformat()},
+            )
+
     async def disconnect(self, close_code):
         await self.channel_layer.group_discard(self.room_group, self.channel_name)
 
     async def receive(self, text_data):
         data = ujson.loads(text_data)
+
+        # Read-receipt command: client opened the chat, mark unread incoming messages as read
+        if data.get('type') == 'mark_read':
+            user = self.scope.get('user')
+            read = await self.mark_read(user.id)
+            if read:
+                await self.channel_layer.group_send(
+                    self.room_group,
+                    {'type': 'message_status', 'ids': read, 'field': 'read_at', 'ts': timezone.now().isoformat()},
+                )
+            return
+
         content = data.get('message', '').strip()
         attachment_ids = data.get('attachment_ids', [])
         if isinstance(attachment_ids, int):
@@ -59,11 +82,11 @@ class ChatConsumer(AsyncWebsocketConsumer):
         if attachment_ids:
             coros.append(self.get_attachments_data(attachment_ids))
         if reply_to_id:
-            coros.append(self.get_reply_data(int(reply_to_id)))
+            coros.append(self.get_reply_data(reply_to_id))
 
         results = await asyncio.gather(*coros, return_exceptions=True)
 
-        msg_id = results[0] if isinstance(results[0], int) else None
+        msg_id = results[0] if not isinstance(results[0], Exception) else None
         idx = 1
         attachments_data = []
         if attachment_ids:
@@ -74,7 +97,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
             reply_to_data = results[idx] if not isinstance(results[idx], Exception) else None
 
         msg_payload = {
-            'id': msg_id,
+            'id': str(msg_id) if msg_id is not None else None,
             'author': self.user_data,
             'content': content,
             'created_at': timezone.now().isoformat(),
@@ -88,8 +111,38 @@ class ChatConsumer(AsyncWebsocketConsumer):
             {'type': 'chat_message', 'message': msg_payload},
         )
 
+        # Push a notification to every recipient via their always-on signaling WS
+        sender_name = self.user_data.get('nickname') or self.user_data.get('username', '')
+        notif_content = content if content else ('\U0001f4ce Attachment' if attachment_ids else '')
+        notification = {
+            'type': 'new_message_notification',
+            'sender_id': self.user_data.get('id', ''),
+            'sender_name': sender_name,
+            'content': notif_content,
+        }
+        other_ids = await self.get_other_participant_ids()
+        for pid in other_ids:
+            await self.channel_layer.group_send(
+                f'user_{pid}',
+                {'type': 'new.message.notification', 'data': notification},
+            )
+        # FCM push for participants whose app may be killed / screen off
+        await self.push_fcm_to_users(other_ids, {
+            'type': 'message',
+            'sender_name': sender_name,
+            'content': notif_content,
+        })
+
     async def chat_message(self, event):
         await self.send(text_data=ujson.dumps(event['message']))
+
+    async def message_status(self, event):
+        await self.send(text_data=ujson.dumps({
+            'type': 'message_status',
+            'ids': event['ids'],
+            'field': event['field'],
+            'ts': event['ts'],
+        }))
 
     async def message_deleted(self, event):
         await self.send(text_data=ujson.dumps({
@@ -120,7 +173,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
         if send_at:
             asyncio.ensure_future(self._deliver_scheduled(scheduled_id, send_at))
 
-    async def _deliver_scheduled(self, scheduled_id: int, send_at):
+    async def _deliver_scheduled(self, scheduled_id, send_at):
         """Sleep until send_at, then deliver the scheduled message."""
         now = timezone.now()
         if send_at.tzinfo is None:
@@ -148,7 +201,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
         return list(qs)
 
     @database_sync_to_async
-    def deliver_scheduled_message(self, scheduled_id: int):
+    def deliver_scheduled_message(self, scheduled_id):
         try:
             msg = ScheduledMessage.objects.select_related(
                 'author', 'reply_to', 'reply_to__author'
@@ -174,7 +227,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
         reply_to_data = None
         if msg.reply_to:
             reply_to_data = {
-                'id': msg.reply_to.id,
+                'id': str(msg.reply_to.id),
                 'content': msg.reply_to.content[:200],
                 'author': {
                     'id': str(msg.reply_to.author.id),
@@ -187,7 +240,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
         if msg.attachment_ids:
             for att in Attachment.objects.filter(id__in=msg.attachment_ids):
                 attachments_data.append({
-                    'id': att.id,
+                    'id': str(att.id),
                     'filename': att.original_filename,
                     'content_type': att.content_type,
                     'file_size': att.file_size,
@@ -195,7 +248,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 })
 
         return {
-            'id': real_msg.id,
+            'id': str(real_msg.id),
             'author': {
                 'id': str(author.id),
                 'username': author.username,
@@ -209,6 +262,48 @@ class ChatConsumer(AsyncWebsocketConsumer):
             'reply_to': reply_to_data,
             'is_pinned': False,
         }
+
+    @database_sync_to_async
+    def push_fcm_to_users(self, user_ids, data):
+        from ionik_server.fcm import send_to_user
+        for uid in user_ids:
+            send_to_user(uid, data)
+
+    @database_sync_to_async
+    def mark_delivered(self, user_id):
+        """Mark all messages by OTHER authors in this conversation as delivered.
+        Returns list of message ids that were just updated."""
+        qs = Message.objects.filter(
+            conversation_id=self.conversation_id,
+            delivered_at__isnull=True,
+        ).exclude(author_id=user_id)
+        ids = [str(mid) for mid in qs.values_list('id', flat=True)]
+        if ids:
+            qs.update(delivered_at=timezone.now())
+        return ids
+
+    @database_sync_to_async
+    def mark_read(self, user_id):
+        """Mark all messages by OTHER authors as read."""
+        qs = Message.objects.filter(
+            conversation_id=self.conversation_id,
+            read_at__isnull=True,
+        ).exclude(author_id=user_id)
+        ids = [str(mid) for mid in qs.values_list('id', flat=True)]
+        if ids:
+            now = timezone.now()
+            # Also fill delivered_at for messages that somehow weren't marked
+            Message.objects.filter(id__in=ids, delivered_at__isnull=True).update(delivered_at=now)
+            qs.update(read_at=now)
+        return ids
+
+    @database_sync_to_async
+    def get_other_participant_ids(self):
+        ids = list(
+            Conversation.objects.filter(id=self.conversation_id)
+            .values_list('participants__id', flat=True)
+        )
+        return [str(pid) for pid in ids if str(pid) != str(self.user_data['id'])]
 
     @database_sync_to_async
     def check_participant(self, user_id):
@@ -247,7 +342,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
         result = []
         for att in Attachment.objects.filter(id__in=attachment_ids, conversation_id=self.conversation_id):
             result.append({
-                'id': att.id,
+                'id': str(att.id),
                 'filename': att.original_filename,
                 'content_type': att.content_type,
                 'file_size': att.file_size,
@@ -262,7 +357,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 id=reply_to_id, conversation_id=self.conversation_id
             )
             return {
-                'id': msg.id,
+                'id': str(msg.id),
                 'content': msg.content[:200],
                 'author': {
                     'id': str(msg.author.id),
@@ -277,10 +372,550 @@ class ChatConsumer(AsyncWebsocketConsumer):
     def save_message(self, plaintext, attachment_ids=None, reply_to_id=None):
         msg = Message.objects.create(
             conversation_id=self.conversation_id,
-            author_id=int(self.user_data['id']),
+            author_id=self.user_data['id'],
             encrypted_content=encrypt_text(plaintext or ''),
             reply_to_id=reply_to_id,
         )
         if attachment_ids:
             Attachment.objects.filter(id__in=attachment_ids).update(message=msg)
-        return msg.id
+        return str(msg.id)
+
+
+class GuildChannelConsumer(AsyncWebsocketConsumer):
+    """WebSocket consumer for guild text channels."""
+
+    async def connect(self):
+        self.guild_id = str(self.scope['url_route']['kwargs']['guild_id'])
+        self.channel_id = str(self.scope['url_route']['kwargs']['channel_id'])
+        self.room_group = f'guild_channel_{self.channel_id}'
+        self.guild_group = f'guild_{self.guild_id}'
+
+        user = self.scope.get('user')
+        if not user or user.is_anonymous:
+            await self.close()
+            return
+
+        is_member = await self.check_membership(user.id)
+        if not is_member:
+            await self.close()
+            return
+
+        self.user_data = await self.get_user_data(user.id)
+
+        await self.channel_layer.group_add(self.room_group, self.channel_name)
+        await self.channel_layer.group_add(self.guild_group, self.channel_name)
+        await self.accept()
+
+        # Send current voice presence snapshot for this guild's voice channels only
+        for ch_id, ch_data in _voice_channels.items():
+            if ch_data.get('_guild_id') != self.guild_id:
+                continue
+            members = [v for k, v in ch_data.items() if k != '_guild_id']
+            if members:
+                await self.send(text_data=ujson.dumps({
+                    'type': 'voice_presence_update',
+                    'channel_id': ch_id,
+                    'participants': members,
+                }))
+
+        # Deliver any pending scheduled messages
+        pending = await self.get_pending_scheduled()
+        for item in pending:
+            asyncio.ensure_future(
+                self._deliver_scheduled(item['id'], item['send_at'])
+            )
+
+    async def disconnect(self, close_code):
+        await self.channel_layer.group_discard(self.room_group, self.channel_name)
+        await self.channel_layer.group_discard(self.guild_group, self.channel_name)
+
+    async def receive(self, text_data):
+        data = ujson.loads(text_data)
+        content = data.get('message', '').strip()
+        reply_to_id = data.get('reply_to_id')
+        attachment_ids = data.get('attachment_ids', [])
+        if isinstance(attachment_ids, int):
+            attachment_ids = [attachment_ids]
+
+        if not content and not attachment_ids:
+            return
+
+        msg_id = await self.save_message(content, reply_to_id, attachment_ids)
+        reply_to_data = None
+        if reply_to_id:
+            reply_to_data = await self.get_reply_data(reply_to_id)
+        attachments_data = []
+        if attachment_ids:
+            attachments_data = await self.get_attachments_data(attachment_ids)
+
+        msg_payload = {
+            'id': msg_id,
+            'author': self.user_data,
+            'content': content,
+            'created_at': timezone.now().isoformat(),
+            'reply_to': reply_to_data,
+            'attachments': attachments_data,
+            'is_pinned': False,
+        }
+
+        await self.channel_layer.group_send(
+            self.room_group,
+            {'type': 'chat_message', 'message': msg_payload},
+        )
+
+        # FCM push to guild members whose app may be killed / screen off
+        sender_name = self.user_data.get('nickname') or self.user_data.get('username', '')
+        member_ids = await self.get_guild_member_ids_except_self()
+        await self.push_fcm_to_users(member_ids, {
+            'type': 'message',
+            'sender_name': sender_name,
+            'content': content,
+        })
+
+    async def guild_scheduled_queued(self, event):
+        from django.utils.timezone import make_aware
+        scheduled_id = event['scheduled_id']
+        send_at = parse_datetime(event['send_at'])
+        if send_at and send_at.tzinfo is None:
+            send_at = make_aware(send_at)
+        if send_at:
+            asyncio.ensure_future(self._deliver_scheduled(scheduled_id, send_at))
+
+    async def _deliver_scheduled(self, scheduled_id, send_at):
+        now = timezone.now()
+        delay = (send_at - now).total_seconds()
+        if delay > 0:
+            await asyncio.sleep(delay)
+        payload = await self.deliver_scheduled_message(scheduled_id)
+        if payload:
+            await self.channel_layer.group_send(
+                self.room_group,
+                {'type': 'chat_message', 'message': payload},
+            )
+
+    @database_sync_to_async
+    def push_fcm_to_users(self, user_ids, data):
+        from ionik_server.fcm import send_to_user
+        for uid in user_ids:
+            send_to_user(uid, data)
+
+    @database_sync_to_async
+    def get_guild_member_ids_except_self(self):
+        from ionik_messages.models import GuildMembership
+        ids = list(
+            GuildMembership.objects.filter(guild_id=self.guild_id)
+            .exclude(user_id=self.user_data['id'])
+            .values_list('user_id', flat=True)
+        )
+        return [str(uid) for uid in ids]
+
+    @database_sync_to_async
+    def get_pending_scheduled(self):
+        now = timezone.now()
+        qs = GuildScheduledMessage.objects.filter(
+            channel_id=self.channel_id,
+            is_sent=False,
+            send_at__lte=now + timedelta(hours=24),
+        ).values('id', 'send_at')
+        return list(qs)
+
+    @database_sync_to_async
+    def deliver_scheduled_message(self, scheduled_id):
+        try:
+            sched = GuildScheduledMessage.objects.select_related(
+                'author', 'reply_to', 'reply_to__author'
+            ).get(id=scheduled_id, channel_id=self.channel_id, is_sent=False)
+        except GuildScheduledMessage.DoesNotExist:
+            return None
+
+        real_msg = GuildMessage.objects.create(
+            channel_id=self.channel_id,
+            author=sched.author,
+            encrypted_content=sched.encrypted_content,
+            reply_to=sched.reply_to,
+        )
+        if sched.attachment_ids:
+            GuildAttachment.objects.filter(
+                id__in=sched.attachment_ids
+            ).update(message=real_msg)
+
+        sched.is_sent = True
+        sched.save(update_fields=['is_sent'])
+
+        author = sched.author
+        reply_to_data = None
+        if sched.reply_to:
+            reply_to_data = {
+                'id': str(sched.reply_to.id),
+                'content': sched.reply_to.content[:200],
+                'author': {
+                    'id': str(sched.reply_to.author.id),
+                    'username': sched.reply_to.author.username,
+                    'nickname': sched.reply_to.author.nickname or '',
+                },
+            }
+
+        attachments_data = []
+        if sched.attachment_ids:
+            for att in GuildAttachment.objects.filter(id__in=sched.attachment_ids):
+                attachments_data.append({
+                    'id': str(att.id),
+                    'filename': att.original_filename,
+                    'content_type': att.content_type,
+                    'file_size': att.file_size,
+                    'url': f'/api/guild-attachments/{att.id}/',
+                })
+
+        return {
+            'id': str(real_msg.id),
+            'author': {
+                'id': str(author.id),
+                'username': author.username,
+                'nickname': author.nickname or '',
+                'avatar': author.avatar.url if author.avatar else '',
+                'status': author.status,
+            },
+            'content': sched.content,
+            'created_at': real_msg.created_at.isoformat(),
+            'attachments': attachments_data,
+            'reply_to': reply_to_data,
+            'is_pinned': False,
+        }
+
+    async def chat_message(self, event):
+        await self.send(text_data=ujson.dumps(event['message']))
+
+    async def message_deleted(self, event):
+        await self.send(text_data=ujson.dumps({'type': 'message_deleted', 'id': event['id']}))
+
+    async def message_pinned(self, event):
+        await self.send(text_data=ujson.dumps({'type': 'message_pinned', 'id': event['id'], 'is_pinned': event['is_pinned']}))
+
+    # ── Guild-level events (received via guild_group) ──
+
+    async def guild_deleted(self, event):
+        await self.send(text_data=ujson.dumps({'type': 'guild_deleted', 'guild_id': event['guild_id']}))
+        await self.close()
+
+    async def member_joined(self, event):
+        await self.send(text_data=ujson.dumps({'type': 'member_joined', 'member': event['member']}))
+
+    async def member_left(self, event):
+        await self.send(text_data=ujson.dumps({'type': 'member_left', 'user_id': event['user_id']}))
+
+    async def member_kicked(self, event):
+        await self.send(text_data=ujson.dumps({'type': 'member_kicked', 'user_id': event['user_id'], 'guild_name': event.get('guild_name', '')}))
+
+    async def channel_created(self, event):
+        await self.send(text_data=ujson.dumps({'type': 'channel_created', 'channel': event['channel']}))
+
+    async def channel_deleted(self, event):
+        await self.send(text_data=ujson.dumps({'type': 'channel_deleted', 'channel_id': event['channel_id']}))
+
+    async def voice_presence_update(self, event):
+        await self.send(text_data=ujson.dumps({
+            'type': 'voice_presence_update',
+            'channel_id': event['channel_id'],
+            'participants': event['participants'],
+        }))
+
+    @database_sync_to_async
+    def check_membership(self, user_id):
+        return GuildMembership.objects.filter(guild_id=self.guild_id, user_id=user_id).exists()
+
+    @database_sync_to_async
+    def get_user_data(self, user_id):
+        user = User.objects.get(id=user_id)
+        # Use guild nickname if set
+        nickname = ''
+        try:
+            m = GuildMembership.objects.get(guild_id=self.guild_id, user_id=user_id)
+            nickname = m.nickname or user.nickname or ''
+        except GuildMembership.DoesNotExist:
+            nickname = user.nickname or ''
+        return {
+            'id': str(user.id),
+            'username': user.username,
+            'nickname': nickname,
+            'avatar': user.avatar.url if user.avatar else '',
+            'status': user.status,
+        }
+
+    @database_sync_to_async
+    def save_message(self, plaintext, reply_to_id=None, attachment_ids=None):
+        msg = GuildMessage.objects.create(
+            channel_id=self.channel_id,
+            author_id=self.user_data['id'],
+            encrypted_content=encrypt_text(plaintext or ''),
+            reply_to_id=reply_to_id,
+        )
+        if attachment_ids:
+            GuildAttachment.objects.filter(id__in=attachment_ids).update(message=msg)
+        return str(msg.id)
+
+    @database_sync_to_async
+    def get_attachments_data(self, attachment_ids):
+        result = []
+        for att in GuildAttachment.objects.filter(
+            id__in=attachment_ids, channel_id=self.channel_id
+        ):
+            result.append({
+                'id': str(att.id),
+                'filename': att.original_filename,
+                'content_type': att.content_type,
+                'file_size': att.file_size,
+                'url': f'/api/guild-attachments/{att.id}/',
+            })
+        return result
+
+    @database_sync_to_async
+    def get_reply_data(self, reply_to_id):
+        try:
+            msg = GuildMessage.objects.select_related('author').get(
+                id=reply_to_id, channel_id=self.channel_id
+            )
+            return {
+                'id': str(msg.id),
+                'content': msg.content[:200],
+                'author': {'id': str(msg.author.id), 'username': msg.author.username, 'nickname': msg.author.nickname or ''},
+            }
+        except GuildMessage.DoesNotExist:
+            return None
+
+
+class GuildPresenceConsumer(AsyncWebsocketConsumer):
+    """Guild-level WS: subscribes to guild group only (no channel).
+    Used when a user has selected a guild but hasn't opened any channel,
+    so they still receive member join/leave/kick and channel events.
+    """
+
+    async def connect(self):
+        self.guild_id = str(self.scope['url_route']['kwargs']['guild_id'])
+        self.guild_group = f'guild_{self.guild_id}'
+
+        user = self.scope.get('user')
+        if not user or user.is_anonymous:
+            await self.close()
+            return
+
+        is_member = await self._check_membership(user.id)
+        if not is_member:
+            await self.close()
+            return
+
+        await self.channel_layer.group_add(self.guild_group, self.channel_name)
+        await self.accept()
+
+    async def disconnect(self, close_code):
+        await self.channel_layer.group_discard(self.guild_group, self.channel_name)
+
+    async def receive(self, text_data):
+        pass  # No client→server messages needed
+
+    async def guild_deleted(self, event):
+        await self.send(text_data=ujson.dumps({'type': 'guild_deleted', 'guild_id': event['guild_id']}))
+        await self.close()
+
+    async def member_joined(self, event):
+        await self.send(text_data=ujson.dumps({'type': 'member_joined', 'member': event['member']}))
+
+    async def member_left(self, event):
+        await self.send(text_data=ujson.dumps({'type': 'member_left', 'user_id': event['user_id']}))
+
+    async def member_kicked(self, event):
+        await self.send(text_data=ujson.dumps({
+            'type': 'member_kicked',
+            'user_id': event['user_id'],
+            'guild_name': event.get('guild_name', ''),
+        }))
+
+    async def channel_created(self, event):
+        await self.send(text_data=ujson.dumps({'type': 'channel_created', 'channel': event['channel']}))
+
+    async def channel_deleted(self, event):
+        await self.send(text_data=ujson.dumps({'type': 'channel_deleted', 'channel_id': event['channel_id']}))
+
+    async def voice_presence_update(self, event):
+        await self.send(text_data=ujson.dumps({
+            'type': 'voice_presence_update',
+            'channel_id': event['channel_id'],
+            'participants': event['participants'],
+        }))
+
+    async def member_role_updated(self, event):
+        await self.send(text_data=ujson.dumps({
+            'type': 'member_role_updated',
+            'user_id': event['user_id'],
+            'role': event['role'],
+        }))
+
+    @database_sync_to_async
+    def _check_membership(self, user_id):
+        return GuildMembership.objects.filter(guild_id=self.guild_id, user_id=user_id).exists()
+
+
+class GuildVoiceConsumer(AsyncWebsocketConsumer):
+    """Presence-only consumer for guild voice channels.
+    Tracks who is in the channel and relays WebRTC signaling between them.
+    """
+
+    async def connect(self):
+        self.guild_id = str(self.scope['url_route']['kwargs']['guild_id'])
+        self.channel_id = str(self.scope['url_route']['kwargs']['channel_id'])
+        self.room_group = f'guild_voice_{self.channel_id}'
+
+        user = self.scope.get('user')
+        if not user or user.is_anonymous:
+            await self.close()
+            return
+
+        is_member = await self.check_membership(user.id)
+        if not is_member:
+            await self.close()
+            return
+
+        self.user_info = await self.get_user_info(user.id)
+        self.user_id = str(user.id)
+
+        await self.channel_layer.group_add(self.room_group, self.channel_name)
+        await self.accept()
+
+        # Register in voice channel: {channel_id: {'_guild_id': int, user_id: user_info, ...}}
+        if self.channel_id not in _voice_channels:
+            _voice_channels[self.channel_id] = {'_guild_id': self.guild_id}
+        _voice_channels[self.channel_id][self.user_id] = self.user_info
+
+        # Send current participants list to the joining user (exclude _guild_id sentinel)
+        participants = [v for k, v in _voice_channels[self.channel_id].items() if k != '_guild_id']
+        await self.send(text_data=ujson.dumps({
+            'type': 'voice_participants',
+            'participants': participants,
+        }))
+
+        # Notify voice room participants that this user joined
+        await self.channel_layer.group_send(
+            self.room_group,
+            {'type': 'voice_user_joined', 'user': self.user_info, 'from_user': self.user_id},
+        )
+
+        # Notify ALL guild members (guild text WS group) so they see presence without being in voice
+        guild_group = f'guild_{self.guild_id}'
+        all_participants = [v for k, v in _voice_channels[self.channel_id].items() if k != '_guild_id']
+        await self.channel_layer.group_send(
+            guild_group,
+            {
+                'type': 'voice_presence_update',
+                'channel_id': self.channel_id,
+                'participants': all_participants,
+            },
+        )
+
+    async def disconnect(self, close_code):
+        # Guard: connect() may have returned early before setting user_id
+        if not getattr(self, 'user_id', None):
+            await self.channel_layer.group_discard(self.room_group, self.channel_name)
+            return
+
+        # Remove from registry
+        if self.channel_id in _voice_channels:
+            _voice_channels[self.channel_id].pop(self.user_id, None)
+            # Remove channel entry if only the sentinel '_guild_id' key remains
+            if set(_voice_channels[self.channel_id].keys()) <= {'_guild_id'}:
+                del _voice_channels[self.channel_id]
+
+        await self.channel_layer.group_discard(self.room_group, self.channel_name)
+
+        # Notify voice room participants
+        await self.channel_layer.group_send(
+            self.room_group,
+            {'type': 'voice_user_left', 'user_id': self.user_id},
+        )
+
+        # Notify ALL guild members
+        guild_group = f'guild_{self.guild_id}'
+        remaining = [v for k, v in _voice_channels.get(self.channel_id, {}).items() if k != '_guild_id']
+        await self.channel_layer.group_send(
+            guild_group,
+            {
+                'type': 'voice_presence_update',
+                'channel_id': self.channel_id,
+                'participants': remaining,
+            },
+        )
+
+    async def receive(self, text_data):
+        data = ujson.loads(text_data)
+        msg_type = data.get('type')
+
+        if msg_type == 'voice_mute':
+            # Update muted state and broadcast
+            muted = bool(data.get('muted', False))
+            if self.channel_id in _voice_channels and self.user_id in _voice_channels[self.channel_id]:
+                _voice_channels[self.channel_id][self.user_id]['muted'] = muted
+            await self.channel_layer.group_send(
+                self.room_group,
+                {'type': 'voice_mute_changed', 'user_id': self.user_id, 'muted': muted},
+            )
+
+        elif msg_type == 'signal':
+            # Forward WebRTC signal to specific target user in this channel
+            target_id = str(data.get('to', ''))
+            await self.channel_layer.group_send(
+                self.room_group,
+                {
+                    'type': 'voice_signal',
+                    'from_user': self.user_id,
+                    'to_user': target_id,
+                    'payload': data.get('payload'),
+                },
+            )
+
+    # ── Channel layer handlers ──
+
+    async def voice_user_joined(self, event):
+        if event['from_user'] == self.user_id:
+            return  # Don't send to self
+        await self.send(text_data=ujson.dumps({
+            'type': 'voice_user_joined',
+            'user': event['user'],
+        }))
+
+    async def voice_user_left(self, event):
+        await self.send(text_data=ujson.dumps({
+            'type': 'voice_user_left',
+            'user_id': event['user_id'],
+        }))
+
+    async def voice_mute_changed(self, event):
+        await self.send(text_data=ujson.dumps({
+            'type': 'voice_mute_changed',
+            'user_id': event['user_id'],
+            'muted': event['muted'],
+        }))
+
+    async def voice_signal(self, event):
+        # Only deliver to intended recipient
+        if event['to_user'] != self.user_id:
+            return
+        await self.send(text_data=ujson.dumps({
+            'type': 'signal',
+            'from': event['from_user'],
+            'payload': event['payload'],
+        }))
+
+    @database_sync_to_async
+    def check_membership(self, user_id):
+        return GuildMembership.objects.filter(
+            guild_id=self.guild_id, user_id=user_id
+        ).exists()
+
+    @database_sync_to_async
+    def get_user_info(self, user_id):
+        user = User.objects.get(id=user_id)
+        return {
+            'id': str(user.id),
+            'username': user.username,
+            'nickname': user.nickname or '',
+            'avatar': user.avatar.url if user.avatar else '',
+            'muted': False,
+        }

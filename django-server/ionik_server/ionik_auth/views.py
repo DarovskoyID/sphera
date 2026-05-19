@@ -9,7 +9,7 @@ from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
-from .models import User, Friendship, BlockedUser, UserDevice, UserSettings, CustomEmoji
+from .models import User, Friendship, BlockedUser, UserDevice, UserSettings, CustomEmoji, FcmToken
 from .serializers import (
     RegisterSerializer, UserSerializer, FriendshipSerializer,
     ProfileUpdateSerializer, BlockedUserSerializer,
@@ -92,11 +92,25 @@ def update_profile(request):
     )
     if serializer.is_valid():
         serializer.save()
-        return Response(
-            UserSerializer(
-                request.user, context={'request': request}
-            ).data
-        )
+        user = request.user
+        user.refresh_from_db()
+        response_data = UserSerializer(user, context={'request': request}).data
+
+        # Broadcast profile change to all connected signaling clients
+        channel_layer = get_channel_layer()
+        async_to_sync(channel_layer.group_send)('signaling', {
+            'type': 'user.profile.update',
+            'user': {
+                'id': str(user.id),
+                'username': user.username,
+                'nickname': user.nickname or '',
+                'avatar': user.avatar.url if user.avatar else '',
+                'bio': user.bio or '',
+                'status': user.status,
+            },
+        })
+
+        return Response(response_data)
     return Response(
         serializer.errors, status=status.HTTP_400_BAD_REQUEST
     )
@@ -227,19 +241,17 @@ def friend_request_send(request):
             existing.from_user = request.user
             existing.to_user = to_user
             existing.save()
-            return Response(FriendshipSerializer(
-                existing, context={'request': request}
-            ).data)
+            friendship_data = FriendshipSerializer(existing, context={'request': request}).data
+            _push_friend_event(str(to_user_id), 'friend-request', friendship_data)
+            return Response(friendship_data)
 
     friendship = Friendship.objects.create(
         from_user=request.user, to_user=to_user,
     )
-    return Response(
-        FriendshipSerializer(
-            friendship, context={'request': request}
-        ).data,
-        status=status.HTTP_201_CREATED,
-    )
+    friendship_data = FriendshipSerializer(friendship, context={'request': request}).data
+    # Notify recipient in real time so their pending requests update immediately
+    _push_friend_event(str(to_user_id), 'friend-request', friendship_data)
+    return Response(friendship_data, status=status.HTTP_201_CREATED)
 
 
 @api_view(['POST'])
@@ -258,6 +270,9 @@ def friend_request_accept(request, friendship_id):
         )
     friendship.status = 'accepted'
     friendship.save()
+    # Notify the requester (from_user) that their request was accepted
+    me_data = UserSerializer(request.user, context={'request': request}).data
+    _push_friend_event(str(friendship.from_user_id), 'friend-added', me_data)
     return Response(FriendshipSerializer(
         friendship, context={'request': request}
     ).data)
@@ -347,6 +362,9 @@ def friend_remove(request, user_id):
             status=status.HTTP_404_NOT_FOUND,
         )
     friendship.delete()
+    # Notify the removed friend in real time
+    me_data = UserSerializer(request.user, context={'request': request}).data
+    _push_friend_event(str(user_id), 'friend-removed', me_data)
     return Response(status=status.HTTP_204_NO_CONTENT)
 
 
@@ -450,6 +468,24 @@ def _push_block_event(target_user_id: str, event_type: str, by_user_id: str):
         pass
 
 
+def _push_friend_event(target_user_id: str, event_type: str, user_data: dict):
+    """Send a real-time friend list change to the target user."""
+    try:
+        layer = get_channel_layer()
+        async_to_sync(layer.group_send)(
+            f'user_{target_user_id}',
+            {
+                'type': 'block.notify',
+                'data': {
+                    'type': event_type,
+                    'user': user_data,
+                },
+            },
+        )
+    except Exception:
+        pass
+
+
 # ==================== Devices ====================
 
 @api_view(['GET'])
@@ -536,4 +572,17 @@ def emoji_delete(request, emoji_id):
         return Response({'error': 'not found'}, status=status.HTTP_404_NOT_FOUND)
     emoji.image.delete(save=False)
     emoji.delete()
+    return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+@api_view(['POST', 'DELETE'])
+@permission_classes([IsAuthenticated])
+def fcm_token(request):
+    token = (request.data or {}).get('token', '').strip()
+    if not token:
+        return Response({'error': 'token required'}, status=status.HTTP_400_BAD_REQUEST)
+    if request.method == 'POST':
+        FcmToken.objects.update_or_create(token=token, defaults={'user': request.user})
+        return Response({'ok': True})
+    FcmToken.objects.filter(user=request.user, token=token).delete()
     return Response(status=status.HTTP_204_NO_CONTENT)

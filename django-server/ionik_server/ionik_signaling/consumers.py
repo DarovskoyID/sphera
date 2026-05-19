@@ -2,6 +2,7 @@ import json
 from channels.generic.websocket import AsyncWebsocketConsumer
 from channels.db import database_sync_to_async
 from django.db.models import Q
+from asgiref.sync import sync_to_async
 
 
 class SignalingConsumer(AsyncWebsocketConsumer):
@@ -67,17 +68,27 @@ class SignalingConsumer(AsyncWebsocketConsumer):
         if not getattr(self, 'authed', False):
             return
 
-        SignalingConsumer._users.pop(self.user_id, None)
+        # Only remove from _users if THIS connection is still the active one.
+        # If the client reconnected (e.g. React Strict Mode double-mount or network
+        # blip), a newer connection has already replaced our entry — evicting it
+        # would make the user invisible to callers even though they are online.
+        current = SignalingConsumer._users.get(self.user_id)
+        if current and current['channel'] == self.channel_name:
+            SignalingConsumer._users.pop(self.user_id, None)
 
-        await self.channel_layer.group_discard('signaling', self.channel_name)
-        await self.channel_layer.group_discard(f'user_{self.user_id}', self.channel_name)
+            await self.channel_layer.group_discard('signaling', self.channel_name)
+            await self.channel_layer.group_discard(f'user_{self.user_id}', self.channel_name)
 
-        await self._set_status('offline')
+            await self._set_status('offline')
 
-        friend_ids = await self._get_friend_ids()
-        await self._notify_friends(friend_ids, 'offline')
+            friend_ids = await self._get_friend_ids()
+            await self._notify_friends(friend_ids, 'offline')
 
-        await self._broadcast_peer_list()
+            await self._broadcast_peer_list()
+        else:
+            # Stale connection closed — just clean up channel groups silently
+            await self.channel_layer.group_discard('signaling', self.channel_name)
+            await self.channel_layer.group_discard(f'user_{self.user_id}', self.channel_name)
 
     # ── Signaling messages ────────────────────────────────────────────────────
 
@@ -85,13 +96,31 @@ class SignalingConsumer(AsyncWebsocketConsumer):
         data = json.loads(text_data)
         target_id = str(data.get('to', ''))
         target = SignalingConsumer._users.get(target_id)
+        signal_type = data.get('type', '')
         if target:
             await self.channel_layer.send(target['channel'], {
                 'type': 'signal.forward',
                 'data': {**data, 'from': self.user_id},
             })
+        elif signal_type == 'offer':
+            # Target is offline — send FCM call notification so their device wakes up
+            caller_name = SignalingConsumer._users.get(self.user_id, {}).get('name', '') or self.user_id
+            with_video = str(data.get('withVideo', data.get('with_video', False))).lower()
+            await self._push_fcm_call(target_id, caller_name, with_video)
+
+    @database_sync_to_async
+    def _push_fcm_call(self, target_id, caller_name, with_video):
+        from ionik_server.fcm import send_to_user
+        send_to_user(target_id, {
+            'type': 'call',
+            'caller_name': caller_name,
+            'with_video': with_video,
+        })
 
     async def signal_forward(self, event):
+        await self.send(text_data=json.dumps(event['data']))
+
+    async def new_message_notification(self, event):
         await self.send(text_data=json.dumps(event['data']))
 
     async def block_notify(self, event):
@@ -99,6 +128,20 @@ class SignalingConsumer(AsyncWebsocketConsumer):
 
     async def peer_list_update(self, event):
         await self.send(text_data=json.dumps(event['data']))
+
+    async def user_profile_update(self, event):
+        await self.send(text_data=json.dumps({
+            'type': 'profile_update',
+            'user': event['user'],
+        }))
+
+    async def guild_kicked(self, event):
+        await self.send(text_data=json.dumps({
+            'type': 'guild_kicked_direct',
+            'user_id': event['user_id'],
+            'guild_name': event.get('guild_name', ''),
+            'guild_id': event.get('guild_id', ''),
+        }))
 
     # ── Presence helpers ──────────────────────────────────────────────────────
 

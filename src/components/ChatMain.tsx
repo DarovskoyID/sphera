@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Phone, Video, Search, Menu, ArrowLeft, Plus, Smile, Send, FileText, FileImage, FileVideo, FileAudio, File, Download, X, MoreHorizontal, Reply, Copy, Trash2, Flag, Pin, Clock, Ban } from 'lucide-react';
+import React, { useState, useEffect, useRef, useCallback, useLayoutEffect } from 'react';
+import { Phone, Video, Search, Menu, ArrowLeft, Plus, Smile, Send, FileText, FileImage, FileVideo, FileAudio, File, Download, X, MoreHorizontal, Reply, Copy, Trash2, Flag, Pin, Clock, Ban, Check, CheckCheck } from 'lucide-react';
 import type { ChatAttachment, ChatMessage as ChatMessageType } from '../types';
 import { useApp, reportError } from '../context/AppContext';
 import { Settings } from './Settings';
@@ -62,18 +62,19 @@ const ChatHeader: React.FC<{
   const blockedUser = !friend ? blockedContacts.find(u => String(u.id) === String(currentChat)) : null;
   const chatUser = friend ?? blockedUser;
 
-  if (!chatUser) return null;
-
   if (isCallActive) {
     return <CallWindow inline />;
   }
 
+  if (!chatUser) return null;
+
   const displayName = chatUser.nickname || chatUser.username;
 
   const startCall = (withVideo = false) => {
+    // Prevent camera from turning on when starting a voice call (state can persist from a previous call)
+    setVideoActive(withVideo);
     setCallTargetId(chatUser.id);
     setCallActive(true);
-    if (withVideo) setVideoActive(true);
   };
 
   return (
@@ -129,7 +130,7 @@ const ChatHeader: React.FC<{
 
 // ── ChatView — holds reply state, wires header + messages + input ─────────────
 
-type ScheduledItem = { id: number; send_at: string; content: string };
+type ScheduledItem = { id: string; send_at: string; content: string };
 
 const MessageSearchBar: React.FC<{
   query: string;
@@ -185,7 +186,7 @@ const ChatView: React.FC = () => {
     listScheduled(chatConversationId).then(setScheduled);
   }, [chatConversationId]);
 
-  const handleCancelScheduled = useCallback(async (id: number) => {
+  const handleCancelScheduled = useCallback(async (id: string) => {
     await cancelScheduledMessage(id);
     setScheduled(prev => prev.filter(s => s.id !== id));
   }, [cancelScheduledMessage]);
@@ -258,7 +259,7 @@ const ChatView: React.FC = () => {
   );
 };
 
-const ScheduledBanner: React.FC<{ item: ScheduledItem; onCancel: (id: number) => void }> = ({ item, onCancel }) => {
+const ScheduledBanner: React.FC<{ item: ScheduledItem; onCancel: (id: string) => void }> = ({ item, onCancel }) => {
   const [remaining, setRemaining] = useState(() => Math.max(0, Math.round((new Date(item.send_at).getTime() - Date.now()) / 1000)));
 
   useEffect(() => {
@@ -415,9 +416,9 @@ const MessageContextMenu: React.FC<{
   isOwn: boolean;
   onClose: () => void;
   onReply: (msg: ChatMessageType) => void;
-  onDelete: (id: number) => void;
-  onPin: (id: number) => void;
-  onReport: (id: number) => void;
+  onDelete: (id: string) => void;
+  onPin: (id: string) => void;
+  onReport: (id: string) => void;
   onCopy: (text: string) => void;
 }> = ({ menu, isOwn, onClose, onReply, onDelete, onPin, onReport, onCopy }) => {
   const ref = useRef<HTMLDivElement>(null);
@@ -430,11 +431,23 @@ const MessageContextMenu: React.FC<{
     return () => document.removeEventListener('mousedown', handler);
   }, [onClose]);
 
-  // Adjust so menu doesn't go off-screen
+  const [adjustedPos, setAdjustedPos] = useState({ x: menu.x, y: menu.y });
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const { width, height } = el.getBoundingClientRect();
+    const vw = window.innerWidth;
+    const vh = window.innerHeight - 68;
+    setAdjustedPos({
+      x: Math.min(Math.max(menu.x, 8), vw - width - 8),
+      y: Math.min(Math.max(menu.y, 8), vh - height),
+    });
+  }, [menu.x, menu.y]);
+
   const style: React.CSSProperties = {
     position: 'fixed',
-    top: menu.y,
-    left: menu.x,
+    top: adjustedPos.y,
+    left: adjustedPos.x,
     zIndex: 9000,
     background: 'var(--bg-primary, #1a1a2e)',
     border: '1px solid var(--border-color, #333)',
@@ -491,9 +504,28 @@ function highlightText(text: string, query: string): React.ReactNode {
   );
 }
 
-const MessageRow = React.memo(({ msg, isOwn, onContextMenu, onReply, customEmojis, searchQuery }: {
+// ── Read receipt indicator ────────────────────────────────────────────────────
+// ✓        = sent (server has the id)
+// ✓        = clock if id missing (still sending)
+// ✓✓       = delivered to recipient (their chat WS connected)
+// ✓✓ blue  = read (recipient opened the chat)
+const ReadReceipt: React.FC<{ msg: ChatMessageType }> = ({ msg }) => {
+  if (!msg.id || String(msg.id).startsWith('tmp-')) {
+    return <Clock size={13} style={{ marginLeft: 4, color: 'var(--text-tertiary)', verticalAlign: 'middle' }} />;
+  }
+  if (msg.read_at) {
+    return <CheckCheck size={14} style={{ marginLeft: 4, width: 15, color: '#3a8ee6', verticalAlign: 'middle' }} />;
+  }
+  if (msg.delivered_at) {
+    return <CheckCheck size={14} style={{ marginLeft: 4, width: 15, color: 'var(--text-tertiary)', verticalAlign: 'middle' }} />;
+  }
+  return <Check size={14} style={{ marginLeft: 4, width: 15, color: 'var(--text-tertiary)', verticalAlign: 'middle' }} />;
+};
+
+const MessageRow = React.memo(({ msg, isOwn, isFirstInGroup, onContextMenu, onReply, customEmojis, searchQuery }: {
   msg: ChatMessageType;
   isOwn: boolean;
+  isFirstInGroup: boolean;
   onContextMenu: (e: React.MouseEvent, msg: ChatMessageType) => void;
   onReply: (msg: ChatMessageType) => void;
   customEmojis: CustomEmoji[];
@@ -508,9 +540,9 @@ const MessageRow = React.memo(({ msg, isOwn, onContextMenu, onReply, customEmoji
 
   return (
     <div
-      className={`message-item ${isOwn ? 'own' : ''}`}
+      className={`message-item ${isOwn ? 'own' : ''} ${isFirstInGroup ? '' : 'compact'}`}
       style={{
-        minHeight: MSG_HEIGHT, position: 'relative',
+        minHeight: isFirstInGroup ? MSG_HEIGHT : undefined, position: 'relative',
         background: isSearchMatch
           ? 'rgba(255,200,0,0.07)'
           : msg.is_pinned ? 'rgba(0,112,243,0.08)' : undefined,
@@ -524,26 +556,20 @@ const MessageRow = React.memo(({ msg, isOwn, onContextMenu, onReply, customEmoji
           <Pin size={12} />
         </div>
       )}
-      <div className="message-avatar">
-        {msg.author.avatar && !avatarError
-          ? <img src={msg.author.avatar} alt={displayName} style={{ width: 36, height: 36, borderRadius: '50%', objectFit: 'cover' }} onError={() => setAvatarError(true)} />
-          : <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'var(--accent-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 700, fontSize: 14 }}>
-              {displayName[0].toUpperCase()}
-            </div>
+      <div className="message-avatar-slot">
+        {isFirstInGroup
+          ? (msg.author.avatar && !avatarError
+              ? <img src={msg.author.avatar} alt={displayName} style={{ width: 36, height: 36, borderRadius: '50%', objectFit: 'cover' }} onError={() => setAvatarError(true)} />
+              : <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'var(--accent-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 700, fontSize: 14 }}>
+                  {displayName[0].toUpperCase()}
+                </div>
+            )
+          : null
         }
       </div>
       <div className="message-content" style={{ flex: 1, minWidth: 0 }}>
-        <div className="message-header">
-          <span className="message-author">{displayName}</span>
-          <span className="message-timestamp">{time}</span>
-        </div>
         {msg.reply_to && (
-          <div style={{
-            borderLeft: '3px solid var(--accent-primary)',
-            paddingLeft: 8, marginBottom: 4,
-            color: 'var(--text-secondary)', fontSize: 12,
-            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-          }}>
+          <div className="message-reply-preview">
             {msg.reply_to.deleted ? (
               <span style={{ fontStyle: 'italic', opacity: 0.6 }}>Message deleted</span>
             ) : (
@@ -556,17 +582,34 @@ const MessageRow = React.memo(({ msg, isOwn, onContextMenu, onReply, customEmoji
             )}
           </div>
         )}
-        {msg.content && (
-          <div className="message-text">
-            {searchQuery?.trim()
-              ? highlightText(msg.content, searchQuery)
-              : <MessageText text={msg.content} customEmojis={customEmojis} />
-            }
-          </div>
-        )}
-        {msg.attachments?.map(att => (
-          <AttachmentView key={att.id} att={att} />
-        ))}
+        <div className="message-bubble">
+          {msg.content && (
+            <div className="message-text">
+              {isFirstInGroup && (
+                <div className="message-author-bubble">{displayName}</div>
+              )}
+              <div className="message-line">
+                <span className="message-body">
+                  {searchQuery?.trim()
+                    ? highlightText(msg.content, searchQuery)
+                    : <MessageText text={msg.content} customEmojis={customEmojis} />
+                  }
+                </span>
+                <span className="message-timestamp">{time}</span>
+                {isOwn && <ReadReceipt msg={msg} />}
+              </div>
+            </div>
+          )}
+          {msg.attachments?.map(att => (
+            <AttachmentView key={att.id} att={att} />
+          ))}
+          {!msg.content && msg.attachments?.length && (
+            <span className="message-timestamp message-timestamp-standalone">
+              {time}
+              {isOwn && <ReadReceipt msg={msg} />}
+            </span>
+          )}
+        </div>
       </div>
       {hovered && (
         <div style={{ position: 'absolute', top: 4, right: msg.is_pinned ? 28 : 8, display: 'flex', gap: 4 }}>
@@ -625,13 +668,7 @@ const MessagesContainer: React.FC<{
   const openCtx = useCallback((e: React.MouseEvent, msg: ChatMessageType) => {
     e.preventDefault();
     e.stopPropagation();
-    const vw = window.innerWidth;
-    const vh = window.innerHeight;
-    const menuW = 190;
-    const menuH = 220;
-    const x = e.clientX + menuW > vw ? vw - menuW - 8 : e.clientX;
-    const y = e.clientY + menuH > vh ? vh - menuH - 8 : e.clientY;
-    setCtxMenu({ x, y, msg });
+    setCtxMenu({ x: e.clientX, y: e.clientY, msg });
   }, []);
 
   const closeCtx = useCallback(() => setCtxMenu(null), []);
@@ -657,17 +694,22 @@ const MessagesContainer: React.FC<{
               {searchQuery.trim() ? 'No messages match your search.' : tr('chat_no_messages')}
             </div>
           )}
-          {filteredMessages.map((msg, i) => (
+          {filteredMessages.map((msg, i) => {
+            const prev = filteredMessages[i - 1];
+            const isFirstInGroup = !prev || String(prev.author.id) !== String(msg.author.id);
+            return (
             <MessageRow
               key={msg.id || `tmp-${i}`}
               msg={msg}
               isOwn={String(msg.author.id) === String(userIDonServer)}
+              isFirstInGroup={isFirstInGroup}
               onContextMenu={openCtx}
               onReply={onReply}
               customEmojis={customEmojis}
               searchQuery={searchQuery}
             />
-          ))}
+            );
+          })}
         </div>
       </div>
     </>
@@ -737,10 +779,10 @@ const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: (
     });
   }, []);
 
-  const uploadFiles = useCallback(async (files: PendingFile[]): Promise<number[]> => {
+  const uploadFiles = useCallback(async (files: PendingFile[]): Promise<string[]> => {
     if (!chatConversationId || files.length === 0) return [];
     setUploading(true);
-    const attachmentIds: number[] = [];
+    const attachmentIds: string[] = [];
     try {
       const results = await Promise.all(
         files.map(async ({ file }) => {
@@ -750,7 +792,7 @@ const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: (
             `${currentServerIP}/api/conversations/${chatConversationId}/upload/`,
             { method: 'POST', headers: { Authorization: `Bearer ${authToken}` }, body: form }
           );
-          if (res.ok) { const d = await res.json(); return d.id as number; }
+          if (res.ok) { const d = await res.json(); return d.id as string; }
           return null;
         })
       );
@@ -852,7 +894,7 @@ const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: (
       )}
 
       {/* Input row */}
-      <div style={{ display: 'flex', alignItems: 'center', width: '100%', position: 'relative' }}>
+      <div style={{ display: 'flex', gap : 8, alignItems: 'center', width: '100%', position: 'relative' }}>
         <input ref={fileInputRef} type="file" multiple style={{ display: 'none' }} onChange={handleFileSelect} />
         <button className="icon-btn glass-btn" title={tr('chat_attachment')} onClick={() => fileInputRef.current?.click()} disabled={uploading || pendingFiles.length >= MAX_FILES}>
           <Plus size={20} />
