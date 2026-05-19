@@ -10,11 +10,13 @@ set "PYTHON=%DJANGO_DIR%\myenv\Scripts\python.exe"
 set "PIP=%DJANGO_DIR%\myenv\Scripts\pip.exe"
 set "REQ_UTF8=%TEMP%\ionik-requirements-%RANDOM%.txt"
 set "INSTALL_COTURN=1"
+set "INSTALL_SYSTEM=1"
 
 if /i "%~1"=="--skip-coturn" set "INSTALL_COTURN=0"
+if /i "%~1"=="--skip-system" set "INSTALL_SYSTEM=0"
 if /i "%~1"=="--help" goto :help
 if /i "%~1"=="-h" goto :help
-if not "%~1"=="" if /i not "%~1"=="--skip-coturn" (
+if not "%~1"=="" if /i not "%~1"=="--skip-coturn" if /i not "%~1"=="--skip-system" (
     echo Unknown option: %~1
     echo Run with --help for usage.
     exit /b 1
@@ -28,15 +30,22 @@ echo.
 echo  Project root: %ROOT%
 echo.
 
+if "%INSTALL_SYSTEM%"=="1" (
+    call :install_system_tools
+    if errorlevel 1 exit /b 1
+) else (
+    echo [INFO] Skipping system tools.
+)
+
 where npm >nul 2>&1
 if errorlevel 1 (
-    echo [ERROR] npm not found. Install Node.js from https://nodejs.org
+    echo [ERROR] npm not found after system install.
     exit /b 1
 )
 
 where python >nul 2>&1
 if errorlevel 1 (
-    echo [ERROR] python not found. Install Python 3.11+ and add it to PATH.
+    echo [ERROR] python not found after system install.
     exit /b 1
 )
 
@@ -79,7 +88,8 @@ echo        Done.
 echo [4/5] Downloading Go modules ...
 where go >nul 2>&1
 if errorlevel 1 (
-    echo        Skipped: Go not found. Install Go 1.21+ if you need turn-server-go.
+    echo [ERROR] Go not found after system install.
+    exit /b 1
 ) else (
     cd /d "%TURN_DIR%"
     go mod download
@@ -104,8 +114,48 @@ echo.
 exit /b 0
 
 :help
-echo Usage: scripts\windows\install-deps.bat [--skip-coturn]
+echo Usage: scripts\windows\install-deps.bat [--skip-coturn] [--skip-system]
 echo.
-echo Installs dependencies for the root app, stun-server, Django, Go modules,
-echo and coturn via scripts\windows\coturn-install.bat.
+echo Installs Node.js/npm, Python/pip, Go, project npm packages,
+echo Django Python packages, Go modules, and coturn via WSL.
+exit /b 0
+
+:install_system_tools
+echo [0/5] Installing system tools ...
+
+where winget >nul 2>&1
+if errorlevel 1 (
+    echo [ERROR] winget not found. Install App Installer from Microsoft Store,
+    echo         or install Node.js, Python, Go and WSL manually.
+    exit /b 1
+)
+
+where node >nul 2>&1
+if errorlevel 1 (
+    winget install --id OpenJS.NodeJS.LTS --exact --accept-package-agreements --accept-source-agreements
+    if errorlevel 1 exit /b 1
+)
+set "PATH=%PATH%;%ProgramFiles%\nodejs"
+
+where python >nul 2>&1
+if errorlevel 1 (
+    winget install --id Python.Python.3.11 --exact --accept-package-agreements --accept-source-agreements
+    if errorlevel 1 exit /b 1
+)
+set "PATH=%PATH%;%LocalAppData%\Programs\Python\Python311;%LocalAppData%\Programs\Python\Python311\Scripts"
+
+where go >nul 2>&1
+if errorlevel 1 (
+    winget install --id GoLang.Go --exact --accept-package-agreements --accept-source-agreements
+    if errorlevel 1 exit /b 1
+)
+set "PATH=%PATH%;%ProgramFiles%\Go\bin"
+
+where wsl >nul 2>&1
+if errorlevel 1 (
+    echo [WARN] WSL is not installed. coturn installer requires WSL Ubuntu.
+    echo        Run: wsl --install
+)
+
+echo        Done.
 exit /b 0
