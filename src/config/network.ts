@@ -1,7 +1,8 @@
 export const APP_HOST = 'start-ionik.ru';
 
 export const API_PROTOCOL = 'https';
-export const API_BASE_URL = `${API_PROTOCOL}://${APP_HOST}`;
+export const API_PORT = 8000;
+export const API_BASE_URL = `${API_PROTOCOL}://${APP_HOST}:${API_PORT}`;
 
 export const TURN_HOST = APP_HOST;
 export const TURN_PORT = 3478;
