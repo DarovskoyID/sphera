@@ -4,7 +4,6 @@ setlocal EnableDelayedExpansion
 set "ROOT=%~dp0..\.."
 for %%I in ("%ROOT%") do set "ROOT=%%~fI"
 set "DJANGO_DIR=%ROOT%\django-server"
-set "STUN_DIR=%ROOT%\stun-server"
 set "TURN_DIR=%ROOT%\turn-server-go"
 set "PYTHON=%DJANGO_DIR%\myenv\Scripts\python.exe"
 set "PIP=%DJANGO_DIR%\myenv\Scripts\pip.exe"
@@ -55,13 +54,7 @@ call npm install
 if errorlevel 1 exit /b 1
 echo        Done.
 
-echo [2/5] Installing stun-server Node dependencies ...
-cd /d "%STUN_DIR%"
-call npm install
-if errorlevel 1 exit /b 1
-echo        Done.
-
-echo [3/5] Installing Django Python dependencies ...
+echo [2/4] Installing Django Python dependencies ...
 cd /d "%DJANGO_DIR%"
 if not exist "%PYTHON%" (
     python -m venv myenv
@@ -77,7 +70,7 @@ del /f /q "%REQ_UTF8%" >nul 2>&1
 if not "%PIP_STATUS%"=="0" exit /b %PIP_STATUS%
 echo        Done.
 
-echo [4/5] Downloading Go modules ...
+echo [3/4] Downloading Go modules ...
 where go >nul 2>&1
 if errorlevel 1 (
     echo [ERROR] Go not found after system install.
@@ -89,7 +82,7 @@ if errorlevel 1 (
     echo        Done.
 )
 
-echo [5/5] Installing coturn ...
+echo [4/4] Installing coturn ...
 if "%INSTALL_COTURN%"=="1" (
     call "%~dp0coturn-install.bat"
     if errorlevel 1 exit /b 1
