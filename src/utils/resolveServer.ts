@@ -1,4 +1,4 @@
-import { SERVER_IPS } from '../config/servers';
+import { SERVER_IPS } from '../config/network';
 
 const TIMEOUT_MS = 1500;
 
