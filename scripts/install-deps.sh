@@ -60,12 +60,20 @@ require_command() {
 install_system_deps_linux() {
     if command -v apt-get >/dev/null 2>&1; then
         sudo apt-get update -y
+
+        # NodeSource's nodejs package already bundles npm and conflicts with
+        # Debian/Ubuntu's separate npm package. Remove/unhold it before install.
+        sudo apt-mark unhold nodejs npm 2>/dev/null || true
+        sudo apt-get remove -y npm 2>/dev/null || true
+        sudo apt-get install -f -y || true
+
         sudo apt-get install -y \
-            curl ca-certificates build-essential \
-            nodejs npm \
+            curl ca-certificates gnupg build-essential \
             python3 python3-venv python3-pip \
             golang-go \
             nginx coturn
+
+        install_nodesource_node
     elif command -v dnf >/dev/null 2>&1; then
         sudo dnf install -y \
             curl ca-certificates gcc gcc-c++ make \
@@ -93,6 +101,16 @@ install_system_deps_linux() {
     fi
 }
 
+install_nodesource_node() {
+    if [ "$(node_major_version)" -ge 20 ]; then
+        return
+    fi
+
+    echo "Installing Node.js 22.x from NodeSource..."
+    curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
+    sudo apt-get install -y nodejs
+}
+
 node_major_version() {
     if ! command -v node >/dev/null 2>&1; then
         echo 0
@@ -107,13 +125,7 @@ ensure_modern_node_on_apt() {
         return
     fi
 
-    if [ "$(node_major_version)" -ge 20 ]; then
-        return
-    fi
-
-    echo "Node.js 20+ is required. Installing Node.js LTS from NodeSource..."
-    curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
-    sudo apt-get install -y nodejs
+    install_nodesource_node
 }
 
 install_system_deps_macos() {
@@ -146,11 +158,7 @@ npm_install() {
     local dir="$1"
 
     cd "$dir"
-    if [ -f package-lock.json ]; then
-        npm ci
-    else
-        npm install
-    fi
+    npm install
 }
 
 detect_python() {

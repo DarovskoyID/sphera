@@ -51,21 +51,13 @@ if errorlevel 1 (
 
 echo [1/5] Installing root Node dependencies ...
 cd /d "%ROOT%"
-if exist package-lock.json (
-    call npm ci
-) else (
-    call npm install
-)
+call npm install
 if errorlevel 1 exit /b 1
 echo        Done.
 
 echo [2/5] Installing stun-server Node dependencies ...
 cd /d "%STUN_DIR%"
-if exist package-lock.json (
-    call npm ci
-) else (
-    call npm install
-)
+call npm install
 if errorlevel 1 exit /b 1
 echo        Done.
 
