@@ -4,7 +4,6 @@ setlocal EnableDelayedExpansion
 set "ROOT=%~dp0..\.."
 for %%I in ("%ROOT%") do set "ROOT=%%~fI"
 set "DJANGO_DIR=%ROOT%\django-server"
-set "TURN_DIR=%ROOT%\turn-server-go"
 set "PYTHON=%DJANGO_DIR%\myenv\Scripts\python.exe"
 set "PIP=%DJANGO_DIR%\myenv\Scripts\pip.exe"
 set "REQ_UTF8=%TEMP%\ionik-requirements-%RANDOM%.txt"
@@ -48,13 +47,13 @@ if errorlevel 1 (
     exit /b 1
 )
 
-echo [1/5] Installing root Node dependencies ...
+echo [1/3] Installing root Node dependencies ...
 cd /d "%ROOT%"
 call npm install
 if errorlevel 1 exit /b 1
 echo        Done.
 
-echo [2/4] Installing Django Python dependencies ...
+echo [2/3] Installing Django Python dependencies ...
 cd /d "%DJANGO_DIR%"
 if not exist "%PYTHON%" (
     python -m venv myenv
@@ -70,19 +69,7 @@ del /f /q "%REQ_UTF8%" >nul 2>&1
 if not "%PIP_STATUS%"=="0" exit /b %PIP_STATUS%
 echo        Done.
 
-echo [3/4] Downloading Go modules ...
-where go >nul 2>&1
-if errorlevel 1 (
-    echo [ERROR] Go not found after system install.
-    exit /b 1
-) else (
-    cd /d "%TURN_DIR%"
-    go mod download
-    if errorlevel 1 exit /b 1
-    echo        Done.
-)
-
-echo [4/4] Installing coturn ...
+echo [3/3] Installing coturn ...
 if "%INSTALL_COTURN%"=="1" (
     call "%~dp0coturn-install.bat"
     if errorlevel 1 exit /b 1
@@ -101,8 +88,8 @@ exit /b 0
 :help
 echo Usage: scripts\windows\install-deps.bat [--skip-coturn] [--skip-system]
 echo.
-echo Installs Node.js/npm, Python/pip, Go, project npm packages,
-echo Django Python packages, Go modules, and coturn via WSL.
+echo Installs Node.js/npm, Python/pip, project npm packages,
+echo Django Python packages, and coturn via WSL.
 exit /b 0
 
 :install_system_tools
@@ -111,7 +98,7 @@ echo [0/5] Installing system tools ...
 where winget >nul 2>&1
 if errorlevel 1 (
     echo [ERROR] winget not found. Install App Installer from Microsoft Store,
-    echo         or install Node.js, Python, Go and WSL manually.
+    echo         or install Node.js, Python and WSL manually.
     exit /b 1
 )
 
@@ -128,13 +115,6 @@ if errorlevel 1 (
     if errorlevel 1 exit /b 1
 )
 set "PATH=%PATH%;%LocalAppData%\Programs\Python\Python311;%LocalAppData%\Programs\Python\Python311\Scripts"
-
-where go >nul 2>&1
-if errorlevel 1 (
-    winget install --id GoLang.Go --exact --accept-package-agreements --accept-source-agreements
-    if errorlevel 1 exit /b 1
-)
-set "PATH=%PATH%;%ProgramFiles%\Go\bin"
 
 where wsl >nul 2>&1
 if errorlevel 1 (

@@ -4,7 +4,6 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 DJANGO_DIR="$PROJECT_ROOT/django-server"
-TURN_GO_DIR="$PROJECT_ROOT/turn-server-go"
 
 INSTALL_COTURN=1
 INSTALL_SYSTEM=1
@@ -23,12 +22,10 @@ for arg in "$@"; do
             echo "Installs system tools and project dependencies:"
             echo "  - Node.js / npm"
             echo "  - Python / pip / venv"
-            echo "  - Go"
             echo "  - nginx"
             echo "  - coturn"
             echo "  - root Vite/React app"
             echo "  - django-server Python virtualenv"
-            echo "  - turn-server-go Go modules"
             exit 0
             ;;
         *)
@@ -68,7 +65,6 @@ install_system_deps_linux() {
         sudo apt-get install -y \
             curl ca-certificates gnupg build-essential \
             python3 python3-venv python3-pip \
-            golang-go \
             nginx coturn
 
         install_nodesource_node
@@ -77,7 +73,6 @@ install_system_deps_linux() {
             curl ca-certificates gcc gcc-c++ make \
             nodejs npm \
             python3 python3-pip \
-            golang \
             nginx coturn
     elif command -v yum >/dev/null 2>&1; then
         sudo yum install -y epel-release
@@ -85,11 +80,10 @@ install_system_deps_linux() {
             curl ca-certificates gcc gcc-c++ make \
             nodejs npm \
             python3 python3-pip \
-            golang \
             nginx coturn
     else
         echo "ERROR: unsupported Linux package manager."
-        echo "Install manually: nodejs npm python3 python3-pip python3-venv go nginx coturn"
+        echo "Install manually: nodejs npm python3 python3-pip python3-venv nginx coturn"
         exit 1
     fi
 
@@ -134,7 +128,7 @@ install_system_deps_macos() {
     fi
 
     brew update
-    brew install node python go nginx coturn
+    brew install node python nginx coturn
 }
 
 install_system_deps() {
@@ -252,11 +246,6 @@ npm_install "$PROJECT_ROOT"
 
 log "Installing Django Python dependencies"
 install_python_deps "$PYTHON_BIN"
-
-log "Downloading Go modules"
-require_command go "Install Go 1.21+ and re-run this script."
-cd "$TURN_GO_DIR"
-go mod download
 
 if [ "$INSTALL_COTURN" -eq 1 ]; then
     log "Installing coturn"
