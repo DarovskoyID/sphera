@@ -3,7 +3,7 @@ set -euo pipefail
 
 MODE="${1:-}"
 if [ "$MODE" != "http" ] && [ "$MODE" != "ssl" ]; then
-    echo "Usage: $0 http|ssl [--cert PATH --key PATH]"
+    echo "Usage: $0 http|ssl [--cert PATH --key PATH] [--api-port PORT] [--django-port PORT]"
     exit 1
 fi
 shift || true
@@ -19,8 +19,10 @@ DOMAIN="${IONIK_DOMAIN:-start-ionik.ru}"
 WEB_ROOT="${IONIK_WEB_ROOT:-/var/www/ionik}"
 NGINX_CONF="/etc/nginx/sites-available/$APP_NAME.conf"
 NGINX_ENABLED="/etc/nginx/sites-enabled/$APP_NAME.conf"
-DJANGO_HOST="${IONIK_DJANGO_HOST:-127.0.0.1}"
-DJANGO_PORT="${IONIK_DJANGO_PORT:-8000}"
+DJANGO_BIND_HOST="${IONIK_DJANGO_BIND_HOST:-127.0.0.1}"
+DJANGO_PROXY_HOST="${IONIK_DJANGO_PROXY_HOST:-127.0.0.1}"
+DJANGO_PORT="${IONIK_DJANGO_PORT:-8001}"
+API_PUBLIC_PORT="${IONIK_API_PUBLIC_PORT:-8000}"
 SSL_CERT="${IONIK_SSL_CERT:-/etc/letsencrypt/live/$DOMAIN/fullchain.pem}"
 SSL_KEY="${IONIK_SSL_KEY:-/etc/letsencrypt/live/$DOMAIN/privkey.pem}"
 COTURN_MIN_PORT="${IONIK_COTURN_MIN_PORT:-49152}"
@@ -46,12 +48,41 @@ while [ "$#" -gt 0 ]; do
             SSL_KEY="$2"
             shift 2
             ;;
+        --api-port)
+            if [ -z "${2:-}" ]; then
+                echo "ERROR: $1 requires a public API port."
+                exit 1
+            fi
+            API_PUBLIC_PORT="$2"
+            shift 2
+            ;;
+        --django-port)
+            if [ -z "${2:-}" ]; then
+                echo "ERROR: $1 requires an internal Django port."
+                exit 1
+            fi
+            DJANGO_PORT="$2"
+            shift 2
+            ;;
+        --django-bind)
+            if [ -z "${2:-}" ]; then
+                echo "ERROR: $1 requires a bind host."
+                exit 1
+            fi
+            DJANGO_BIND_HOST="$2"
+            shift 2
+            ;;
         --help|-h)
-            echo "Usage: $0 http|ssl [--cert PATH --key PATH]"
+            echo "Usage: $0 http|ssl [--cert PATH --key PATH] [--api-port PORT] [--django-port PORT]"
             echo ""
             echo "SSL options:"
             echo "  --cert, -c PATH   Path to fullchain/certificate PEM file"
             echo "  --key,  -k PATH   Path to private key PEM file"
+            echo ""
+            echo "API options:"
+            echo "  --api-port PORT      Public nginx API port (default: 8000)"
+            echo "  --django-port PORT   Internal Daphne port (default: 8001)"
+            echo "  --django-bind HOST   Internal Daphne bind host (default: 127.0.0.1)"
             exit 0
             ;;
         *)
@@ -122,7 +153,7 @@ server {
     }
 
     location /api/ {
-        proxy_pass http://$DJANGO_HOST:$DJANGO_PORT;
+        proxy_pass http://$DJANGO_PROXY_HOST:$DJANGO_PORT;
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
@@ -130,7 +161,7 @@ server {
     }
 
     location /media/ {
-        proxy_pass http://$DJANGO_HOST:$DJANGO_PORT;
+        proxy_pass http://$DJANGO_PROXY_HOST:$DJANGO_PORT;
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
@@ -138,7 +169,34 @@ server {
     }
 
     location /ws/ {
-        proxy_pass http://$DJANGO_HOST:$DJANGO_PORT;
+        proxy_pass http://$DJANGO_PROXY_HOST:$DJANGO_PORT;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_read_timeout 86400;
+    }
+}
+
+server {
+    listen $API_PUBLIC_PORT ssl http2;
+    listen [::]:$API_PUBLIC_PORT ssl http2;
+    server_name $DOMAIN;
+
+    ssl_certificate $SSL_CERT;
+    ssl_certificate_key $SSL_KEY;
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_timeout 1d;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers off;
+
+    client_max_body_size 100m;
+
+    location / {
+        proxy_pass http://$DJANGO_PROXY_HOST:$DJANGO_PORT;
         proxy_http_version 1.1;
         proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection "upgrade";
@@ -167,7 +225,7 @@ server {
     }
 
     location /api/ {
-        proxy_pass http://$DJANGO_HOST:$DJANGO_PORT;
+        proxy_pass http://$DJANGO_PROXY_HOST:$DJANGO_PORT;
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
@@ -175,7 +233,7 @@ server {
     }
 
     location /media/ {
-        proxy_pass http://$DJANGO_HOST:$DJANGO_PORT;
+        proxy_pass http://$DJANGO_PROXY_HOST:$DJANGO_PORT;
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
@@ -183,7 +241,27 @@ server {
     }
 
     location /ws/ {
-        proxy_pass http://$DJANGO_HOST:$DJANGO_PORT;
+        proxy_pass http://$DJANGO_PROXY_HOST:$DJANGO_PORT;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto http;
+        proxy_read_timeout 86400;
+    }
+}
+
+server {
+    listen $API_PUBLIC_PORT;
+    listen [::]:$API_PUBLIC_PORT;
+    server_name _;
+
+    client_max_body_size 100m;
+
+    location / {
+        proxy_pass http://$DJANGO_PROXY_HOST:$DJANGO_PORT;
         proxy_http_version 1.1;
         proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection "upgrade";
@@ -224,7 +302,7 @@ start_coturn() {
 }
 
 start_django() {
-    log "Starting Django/Daphne on $DJANGO_HOST:$DJANGO_PORT"
+    log "Starting Django/Daphne on $DJANGO_BIND_HOST:$DJANGO_PORT"
 
     if [ -d "$VENV" ]; then
         # shellcheck disable=SC1091
@@ -243,7 +321,7 @@ start_django() {
         sleep 1
     fi
 
-    nohup daphne -b "$DJANGO_HOST" -p "$DJANGO_PORT" ionik_server.asgi:application \
+    nohup daphne -b "$DJANGO_BIND_HOST" -p "$DJANGO_PORT" ionik_server.asgi:application \
         > /tmp/ionik-daphne.log 2>&1 &
     echo "$!" > "$PID_FILE"
     echo "      Daphne PID: $(cat "$PID_FILE")  (log: /tmp/ionik-daphne.log)"
@@ -283,7 +361,7 @@ start_nginx
 echo ""
 echo "=== All services started ==="
 echo "  TURN server : 3478, 5349, relay UDP/TCP $COTURN_MIN_PORT-$COTURN_MAX_PORT"
-echo "  Django API  : http://$DJANGO_HOST:$DJANGO_PORT"
+echo "  Django API  : http://$DJANGO_BIND_HOST:$DJANGO_PORT internal, public port $API_PUBLIC_PORT"
 if [ "$MODE" = "ssl" ]; then
     echo "  Frontend    : https://$DOMAIN"
 else
