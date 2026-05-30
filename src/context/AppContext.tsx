@@ -264,6 +264,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
   }, []);
 
   const chatWs = useRef<WebSocket | null>(null);
+  const chatLastMsgId = useRef<string | null>(null);
   const [chatReinitTrigger, setChatReinitTrigger] = useState(0);
 
   // ==================== API helpers ====================
@@ -533,6 +534,8 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     }
 
     let cancelled = false;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let pollTimer: ReturnType<typeof setInterval> | null = null;
 
     const initChat = async () => {
       try {
@@ -568,80 +571,179 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
         );
         if (cancelled) return;
         setState(prev => ({ ...prev, chatMessages: msgs }));
+        // Seed the last-ID ref so polling knows where to start
+        const last = msgs.filter(m => !String(m.id).startsWith('optimistic-')).at(-1);
+        if (last) chatLastMsgId.current = String(last.id);
 
-        // Connect chat WebSocket
+        // Connect chat WebSocket (with auto-reconnect on unexpected close)
         const wsUrl = state.currentServerIP.replace(/^http/, 'ws');
-        const ws = new WebSocket(`${wsUrl}/ws/chat/${convoId}/?token=${state.authToken}`);
+        let isFirstConnect = true;
 
-        ws.onopen = () => {
-          chatWs.current = ws;
-          // Tell server: I've opened the chat — mark all incoming as read.
-          try { ws.send(JSON.stringify({ type: 'mark_read' })); } catch { /* ignore */ }
-        };
+        const connectChatWs = () => {
+          if (cancelled) return;
+          const ws = new WebSocket(`${wsUrl}/ws/chat/${convoId}/?token=${state.authToken}`);
 
-        ws.onmessage = (event) => {
-          const data = JSON.parse(event.data);
-          if (data.type === 'conversation_deleted') {
-            setState(prev => ({
-              ...prev,
-              chatMessages: [],
-              chatConversationId: null,
-              currentChat: '',
-              mobileActivePanel: 'chat-list' as MobilePanel,
-              // Also remove from blocked contacts if this was a blocked DM
-              blockedContacts: prev.blockedContacts.filter(
-                u => String(u.id) !== String(prev.currentChat)
-              ),
-            }));
-            if (chatWs.current === ws) {
-              chatWs.current = null;
+          ws.onopen = () => {
+            if (cancelled) { ws.close(); return; }
+            chatWs.current = ws;
+
+            if (!isFirstConnect) {
+              // On reconnect: reload history to surface messages missed while WS was down.
+              // IMPORTANT: merge with current state — don't discard WS messages that arrived
+              // after the API snapshot was taken (they would otherwise be silently lost).
+              apiGet(`/api/conversations/${convoId}/messages/`, state.authToken, state.currentServerIP)
+                .then((freshMsgs: ChatMessage[]) => {
+                  if (cancelled) return;
+                  setState(prev => {
+                    const freshIds = new Set(freshMsgs.map(m => String(m.id)));
+                    // Keep confirmed WS messages not yet in the server snapshot
+                    const lateWsMsgs = prev.chatMessages.filter(
+                      m => !String(m.id).startsWith('optimistic-') && !freshIds.has(String(m.id))
+                    );
+                    const merged = [...freshMsgs, ...lateWsMsgs].sort(
+                      (a, b) => a.created_at.localeCompare(b.created_at)
+                    );
+                    const pending = prev.chatMessages.filter(m => String(m.id).startsWith('optimistic-'));
+                    return { ...prev, chatMessages: [...merged, ...pending] };
+                  });
+                })
+                .catch(() => {});
             }
-            return;
-          }
-          if (data.type === 'message_deleted') {
-            setState(prev => ({
-              ...prev,
-              chatMessages: prev.chatMessages
-                .filter(m => m.id !== data.id)
-                .map(m => m.reply_to?.id === data.id
-                  ? { ...m, reply_to: { ...m.reply_to!, deleted: true } }
-                  : m
+            isFirstConnect = false;
+
+            // Mark all as read
+            try { ws.send(JSON.stringify({ type: 'mark_read' })); } catch { /* ignore */ }
+          };
+
+          ws.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+            if (data.type === 'conversation_deleted') {
+              setState(prev => ({
+                ...prev,
+                chatMessages: [],
+                chatConversationId: null,
+                currentChat: '',
+                mobileActivePanel: 'chat-list' as MobilePanel,
+                // Also remove from blocked contacts if this was a blocked DM
+                blockedContacts: prev.blockedContacts.filter(
+                  u => String(u.id) !== String(prev.currentChat)
                 ),
-            }));
-          } else if (data.type === 'message_pinned') {
-            setState(prev => ({
-              ...prev,
-              chatMessages: prev.chatMessages.map(m =>
-                m.id === data.id ? { ...m, is_pinned: data.is_pinned } : m
-              ),
-            }));
-          } else if (data.type === 'message_status') {
-            const ids: string[] = data.ids || [];
-            const field: 'delivered_at' | 'read_at' = data.field;
-            const ts: string = data.ts;
-            setState(prev => ({
-              ...prev,
-              chatMessages: prev.chatMessages.map(m =>
-                ids.includes(String(m.id))
-                  ? (field === 'read_at'
-                      ? { ...m, read_at: ts, delivered_at: m.delivered_at || ts }
-                      : { ...m, delivered_at: ts })
-                  : m
-              ),
-            }));
-          } else {
-            const msg: ChatMessage = data;
-            setState(prev => {
-              const msgs = [...prev.chatMessages, msg];
-              if (msgs.length > 500) msgs.splice(0, msgs.length - 500);
-              return { ...prev, chatMessages: msgs };
-            });
-          }
+              }));
+              if (chatWs.current === ws) {
+                chatWs.current = null;
+              }
+              return;
+            }
+            if (data.type === 'message_deleted') {
+              setState(prev => ({
+                ...prev,
+                chatMessages: prev.chatMessages
+                  .filter(m => m.id !== data.id)
+                  .map(m => m.reply_to?.id === data.id
+                    ? { ...m, reply_to: { ...m.reply_to!, deleted: true } }
+                    : m
+                  ),
+              }));
+            } else if (data.type === 'message_pinned') {
+              setState(prev => ({
+                ...prev,
+                chatMessages: prev.chatMessages.map(m =>
+                  m.id === data.id ? { ...m, is_pinned: data.is_pinned } : m
+                ),
+              }));
+            } else if (data.type === 'message_status') {
+              const ids: string[] = data.ids || [];
+              const field: 'delivered_at' | 'read_at' = data.field;
+              const ts: string = data.ts;
+              setState(prev => ({
+                ...prev,
+                chatMessages: prev.chatMessages.map(m =>
+                  ids.includes(String(m.id))
+                    ? (field === 'read_at'
+                        ? { ...m, read_at: ts, delivered_at: m.delivered_at || ts }
+                        : { ...m, delivered_at: ts })
+                    : m
+                ),
+              }));
+            } else {
+              const msg: ChatMessage = data;
+              setState(prev => {
+                // Skip exact duplicate (e.g. WS echo arriving after optimistic already replaced)
+                if (prev.chatMessages.some(m => String(m.id) === String(msg.id))) return prev;
+                // Replace matching optimistic (same author + content), otherwise append
+                const optIdx = prev.chatMessages.findIndex(
+                  m => String(m.id).startsWith('optimistic-') &&
+                    String(m.author.id) === String(msg.author?.id) &&
+                    m.content === msg.content
+                );
+                let msgs: ChatMessage[];
+                if (optIdx !== -1) {
+                  msgs = [...prev.chatMessages];
+                  msgs[optIdx] = msg;
+                } else {
+                  msgs = [...prev.chatMessages, msg];
+                }
+                if (msgs.length > 500) msgs.splice(0, msgs.length - 500);
+                chatLastMsgId.current = String(msg.id);
+                return { ...prev, chatMessages: msgs };
+              });
+            }
+          };
+
+          ws.onclose = () => {
+            if (chatWs.current === ws) chatWs.current = null;
+            // Auto-reconnect after 3 s if not intentionally cancelled
+            if (!cancelled) {
+              reconnectTimer = setTimeout(connectChatWs, 3000);
+            }
+          };
+
+          ws.onerror = () => {};
         };
 
-        ws.onclose = () => {
-          if (chatWs.current === ws) chatWs.current = null;
-        };
+        connectChatWs();
+
+        // Polling fallback: catches messages the server WS broadcast dropped.
+        // Same URL as the initial load — server returns recent messages.
+        // cache:'no-store' prevents browser from serving a stale cached response.
+        const pollUrl = `${state.currentServerIP}/api/conversations/${convoId}/messages/`;
+        pollTimer = setInterval(async () => {
+          if (cancelled) return;
+          try {
+            const res = await fetch(pollUrl, {
+              headers: { Authorization: `Bearer ${state.authToken}`, 'X-Ionik-Client': '1' },
+              cache: 'no-store',
+            });
+            if (!res.ok || cancelled) return;
+            const body = await res.json();
+            // Support both plain array and DRF paginated {results:[...]} shapes
+            const polled: ChatMessage[] = Array.isArray(body) ? body : (body?.results ?? []);
+            if (!polled.length || cancelled) return;
+
+            setState(prev => {
+              const realIds = new Set(prev.chatMessages.filter(m => !String(m.id).startsWith('optimistic-')).map(m => String(m.id)));
+              const fresh = polled.filter(m => !realIds.has(String(m.id)));
+              if (!fresh.length) return prev;
+              // Replace optimistic messages that match by author+content
+              let updated = [...prev.chatMessages];
+              for (const fm of fresh) {
+                const optIdx = updated.findIndex(
+                  m => String(m.id).startsWith('optimistic-') &&
+                    String(m.author.id) === String(fm.author?.id) &&
+                    m.content === fm.content
+                );
+                if (optIdx !== -1) {
+                  updated[optIdx] = fm;
+                } else {
+                  updated.push(fm);
+                }
+              }
+              updated = updated.sort((a, b) => a.created_at.localeCompare(b.created_at));
+              if (updated.length > 500) updated.splice(0, updated.length - 500);
+              return { ...prev, chatMessages: updated };
+            });
+          } catch { /* ignore */ }
+        }, 15000);
       } catch (e) { reportError(e); }
     };
 
@@ -649,6 +751,9 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
 
     return () => {
       cancelled = true;
+      if (pollTimer !== null) clearInterval(pollTimer);
+      chatLastMsgId.current = null;
+      if (reconnectTimer !== null) clearTimeout(reconnectTimer);
       if (chatWs.current) {
         chatWs.current.close();
         chatWs.current = null;
@@ -657,15 +762,59 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
   }, [state.currentChat, state.authToken, state.currentServerIP, chatReinitTrigger]);
 
   const sendChatMessage = useCallback((text: string, attachmentIds?: string[], replyToId?: string) => {
-    if (chatWs.current?.readyState !== WebSocket.OPEN) return;
     const payload: Record<string, unknown> = {};
     if (text.trim()) payload.message = text;
-    if (attachmentIds && attachmentIds.length > 0) payload.attachment_ids = attachmentIds;
+    if (attachmentIds?.length) payload.attachment_ids = attachmentIds;
     if (replyToId) payload.reply_to_id = replyToId;
-    if (payload.message || payload.attachment_ids) {
-      chatWs.current.send(JSON.stringify(payload));
+    if (!payload.message && !payload.attachment_ids) return;
+
+    const payloadStr = JSON.stringify(payload);
+    let sent = false;
+
+    if (chatWs.current?.readyState === WebSocket.OPEN) {
+      try {
+        chatWs.current.send(payloadStr);
+        sent = true;
+      } catch { /* fall through to HTTP */ }
     }
-  }, []);
+
+    if (!sent && state.chatConversationId) {
+      fetch(`${state.currentServerIP}/api/conversations/${state.chatConversationId}/messages/send/`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${state.authToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          content: text,
+          attachment_ids: attachmentIds || [],
+          reply_to_id: replyToId || null,
+        }),
+      }).catch(() => {});
+    }
+
+    setState(prev => {
+      if (!prev.currentUser) return prev;
+      const optimistic: import('../types').ChatMessage = {
+        id: `optimistic-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        author: {
+          id: prev.userIDonServer,
+          username: prev.currentUser!.username,
+          nickname: prev.currentUser!.nickname,
+          avatar: prev.currentUser!.avatar,
+          status: prev.currentUser!.status,
+        },
+        content: text,
+        created_at: new Date().toISOString(),
+        attachments: [],
+        reply_to: null,
+        is_pinned: false,
+      };
+      const msgs = [...prev.chatMessages, optimistic];
+      if (msgs.length > 500) msgs.splice(0, msgs.length - 500);
+      return { ...prev, chatMessages: msgs };
+    });
+  }, [state.chatConversationId, state.currentServerIP, state.authToken]);
 
   const deleteMessage = useCallback(async (messageId: string) => {
     await fetch(`${state.currentServerIP}/api/messages/${messageId}/`, {
@@ -1074,11 +1223,22 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
           },
         }));
       } else {
-        // Regular chat message — skip if already present (REST history race)
+        // Regular chat message — replace matching optimistic or append (skip exact duplicate)
         const msg: GuildMessage = data;
         setState(prev => {
           if (prev.guildMessages.some(m => m.id === msg.id)) return prev;
-          const msgs = [...prev.guildMessages, msg];
+          const optIdx = prev.guildMessages.findIndex(
+            m => String(m.id).startsWith('optimistic-') &&
+              String(m.author.id) === String(msg.author?.id) &&
+              m.content === msg.content
+          );
+          let msgs: GuildMessage[];
+          if (optIdx !== -1) {
+            msgs = [...prev.guildMessages];
+            msgs[optIdx] = msg;
+          } else {
+            msgs = [...prev.guildMessages, msg];
+          }
           if (msgs.length > 500) msgs.splice(0, msgs.length - 500);
           return { ...prev, guildMessages: msgs };
         });
@@ -1485,6 +1645,27 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     if (replyToId) payload.reply_to_id = replyToId;
     if (attachmentIds?.length) payload.attachment_ids = attachmentIds;
     guildChannelWs.current.send(JSON.stringify(payload));
+    setState(prev => {
+      if (!prev.currentUser) return prev;
+      const optimistic: import('../types').GuildMessage = {
+        id: `optimistic-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        author: {
+          id: prev.userIDonServer,
+          username: prev.currentUser!.username,
+          nickname: prev.currentUser!.nickname,
+          avatar: prev.currentUser!.avatar,
+          status: prev.currentUser!.status,
+        },
+        content: text,
+        created_at: new Date().toISOString(),
+        attachments: [],
+        reply_to: null,
+        is_pinned: false,
+      };
+      const msgs = [...prev.guildMessages, optimistic];
+      if (msgs.length > 500) msgs.splice(0, msgs.length - 500);
+      return { ...prev, guildMessages: msgs };
+    });
   }, []);
 
   const scheduleGuildMessage = useCallback(async (text: string, delaySecs: number, replyToId?: string, attachmentIds?: string[]): Promise<{ id: string; send_at: string } | null> => {

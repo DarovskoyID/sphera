@@ -5,6 +5,7 @@ urlpatterns = [
     path('conversations/', views.conversation_list),
     path('conversations/create/', views.conversation_create),
     path('conversations/<uuid:conversation_id>/messages/', views.message_list),
+    path('conversations/<uuid:conversation_id>/messages/send/', views.send_message),
     path('conversations/<uuid:conversation_id>/delete/', views.conversation_delete),
     path('conversations/<uuid:conversation_id>/upload/', views.upload_attachment),
     path('conversations/<uuid:conversation_id>/schedule/', views.schedule_message),

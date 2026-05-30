@@ -125,6 +125,107 @@ def message_list(request, conversation_id):
     return Response(MessageSerializer(messages, many=True, context={'request': request}).data)
 
 
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def send_message(request, conversation_id):
+    try:
+        convo = Conversation.objects.get(id=conversation_id, participants=request.user)
+    except Conversation.DoesNotExist:
+        return Response({'error': 'not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    if BlockedUser.objects.filter(
+        Q(blocker=request.user, blocked__in=convo.participants.exclude(id=request.user.id)) |
+        Q(blocked=request.user, blocker__in=convo.participants.exclude(id=request.user.id))
+    ).exists():
+        return Response({'error': 'blocked'}, status=status.HTTP_403_FORBIDDEN)
+
+    content = request.data.get('content', '').strip()
+    attachment_ids = request.data.get('attachment_ids', [])
+    reply_to_id = request.data.get('reply_to_id')
+    if isinstance(attachment_ids, int):
+        attachment_ids = [attachment_ids]
+
+    if not content and not attachment_ids:
+        return Response({'error': 'empty message'}, status=status.HTTP_400_BAD_REQUEST)
+
+    msg = Message.objects.create(
+        conversation=convo,
+        author=request.user,
+        encrypted_content=encrypt_text(content),
+        reply_to_id=reply_to_id,
+    )
+    if attachment_ids:
+        Attachment.objects.filter(id__in=attachment_ids).update(message=msg)
+
+    attachments_data = []
+    if attachment_ids:
+        attachments_data = list(
+            Attachment.objects.filter(message=msg).values('id', 'original_name', 'size')
+        )
+        for a in attachments_data:
+            a['id'] = str(a['id'])
+
+    reply_to_data = None
+    if reply_to_id:
+        try:
+            rt = Message.objects.select_related('author').get(id=reply_to_id)
+            reply_to_data = {
+                'id': str(rt.id),
+                'author': {
+                    'id': str(rt.author.id),
+                    'username': rt.author.username,
+                    'nickname': getattr(rt.author, 'nickname', '') or '',
+                    'avatar': getattr(rt.author, 'avatar', '') or '',
+                },
+                'content': rt.content[:200],
+            }
+        except Message.DoesNotExist:
+            pass
+
+    user_data = {
+        'id': str(request.user.id),
+        'username': request.user.username,
+        'nickname': getattr(request.user, 'nickname', '') or '',
+        'avatar': getattr(request.user, 'avatar', '') or '',
+        'status': getattr(request.user, 'status', 'online'),
+    }
+
+    msg_payload = {
+        'id': str(msg.id),
+        'author': user_data,
+        'content': content,
+        'created_at': msg.created_at.isoformat(),
+        'attachments': attachments_data,
+        'reply_to': reply_to_data,
+        'is_pinned': False,
+    }
+
+    channel_layer = get_channel_layer()
+    async_to_sync(channel_layer.group_send)(
+        f'chat_{conversation_id}',
+        {'type': 'chat_message', 'message': msg_payload},
+    )
+
+    sender_name = user_data.get('nickname') or user_data.get('username', '')
+    notif_content = content if content else ('\U0001f4ce Attachment' if attachment_ids else '')
+    notification = {
+        'type': 'new_message_notification',
+        'sender_id': user_data['id'],
+        'sender_name': sender_name,
+        'content': notif_content,
+    }
+    other_ids = list(
+        convo.participants.exclude(id=request.user.id).values_list('id', flat=True)
+    )
+    for pid in other_ids:
+        async_to_sync(channel_layer.group_send)(
+            f'user_{pid}',
+            {'type': 'new.message.notification', 'data': notification},
+        )
+
+    return Response(msg_payload, status=status.HTTP_201_CREATED)
+
+
 @api_view(['DELETE'])
 @permission_classes([IsAuthenticated])
 def delete_message(request, message_id):
