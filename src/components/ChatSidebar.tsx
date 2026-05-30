@@ -1015,8 +1015,12 @@ export const UserProfile: React.FC = () => {
           onClick={handleMute}
           title={tr('profile_mute')}
         >
-          <svg viewBox="0 0 24 24" fill="currentColor">
-            <path d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"/>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="9" y="1" width="6" height="11" rx="3" />
+            <path d="M19 10v1a7 7 0 01-14 0v-1" />
+            <line x1="12" y1="19" x2="12" y2="23" />
+            <line x1="8" y1="23" x2="16" y2="23" />
+            {isMuted && <line x1="3" y1="3" x2="21" y2="21" stroke="#f04747" strokeWidth="2.5" />}
           </svg>
         </button>
         <button
@@ -1024,8 +1028,11 @@ export const UserProfile: React.FC = () => {
           onClick={handleDeafen}
           title={tr('profile_deafen')}
         >
-          <svg viewBox="0 0 24 24" fill="currentColor">
-            <path d="M9 19V6m0 0a3 3 0 013-3h0a3 3 0 013 3m0 0a3 3 0 013-3h0a3 3 0 013 3m0 0v13m0 0H9"/>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M3 18v-6a9 9 0 0118 0v6" />
+            <path d="M21 19a2 2 0 01-2 2h-1a2 2 0 01-2-2v-3a2 2 0 012-2h3v5z" />
+            <path d="M3 19a2 2 0 002 2h1a2 2 0 002-2v-3a2 2 0 00-2-2H3v5z" />
+            {isDeafened && <line x1="3" y1="3" x2="21" y2="21" stroke="#f04747" strokeWidth="2.5" />}
           </svg>
         </button>
       </div>

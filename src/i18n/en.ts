@@ -172,6 +172,12 @@ export const en = {
   sn_sounds: 'Sounds',
   sn_sound_msg: 'Message notification sound',
   sn_sound_call: 'Incoming call sound',
+  sn_ringtone: 'Ringtone',
+  sn_ringtone_default: 'Default ringtone',
+  sn_ringtone_custom: 'Custom ringtone',
+  sn_ringtone_upload: 'Upload ringtone',
+  sn_ringtone_reset: 'Reset to default',
+  sn_ringtone_preview: 'Preview',
 
   // Settings - Appearance
   sa_title: 'Appearance',

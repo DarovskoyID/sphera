@@ -17,7 +17,7 @@ class SignalingConsumer(AsyncWebsocketConsumer):
       user so their friend list is immediately up to date.
     """
 
-    _users = {}  # user_id(str) -> {"channel": str, "name": str}
+    _users = {}  # user_id(str) -> {"channel": str, "name": str, "in_call_with": str|None}
 
     # ── Lifecycle ─────────────────────────────────────────────────────────────
 
@@ -36,6 +36,7 @@ class SignalingConsumer(AsyncWebsocketConsumer):
         SignalingConsumer._users[self.user_id] = {
             'channel': self.channel_name,
             'name': user.nickname or user.username,
+            'in_call_with': None,
         }
 
         await self.channel_layer.group_add('signaling', self.channel_name)
@@ -74,6 +75,19 @@ class SignalingConsumer(AsyncWebsocketConsumer):
         # would make the user invisible to callers even though they are online.
         current = SignalingConsumer._users.get(self.user_id)
         if current and current['channel'] == self.channel_name:
+            # Notify call peer that the call has ended
+            in_call_with = current.get('in_call_with')
+            if in_call_with:
+                peer = SignalingConsumer._users.get(in_call_with)
+                if peer:
+                    await self.channel_layer.send(peer['channel'], {
+                        'type': 'signal.forward',
+                        'data': {'type': 'call-end', 'from': self.user_id},
+                    })
+                    # Clear peer's call state too
+                    if peer.get('in_call_with') == self.user_id:
+                        peer['in_call_with'] = None
+
             SignalingConsumer._users.pop(self.user_id, None)
 
             await self.channel_layer.group_discard('signaling', self.channel_name)
@@ -97,6 +111,17 @@ class SignalingConsumer(AsyncWebsocketConsumer):
         target_id = str(data.get('to', ''))
         target = SignalingConsumer._users.get(target_id)
         signal_type = data.get('type', '')
+
+        # Track call state
+        me = SignalingConsumer._users.get(self.user_id)
+        if me:
+            if signal_type == 'offer':
+                me['in_call_with'] = target_id
+            elif signal_type == 'answer':
+                me['in_call_with'] = str(data.get('from', target_id))
+            elif signal_type in ('call-end', 'call-rejected'):
+                me['in_call_with'] = None
+
         if target:
             await self.channel_layer.send(target['channel'], {
                 'type': 'signal.forward',

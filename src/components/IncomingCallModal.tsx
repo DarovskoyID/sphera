@@ -1,7 +1,13 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useCallback } from 'react';
 import { Phone, PhoneOff, Video } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { useTranslation } from '../i18n/useTranslation';
+
+const getCustomRingtoneUrl = (): string | null => {
+  const data = localStorage.getItem('customRingtone');
+  return data || null;
+};
+const DEFAULT_RINGTONE = '/rington.mp3';
 
 export const IncomingCallModal = () => {
   const {
@@ -17,6 +23,32 @@ export const IncomingCallModal = () => {
     friends,
   } = useApp();
   const tr = useTranslation();
+
+  const ringtoneRef = useRef<HTMLAudioElement | null>(null);
+
+  const stopRingtone = useCallback(() => {
+    if (ringtoneRef.current) {
+      ringtoneRef.current.pause();
+      ringtoneRef.current.currentTime = 0;
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!isCallActive && incomingOffer) {
+      const src = getCustomRingtoneUrl() || DEFAULT_RINGTONE;
+      const audio = new Audio(src);
+      audio.loop = true;
+      audio.volume = 0.7;
+      audio.play().catch(() => {});
+      ringtoneRef.current = audio;
+      return () => {
+        audio.pause();
+        audio.currentTime = 0;
+      };
+    } else {
+      stopRingtone();
+    }
+  }, [!isCallActive && !!incomingOffer]);
 
   const bufferedCandidates = useRef<any[]>([]);
   const isCallActiveRef = useRef(isCallActive);
@@ -63,6 +95,7 @@ export const IncomingCallModal = () => {
 
   const acceptCall = (forceVideo?: boolean) => {
     if (!incomingOfferRef.current) return;
+    stopRingtone();
     const offer = incomingOfferRef.current;
     if ((window as any).AndroidBridge) {
       (window as any).AndroidBridge.cancelCallNotification();
@@ -81,6 +114,7 @@ export const IncomingCallModal = () => {
 
   const reject = () => {
     if (!incomingOfferRef.current) return;
+    stopRingtone();
     if ((window as any).AndroidBridge) {
       (window as any).AndroidBridge.cancelCallNotification();
     }

@@ -1021,6 +1021,12 @@ svg {
   text-align: right;
 }
 
+.message-item.own .message-bubble {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
 .message-item.own .message-text {
   display: inline-block;
   text-align: left;
@@ -1528,6 +1534,7 @@ svg {
 .profile-icon-btn svg {
   width: 16px;
   height: 16px;
+  color: var(--text-primary, #dcddde);
 }
 
 .profile-icon-btn:hover {
@@ -3090,6 +3097,179 @@ input[type="range"] {
   margin-top: 4px;
   opacity: 0;
   transition: opacity 0.12s;
+}
+
+/* Guild messages list (scrollable container) */
+.guild-messages-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--spacing-lg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--chat-message-gap, 4px);
+}
+
+.guild-messages-list::-webkit-scrollbar {
+  width: 8px;
+}
+
+.guild-messages-list::-webkit-scrollbar-thumb {
+  background-color: var(--border-color);
+  border-radius: 4px;
+}
+
+/* Guild message row */
+.guild-message {
+  display: flex;
+  padding: 2px var(--spacing-sm);
+  border-radius: var(--radius-md);
+  transition: background-color var(--transition-fast);
+  position: relative;
+}
+
+.guild-message:hover {
+  background-color: var(--hover-bg);
+}
+
+.guild-message:hover .guild-message-actions {
+  opacity: 1;
+}
+
+/* Author & timestamp */
+.guild-message-author {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.guild-message-ts {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+.guild-message-time-hover {
+  font-size: 10px;
+  color: var(--text-tertiary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+}
+
+/* Action buttons on hover */
+.msg-action-btn {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--text-secondary);
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.msg-action-btn:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.msg-action-btn.danger:hover {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.1);
+}
+
+/* Channel start marker */
+.channel-start {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-xl) 0 var(--spacing-lg);
+  color: var(--text-secondary);
+  text-align: center;
+}
+
+.loading-older {
+  text-align: center;
+  padding: var(--spacing-md);
+  font-size: 13px;
+  color: var(--text-tertiary);
+}
+
+/* Reply bar */
+.reply-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: var(--bg-secondary);
+  border-top: 1px solid var(--border-color);
+  font-size: 13px;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.reply-bar span {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Guild input area */
+.message-input-area {
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-top: 1px solid var(--border-color);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+/* Chat header elements */
+.chat-header-name {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.chat-header-topic {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-left: var(--spacing-sm);
+  padding-left: var(--spacing-sm);
+  border-left: 1px solid var(--border-color);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Guild mobile adjustments */
+@media (max-width: 768px) {
+  .guild-messages-list {
+    padding: var(--spacing-sm) var(--spacing-md);
+  }
+
+  .guild-message-author {
+    font-size: 14px;
+  }
+
+  .guild-message-text {
+    font-size: 14px;
+  }
+
+  .guild-message-avatar {
+    width: 32px;
+    height: 32px;
+  }
+
+  .guild-message-aside {
+    width: 36px;
+    margin-right: 8px;
+  }
 }
 
 /* Hide welcome screens on mobile */

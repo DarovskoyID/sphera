@@ -160,6 +160,12 @@ export const ru: Translations = {
   sn_sounds: 'Звуки',
   sn_sound_msg: 'Звук уведомления',
   sn_sound_call: 'Звук входящего вызова',
+  sn_ringtone: 'Рингтон',
+  sn_ringtone_default: 'Стандартный рингтон',
+  sn_ringtone_custom: 'Пользовательский рингтон',
+  sn_ringtone_upload: 'Загрузить рингтон',
+  sn_ringtone_reset: 'Сбросить на стандартный',
+  sn_ringtone_preview: 'Прослушать',
 
   sa_title: 'Внешний вид',
   sa_desc: 'Настройте оформление приложения',

@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useCallback, createContext, useContext } from 'react';
-import { Shield, Monitor, Smartphone, Tablet, Trash2, UserX, Camera } from 'lucide-react';
+import React, { useState, useEffect, useCallback, useRef, createContext, useContext } from 'react';
+import { Shield, Monitor, Smartphone, Tablet, Trash2, UserX, Camera, Upload, Play, Square, RotateCcw } from 'lucide-react';
 import { useApp, reportError } from '../context/AppContext';
 import { useTranslation } from '../i18n/useTranslation';
 import { languages, type LangCode } from '../i18n';
@@ -559,6 +559,60 @@ const DevicesSettings: React.FC = () => {
 
 const NotificationSettings: React.FC = () => {
   const tr = useTranslation();
+  const [hasCustomRingtone, setHasCustomRingtone] = useState(!!localStorage.getItem('customRingtone'));
+  const [customRingtoneName, setCustomRingtoneName] = useState(localStorage.getItem('customRingtoneName') || '');
+  const [isPlaying, setIsPlaying] = useState(false);
+  const previewAudioRef = useRef<HTMLAudioElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const handleRingtoneUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('audio/')) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = reader.result as string;
+      localStorage.setItem('customRingtone', dataUrl);
+      localStorage.setItem('customRingtoneName', file.name);
+      setHasCustomRingtone(true);
+      setCustomRingtoneName(file.name);
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  };
+
+  const resetRingtone = () => {
+    localStorage.removeItem('customRingtone');
+    localStorage.removeItem('customRingtoneName');
+    setHasCustomRingtone(false);
+    setCustomRingtoneName('');
+    stopPreview();
+  };
+
+  const togglePreview = () => {
+    if (isPlaying) {
+      stopPreview();
+    } else {
+      const src = localStorage.getItem('customRingtone') || '/rington.mp3';
+      const audio = new Audio(src);
+      audio.onended = () => setIsPlaying(false);
+      audio.play().catch(() => {});
+      previewAudioRef.current = audio;
+      setIsPlaying(true);
+    }
+  };
+
+  const stopPreview = () => {
+    if (previewAudioRef.current) {
+      previewAudioRef.current.pause();
+      previewAudioRef.current.currentTime = 0;
+      previewAudioRef.current = null;
+    }
+    setIsPlaying(false);
+  };
+
+  useEffect(() => () => stopPreview(), []);
+
   return (
   <section>
     <h1>{tr('sn_title')}</h1>
@@ -575,6 +629,37 @@ const NotificationSettings: React.FC = () => {
     <h3 style={sectionH3}>{tr('sn_sounds')}</h3>
     <Check label={tr('sn_sound_msg')} field="sound_message" />
     <Check label={tr('sn_sound_call')} field="sound_incoming_call" />
+    <div style={divider} />
+    <h3 style={sectionH3}>{tr('sn_ringtone')}</h3>
+    <div style={card}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
+            {hasCustomRingtone ? tr('sn_ringtone_custom') : tr('sn_ringtone_default')}
+          </div>
+          {hasCustomRingtone && customRingtoneName && (
+            <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{customRingtoneName}</div>
+          )}
+        </div>
+        <button type="button" onClick={togglePreview} style={{ ...btnSecondary, display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px' }}>
+          {isPlaying ? <Square size={14} /> : <Play size={14} />}
+          {tr('sn_ringtone_preview')}
+        </button>
+      </div>
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+        <button type="button" onClick={() => fileInputRef.current?.click()} style={{ ...btnPrimary, display: 'flex', alignItems: 'center', gap: 6 }}>
+          <Upload size={14} />
+          {tr('sn_ringtone_upload')}
+        </button>
+        {hasCustomRingtone && (
+          <button type="button" onClick={resetRingtone} style={{ ...btnSecondary, display: 'flex', alignItems: 'center', gap: 6 }}>
+            <RotateCcw size={14} />
+            {tr('sn_ringtone_reset')}
+          </button>
+        )}
+      </div>
+      <input ref={fileInputRef} type="file" accept="audio/*" onChange={handleRingtoneUpload} style={{ display: 'none' }} />
+    </div>
   </section>
   );
 };

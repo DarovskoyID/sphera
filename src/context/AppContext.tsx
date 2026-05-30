@@ -239,6 +239,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
   }, []);
 
   const signalingWs = useRef<WebSocket | null>(null);
+  const callTargetIdRef = useRef<string | null>(null);
   const [signalingPeers, setSignalingPeers] = useState<Array<{ id: string; name: string }>>([]);
   const onSignalingMessage = useRef<((msg: any) => void) | null>(null);
   const pendingStatusRef = useRef<Record<string, string>>({});
@@ -738,7 +739,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
                   updated.push(fm);
                 }
               }
-              updated = updated.sort((a, b) => a.created_at.localeCompare(b.created_at));
+              // Don't re-sort existing messages — preserve send order to avoid reordering
               if (updated.length > 500) updated.splice(0, updated.length - 500);
               return { ...prev, chatMessages: updated };
             });
@@ -768,6 +769,29 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     if (replyToId) payload.reply_to_id = replyToId;
     if (!payload.message && !payload.attachment_ids) return;
 
+    // Add optimistic message BEFORE sending so the WS echo can't arrive first
+    setState(prev => {
+      if (!prev.currentUser) return prev;
+      const optimistic: import('../types').ChatMessage = {
+        id: `optimistic-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        author: {
+          id: prev.userIDonServer,
+          username: prev.currentUser!.username,
+          nickname: prev.currentUser!.nickname,
+          avatar: prev.currentUser!.avatar,
+          status: prev.currentUser!.status,
+        },
+        content: text,
+        created_at: new Date().toISOString(),
+        attachments: [],
+        reply_to: null,
+        is_pinned: false,
+      };
+      const msgs = [...prev.chatMessages, optimistic];
+      if (msgs.length > 500) msgs.splice(0, msgs.length - 500);
+      return { ...prev, chatMessages: msgs };
+    });
+
     const payloadStr = JSON.stringify(payload);
     let sent = false;
 
@@ -792,28 +816,6 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
         }),
       }).catch(() => {});
     }
-
-    setState(prev => {
-      if (!prev.currentUser) return prev;
-      const optimistic: import('../types').ChatMessage = {
-        id: `optimistic-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        author: {
-          id: prev.userIDonServer,
-          username: prev.currentUser!.username,
-          nickname: prev.currentUser!.nickname,
-          avatar: prev.currentUser!.avatar,
-          status: prev.currentUser!.status,
-        },
-        content: text,
-        created_at: new Date().toISOString(),
-        attachments: [],
-        reply_to: null,
-        is_pinned: false,
-      };
-      const msgs = [...prev.chatMessages, optimistic];
-      if (msgs.length > 500) msgs.splice(0, msgs.length - 500);
-      return { ...prev, chatMessages: msgs };
-    });
   }, [state.chatConversationId, state.currentServerIP, state.authToken]);
 
   const deleteMessage = useCallback(async (messageId: string) => {
@@ -1822,6 +1824,25 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
   useEffect(() => { localStorage.setItem('messengerCurrentChannel', state.currentChannel); }, [state.currentChannel]);
   useEffect(() => { localStorage.setItem('messengerLanguage', state.language); }, [state.language]);
 
+  // ==================== Cleanup on page refresh/close ====================
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      if (signalingWs.current?.readyState === WebSocket.OPEN) {
+        if (callTargetIdRef.current) {
+          signalingWs.current.send(JSON.stringify({ type: 'call-end', to: callTargetIdRef.current }));
+        }
+        signalingWs.current.close();
+        signalingWs.current = null;
+      }
+      if (voiceWs.current?.readyState === WebSocket.OPEN) {
+        voiceWs.current.close();
+        voiceWs.current = null;
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, []);
+
   // ==================== State setters ====================
   const setCurrentView = (view: ViewType) => setState(prev => ({ ...prev, currentView: view }));
 
@@ -1863,7 +1884,10 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
   const setCallStatus = (s: 'active' | 'ringing' | 'connection' | 'inactive') => setState(prev => ({ ...prev, callStatus: s }));
   const setCurrentServerIP = (ip: string) => setState(prev => ({ ...prev, currentServerIP: ip }));
   const setUserIDonServer = (id: string) => setState(prev => ({ ...prev, userIDonServer: id }));
-  const setCallTargetId = (id: string | null) => setState(prev => ({ ...prev, callTargetId: id }));
+  const setCallTargetId = (id: string | null) => {
+    callTargetIdRef.current = id;
+    setState(prev => ({ ...prev, callTargetId: id }));
+  };
   const setIncomingOffer = (offer: any | null) => setState(prev => ({ ...prev, incomingOffer: offer }));
 
   const setCurrentUser = (user: ServerUser) => setState(prev => ({ ...prev, currentUser: user }));
