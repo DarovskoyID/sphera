@@ -162,29 +162,55 @@
     },
 
     {
+      "title": "Online Users",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 20 },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": { "steps": [{ "color": "blue", "value": null }] }
+        }
+      },
+      "targets": [
+        { "expr": "ionik_online_users", "legendFormat": "online", "refId": "A" }
+      ]
+    },
+    {
+      "title": "Active DM Calls",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 20 },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": { "steps": [{ "color": "orange", "value": null }] }
+        }
+      },
+      "targets": [
+        { "expr": "ionik_active_dm_calls", "legendFormat": "calls", "refId": "A" }
+      ]
+    },
+    {
       "title": "Voice Channels",
       "type": "stat",
-      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 20 },
+      "gridPos": { "h": 4, "w": 2, "x": 8, "y": 20 },
       "fieldConfig": {
         "defaults": {
           "thresholds": { "steps": [{ "color": "green", "value": null }] }
         }
       },
       "targets": [
-        { "expr": "ionik_voice_channels_active", "legendFormat": "active channels", "refId": "A" }
+        { "expr": "ionik_voice_channels_active", "legendFormat": "channels", "refId": "A" }
       ]
     },
     {
       "title": "Voice Users",
       "type": "stat",
-      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 20 },
+      "gridPos": { "h": 4, "w": 2, "x": 10, "y": 20 },
       "fieldConfig": {
         "defaults": {
           "thresholds": { "steps": [{ "color": "green", "value": null }] }
         }
       },
       "targets": [
-        { "expr": "ionik_voice_users", "legendFormat": "users in voice", "refId": "A" }
+        { "expr": "ionik_voice_users", "legendFormat": "in voice", "refId": "A" }
       ]
     },
 

@@ -179,12 +179,26 @@ def _ws_stats():
         len([k for k in ch.keys() if k != '_guild_id'])
         for ch in _voice_channels.values()
     )
+    # DM calls tracked via SignalingConsumer._users
+    try:
+        from ionik_signaling.consumers import SignalingConsumer
+        signaling_users = SignalingConsumer._users
+        online_users = len(signaling_users)
+        active_calls = len([u for u in signaling_users.values() if u.get('in_call_with')])
+        # Each call has 2 participants, so divide by 2
+        active_calls_count = active_calls // 2 if active_calls > 1 else active_calls
+    except Exception:
+        online_users = 0
+        active_calls_count = 0
+
     return {
         'connections_total': _counters.get('ws_connections_total', 0),
         'messages_received': _counters.get('ws_messages_received', 0),
         'messages_sent': _counters.get('ws_messages_sent', 0),
         'voice_channels_active': len(_voice_channels),
         'voice_users': voice_users,
+        'online_users': online_users,
+        'active_dm_calls': active_calls_count,
     }
 
 
@@ -331,6 +345,8 @@ function renderCards(d){
     ${metricRow('Messages Out',w.messages_sent.toLocaleString())}
     ${metricRow('Voice Channels',w.voice_channels_active)}
     ${metricRow('Voice Users',w.voice_users)}
+    ${metricRow('Online Users',w.online_users,'blue')}
+    ${metricRow('Active DM Calls',w.active_dm_calls,'green')}
   </div>`;
 
   // Database
@@ -506,6 +522,8 @@ def prometheus_metrics(request):
     ws = _ws_stats()
     gauge('ionik_voice_channels_active', ws['voice_channels_active'], 'Active voice channels')
     gauge('ionik_voice_users', ws['voice_users'], 'Users in voice channels')
+    gauge('ionik_online_users', ws['online_users'], 'Online users (signaling WS)')
+    gauge('ionik_active_dm_calls', ws['active_dm_calls'], 'Active DM calls')
 
     # DB
     db = _db_stats()
