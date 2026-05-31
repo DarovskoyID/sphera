@@ -76,7 +76,7 @@ if errorlevel 1 (
     echo        Without Docker, the app will use InMemoryChannelLayer (unreliable).
 ) else (
     cd /d "%DJANGO_DIR%"
-    docker compose up -d redis kafka zookeeper kafka-init
+    docker compose up -d redis kafka zookeeper kafka-init prometheus grafana
     echo        Done.
 )
 

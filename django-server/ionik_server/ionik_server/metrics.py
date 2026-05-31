@@ -225,10 +225,17 @@ def status_page(request, date_token):
     return JsonResponse(data, json_dumps_params={'indent': 2, 'ensure_ascii': False})
 
 
+def _is_internal(request):
+    ip = request.META.get('REMOTE_ADDR', '')
+    forwarded = request.META.get('HTTP_X_FORWARDED_FOR', '')
+    real_ip = forwarded.split(',')[0].strip() if forwarded else ip
+    return real_ip in ('127.0.0.1', '::1', '10.0.0.0/8') or real_ip.startswith(('172.', '10.', '192.168.'))
+
+
 def prometheus_metrics(request):
     today = date.today().strftime('%Y-%m-%d')
     token = request.GET.get('token', '')
-    if token != today:
+    if token != today and not _is_internal(request):
         return HttpResponse('Forbidden', status=403)
 
     lines = []

@@ -250,7 +250,7 @@ install_python_deps "$PYTHON_BIN"
 log "Starting Docker services (Redis, Kafka)"
 if command -v docker >/dev/null 2>&1; then
     cd "$DJANGO_DIR"
-    docker compose up -d redis kafka zookeeper kafka-init
+    docker compose up -d redis kafka zookeeper kafka-init prometheus grafana
     echo "      Redis and Kafka started."
 else
     echo "      WARNING: Docker not found. Install Docker to run Redis/Kafka."

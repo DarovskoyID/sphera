@@ -16,7 +16,7 @@ echo ""
 echo "[1/5] Starting Docker services (Redis, Kafka) ..."
 if command -v docker &>/dev/null; then
     cd "$DOCKER_DIR"
-    docker compose up -d redis kafka zookeeper kafka-init
+    docker compose up -d redis kafka zookeeper kafka-init prometheus grafana
     echo "      Done."
 else
     echo "      WARNING: Docker not found. Messages may be lost under high load."

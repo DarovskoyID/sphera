@@ -45,7 +45,7 @@ if errorlevel 1 (
     echo        Messages may be lost under high load.
 ) else (
     cd /d "%DOCKER_DIR%"
-    docker compose up -d redis kafka zookeeper kafka-init
+    docker compose up -d redis kafka zookeeper kafka-init prometheus grafana
 )
 echo        Done.
 

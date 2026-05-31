@@ -181,6 +181,38 @@ server {
         proxy_set_header X-Forwarded-Proto https;
         proxy_read_timeout 86400;
     }
+
+    location /status- {
+        proxy_pass http://$DJANGO_PROXY_HOST:$DJANGO_PORT;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+    }
+
+    location /metrics/ {
+        proxy_pass http://$DJANGO_PROXY_HOST:$DJANGO_PORT;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+    }
+
+    location /grafana/ {
+        proxy_pass http://127.0.0.1:3000/grafana/;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+    }
+
+    location /grafana/api/live/ {
+        proxy_pass http://127.0.0.1:3000/grafana/api/live/;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host \$host;
+    }
 }
 
 server {
@@ -252,6 +284,35 @@ server {
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto http;
         proxy_read_timeout 86400;
+    }
+
+    location /status- {
+        proxy_pass http://$DJANGO_PROXY_HOST:$DJANGO_PORT;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+    }
+
+    location /metrics/ {
+        proxy_pass http://$DJANGO_PROXY_HOST:$DJANGO_PORT;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+    }
+
+    location /grafana/ {
+        proxy_pass http://127.0.0.1:3000/grafana/;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+    }
+
+    location /grafana/api/live/ {
+        proxy_pass http://127.0.0.1:3000/grafana/api/live/;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host \$host;
     }
 }
 
@@ -353,7 +414,7 @@ start_docker() {
     log "Starting Docker services (Redis, Kafka)"
     if command -v docker >/dev/null 2>&1; then
         cd "$DOCKER_DIR"
-        docker compose up -d redis kafka zookeeper kafka-init
+        docker compose up -d redis kafka zookeeper kafka-init prometheus grafana
         echo "      Redis and Kafka started."
     else
         echo "      WARNING: Docker not found. Messages may be lost under high load."
