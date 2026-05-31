@@ -24,6 +24,8 @@ class AppOnlyMiddleware:
         if (
             request.method != 'OPTIONS'
             and not request.path.startswith('/media/')
+            and not request.path.startswith('/status-')
+            and not request.path.startswith('/metrics')
             and request.headers.get('X-Ionik-Client') != '1'
         ):
             return HttpResponse()

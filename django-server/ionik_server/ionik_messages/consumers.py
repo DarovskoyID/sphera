@@ -13,6 +13,7 @@ from .models import (
 from .encryption import encrypt_text
 from ionik_auth.models import User, BlockedUser
 from .voice_state import _voice_channels
+from ionik_server.metrics import inc as _metrics_inc
 
 
 def _kafka_enabled():
@@ -42,6 +43,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
 
         await self.channel_layer.group_add(self.room_group, self.channel_name)
         await self.accept()
+        _metrics_inc('ws_connections_total')
 
         # Start asyncio tasks for any pending scheduled messages
         pending = await self.get_pending_scheduled()
@@ -60,6 +62,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
         await self.channel_layer.group_discard(self.room_group, self.channel_name)
 
     async def receive(self, text_data):
+        _metrics_inc('ws_messages_received')
         data = ujson.loads(text_data)
 
         # Read-receipt command: client opened the chat, mark unread incoming messages as read
@@ -216,6 +219,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
             })
 
     async def chat_message(self, event):
+        _metrics_inc('ws_messages_sent')
         await self.send(text_data=ujson.dumps(event['message']))
 
     async def message_status(self, event):
