@@ -4,6 +4,9 @@ export const API_PROTOCOL = 'https';
 export const API_PORT = 8000;
 export const API_BASE_URL = `${API_PROTOCOL}://${APP_HOST}:${API_PORT}`;
 
+export const WS_PORT = 8001;
+export const WS_BASE_URL = `wss://${APP_HOST}:${WS_PORT}`;
+
 export const TURN_HOST = APP_HOST;
 export const TURN_PORT = 3478;
 export const TURN_USERNAME = 'ionikuser';

@@ -79,21 +79,21 @@ TEMPLATES = [
 WSGI_APPLICATION = 'ionik_server.wsgi.application'
 ASGI_APPLICATION = 'ionik_server.asgi.application'
 
-# Channel layer: use Redis in production, InMemory for dev
-# To use Redis: pip install channels-redis, then uncomment below
-# CHANNEL_LAYERS = {
-#     'default': {
-#         'BACKEND': 'channels_redis.core.RedisChannelLayer',
-#         'CONFIG': {
-#             'hosts': [('127.0.0.1', 6379)],
-#         },
-#     },
-# }
+# Channel layer: Redis for reliable WS pub/sub delivery
 CHANNEL_LAYERS = {
     'default': {
-        'BACKEND': 'channels.layers.InMemoryChannelLayer',
+        'BACKEND': 'channels_redis.core.RedisChannelLayer',
+        'CONFIG': {
+            'hosts': [os.environ.get('REDIS_URL', 'redis://127.0.0.1:6379/0')],
+            'capacity': 1500,
+            'expiry': 10,
+        },
     },
 }
+
+# Kafka for durable message processing pipeline
+KAFKA_ENABLED = os.environ.get('KAFKA_ENABLED', 'false').lower() in ('1', 'true', 'yes')
+KAFKA_BOOTSTRAP_SERVERS = os.environ.get('KAFKA_BOOTSTRAP_SERVERS', 'localhost:9092')
 
 DATABASES = {
     'default': {

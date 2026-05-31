@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback, type ReactNode } from 'react';
 import type { AppState, ViewType, MobilePanel, ServerUser, PendingRequest, ChatMessage, Guild, GuildChannel, GuildMessage, GuildRole, GuildEmoji, GuildSticker, GuildSound, GuildInviteData, GuildAuditLogEntry } from '../types';
 import type { CustomEmoji } from '../types';
-import { SERVER_IPS } from '../config/network';
+import { SERVER_IPS, WS_BASE_URL } from '../config/network';
 import { resolveServerIP } from '../utils/resolveServer';
 
 
@@ -577,7 +577,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
         if (last) chatLastMsgId.current = String(last.id);
 
         // Connect chat WebSocket (with auto-reconnect on unexpected close)
-        const wsUrl = state.currentServerIP.replace(/^http/, 'ws');
+        const wsUrl = WS_BASE_URL || state.currentServerIP.replace(/^http/, 'ws');
         let isFirstConnect = true;
 
         const connectChatWs = () => {
@@ -671,12 +671,19 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
               setState(prev => {
                 // Skip exact duplicate (e.g. WS echo arriving after optimistic already replaced)
                 if (prev.chatMessages.some(m => String(m.id) === String(msg.id))) return prev;
-                // Replace matching optimistic (same author + content), otherwise append
-                const optIdx = prev.chatMessages.findIndex(
-                  m => String(m.id).startsWith('optimistic-') &&
-                    String(m.author.id) === String(msg.author?.id) &&
-                    m.content === msg.content
-                );
+                // Replace matching optimistic by nonce (falls back to author+content for compat)
+                const nonce = (data as any).nonce;
+                let optIdx = -1;
+                if (nonce) {
+                  optIdx = prev.chatMessages.findIndex(m => m.id === `optimistic-${nonce}`);
+                }
+                if (optIdx === -1) {
+                  optIdx = prev.chatMessages.findIndex(
+                    m => String(m.id).startsWith('optimistic-') &&
+                      String(m.author.id) === String(msg.author?.id) &&
+                      m.content === msg.content
+                  );
+                }
                 let msgs: ChatMessage[];
                 if (optIdx !== -1) {
                   msgs = [...prev.chatMessages];
@@ -744,7 +751,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
               return { ...prev, chatMessages: updated };
             });
           } catch { /* ignore */ }
-        }, 15000);
+        }, 5000);
       } catch (e) { reportError(e); }
     };
 
@@ -769,11 +776,14 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     if (replyToId) payload.reply_to_id = replyToId;
     if (!payload.message && !payload.attachment_ids) return;
 
+    const nonce = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    payload.nonce = nonce;
+
     // Add optimistic message BEFORE sending so the WS echo can't arrive first
     setState(prev => {
       if (!prev.currentUser) return prev;
       const optimistic: import('../types').ChatMessage = {
-        id: `optimistic-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        id: `optimistic-${nonce}`,
         author: {
           id: prev.userIDonServer,
           username: prev.currentUser!.username,
@@ -1153,7 +1163,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       guildChannelWs.current.close();
       guildChannelWs.current = null;
     }
-    const wsUrl = serverIP.replace(/^http/, 'ws');
+    const wsUrl = WS_BASE_URL || serverIP.replace(/^http/, 'ws');
     const ws = new WebSocket(`${wsUrl}/ws/guild/${guild.id}/channel/${channel.id}/?token=${token}`);
     ws.onopen = () => { guildChannelWs.current = ws; };
     ws.onmessage = (event) => {

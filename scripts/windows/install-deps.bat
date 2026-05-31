@@ -47,13 +47,13 @@ if errorlevel 1 (
     exit /b 1
 )
 
-echo [1/3] Installing root Node dependencies ...
+echo [1/4] Installing root Node dependencies ...
 cd /d "%ROOT%"
 call npm install
 if errorlevel 1 exit /b 1
 echo        Done.
 
-echo [2/3] Installing Django Python dependencies ...
+echo [2/4] Installing Django Python dependencies ...
 cd /d "%DJANGO_DIR%"
 if not exist "%PYTHON%" (
     python -m venv myenv
@@ -69,7 +69,18 @@ del /f /q "%REQ_UTF8%" >nul 2>&1
 if not "%PIP_STATUS%"=="0" exit /b %PIP_STATUS%
 echo        Done.
 
-echo [3/3] Installing coturn ...
+echo [3/4] Starting Docker services (Redis, Kafka) ...
+where docker >nul 2>&1
+if errorlevel 1 (
+    echo [WARN] Docker not found. Install Docker Desktop to run Redis and Kafka.
+    echo        Without Docker, the app will use InMemoryChannelLayer (unreliable).
+) else (
+    cd /d "%DJANGO_DIR%"
+    docker compose up -d redis kafka zookeeper kafka-init
+    echo        Done.
+)
+
+echo [4/4] Installing coturn ...
 if "%INSTALL_COTURN%"=="1" (
     call "%~dp0coturn-install.bat"
     if errorlevel 1 exit /b 1
@@ -89,7 +100,7 @@ exit /b 0
 echo Usage: scripts\windows\install-deps.bat [--skip-coturn] [--skip-system]
 echo.
 echo Installs Node.js/npm, Python/pip, project npm packages,
-echo Django Python packages, and coturn via WSL.
+echo Django Python packages, Docker services, and coturn via WSL.
 exit /b 0
 
 :install_system_tools

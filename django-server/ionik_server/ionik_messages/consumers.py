@@ -1,4 +1,5 @@
 import asyncio
+import uuid
 import ujson
 from datetime import timedelta
 from django.utils import timezone
@@ -12,6 +13,14 @@ from .models import (
 from .encryption import encrypt_text
 from ionik_auth.models import User, BlockedUser
 from .voice_state import _voice_channels
+
+
+def _kafka_enabled():
+    try:
+        from django.conf import settings
+        return getattr(settings, 'KAFKA_ENABLED', False)
+    except Exception:
+        return False
 
 
 class ChatConsumer(AsyncWebsocketConsumer):
@@ -69,6 +78,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
         if isinstance(attachment_ids, int):
             attachment_ids = [attachment_ids]
         reply_to_id = data.get('reply_to_id')
+        nonce = data.get('nonce')
 
         if not content and not attachment_ids:
             return
@@ -77,61 +87,133 @@ class ChatConsumer(AsyncWebsocketConsumer):
         if await self.is_blocked():
             return
 
-        # Run save + data fetches concurrently so the message gets its real DB id before broadcast
-        coros = [self.save_message(content, attachment_ids, reply_to_id)]
-        if attachment_ids:
-            coros.append(self.get_attachments_data(attachment_ids))
-        if reply_to_id:
-            coros.append(self.get_reply_data(reply_to_id))
+        # Generate message UUID up front so both Kafka and WS broadcast use the same ID
+        msg_id = str(uuid.uuid4())
 
-        results = await asyncio.gather(*coros, return_exceptions=True)
+        if _kafka_enabled():
+            # Fast path: broadcast via Redis immediately, persist via Kafka async
+            from .kafka_producer import publish_chat_message, publish_chat_notification
 
-        msg_id = results[0] if not isinstance(results[0], Exception) else None
-        idx = 1
-        attachments_data = []
-        if attachment_ids:
-            attachments_data = results[idx] if not isinstance(results[idx], Exception) else []
-            idx += 1
-        reply_to_data = None
-        if reply_to_id:
-            reply_to_data = results[idx] if not isinstance(results[idx], Exception) else None
+            attachments_data = []
+            if attachment_ids:
+                attachments_data = await self.get_attachments_data(attachment_ids)
+            reply_to_data = None
+            if reply_to_id:
+                reply_to_data = await self.get_reply_data(reply_to_id)
 
-        msg_payload = {
-            'id': str(msg_id) if msg_id is not None else None,
-            'author': self.user_data,
-            'content': content,
-            'created_at': timezone.now().isoformat(),
-            'attachments': attachments_data,
-            'reply_to': reply_to_data,
-            'is_pinned': False,
-        }
+            now = timezone.now().isoformat()
+            msg_payload = {
+                'id': msg_id,
+                'author': self.user_data,
+                'content': content,
+                'created_at': now,
+                'attachments': attachments_data,
+                'reply_to': reply_to_data,
+                'is_pinned': False,
+            }
+            if nonce:
+                msg_payload['nonce'] = nonce
 
-        await self.channel_layer.group_send(
-            self.room_group,
-            {'type': 'chat_message', 'message': msg_payload},
-        )
-
-        # Push a notification to every recipient via their always-on signaling WS
-        sender_name = self.user_data.get('nickname') or self.user_data.get('username', '')
-        notif_content = content if content else ('\U0001f4ce Attachment' if attachment_ids else '')
-        notification = {
-            'type': 'new_message_notification',
-            'sender_id': self.user_data.get('id', ''),
-            'sender_name': sender_name,
-            'content': notif_content,
-        }
-        other_ids = await self.get_other_participant_ids()
-        for pid in other_ids:
+            # 1) Broadcast to all WS clients via Redis pub/sub (instant)
             await self.channel_layer.group_send(
-                f'user_{pid}',
-                {'type': 'new.message.notification', 'data': notification},
+                self.room_group,
+                {'type': 'chat_message', 'message': msg_payload},
             )
-        # FCM push for participants whose app may be killed / screen off
-        await self.push_fcm_to_users(other_ids, {
-            'type': 'message',
-            'sender_name': sender_name,
-            'content': notif_content,
-        })
+
+            # 2) Publish to Kafka for DB persistence (async, durable)
+            publish_chat_message(str(self.conversation_id), {
+                'msg_id': msg_id,
+                'conversation_id': str(self.conversation_id),
+                'author_id': self.user_data['id'],
+                'content': content,
+                'attachment_ids': attachment_ids,
+                'reply_to_id': reply_to_id,
+            })
+
+            # 3) Push notifications via Kafka
+            sender_name = self.user_data.get('nickname') or self.user_data.get('username', '')
+            notif_content = content if content else ('\U0001f4ce Attachment' if attachment_ids else '')
+            other_ids = await self.get_other_participant_ids()
+
+            # Signaling WS notification (real-time)
+            notification = {
+                'type': 'new_message_notification',
+                'sender_id': self.user_data.get('id', ''),
+                'sender_name': sender_name,
+                'content': notif_content,
+            }
+            for pid in other_ids:
+                await self.channel_layer.group_send(
+                    f'user_{pid}',
+                    {'type': 'new.message.notification', 'data': notification},
+                )
+
+            # FCM push via Kafka
+            publish_chat_notification({
+                'user_ids': other_ids,
+                'payload': {
+                    'type': 'message',
+                    'sender_name': sender_name,
+                    'content': notif_content,
+                },
+            })
+        else:
+            # Fallback: original synchronous path (no Kafka)
+            coros = [self.save_message(content, attachment_ids, reply_to_id, msg_id)]
+            if attachment_ids:
+                coros.append(self.get_attachments_data(attachment_ids))
+            if reply_to_id:
+                coros.append(self.get_reply_data(reply_to_id))
+
+            results = await asyncio.gather(*coros, return_exceptions=True)
+
+            saved_id = results[0] if not isinstance(results[0], Exception) else msg_id
+            idx = 1
+            attachments_data = []
+            if attachment_ids:
+                attachments_data = results[idx] if not isinstance(results[idx], Exception) else []
+                idx += 1
+            reply_to_data = None
+            if reply_to_id:
+                reply_to_data = results[idx] if not isinstance(results[idx], Exception) else None
+
+            msg_payload = {
+                'id': str(saved_id),
+                'author': self.user_data,
+                'content': content,
+                'created_at': timezone.now().isoformat(),
+                'attachments': attachments_data,
+                'reply_to': reply_to_data,
+                'is_pinned': False,
+            }
+            if nonce:
+                msg_payload['nonce'] = nonce
+
+            await self.channel_layer.group_send(
+                self.room_group,
+                {'type': 'chat_message', 'message': msg_payload},
+            )
+
+            # Push notifications
+            sender_name = self.user_data.get('nickname') or self.user_data.get('username', '')
+            notif_content = content if content else ('\U0001f4ce Attachment' if attachment_ids else '')
+            notification = {
+                'type': 'new_message_notification',
+                'sender_id': self.user_data.get('id', ''),
+                'sender_name': sender_name,
+                'content': notif_content,
+            }
+            other_ids = await self.get_other_participant_ids()
+            for pid in other_ids:
+                await self.channel_layer.group_send(
+                    f'user_{pid}',
+                    {'type': 'new.message.notification', 'data': notification},
+                )
+            await self.push_fcm_to_users(other_ids, {
+                'type': 'message',
+                'sender_name': sender_name,
+                'content': notif_content,
+            })
 
     async def chat_message(self, event):
         await self.send(text_data=ujson.dumps(event['message']))
@@ -158,7 +240,6 @@ class ChatConsumer(AsyncWebsocketConsumer):
         }))
 
     async def conversation_deleted(self, event):
-        """Tell both clients the conversation was deleted, then close."""
         await self.send(text_data=ujson.dumps({
             'type': 'conversation_deleted',
             'conversation_id': event['conversation_id'],
@@ -166,7 +247,6 @@ class ChatConsumer(AsyncWebsocketConsumer):
         await self.close()
 
     async def scheduled_message_queued(self, event):
-        """Called when a new scheduled message is created via REST API."""
         scheduled_id = event['scheduled_id']
         send_at_str = event['send_at']
         send_at = parse_datetime(send_at_str)
@@ -174,7 +254,6 @@ class ChatConsumer(AsyncWebsocketConsumer):
             asyncio.ensure_future(self._deliver_scheduled(scheduled_id, send_at))
 
     async def _deliver_scheduled(self, scheduled_id, send_at):
-        """Sleep until send_at, then deliver the scheduled message."""
         now = timezone.now()
         if send_at.tzinfo is None:
             from django.utils.timezone import make_aware
@@ -192,7 +271,6 @@ class ChatConsumer(AsyncWebsocketConsumer):
     @database_sync_to_async
     def get_pending_scheduled(self):
         now = timezone.now()
-        # Only take messages that haven't been sent and are within next 24h
         qs = ScheduledMessage.objects.filter(
             conversation_id=self.conversation_id,
             is_sent=False,
@@ -207,7 +285,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 'author', 'reply_to', 'reply_to__author'
             ).get(id=scheduled_id, conversation_id=self.conversation_id, is_sent=False)
         except ScheduledMessage.DoesNotExist:
-            return None  # Already sent or cancelled
+            return None
 
         real_msg = Message.objects.create(
             conversation_id=self.conversation_id,
@@ -271,8 +349,6 @@ class ChatConsumer(AsyncWebsocketConsumer):
 
     @database_sync_to_async
     def mark_delivered(self, user_id):
-        """Mark all messages by OTHER authors in this conversation as delivered.
-        Returns list of message ids that were just updated."""
         qs = Message.objects.filter(
             conversation_id=self.conversation_id,
             delivered_at__isnull=True,
@@ -284,7 +360,6 @@ class ChatConsumer(AsyncWebsocketConsumer):
 
     @database_sync_to_async
     def mark_read(self, user_id):
-        """Mark all messages by OTHER authors as read."""
         qs = Message.objects.filter(
             conversation_id=self.conversation_id,
             read_at__isnull=True,
@@ -292,7 +367,6 @@ class ChatConsumer(AsyncWebsocketConsumer):
         ids = [str(mid) for mid in qs.values_list('id', flat=True)]
         if ids:
             now = timezone.now()
-            # Also fill delivered_at for messages that somehow weren't marked
             Message.objects.filter(id__in=ids, delivered_at__isnull=True).update(delivered_at=now)
             qs.update(read_at=now)
         return ids
@@ -313,7 +387,6 @@ class ChatConsumer(AsyncWebsocketConsumer):
 
     @database_sync_to_async
     def is_blocked(self):
-        """True if any participant has blocked another in this conversation."""
         participant_ids = list(
             Conversation.objects.filter(id=self.conversation_id)
             .values_list('participants__id', flat=True)
@@ -369,13 +442,16 @@ class ChatConsumer(AsyncWebsocketConsumer):
             return None
 
     @database_sync_to_async
-    def save_message(self, plaintext, attachment_ids=None, reply_to_id=None):
-        msg = Message.objects.create(
+    def save_message(self, plaintext, attachment_ids=None, reply_to_id=None, msg_id=None):
+        kwargs = dict(
             conversation_id=self.conversation_id,
             author_id=self.user_data['id'],
             encrypted_content=encrypt_text(plaintext or ''),
             reply_to_id=reply_to_id,
         )
+        if msg_id:
+            kwargs['id'] = msg_id
+        msg = Message.objects.create(**kwargs)
         if attachment_ids:
             Attachment.objects.filter(id__in=attachment_ids).update(message=msg)
         return str(msg.id)
@@ -434,43 +510,98 @@ class GuildChannelConsumer(AsyncWebsocketConsumer):
         content = data.get('message', '').strip()
         reply_to_id = data.get('reply_to_id')
         attachment_ids = data.get('attachment_ids', [])
+        nonce = data.get('nonce')
         if isinstance(attachment_ids, int):
             attachment_ids = [attachment_ids]
 
         if not content and not attachment_ids:
             return
 
-        msg_id = await self.save_message(content, reply_to_id, attachment_ids)
-        reply_to_data = None
-        if reply_to_id:
-            reply_to_data = await self.get_reply_data(reply_to_id)
-        attachments_data = []
-        if attachment_ids:
-            attachments_data = await self.get_attachments_data(attachment_ids)
+        msg_id = str(uuid.uuid4())
 
-        msg_payload = {
-            'id': msg_id,
-            'author': self.user_data,
-            'content': content,
-            'created_at': timezone.now().isoformat(),
-            'reply_to': reply_to_data,
-            'attachments': attachments_data,
-            'is_pinned': False,
-        }
+        if _kafka_enabled():
+            from .kafka_producer import publish_guild_message, publish_guild_notification
 
-        await self.channel_layer.group_send(
-            self.room_group,
-            {'type': 'chat_message', 'message': msg_payload},
-        )
+            attachments_data = []
+            if attachment_ids:
+                attachments_data = await self.get_attachments_data(attachment_ids)
+            reply_to_data = None
+            if reply_to_id:
+                reply_to_data = await self.get_reply_data(reply_to_id)
 
-        # FCM push to guild members whose app may be killed / screen off
-        sender_name = self.user_data.get('nickname') or self.user_data.get('username', '')
-        member_ids = await self.get_guild_member_ids_except_self()
-        await self.push_fcm_to_users(member_ids, {
-            'type': 'message',
-            'sender_name': sender_name,
-            'content': content,
-        })
+            msg_payload = {
+                'id': msg_id,
+                'author': self.user_data,
+                'content': content,
+                'created_at': timezone.now().isoformat(),
+                'reply_to': reply_to_data,
+                'attachments': attachments_data,
+                'is_pinned': False,
+            }
+            if nonce:
+                msg_payload['nonce'] = nonce
+
+            # 1) Broadcast instantly via Redis
+            await self.channel_layer.group_send(
+                self.room_group,
+                {'type': 'chat_message', 'message': msg_payload},
+            )
+
+            # 2) Persist via Kafka
+            publish_guild_message(self.channel_id, {
+                'msg_id': msg_id,
+                'channel_id': self.channel_id,
+                'author_id': self.user_data['id'],
+                'content': content,
+                'attachment_ids': attachment_ids,
+                'reply_to_id': reply_to_id,
+            })
+
+            # 3) FCM push via Kafka
+            sender_name = self.user_data.get('nickname') or self.user_data.get('username', '')
+            member_ids = await self.get_guild_member_ids_except_self()
+            publish_guild_notification({
+                'user_ids': member_ids,
+                'payload': {
+                    'type': 'message',
+                    'sender_name': sender_name,
+                    'content': content,
+                },
+            })
+        else:
+            # Fallback: synchronous path
+            saved_id = await self.save_message(content, reply_to_id, attachment_ids, msg_id)
+            reply_to_data = None
+            if reply_to_id:
+                reply_to_data = await self.get_reply_data(reply_to_id)
+            attachments_data = []
+            if attachment_ids:
+                attachments_data = await self.get_attachments_data(attachment_ids)
+
+            msg_payload = {
+                'id': saved_id,
+                'author': self.user_data,
+                'content': content,
+                'created_at': timezone.now().isoformat(),
+                'reply_to': reply_to_data,
+                'attachments': attachments_data,
+                'is_pinned': False,
+            }
+            if nonce:
+                msg_payload['nonce'] = nonce
+
+            await self.channel_layer.group_send(
+                self.room_group,
+                {'type': 'chat_message', 'message': msg_payload},
+            )
+
+            sender_name = self.user_data.get('nickname') or self.user_data.get('username', '')
+            member_ids = await self.get_guild_member_ids_except_self()
+            await self.push_fcm_to_users(member_ids, {
+                'type': 'message',
+                'sender_name': sender_name,
+                'content': content,
+            })
 
     async def guild_scheduled_queued(self, event):
         from django.utils.timezone import make_aware
@@ -626,7 +757,6 @@ class GuildChannelConsumer(AsyncWebsocketConsumer):
     @database_sync_to_async
     def get_user_data(self, user_id):
         user = User.objects.get(id=user_id)
-        # Use guild nickname if set
         nickname = ''
         try:
             m = GuildMembership.objects.get(guild_id=self.guild_id, user_id=user_id)
@@ -642,13 +772,16 @@ class GuildChannelConsumer(AsyncWebsocketConsumer):
         }
 
     @database_sync_to_async
-    def save_message(self, plaintext, reply_to_id=None, attachment_ids=None):
-        msg = GuildMessage.objects.create(
+    def save_message(self, plaintext, reply_to_id=None, attachment_ids=None, msg_id=None):
+        kwargs = dict(
             channel_id=self.channel_id,
             author_id=self.user_data['id'],
             encrypted_content=encrypt_text(plaintext or ''),
             reply_to_id=reply_to_id,
         )
+        if msg_id:
+            kwargs['id'] = msg_id
+        msg = GuildMessage.objects.create(**kwargs)
         if attachment_ids:
             GuildAttachment.objects.filter(id__in=attachment_ids).update(message=msg)
         return str(msg.id)
@@ -710,7 +843,7 @@ class GuildPresenceConsumer(AsyncWebsocketConsumer):
         await self.channel_layer.group_discard(self.guild_group, self.channel_name)
 
     async def receive(self, text_data):
-        pass  # No client→server messages needed
+        pass
 
     async def guild_deleted(self, event):
         await self.send(text_data=ujson.dumps({'type': 'guild_deleted', 'guild_id': event['guild_id']}))
@@ -780,25 +913,21 @@ class GuildVoiceConsumer(AsyncWebsocketConsumer):
         await self.channel_layer.group_add(self.room_group, self.channel_name)
         await self.accept()
 
-        # Register in voice channel: {channel_id: {'_guild_id': int, user_id: user_info, ...}}
         if self.channel_id not in _voice_channels:
             _voice_channels[self.channel_id] = {'_guild_id': self.guild_id}
         _voice_channels[self.channel_id][self.user_id] = self.user_info
 
-        # Send current participants list to the joining user (exclude _guild_id sentinel)
         participants = [v for k, v in _voice_channels[self.channel_id].items() if k != '_guild_id']
         await self.send(text_data=ujson.dumps({
             'type': 'voice_participants',
             'participants': participants,
         }))
 
-        # Notify voice room participants that this user joined
         await self.channel_layer.group_send(
             self.room_group,
             {'type': 'voice_user_joined', 'user': self.user_info, 'from_user': self.user_id},
         )
 
-        # Notify ALL guild members (guild text WS group) so they see presence without being in voice
         guild_group = f'guild_{self.guild_id}'
         all_participants = [v for k, v in _voice_channels[self.channel_id].items() if k != '_guild_id']
         await self.channel_layer.group_send(
@@ -811,27 +940,22 @@ class GuildVoiceConsumer(AsyncWebsocketConsumer):
         )
 
     async def disconnect(self, close_code):
-        # Guard: connect() may have returned early before setting user_id
         if not getattr(self, 'user_id', None):
             await self.channel_layer.group_discard(self.room_group, self.channel_name)
             return
 
-        # Remove from registry
         if self.channel_id in _voice_channels:
             _voice_channels[self.channel_id].pop(self.user_id, None)
-            # Remove channel entry if only the sentinel '_guild_id' key remains
             if set(_voice_channels[self.channel_id].keys()) <= {'_guild_id'}:
                 del _voice_channels[self.channel_id]
 
         await self.channel_layer.group_discard(self.room_group, self.channel_name)
 
-        # Notify voice room participants
         await self.channel_layer.group_send(
             self.room_group,
             {'type': 'voice_user_left', 'user_id': self.user_id},
         )
 
-        # Notify ALL guild members
         guild_group = f'guild_{self.guild_id}'
         remaining = [v for k, v in _voice_channels.get(self.channel_id, {}).items() if k != '_guild_id']
         await self.channel_layer.group_send(
@@ -848,7 +972,6 @@ class GuildVoiceConsumer(AsyncWebsocketConsumer):
         msg_type = data.get('type')
 
         if msg_type == 'voice_mute':
-            # Update muted state and broadcast
             muted = bool(data.get('muted', False))
             if self.channel_id in _voice_channels and self.user_id in _voice_channels[self.channel_id]:
                 _voice_channels[self.channel_id][self.user_id]['muted'] = muted
@@ -858,7 +981,6 @@ class GuildVoiceConsumer(AsyncWebsocketConsumer):
             )
 
         elif msg_type == 'signal':
-            # Forward WebRTC signal to specific target user in this channel
             target_id = str(data.get('to', ''))
             await self.channel_layer.group_send(
                 self.room_group,
@@ -870,11 +992,9 @@ class GuildVoiceConsumer(AsyncWebsocketConsumer):
                 },
             )
 
-    # ── Channel layer handlers ──
-
     async def voice_user_joined(self, event):
         if event['from_user'] == self.user_id:
-            return  # Don't send to self
+            return
         await self.send(text_data=ujson.dumps({
             'type': 'voice_user_joined',
             'user': event['user'],
@@ -894,7 +1014,6 @@ class GuildVoiceConsumer(AsyncWebsocketConsumer):
         }))
 
     async def voice_signal(self, event):
-        # Only deliver to intended recipient
         if event['to_user'] != self.user_id:
             return
         await self.send(text_data=ujson.dumps({

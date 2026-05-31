@@ -247,6 +247,16 @@ npm_install "$PROJECT_ROOT"
 log "Installing Django Python dependencies"
 install_python_deps "$PYTHON_BIN"
 
+log "Starting Docker services (Redis, Kafka)"
+if command -v docker >/dev/null 2>&1; then
+    cd "$DJANGO_DIR"
+    docker compose up -d redis kafka zookeeper kafka-init
+    echo "      Redis and Kafka started."
+else
+    echo "      WARNING: Docker not found. Install Docker to run Redis/Kafka."
+    echo "      Without Docker, messages may be lost under high load."
+fi
+
 if [ "$INSTALL_COTURN" -eq 1 ]; then
     log "Installing coturn"
     install_coturn

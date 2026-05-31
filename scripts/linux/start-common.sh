@@ -29,6 +29,8 @@ COTURN_MIN_PORT="${IONIK_COTURN_MIN_PORT:-49152}"
 COTURN_MAX_PORT="${IONIK_COTURN_MAX_PORT:-65535}"
 COTURN_CONF="${IONIK_COTURN_CONF:-/etc/turnserver.conf}"
 PID_FILE="/tmp/ionik-daphne.pid"
+KAFKA_PID_FILE="/tmp/ionik-kafka-worker.pid"
+DOCKER_DIR="$PROJECT_ROOT/django-server"
 
 while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -347,21 +349,60 @@ start_nginx() {
     echo "      nginx is serving from $WEB_ROOT"
 }
 
+start_docker() {
+    log "Starting Docker services (Redis, Kafka)"
+    if command -v docker >/dev/null 2>&1; then
+        cd "$DOCKER_DIR"
+        docker compose up -d redis kafka zookeeper kafka-init
+        echo "      Redis and Kafka started."
+    else
+        echo "      WARNING: Docker not found. Messages may be lost under high load."
+    fi
+}
+
+start_kafka_worker() {
+    log "Starting Kafka worker"
+    if ! command -v docker >/dev/null 2>&1; then
+        echo "      Skipped (no Docker/Kafka)."
+        return
+    fi
+
+    if [ -d "$VENV" ]; then
+        # shellcheck disable=SC1091
+        source "$VENV/bin/activate"
+    fi
+
+    if [ -f "$KAFKA_PID_FILE" ] && kill -0 "$(cat "$KAFKA_PID_FILE")" 2>/dev/null; then
+        kill "$(cat "$KAFKA_PID_FILE")" 2>/dev/null || true
+        sleep 1
+    fi
+
+    cd "$DJANGO_DIR"
+    KAFKA_ENABLED=true nohup python manage.py kafka_worker \
+        > /tmp/ionik-kafka-worker.log 2>&1 &
+    echo "$!" > "$KAFKA_PID_FILE"
+    echo "      Kafka worker PID: $(cat "$KAFKA_PID_FILE")  (log: /tmp/ionik-kafka-worker.log)"
+}
+
 echo "=== Starting ionik on Linux ($MODE) ==="
 echo "Project root: $PROJECT_ROOT"
 
 require_command npm "Install Node.js/npm first, or run scripts/install-deps.sh."
 require_command nginx "Install nginx first, or run scripts/install-deps.sh."
 
+start_docker
 start_coturn
 start_django
+start_kafka_worker
 build_frontend
 start_nginx
 
 echo ""
 echo "=== All services started ==="
+echo "  Docker      : Redis :6379, Kafka :9092"
 echo "  TURN server : 3478, 5349, relay UDP/TCP $COTURN_MIN_PORT-$COTURN_MAX_PORT"
 echo "  Django API  : http://$DJANGO_BIND_HOST:$DJANGO_PORT internal, public port $API_PUBLIC_PORT"
+echo "  Kafka worker: processing messages"
 if [ "$MODE" = "ssl" ]; then
     echo "  Frontend    : https://$DOMAIN"
 else
@@ -369,6 +410,9 @@ else
 fi
 echo ""
 echo "Logs:"
-echo "  Daphne      : /tmp/ionik-daphne.log"
-echo "  nginx       : journalctl -u nginx"
-echo "  coturn      : journalctl -u coturn"
+echo "  Daphne       : /tmp/ionik-daphne.log"
+echo "  Kafka worker : /tmp/ionik-kafka-worker.log"
+echo "  nginx        : journalctl -u nginx"
+echo "  coturn       : journalctl -u coturn"
+echo ""
+echo "Stop all: scripts/linux/stop-all.sh"
