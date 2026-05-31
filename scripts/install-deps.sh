@@ -52,6 +52,25 @@ require_command() {
     fi
 }
 
+install_docker() {
+    if command -v docker >/dev/null 2>&1; then
+        echo "      Docker already installed: $(docker --version)"
+        return
+    fi
+
+    echo "      Installing Docker..."
+    curl -fsSL https://get.docker.com | sh
+    sudo systemctl enable docker 2>/dev/null || true
+    sudo systemctl start docker 2>/dev/null || true
+
+    if id -nG "$USER" | grep -qw docker; then
+        :
+    else
+        sudo usermod -aG docker "$USER" 2>/dev/null || true
+        echo "      Added $USER to docker group (re-login may be needed)."
+    fi
+}
+
 install_system_deps_linux() {
     if command -v apt-get >/dev/null 2>&1; then
         sudo apt-get update -y
@@ -86,6 +105,8 @@ install_system_deps_linux() {
         echo "Install manually: nodejs npm python3 python3-pip python3-venv nginx coturn"
         exit 1
     fi
+
+    install_docker
 
     if command -v systemctl >/dev/null 2>&1; then
         sudo systemctl enable nginx 2>/dev/null || true
@@ -129,6 +150,12 @@ install_system_deps_macos() {
 
     brew update
     brew install node python nginx coturn
+
+    if ! command -v docker >/dev/null 2>&1; then
+        echo "      Installing Docker Desktop via brew..."
+        brew install --cask docker
+        echo "      Open Docker Desktop app to finish setup."
+    fi
 }
 
 install_system_deps() {

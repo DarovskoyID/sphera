@@ -460,14 +460,18 @@ start_nginx
 
 echo ""
 echo "=== All services started ==="
-echo "  Docker      : Redis :6379, Kafka :9092"
+echo "  Docker      : Redis :6379, Kafka :9092, Prometheus :9090, Grafana :3000"
 echo "  TURN server : 3478, 5349, relay UDP/TCP $COTURN_MIN_PORT-$COTURN_MAX_PORT"
 echo "  Django API  : http://$DJANGO_BIND_HOST:$DJANGO_PORT internal, public port $API_PUBLIC_PORT"
 echo "  Kafka worker: processing messages"
 if [ "$MODE" = "ssl" ]; then
     echo "  Frontend    : https://$DOMAIN"
+    echo "  Status      : https://$DOMAIN:$API_PUBLIC_PORT/status-$(date +%Y-%m-%d)/"
+    echo "  Grafana     : https://$DOMAIN/grafana/"
 else
     echo "  Frontend    : http://<server-ip>/"
+    echo "  Status      : http://<server-ip>:$API_PUBLIC_PORT/status-$(date +%Y-%m-%d)/"
+    echo "  Grafana     : http://<server-ip>/grafana/"
 fi
 echo ""
 echo "Logs:"

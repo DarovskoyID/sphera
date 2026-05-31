@@ -148,6 +148,8 @@ echo      API (Django)   ^>  http://localhost:8000
 echo      Kafka worker   ^>  processing messages
 echo      Redis          ^>  localhost:6379
 echo      Kafka          ^>  localhost:9092
+echo      Prometheus     ^>  localhost:9090
+echo      Grafana        ^>  http://localhost:3000/grafana/
 echo      STUN/TURN      ^>  localhost:3478
 echo  ==========================================
 echo.

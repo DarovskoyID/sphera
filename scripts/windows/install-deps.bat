@@ -133,5 +133,16 @@ if errorlevel 1 (
     echo        Run: wsl --install
 )
 
+where docker >nul 2>&1
+if errorlevel 1 (
+    echo [INFO] Installing Docker Desktop ...
+    winget install --id Docker.DockerDesktop --exact --accept-package-agreements --accept-source-agreements
+    if errorlevel 1 (
+        echo [WARN] Docker install failed. Install manually from https://docker.com
+    ) else (
+        echo        Docker installed. Open Docker Desktop to finish setup.
+    )
+)
+
 echo        Done.
 exit /b 0
