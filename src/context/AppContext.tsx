@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback, type ReactNode } from 'react';
 import type { AppState, ViewType, MobilePanel, ServerUser, PendingRequest, ChatMessage, Guild, GuildChannel, GuildMessage, GuildRole, GuildEmoji, GuildSticker, GuildSound, GuildInviteData, GuildAuditLogEntry } from '../types';
 import type { CustomEmoji } from '../types';
-import { SERVER_IPS, WS_BASE_URL } from '../config/network';
+import { SERVER_IPS } from '../config/network';
 import { resolveServerIP } from '../utils/resolveServer';
 
 
@@ -577,7 +577,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
         if (last) chatLastMsgId.current = String(last.id);
 
         // Connect chat WebSocket (with auto-reconnect on unexpected close)
-        const wsUrl = WS_BASE_URL || state.currentServerIP.replace(/^http/, 'ws');
+        const wsUrl = state.currentServerIP.replace(/^http/, 'ws');
         let isFirstConnect = true;
 
         const connectChatWs = () => {
@@ -1163,7 +1163,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       guildChannelWs.current.close();
       guildChannelWs.current = null;
     }
-    const wsUrl = WS_BASE_URL || serverIP.replace(/^http/, 'ws');
+    const wsUrl = serverIP.replace(/^http/, 'ws');
     const ws = new WebSocket(`${wsUrl}/ws/guild/${guild.id}/channel/${channel.id}/?token=${token}`);
     ws.onopen = () => { guildChannelWs.current = ws; };
     ws.onmessage = (event) => {

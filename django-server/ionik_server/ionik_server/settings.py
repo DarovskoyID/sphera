@@ -79,17 +79,36 @@ TEMPLATES = [
 WSGI_APPLICATION = 'ionik_server.wsgi.application'
 ASGI_APPLICATION = 'ionik_server.asgi.application'
 
-# Channel layer: Redis for reliable WS pub/sub delivery
-CHANNEL_LAYERS = {
-    'default': {
-        'BACKEND': 'channels_redis.core.RedisChannelLayer',
-        'CONFIG': {
-            'hosts': [os.environ.get('REDIS_URL', 'redis://127.0.0.1:6379/0')],
-            'capacity': 1500,
-            'expiry': 10,
+# Channel layer: Redis if available, fallback to InMemory
+_REDIS_URL = os.environ.get('REDIS_URL', 'redis://127.0.0.1:6379/0')
+_USE_REDIS = os.environ.get('USE_REDIS_CHANNEL_LAYER', '').lower() in ('1', 'true', 'yes')
+
+if not _USE_REDIS:
+    try:
+        import redis as _redis_mod
+        _r = _redis_mod.Redis.from_url(_REDIS_URL, socket_connect_timeout=1)
+        _r.ping()
+        _USE_REDIS = True
+    except Exception:
+        _USE_REDIS = False
+
+if _USE_REDIS:
+    CHANNEL_LAYERS = {
+        'default': {
+            'BACKEND': 'channels_redis.core.RedisChannelLayer',
+            'CONFIG': {
+                'hosts': [_REDIS_URL],
+                'capacity': 1500,
+                'expiry': 10,
+            },
         },
-    },
-}
+    }
+else:
+    CHANNEL_LAYERS = {
+        'default': {
+            'BACKEND': 'channels.layers.InMemoryChannelLayer',
+        },
+    }
 
 # Kafka for durable message processing pipeline
 KAFKA_ENABLED = os.environ.get('KAFKA_ENABLED', 'false').lower() in ('1', 'true', 'yes')
