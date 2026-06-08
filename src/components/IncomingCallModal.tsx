@@ -71,14 +71,14 @@ export const IncomingCallModal = () => {
       } else if (msg.type === 'candidate' && msg.from && incomingOfferRef.current) {
         bufferedCandidates.current.push(msg);
       } else if ((msg.type === 'call-end' || msg.type === 'call-rejected') && incomingOfferRef.current && String(msg.from) === String(incomingOfferRef.current.from)) {
-        const wasVideo = !!incomingOfferRef.current.withVideo;
+        // Caller cancelled — they already sent the call message via chat WS,
+        // so we just dismiss the modal without adding a duplicate.
         stopRingtone();
         if ((window as any).AndroidBridge) {
           (window as any).AndroidBridge.cancelCallNotification();
         }
         bufferedCandidates.current = [];
         setIncomingOffer(null);
-        addCallMessage({ status: 'missed', video: wasVideo });
       }
     };
   }

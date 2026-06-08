@@ -511,24 +511,7 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
       return;
     } else if (msg.type === 'call-end' || msg.type === 'call-rejected') {
       if (String(_call.targetId) === senderId) {
-        // Determine the mirror status for the receiving side
-        let mirrorStatus: import('../types').CallStatus;
-        const remoteStatus = msg.callStatus as string | undefined;
-        if (_call.wasConnected || remoteStatus === 'completed') {
-          mirrorStatus = 'completed';
-        } else if (remoteStatus === 'cancelled') {
-          mirrorStatus = 'missed';
-        } else if (remoteStatus === 'declined' || msg.type === 'call-rejected') {
-          mirrorStatus = 'no_answer';
-        } else {
-          mirrorStatus = 'missed';
-        }
-        const duration = mirrorStatus === 'completed'
-          ? (msg.duration as number | undefined) ?? (_call.callStartTime ? Math.round((Date.now() - _call.callStartTime) / 1000) : undefined)
-          : undefined;
-        const video = (msg.video as boolean | undefined) ?? _call.wasVideo;
         stopCall(false, true);
-        addCallMessage({ status: mirrorStatus, duration, video });
       }
       return;
     }
@@ -700,7 +683,7 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
     } catch { }
   };
 
-  const stopCall = (notifyRemote = true, skipCallMessage = false) => {
+  const stopCall = (notifyRemote = true, remoteInitiated = false) => {
     const targetId = _call.targetId;
     const wasConnected = _call.wasConnected;
     const callStartTime = _call.callStartTime;
@@ -747,7 +730,9 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
       sendSignal({ type: 'call-end', to: targetId, callStatus, duration, video: wasVideo });
     }
 
-    if (!skipCallMessage) {
+    // Only the side that actively ends/cancels sends the call message to chat.
+    // The other side will see it via the chat WS broadcast.
+    if (!remoteInitiated) {
       addCallMessage({ status: callStatus, duration, video: wasVideo });
     }
 
