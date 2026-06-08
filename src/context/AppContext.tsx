@@ -53,6 +53,18 @@ window.addEventListener('unhandledrejection', (e) => {
   _dispatch(msg);
 });
 
+// ── Parse call message content ───────────────────────────────────────────────
+const CALL_CONTENT_RE = /^%%call:(\w+):(voice|video)(?::(\d+))?%%$/;
+function enrichCallMessage(msg: ChatMessage): ChatMessage {
+  if (msg.message_type === 'call' && msg.call_info) return msg;
+  const m = msg.content?.match(CALL_CONTENT_RE);
+  if (!m) return msg;
+  const status = m[1] as import('../types').CallStatus;
+  const video = m[2] === 'video';
+  const duration = m[3] != null ? Number(m[3]) : undefined;
+  return { ...msg, message_type: 'call', call_info: { status, duration, video } };
+}
+
 // ── Accent colour (premium blue default) ─────────────────────────────────────
 const DEFAULT_ACCENT = '#0070F3';
 function applyAccent(color: string) {
@@ -576,7 +588,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
           state.currentServerIP
         );
         if (cancelled) return;
-        setState(prev => ({ ...prev, chatMessages: msgs }));
+        setState(prev => ({ ...prev, chatMessages: msgs.map(enrichCallMessage) }));
         // Seed the last-ID ref so polling knows where to start
         const last = msgs.filter(m => !String(m.id).startsWith('optimistic-')).at(-1);
         if (last) chatLastMsgId.current = String(last.id);
@@ -598,8 +610,9 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
               // IMPORTANT: merge with current state — don't discard WS messages that arrived
               // after the API snapshot was taken (they would otherwise be silently lost).
               apiGet(`/api/conversations/${convoId}/messages/`, state.authToken, state.currentServerIP)
-                .then((freshMsgs: ChatMessage[]) => {
+                .then((raw: ChatMessage[]) => {
                   if (cancelled) return;
+                  const freshMsgs = raw.map(enrichCallMessage);
                   setState(prev => {
                     const freshIds = new Set(freshMsgs.map(m => String(m.id)));
                     // Keep confirmed WS messages not yet in the server snapshot
@@ -675,7 +688,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
                 ),
               }));
             } else {
-              const msg: ChatMessage = data;
+              const msg: ChatMessage = enrichCallMessage(data);
               setState(prev => {
                 if (prev.chatMessages.some(m => String(m.id) === String(msg.id))) return prev;
                 const nonce = (data as any).nonce;
@@ -735,7 +748,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
             if (!res.ok || cancelled) return;
             const body = await res.json();
             // Support both plain array and DRF paginated {results:[...]} shapes
-            const polled: ChatMessage[] = Array.isArray(body) ? body : (body?.results ?? []);
+            const polled: ChatMessage[] = (Array.isArray(body) ? body : (body?.results ?? [])).map(enrichCallMessage);
             if (!polled.length || cancelled) return;
 
             setState(prev => {
@@ -857,10 +870,24 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
   }, [state.chatConversationId, state.currentServerIP, state.authToken]);
 
   const addCallMessage = useCallback((callInfo: import('../types').CallInfo) => {
+    // Encode call info into a special content string so the server persists it
+    const parts = [callInfo.status, callInfo.video ? 'video' : 'voice'];
+    if (callInfo.duration != null) parts.push(String(callInfo.duration));
+    const content = `%%call:${parts.join(':')}%%`;
+
+    const nonce = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const payload: Record<string, unknown> = {
+      message: content,
+      message_type: 'call',
+      call_info: callInfo,
+      nonce,
+    };
+
+    // Optimistic insert
     setState(prev => {
       if (!prev.currentUser) return prev;
       const msg: import('../types').ChatMessage = {
-        id: `call-${Date.now()}`,
+        id: `optimistic-${nonce}`,
         author: {
           id: prev.userIDonServer,
           username: prev.currentUser.username,
@@ -868,7 +895,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
           avatar: prev.currentUser.avatar,
           status: prev.currentUser.status,
         },
-        content: '',
+        content,
         created_at: new Date().toISOString(),
         message_type: 'call',
         call_info: callInfo,
@@ -877,7 +904,23 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       if (msgs.length > 500) msgs.splice(0, msgs.length - 500);
       return { ...prev, chatMessages: msgs };
     });
-  }, []);
+
+    const payloadStr = JSON.stringify(payload);
+    let sent = false;
+    if (chatWs.current?.readyState === WebSocket.OPEN) {
+      try { chatWs.current.send(payloadStr); sent = true; } catch { }
+    }
+    if (!sent && state.chatConversationId) {
+      fetch(`${state.currentServerIP}/api/conversations/${state.chatConversationId}/messages/send/`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${state.authToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ content, message_type: 'call', call_info: callInfo }),
+      }).catch(() => {});
+    }
+  }, [state.chatConversationId, state.currentServerIP, state.authToken]);
 
   const deleteMessage = useCallback(async (messageId: string) => {
     await fetch(`${state.currentServerIP}/api/messages/${messageId}/`, {
@@ -969,9 +1012,10 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
         state.currentServerIP
       );
       if (older.length === 0) return false;
+      const enriched = older.map(enrichCallMessage);
       setState(prev => ({
         ...prev,
-        chatMessages: [...older, ...prev.chatMessages],
+        chatMessages: [...enriched, ...prev.chatMessages],
       }));
       return true;
     } catch (e) {
