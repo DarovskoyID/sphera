@@ -275,7 +275,7 @@ export const UnifiedPicker: React.FC<Props> = ({ onSelectEmoji, onSelectGif, onS
       {isMobile && <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 7999 }} />}
       <div ref={pickerRef} style={containerStyle}>
         {isMobile && (
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '8px 12px 0', flexShrink: 0, position: 'relative' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '8px 12px', flexShrink: 0, position: 'relative', height: 30 }}>
             <div style={{ width: 36, height: 4, borderRadius: 2, background: 'var(--border-color, #444)' }} />
             <button onClick={onClose} style={{ position: 'absolute', right: 12, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', display: 'flex', padding: 4 }}><X size={18} /></button>
           </div>

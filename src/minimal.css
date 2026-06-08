@@ -10,29 +10,29 @@
    ============================================================ */
 
 :root {
-  /* Light */
-  --bg-primary:   #ffffff;
-  --bg-secondary: #f7f7f8;
-  --bg-tertiary:  #f0f0f1;
-  --bg-chat:      #ffffff;
+  /* Light — muted, easy on the eyes */
+  --bg-primary:   #e8e8ec;
+  --bg-secondary: #dfdfe4;
+  --bg-tertiary:  #d5d5db;
+  --bg-chat:      #eaeaee;
 
-  --text-primary:   #18181b;
-  --text-secondary: #5b5b62;
-  --text-tertiary:  #8a8a92;
+  --text-primary:   #1e1e22;
+  --text-secondary: #55555e;
+  --text-tertiary:  #7c7c86;
 
   --accent-primary: #2563eb;
   --accent-hover:   #1e54d6;
   --accent-active:  #1a48b8;
 
-  --border-color: #e6e6e8;
-  --hover-bg:     #f2f2f4;
-  --active-bg:    #ebebee;
+  --border-color: #c8c8ce;
+  --hover-bg:     #d2d2d8;
+  --active-bg:    #c9c9d0;
 
-  --message-own:   #e8f0fe;
-  --message-other: #f3f3f5;
+  --message-own:   #cddaf0;
+  --message-other: #d8d8de;
 
-  --glass-bg:     #ffffff;
-  --glass-border: #e6e6e8;
+  --glass-bg:     #e2e2e7;
+  --glass-border: #c8c8ce;
   --glass-shadow: transparent;
 
   --status-online: #22a06b;

@@ -25,17 +25,17 @@ const Tile = ({ id, label, children, expandedTile, setExpandedTile }: {
   const isExp = expandedTile === id;
   return (
     <div style={isExp
-      ? { position: 'fixed', inset: 0, zIndex: 9600, background: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center' }
-      : { position: 'relative', background: '#000', borderRadius: 6, overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 0, minWidth: 0 }
+      ? { position: 'fixed', inset: 0, zIndex: 9600, background: 'var(--bg-tertiary)', display: 'flex', alignItems: 'center', justifyContent: 'center' }
+      : { position: 'relative', background: 'var(--bg-tertiary)', borderRadius: 6, overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 0, minWidth: 0 }
     }>
       {children}
-      <span style={{ position: 'absolute', bottom: isExp ? 14 : 4, left: isExp ? 16 : 6, fontSize: isExp ? 13 : 11, color: '#ccc', background: 'rgba(0,0,0,0.55)', borderRadius: 4, padding: '2px 6px' }}>
+      <span style={{ position: 'absolute', bottom: isExp ? 14 : 4, left: isExp ? 16 : 6, fontSize: isExp ? 13 : 11, color: 'var(--text-secondary)', background: 'var(--bg-secondary)', borderRadius: 4, padding: '2px 6px' }}>
         {label}
       </span>
       <button
         onClick={() => setExpandedTile(isExp ? null : id)}
         title={isExp ? 'Restore' : 'Expand to full window'}
-        style={{ position: 'absolute', top: isExp ? 12 : 4, right: isExp ? 12 : 4, background: 'rgba(0,0,0,0.55)', border: 'none', borderRadius: 6, padding: isExp ? '6px 8px' : 3, cursor: 'pointer', color: '#fff', display: 'flex' }}
+        style={{ position: 'absolute', top: isExp ? 12 : 4, right: isExp ? 12 : 4, background: 'var(--bg-secondary)', border: 'none', borderRadius: 6, padding: isExp ? '6px 8px' : 3, cursor: 'pointer', color: 'var(--text-primary)', display: 'flex' }}
       >
         {isExp ? <Minimize2 size={16} /> : <Maximize2 size={12} />}
       </button>
@@ -68,6 +68,10 @@ const _call = {
   hasProcessedOffer: false,
   remotePeerId: null as string | null,
   remoteScreenActive: false,
+  callStartTime: null as number | null,
+  wasConnected: false,
+  wasVideo: false,
+  wasIncoming: false,
 };
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -76,9 +80,13 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
   const {
     isDemonstrationActive,
     isVideoActive,
+    isMicActive,
+    isHeadphonesActive,
     setCallActive,
     setDemonstrationActive,
     setVideoActive,
+    setMicActive,
+    setHeadphonesActive,
     setCallStatus,
     sendSignal,
     onSignalingMessage,
@@ -87,6 +95,7 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
     incomingOffer,
     setIncomingOffer,
     friends,
+    addCallMessage,
   } = useApp();
 
 
@@ -384,6 +393,15 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
       if (event.candidate) sendSignal({ type: 'candidate', candidate: event.candidate, to: remoteId });
     };
 
+    pc.oniceconnectionstatechange = () => {
+      if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
+        if (!_call.wasConnected) {
+          _call.wasConnected = true;
+          _call.callStartTime = Date.now();
+        }
+      }
+    };
+
     pc.ontrack = (event) => {
       const stream = event.streams[0];
       if (!stream) return;
@@ -450,6 +468,20 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
       stopScreen();
     }
   }, [isDemonstrationActive]);
+
+  // ==================== Mic mute sync ====================
+  useEffect(() => {
+    if (_call.audioStream) {
+      _call.audioStream.getAudioTracks().forEach(t => { t.enabled = isMicActive; });
+    }
+  }, [isMicActive]);
+
+  // ==================== Headphones (remote audio) sync ====================
+  useEffect(() => {
+    if (remoteAudioRef.current) {
+      remoteAudioRef.current.muted = !isHeadphonesActive;
+    }
+  }, [isHeadphonesActive]);
 
   // ==================== Handle incoming signals ====================
   const handleSignalRef = useRef<(msg: any) => void>(() => {});
@@ -556,11 +588,14 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
     _call.remoteScreenStream = null;
 
     _call.targetId = String(peerId);
+    _call.wasIncoming = false;
+    _call.wasConnected = false;
+    _call.callStartTime = null;
     setRemotePeerId(String(peerId));
     _call.pendingCandidates = [];
 
-    // Read latest call mode from a ref (avoids stale closure value)
     const wantVideo = isVideoActiveRef.current;
+    _call.wasVideo = wantVideo;
 
     // For voice calls clear any stale camera stream from a previous call so the
     // local "Video off" placeholder shows instead of an empty black <video>.
@@ -595,9 +630,13 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
     const senderId = String(msg.from);
     setRemotePeerId(senderId);
     _call.hasAutoCalled = true;
+    _call.wasIncoming = true;
+    _call.wasConnected = false;
+    _call.callStartTime = null;
     setCallTargetId(null);
 
     const wantVideo = !!msg.withVideo;
+    _call.wasVideo = wantVideo;
     setVideoActive(wantVideo);
 
     // Clear stale camera stream from a previous call when this is voice-only
@@ -644,6 +683,10 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
 
   const stopCall = (notifyRemote = true) => {
     const targetId = _call.targetId;
+    const wasConnected = _call.wasConnected;
+    const callStartTime = _call.callStartTime;
+    const wasVideo = _call.wasVideo;
+    const wasIncoming = _call.wasIncoming;
 
     _call.pc?.close();
     _call.pc = null;
@@ -658,12 +701,31 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
     _call.hasProcessedOffer = false;
     _call.remotePeerId = null;
     _call.remoteScreenActive = false;
+    _call.wasConnected = false;
+    _call.callStartTime = null;
 
     if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
     if (remoteAudioRef.current) remoteAudioRef.current.srcObject = null;
     if (remoteScreenVideoRef.current) remoteScreenVideoRef.current.srcObject = null;
 
     if (notifyRemote && targetId) sendSignal({ type: 'call-end', to: targetId });
+
+    // Add call info message
+    let callStatus: import('../types').CallStatus;
+    let duration: number | undefined;
+    if (wasConnected && callStartTime) {
+      callStatus = 'completed';
+      duration = Math.round((Date.now() - callStartTime) / 1000);
+    } else if (notifyRemote && !wasIncoming) {
+      callStatus = 'cancelled';
+    } else if (!notifyRemote && !wasIncoming) {
+      callStatus = 'no_answer';
+    } else if (!notifyRemote && wasIncoming) {
+      callStatus = 'missed';
+    } else {
+      callStatus = 'declined';
+    }
+    addCallMessage({ status: callStatus, duration, video: wasVideo });
 
     setCallTargetId(null);
     setRemotePeerIdState(null);
@@ -693,25 +755,25 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
   const videoFill: React.CSSProperties = { width: '100%', height: '100%', objectFit: 'contain', display: 'block' };
   const placeholderStyle: React.CSSProperties = {
     display: 'flex', flexDirection: 'column', alignItems: 'center',
-    justifyContent: 'center', gap: 8, width: '100%', height: '100%', background: '#1a1a2e',
+    justifyContent: 'center', gap: 8, width: '100%', height: '100%', background: 'var(--bg-tertiary)',
   };
 
   const outerStyle: React.CSSProperties = windowExpanded
-    ? { position: 'fixed', inset: 0, width: '100vw', height: '100svh', zIndex: 9500, background: '#111', display: 'flex', flexDirection: 'column', paddingBottom: 'max(env(safe-area-inset-bottom), 24px)' }
+    ? { position: 'fixed', inset: 0, width: '100vw', height: '100svh', zIndex: 9500, background: 'var(--bg-primary)', display: 'flex', flexDirection: 'column', paddingBottom: 'max(env(safe-area-inset-bottom), 24px)' }
     : inline
-      ? { height: 420, background: '#111', display: 'flex', flexDirection: 'column' }
-      : { position: 'fixed', bottom: 0, right: 0, width: 480, height: 420, zIndex: 9500, background: '#111', display: 'flex', flexDirection: 'column', borderRadius: '12px 12px 0 0', boxShadow: '0 -4px 32px rgba(0,0,0,0.7)' };
+      ? { height: 420, background: 'var(--bg-primary)', display: 'flex', flexDirection: 'column' }
+      : { position: 'fixed', bottom: 0, right: 0, width: 480, height: 420, zIndex: 9500, background: 'var(--bg-primary)', display: 'flex', flexDirection: 'column', borderRadius: '12px 12px 0 0', boxShadow: 'var(--shadow-lg)' };
 
   return (
     <div className="call-window" style={outerStyle}>
       {/* Call header */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 12px', background: 'rgba(0,0,0,0.5)', flexShrink: 0 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 12px', background: 'var(--bg-secondary)', flexShrink: 0 }}>
         {remotePeerId ? (
           <>
             <UserAvatar name={remoteName} avatar={remoteAvatar} size={28} />
             <div style={{ flex: 1 }}>
-              <div style={{ color: '#fff', fontWeight: 600, fontSize: 13, lineHeight: 1.2 }}>{remoteName}</div>
-              <div style={{ color: '#aaa', fontSize: 11 }}>In call</div>
+              <div style={{ color: 'var(--text-primary)', fontWeight: 600, fontSize: 13, lineHeight: 1.2 }}>{remoteName}</div>
+              <div style={{ color: 'var(--text-secondary)', fontSize: 11 }}>In call</div>
             </div>
           </>
         ) : (
@@ -720,7 +782,7 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
         <button
           onClick={() => setWindowExpanded(v => !v)}
           title={windowExpanded ? 'Restore window' : 'Maximize call window'}
-          style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#aaa', display: 'flex', padding: 4, borderRadius: 6 }}
+          style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', display: 'flex', padding: 4, borderRadius: 6 }}
         >
           {windowExpanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
         </button>
@@ -733,7 +795,7 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
           {!isVideoActive && (
             <div style={placeholderStyle}>
               <UserAvatar name="Me" avatar="" size={48} />
-              <span style={{ color: '#aaa', fontSize: 12 }}>Video off</span>
+              <span style={{ color: 'var(--text-secondary)', fontSize: 12 }}>Video off</span>
             </div>
           )}
         </Tile>
@@ -748,8 +810,8 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
           {remoteVideoStatus === 'видео выключено' && (
             <div style={placeholderStyle}>
               <UserAvatar name={remoteName} avatar={remoteAvatar} size={48} />
-              <span style={{ color: '#fff', fontWeight: 600, fontSize: 13 }}>{remoteName}</span>
-              <span style={{ color: '#aaa', fontSize: 11 }}>Video off</span>
+              <span style={{ color: 'var(--text-primary)', fontWeight: 600, fontSize: 13 }}>{remoteName}</span>
+              <span style={{ color: 'var(--text-secondary)', fontSize: 11 }}>Video off</span>
             </div>
           )}
         </Tile>
@@ -768,13 +830,31 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
       </div>
 
       {/* Controls — pinned to bottom of call window, always visible above system bar */}
-      <div style={{ paddingTop: 10, paddingBottom: 'calc(10px + max(env(safe-area-inset-bottom), 24px))', width: '100%', display: 'flex', gap: 10, justifyContent: 'center', flexShrink: 0, background: 'rgba(0,0,0,0.85)', position: 'relative', zIndex: 5 }}>
-        <button onClick={() => stopCall()} style={callBtnStyle('#e0245e')}>X</button>
+      <div style={{ paddingTop: 10, paddingBottom: '10px', width: '100%', display: 'flex', gap: 10, justifyContent: 'center', flexShrink: 0, background: 'var(--bg-secondary)', position: 'relative', zIndex: 5 }}>
+        <button onClick={() => stopCall()} style={callBtnStyle('#e0245e')}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+        <button onClick={() => setMicActive(!isMicActive)} style={callBtnStyle(isMicActive ? '#3a3d44' : '#e0245e')}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="9" y="1" width="6" height="12" rx="3" />
+            <path d="M5 10a7 7 0 0 0 14 0" />
+            <line x1="12" y1="17" x2="12" y2="21" />
+            <line x1="8" y1="21" x2="16" y2="21" />
+            {!isMicActive && <line x1="3" y1="3" x2="21" y2="21" stroke="#fff" strokeWidth="2.5" />}
+          </svg>
+        </button>
+        <button onClick={() => setHeadphonesActive(!isHeadphonesActive)} style={callBtnStyle(isHeadphonesActive ? '#3a3d44' : '#e0245e')}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M3 18v-6a9 9 0 0 1 18 0v6" />
+            <path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3v5z" />
+            <path d="M3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3v5z" />
+            {!isHeadphonesActive && <line x1="3" y1="3" x2="21" y2="21" stroke="#fff" strokeWidth="2.5" />}
+          </svg>
+        </button>
         <button
           onClick={async () => {
             const newState = !isVideoActive;
             if (newState) {
-              // Acquire camera if we don't have one yet (voice call → enabling video)
               if (!_call.cameraStream?.active) {
                 try {
                   const stream = await navigator.mediaDevices.getUserMedia({ video: true });
@@ -786,7 +866,6 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
               if (cameraVideoRef.current && _call.cameraStream) {
                 attachStreamToVideo(cameraVideoRef.current, _call.cameraStream, setLocalVideoStatus, true);
               }
-              // If video track isn't yet on the peer connection, add it and renegotiate.
               if (_call.pc && _call.targetId && _call.cameraStream) {
                 const videoTrack = _call.cameraStream.getVideoTracks()[0];
                 const senders = _call.pc.getSenders();
@@ -807,15 +886,22 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
             setVideoActive(newState);
             if (_call.targetId) sendSignal({ type: 'video-toggle', enabled: newState, to: _call.targetId });
           }}
-          style={callBtnStyle('#3a3d44')}
-        >C</button>
-        <button onClick={() => {
-          if (_call.audioStream) {
-            _call.audioStream.getAudioTracks().forEach(track => { track.enabled = !track.enabled; });
-          }
-        }} style={callBtnStyle('#3a3d44')}>M</button>
-        <button style={callBtnStyle('#3a3d44')}>H</button>
-        <button onClick={() => setDemonstrationActive(!isDemonstrationActive)} style={callBtnStyle('#3a3d44')}>D</button>
+          style={callBtnStyle(isVideoActive ? '#3a3d44' : '#e0245e')}
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="2" y="5" width="14" height="14" rx="2" />
+            <path d="M16 10l6-4v12l-6-4z" />
+            {!isVideoActive && <line x1="3" y1="3" x2="21" y2="21" stroke="#fff" strokeWidth="2.5" />}
+          </svg>
+        </button>
+        <button onClick={() => setDemonstrationActive(!isDemonstrationActive)} style={callBtnStyle(isDemonstrationActive ? '#43b581' : '#3a3d44')}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="2" y="3" width="20" height="14" rx="2" />
+            <line x1="8" y1="21" x2="16" y2="21" />
+            <line x1="12" y1="17" x2="12" y2="21" />
+            {!isDemonstrationActive && <line x1="3" y1="3" x2="21" y2="21" stroke="#fff" strokeWidth="2.5" />}
+          </svg>
+        </button>
       </div>
     </div>
   );

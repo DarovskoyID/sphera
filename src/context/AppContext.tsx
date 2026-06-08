@@ -85,6 +85,8 @@ interface AppContextType extends AppState {
   setCallActive: (active: boolean) => void;
   setDemonstrationActive: (DemonstrationActive: boolean) => void;
   setVideoActive: (VideoActive: boolean) => void;
+  setMicActive: (v: boolean) => void;
+  setHeadphonesActive: (v: boolean) => void;
   setSpeakersActive: (SpeakersActive: Array<string>) => void;
   setCallStatus: (status: 'active' | 'ringing' | 'connection' | 'inactive') => void;
   setCurrentServerIP: (serverIP: string) => void;
@@ -109,6 +111,7 @@ interface AppContextType extends AppState {
   rejectFriendRequest: (friendshipId: string) => Promise<void>;
   searchUsers: (query: string) => Promise<ServerUser[]>;
   sendChatMessage: (text: string, attachmentIds?: string[], replyToId?: string) => void;
+  addCallMessage: (callInfo: import('../types').CallInfo) => void;
   deleteMessage: (messageId: string) => Promise<void>;
   pinMessage: (messageId: string) => Promise<void>;
   reportMessage: (messageId: string) => Promise<void>;
@@ -205,6 +208,8 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       isCallActive: false,
       isDemonstrationActive: false,
       isVideoActive: false,
+      isMicActive: true,
+      isHeadphonesActive: true,
       SpeakersActive: ["", ""],
       callStatus: 'inactive',
       currentServerIP: SERVER_IPS[0] ?? 'http://127.0.0.1:8000',
@@ -850,6 +855,29 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       }).catch(() => {});
     }
   }, [state.chatConversationId, state.currentServerIP, state.authToken]);
+
+  const addCallMessage = useCallback((callInfo: import('../types').CallInfo) => {
+    setState(prev => {
+      if (!prev.currentUser) return prev;
+      const msg: import('../types').ChatMessage = {
+        id: `call-${Date.now()}`,
+        author: {
+          id: prev.userIDonServer,
+          username: prev.currentUser.username,
+          nickname: prev.currentUser.nickname,
+          avatar: prev.currentUser.avatar,
+          status: prev.currentUser.status,
+        },
+        content: '',
+        created_at: new Date().toISOString(),
+        message_type: 'call',
+        call_info: callInfo,
+      };
+      const msgs = [...prev.chatMessages, msg];
+      if (msgs.length > 500) msgs.splice(0, msgs.length - 500);
+      return { ...prev, chatMessages: msgs };
+    });
+  }, []);
 
   const deleteMessage = useCallback(async (messageId: string) => {
     await fetch(`${state.currentServerIP}/api/messages/${messageId}/`, {
@@ -1919,6 +1947,8 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
   const setCallActive = (active: boolean) => setState(prev => ({ ...prev, isCallActive: active }));
   const setDemonstrationActive = (v: boolean) => setState(prev => ({ ...prev, isDemonstrationActive: v }));
   const setVideoActive = (v: boolean) => setState(prev => ({ ...prev, isVideoActive: v }));
+  const setMicActive = (v: boolean) => setState(prev => ({ ...prev, isMicActive: v }));
+  const setHeadphonesActive = (v: boolean) => setState(prev => ({ ...prev, isHeadphonesActive: v }));
   const setSpeakersActive = useCallback((v: Array<string>) => setState(prev => ({ ...prev, SpeakersActive: v })), []);
   const setCallStatus = (s: 'active' | 'ringing' | 'connection' | 'inactive') => setState(prev => ({ ...prev, callStatus: s }));
   const setCurrentServerIP = (ip: string) => setState(prev => ({ ...prev, currentServerIP: ip }));
@@ -1972,6 +2002,10 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
         callTargetId: null,
         incomingOffer: null,
         isCallActive: false,
+        isDemonstrationActive: false,
+        isVideoActive: false,
+        isMicActive: true,
+        isHeadphonesActive: true,
         callStatus: 'inactive',
       }));
     } else {
@@ -1994,6 +2028,8 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       setCallActive,
       setDemonstrationActive,
       setVideoActive,
+      setMicActive,
+      setHeadphonesActive,
       setSpeakersActive,
       setCallStatus,
       setCurrentServerIP,
@@ -2017,6 +2053,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       rejectFriendRequest,
       searchUsers,
       sendChatMessage,
+      addCallMessage,
       deleteMessage,
       pinMessage,
       reportMessage,

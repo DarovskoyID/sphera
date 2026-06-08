@@ -32,6 +32,14 @@ export interface ChatAttachment {
   url: string;
 }
 
+export type CallStatus = 'completed' | 'missed' | 'declined' | 'cancelled' | 'no_answer';
+
+export interface CallInfo {
+  status: CallStatus;
+  duration?: number; // seconds
+  video?: boolean;
+}
+
 export interface ChatMessage {
   id: string;
   author: {
@@ -53,6 +61,8 @@ export interface ChatMessage {
   is_pinned?: boolean;
   delivered_at?: string | null;
   read_at?: string | null;
+  message_type?: 'text' | 'call';
+  call_info?: CallInfo;
 }
 
 export interface ServerChannel {
@@ -212,6 +222,8 @@ export interface AppState {
   isCallActive: boolean;
   isDemonstrationActive: boolean;
   isVideoActive: boolean;
+  isMicActive: boolean;
+  isHeadphonesActive: boolean;
   callStatus: 'active' | 'ringing' | 'connection' | 'inactive';
   SpeakersActive: Array<string>;
   currentServerIP: string;

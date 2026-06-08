@@ -61,6 +61,15 @@ export const en = {
   call_video_disabled: 'video disabled',
   call_video_off: 'Video disabled',
   call_remote_video_off: 'Participant has video disabled',
+  call_msg_completed: 'Call ended',
+  call_msg_missed: 'Missed call',
+  call_msg_declined: 'Call declined',
+  call_msg_cancelled: 'Call cancelled',
+  call_msg_no_answer: 'No answer',
+  call_msg_voice: 'Voice call',
+  call_msg_video: 'Video call',
+  call_msg_duration: 'Duration',
+  call_msg_callback: 'Call back',
 
   // Logout
   logout_title: 'Log Out',

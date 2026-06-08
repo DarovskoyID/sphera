@@ -21,6 +21,7 @@ export const IncomingCallModal = () => {
     signalingPeers,
     onSignalingMessage,
     friends,
+    addCallMessage,
   } = useApp();
   const tr = useTranslation();
 
@@ -118,9 +119,11 @@ export const IncomingCallModal = () => {
     if ((window as any).AndroidBridge) {
       (window as any).AndroidBridge.cancelCallNotification();
     }
+    const wasVideo = !!incomingOfferRef.current.withVideo;
     sendSignal({ type: 'call-rejected', to: incomingOfferRef.current.from });
     bufferedCandidates.current = [];
     setIncomingOffer(null);
+    addCallMessage({ status: 'declined', video: wasVideo });
   };
 
   // Expose callbacks for native Android to trigger accept/decline

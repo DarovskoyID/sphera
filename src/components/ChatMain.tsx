@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useLayoutEffect } from 'react';
-import { Phone, Video, Search, Menu, ArrowLeft, Plus, Send, FileText, FileImage, FileVideo, FileAudio, File, Download, X, MoreHorizontal, Reply, Copy, Trash2, Flag, Pin, Ban, Check, CheckCheck } from 'lucide-react';
+import { Phone, PhoneOff, PhoneIncoming, PhoneMissed, Video, Search, Menu, ArrowLeft, Plus, Send, FileText, FileImage, FileVideo, FileAudio, File, Download, X, MoreHorizontal, Reply, Copy, Trash2, Flag, Pin, Ban, Check, CheckCheck } from 'lucide-react';
 import type { ChatAttachment, ChatMessage as ChatMessageType } from '../types';
 import { useApp, reportError } from '../context/AppContext';
 import { Settings } from './Settings';
@@ -523,6 +523,106 @@ const ReadReceipt: React.FC<{ msg: ChatMessageType }> = ({ msg }) => {
   return <Check size={14} style={{ marginLeft: 4, width: 15, color: 'var(--text-tertiary)', verticalAlign: 'middle' }} />;
 };
 
+function formatCallDuration(seconds: number): string {
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = seconds % 60;
+  if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+
+const CallMessageRow: React.FC<{
+  msg: ChatMessageType;
+  isOwn: boolean;
+  onStartCall: (withVideo: boolean) => void;
+}> = ({ msg, isOwn, onStartCall }) => {
+  const tr = useTranslation();
+  const info = msg.call_info!;
+  const time = new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+  const statusMap: Record<string, string> = {
+    completed: tr('call_msg_completed'),
+    missed: tr('call_msg_missed'),
+    declined: tr('call_msg_declined'),
+    cancelled: tr('call_msg_cancelled'),
+    no_answer: tr('call_msg_no_answer'),
+  };
+  const statusText = statusMap[info.status] || info.status;
+  const typeText = info.video ? tr('call_msg_video') : tr('call_msg_voice');
+
+  const isBad = info.status === 'missed' || info.status === 'declined' || info.status === 'no_answer';
+  const accentColor = isBad ? '#ff4444' : '#44cc44';
+
+  const Icon = info.status === 'missed' ? PhoneMissed
+    : info.status === 'declined' || info.status === 'cancelled' ? PhoneOff
+    : info.status === 'no_answer' ? PhoneMissed
+    : info.video ? Video : Phone;
+
+  return (
+    <div style={{
+      display: 'flex',
+      justifyContent: 'center',
+      padding: '8px 16px',
+    }}>
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 12,
+        padding: '10px 18px',
+        borderRadius: 12,
+        background: 'var(--bg-secondary)',
+        border: `1px solid ${isBad ? 'rgba(255,68,68,0.25)' : 'var(--border-color)'}`,
+        maxWidth: 380,
+        width: '100%',
+      }}>
+        <div style={{
+          width: 38,
+          height: 38,
+          borderRadius: '50%',
+          background: `${accentColor}20`,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          flexShrink: 0,
+        }}>
+          <Icon size={18} style={{ color: accentColor }} />
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>
+            {statusText}
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <span>{typeText}</span>
+            {info.duration != null && info.duration > 0 && (
+              <span>{formatCallDuration(info.duration)}</span>
+            )}
+            <span>{time}</span>
+          </div>
+        </div>
+        {isBad && (
+          <button
+            onClick={() => onStartCall(!!info.video)}
+            style={{
+              background: 'none',
+              border: '1px solid var(--accent-primary)',
+              borderRadius: 8,
+              padding: '5px 12px',
+              cursor: 'pointer',
+              color: 'var(--accent-primary)',
+              fontSize: 12,
+              fontWeight: 600,
+              whiteSpace: 'nowrap',
+              flexShrink: 0,
+            }}
+          >
+            {tr('call_msg_callback')}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+};
+
 const MessageRow = React.memo(({ msg, isOwn, isFirstInGroup, onContextMenu, onReply, customEmojis, searchQuery }: {
   msg: ChatMessageType;
   isOwn: boolean;
@@ -638,7 +738,7 @@ const MessagesContainer: React.FC<{
   onReply: (msg: ChatMessageType) => void;
   searchQuery: string;
 }> = ({ onReply, searchQuery }) => {
-  const { chatMessages, userIDonServer, loadOlderMessages, deleteMessage, pinMessage, reportMessage, customEmojis } = useApp();
+  const { chatMessages, userIDonServer, loadOlderMessages, deleteMessage, pinMessage, reportMessage, customEmojis, currentChat, setCallActive, setVideoActive, setCallTargetId } = useApp();
   const filteredMessages = searchQuery.trim()
     ? chatMessages.filter(m => m.content?.toLowerCase().includes(searchQuery.toLowerCase()))
     : chatMessages;
@@ -674,6 +774,13 @@ const MessagesContainer: React.FC<{
 
   const closeCtx = useCallback(() => setCtxMenu(null), []);
 
+  const handleStartCall = useCallback((withVideo: boolean) => {
+    if (!currentChat) return;
+    setVideoActive(withVideo);
+    setCallTargetId(String(currentChat));
+    setCallActive(true);
+  }, [currentChat, setCallActive, setVideoActive, setCallTargetId]);
+
   return (
     <>
       {ctxMenu && (
@@ -696,8 +803,18 @@ const MessagesContainer: React.FC<{
             </div>
           )}
           {filteredMessages.map((msg, i) => {
+            if (msg.message_type === 'call' && msg.call_info) {
+              return (
+                <CallMessageRow
+                  key={msg.id || `call-${i}`}
+                  msg={msg}
+                  isOwn={String(msg.author.id) === String(userIDonServer)}
+                  onStartCall={handleStartCall}
+                />
+              );
+            }
             const prev = filteredMessages[i - 1];
-            const isFirstInGroup = !prev || String(prev.author.id) !== String(msg.author.id);
+            const isFirstInGroup = !prev || String(prev.author.id) !== String(msg.author.id) || prev.message_type === 'call';
             return (
             <MessageRow
               key={msg.id || `tmp-${i}`}

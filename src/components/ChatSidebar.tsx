@@ -944,29 +944,26 @@ export const ChatSidebar: React.FC = () => {
 // ── User Profile Footer ───────────────────────────────────────────────────────
 
 export const UserProfile: React.FC = () => {
-  const { currentUser, currentVoiceChannel, leaveVoiceChannel, setVoiceMuted, voiceLocalStream, currentGuild } = useApp();
+  const { currentUser, currentVoiceChannel, leaveVoiceChannel, setVoiceMuted, voiceLocalStream, currentGuild, isMicActive, isHeadphonesActive, setMicActive, setHeadphonesActive } = useApp();
   const tr = useTranslation();
-  const [isMuted, setIsMuted] = useState(false);
-  const [isDeafened, setIsDeafened] = useState(false);
   const displayName = currentUser?.nickname || currentUser?.username || 'You';
 
   const inVoice = !!currentVoiceChannel;
 
   const handleMute = () => {
-    const next = !isMuted;
-    setIsMuted(next);
+    const next = !isMicActive;
+    setMicActive(next);
     if (inVoice) {
-      setVoiceMuted(next);
-      voiceLocalStream.current?.getAudioTracks().forEach(t => { t.enabled = !next; });
+      setVoiceMuted(!next);
+      voiceLocalStream.current?.getAudioTracks().forEach(t => { t.enabled = next; });
     }
   };
 
   const handleDeafen = () => {
-    const next = !isDeafened;
-    setIsDeafened(next);
-    // Deafen mutes all remote audio via the ref exposed from GuildVoiceRoom
+    const next = !isHeadphonesActive;
+    setHeadphonesActive(next);
     if (inVoice) {
-      voiceLocalStream.current?.getAudioTracks().forEach(t => { t.enabled = !next && !isMuted; });
+      voiceLocalStream.current?.getAudioTracks().forEach(t => { t.enabled = next && isMicActive; });
     }
   };
 
@@ -1011,7 +1008,7 @@ export const UserProfile: React.FC = () => {
       </div>
       <div className="profile-controls">
         <button
-          className={`profile-icon-btn glass-btn ${isMuted ? 'muted' : ''}`}
+          className={`profile-icon-btn glass-btn ${!isMicActive ? 'muted' : ''}`}
           onClick={handleMute}
           title={tr('profile_mute')}
         >
@@ -1020,11 +1017,11 @@ export const UserProfile: React.FC = () => {
             <path d="M19 10v1a7 7 0 01-14 0v-1" />
             <line x1="12" y1="19" x2="12" y2="23" />
             <line x1="8" y1="23" x2="16" y2="23" />
-            {isMuted && <line x1="3" y1="3" x2="21" y2="21" stroke="#f04747" strokeWidth="2.5" />}
+            {!isMicActive && <line x1="3" y1="3" x2="21" y2="21" stroke="#f04747" strokeWidth="2.5" />}
           </svg>
         </button>
         <button
-          className={`profile-icon-btn glass-btn ${isDeafened ? 'muted' : ''}`}
+          className={`profile-icon-btn glass-btn ${!isHeadphonesActive ? 'muted' : ''}`}
           onClick={handleDeafen}
           title={tr('profile_deafen')}
         >
@@ -1032,7 +1029,7 @@ export const UserProfile: React.FC = () => {
             <path d="M3 18v-6a9 9 0 0118 0v6" />
             <path d="M21 19a2 2 0 01-2 2h-1a2 2 0 01-2-2v-3a2 2 0 012-2h3v5z" />
             <path d="M3 19a2 2 0 002 2h1a2 2 0 002-2v-3a2 2 0 00-2-2H3v5z" />
-            {isDeafened && <line x1="3" y1="3" x2="21" y2="21" stroke="#f04747" strokeWidth="2.5" />}
+            {!isHeadphonesActive && <line x1="3" y1="3" x2="21" y2="21" stroke="#f04747" strokeWidth="2.5" />}
           </svg>
         </button>
       </div>
