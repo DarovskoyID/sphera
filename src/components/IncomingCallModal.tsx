@@ -70,6 +70,15 @@ export const IncomingCallModal = () => {
         setIncomingOffer(msg);
       } else if (msg.type === 'candidate' && msg.from && incomingOfferRef.current) {
         bufferedCandidates.current.push(msg);
+      } else if ((msg.type === 'call-end' || msg.type === 'call-rejected') && incomingOfferRef.current && String(msg.from) === String(incomingOfferRef.current.from)) {
+        const wasVideo = !!incomingOfferRef.current.withVideo;
+        stopRingtone();
+        if ((window as any).AndroidBridge) {
+          (window as any).AndroidBridge.cancelCallNotification();
+        }
+        bufferedCandidates.current = [];
+        setIncomingOffer(null);
+        addCallMessage({ status: 'missed', video: wasVideo });
       }
     };
   }
@@ -120,7 +129,7 @@ export const IncomingCallModal = () => {
       (window as any).AndroidBridge.cancelCallNotification();
     }
     const wasVideo = !!incomingOfferRef.current.withVideo;
-    sendSignal({ type: 'call-rejected', to: incomingOfferRef.current.from });
+    sendSignal({ type: 'call-rejected', to: incomingOfferRef.current.from, callStatus: 'declined', video: wasVideo });
     bufferedCandidates.current = [];
     setIncomingOffer(null);
     addCallMessage({ status: 'declined', video: wasVideo });

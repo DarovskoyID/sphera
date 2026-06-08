@@ -510,7 +510,26 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
       }
       return;
     } else if (msg.type === 'call-end' || msg.type === 'call-rejected') {
-      if (String(_call.targetId) === senderId) stopCall(false);
+      if (String(_call.targetId) === senderId) {
+        // Determine the mirror status for the receiving side
+        let mirrorStatus: import('../types').CallStatus;
+        const remoteStatus = msg.callStatus as string | undefined;
+        if (_call.wasConnected || remoteStatus === 'completed') {
+          mirrorStatus = 'completed';
+        } else if (remoteStatus === 'cancelled') {
+          mirrorStatus = 'missed';
+        } else if (remoteStatus === 'declined' || msg.type === 'call-rejected') {
+          mirrorStatus = 'no_answer';
+        } else {
+          mirrorStatus = 'missed';
+        }
+        const duration = mirrorStatus === 'completed'
+          ? (msg.duration as number | undefined) ?? (_call.callStartTime ? Math.round((Date.now() - _call.callStartTime) / 1000) : undefined)
+          : undefined;
+        const video = (msg.video as boolean | undefined) ?? _call.wasVideo;
+        stopCall(false, true);
+        addCallMessage({ status: mirrorStatus, duration, video });
+      }
       return;
     }
 
@@ -681,7 +700,7 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
     } catch { }
   };
 
-  const stopCall = (notifyRemote = true) => {
+  const stopCall = (notifyRemote = true, skipCallMessage = false) => {
     const targetId = _call.targetId;
     const wasConnected = _call.wasConnected;
     const callStartTime = _call.callStartTime;
@@ -708,9 +727,7 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
     if (remoteAudioRef.current) remoteAudioRef.current.srcObject = null;
     if (remoteScreenVideoRef.current) remoteScreenVideoRef.current.srcObject = null;
 
-    if (notifyRemote && targetId) sendSignal({ type: 'call-end', to: targetId });
-
-    // Add call info message
+    // Determine call status and duration
     let callStatus: import('../types').CallStatus;
     let duration: number | undefined;
     if (wasConnected && callStartTime) {
@@ -725,7 +742,14 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
     } else {
       callStatus = 'declined';
     }
-    addCallMessage({ status: callStatus, duration, video: wasVideo });
+
+    if (notifyRemote && targetId) {
+      sendSignal({ type: 'call-end', to: targetId, callStatus, duration, video: wasVideo });
+    }
+
+    if (!skipCallMessage) {
+      addCallMessage({ status: callStatus, duration, video: wasVideo });
+    }
 
     setCallTargetId(null);
     setRemotePeerIdState(null);
