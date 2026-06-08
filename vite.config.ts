@@ -20,6 +20,11 @@ export default defineConfig({
         target: 'ws://localhost:8000',
         ws: true,
       },
+      '/tenor-api': {
+        target: 'https://g.tenor.com',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/tenor-api/, '/v1'),
+      },
     },
   },
 })

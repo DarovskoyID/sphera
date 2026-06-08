@@ -439,9 +439,72 @@ export const EmojiPicker: React.FC<Props> = ({ onSelect, onClose, anchorRef }) =
   );
 };
 
-/** Renders message text with :custom_emoji: shortcodes replaced by images */
+const GIF_URL_RE = /^https?:\/\/(?:media\.tenor\.com|media\d*\.giphy\.com|i\.giphy\.com)\/.+$/i;
+const NOTO_STICKER_RE = /^https?:\/\/fonts\.gstatic\.com\/s\/e\/notoemoji\/.+\.gif$/i;
+const SINGLE_EMOJI_RE = /^(\p{Emoji_Presentation}|\p{Extended_Pictographic})$/u;
+const STICKER_IMG_RE = /^https?:\/\/.+\.(png|jpg|jpeg|gif|webp)(\?.*)?$/i;
+const DATA_URL_RE = /^data:image\/(png|jpeg|gif|webp);base64,/;
+
+/** Renders message text with :custom_emoji: shortcodes replaced by images, GIF URLs as inline images, and single emoji as stickers */
 export const MessageText: React.FC<{ text: string; customEmojis: CustomEmoji[] }> = ({ text, customEmojis }) => {
   if (!text) return null;
+
+  const trimmed = text.trim();
+
+  // Animated Noto sticker (Google hosted)
+  if (NOTO_STICKER_RE.test(trimmed)) {
+    return (
+      <img
+        className="sticker-msg"
+        src={trimmed}
+        alt="Sticker"
+        style={{ width: 140, height: 140, objectFit: 'contain', display: 'block' }}
+      />
+    );
+  }
+
+  // Single emoji → render as large animated sticker
+  if (SINGLE_EMOJI_RE.test(trimmed)) {
+    return <span className="sticker-emoji-msg" style={{ fontSize: 64, lineHeight: 1.1 }}>{trimmed}</span>;
+  }
+
+  // GIF URL from Tenor/Giphy → render as inline GIF
+  if (GIF_URL_RE.test(trimmed)) {
+    return (
+      <img
+        className="gif-msg"
+        src={trimmed}
+        alt="GIF"
+        style={{ maxWidth: 280, maxHeight: 240, borderRadius: 8, display: 'block', cursor: 'pointer' }}
+        onClick={() => window.open(trimmed, '_blank')}
+      />
+    );
+  }
+
+  // Custom sticker (base64 data URL)
+  if (DATA_URL_RE.test(trimmed)) {
+    return (
+      <img
+        className="sticker-msg"
+        src={trimmed}
+        alt="Sticker"
+        style={{ maxWidth: 160, maxHeight: 160, objectFit: 'contain', display: 'block' }}
+      />
+    );
+  }
+
+  // Sticker image URL from server
+  if (STICKER_IMG_RE.test(trimmed) && (trimmed.includes('/guild_stickers/') || trimmed.includes('/media/'))) {
+    return (
+      <img
+        className="sticker-msg"
+        src={trimmed}
+        alt="Sticker"
+        style={{ maxWidth: 160, maxHeight: 160, objectFit: 'contain', display: 'block' }}
+      />
+    );
+  }
+
   if (customEmojis.length === 0 || !text.includes(':')) {
     return <span>{text}</span>;
   }

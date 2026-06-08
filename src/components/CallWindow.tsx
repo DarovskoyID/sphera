@@ -105,10 +105,10 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
 
   // Visual state — initialised from module-level so it's correct after remount
   const [remoteVideoStatus, setRemoteVideoStatus] = useState<string>(
-    _call.remoteStream ? 'видео играет' : 'нет видео'
+    _call.remoteStream ? 'видео играет' : 'видео выключено'
   );
   const [, setLocalVideoStatus] = useState<string>(
-    _call.cameraStream?.active ? 'видео играет' : 'нет видео'
+    _call.cameraStream?.active ? 'видео играет' : 'видео выключено'
   );
   const [windowExpanded, setWindowExpanded] = useState(false);
   const [expandedTile, setExpandedTile] = useState<string | null>(null);
@@ -140,7 +140,8 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
       remoteVideoRef.current.muted = true;
       remoteVideoRef.current.playsInline = true;
       remoteVideoRef.current.play().catch(() => {});
-      setRemoteVideoStatus('видео играет');
+      const hasVideo = _call.remoteStream.getVideoTracks().some(t => t.enabled && !t.muted);
+      setRemoteVideoStatus(hasVideo ? 'видео играет' : 'видео выключено');
     }
     if (_call.remoteStream && remoteAudioRef.current) {
       remoteAudioRef.current.srcObject = _call.remoteStream;
@@ -340,9 +341,10 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
     videoEl.srcObject = stream;
     videoEl.muted = true;
     videoEl.playsInline = true;
+    const hasVideo = stream.getVideoTracks().some(t => t.enabled && !t.muted);
     const tryPlay = () => {
       videoEl.play()
-        .then(() => setRemoteVideoStatus('видео играет'))
+        .then(() => { if (hasVideo) setRemoteVideoStatus('видео играет'); })
         .catch(() => setTimeout(tryPlay, 500));
     };
     tryPlay();
@@ -409,6 +411,20 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
       // is picked up by the audio element on Android (srcObject snapshots tracks).
       _call.remoteStream = stream;
       _attachRemoteRef?.current(stream);
+
+      const videoTracks = stream.getVideoTracks();
+      const hasActiveVideo = videoTracks.some(t => t.enabled && !t.muted);
+      if (!hasActiveVideo) {
+        setRemoteVideoStatus('видео выключено');
+      }
+
+      videoTracks.forEach(t => {
+        t.onunmute = () => setRemoteVideoStatus('видео играет');
+        t.onmute = () => {
+          const stillHasVideo = stream.getVideoTracks().some(vt => vt.enabled && !vt.muted);
+          if (!stillHasVideo) setRemoteVideoStatus('видео выключено');
+        };
+      });
     };
 
     return pc;
@@ -651,7 +667,7 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
 
     setCallTargetId(null);
     setRemotePeerIdState(null);
-    setRemoteVideoStatus('нет видео');
+    setRemoteVideoStatus('видео выключено');
     setRemoteScreenActiveState(false);
     setCallActive(false);
     setCallStatus('inactive');
@@ -726,6 +742,7 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
           <video
             ref={remoteVideoRef} autoPlay muted playsInline
             style={{ ...videoFill, display: remoteVideoStatus !== 'видео выключено' ? 'block' : 'none' }}
+            
           />
           <audio ref={remoteAudioRef} autoPlay playsInline style={{ display: 'none' }} />
           {remoteVideoStatus === 'видео выключено' && (

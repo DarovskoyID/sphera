@@ -604,7 +604,10 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
                     const merged = [...freshMsgs, ...lateWsMsgs].sort(
                       (a, b) => a.created_at.localeCompare(b.created_at)
                     );
-                    const pending = prev.chatMessages.filter(m => String(m.id).startsWith('optimistic-'));
+                    const realContents = new Set(merged.map(m => m.content));
+                    const pending = prev.chatMessages.filter(
+                      m => String(m.id).startsWith('optimistic-') && !realContents.has(m.content)
+                    );
                     return { ...prev, chatMessages: [...merged, ...pending] };
                   });
                 })
@@ -669,9 +672,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
             } else {
               const msg: ChatMessage = data;
               setState(prev => {
-                // Skip exact duplicate (e.g. WS echo arriving after optimistic already replaced)
                 if (prev.chatMessages.some(m => String(m.id) === String(msg.id))) return prev;
-                // Replace matching optimistic by nonce (falls back to author+content for compat)
                 const nonce = (data as any).nonce;
                 let optIdx = -1;
                 if (nonce) {
@@ -680,8 +681,12 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
                 if (optIdx === -1) {
                   optIdx = prev.chatMessages.findIndex(
                     m => String(m.id).startsWith('optimistic-') &&
-                      String(m.author.id) === String(msg.author?.id) &&
                       m.content === msg.content
+                  );
+                }
+                if (optIdx === -1) {
+                  optIdx = prev.chatMessages.findIndex(
+                    m => String(m.id).startsWith('optimistic-')
                   );
                 }
                 let msgs: ChatMessage[];
@@ -731,22 +736,41 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
             setState(prev => {
               const realIds = new Set(prev.chatMessages.filter(m => !String(m.id).startsWith('optimistic-')).map(m => String(m.id)));
               const fresh = polled.filter(m => !realIds.has(String(m.id)));
-              if (!fresh.length) return prev;
-              // Replace optimistic messages that match by author+content
+              if (!fresh.length) {
+                // Even with no fresh messages, clean up stale optimistic messages
+                // (older than 10s — server should have confirmed them by now)
+                const now = Date.now();
+                const cleaned = prev.chatMessages.filter(m =>
+                  !String(m.id).startsWith('optimistic-') ||
+                  (now - new Date(m.created_at).getTime()) < 10000
+                );
+                return cleaned.length !== prev.chatMessages.length
+                  ? { ...prev, chatMessages: cleaned }
+                  : prev;
+              }
               let updated = [...prev.chatMessages];
               for (const fm of fresh) {
-                const optIdx = updated.findIndex(
+                let optIdx = updated.findIndex(
                   m => String(m.id).startsWith('optimistic-') &&
-                    String(m.author.id) === String(fm.author?.id) &&
                     m.content === fm.content
                 );
+                if (optIdx === -1) {
+                  optIdx = updated.findIndex(
+                    m => String(m.id).startsWith('optimistic-')
+                  );
+                }
                 if (optIdx !== -1) {
                   updated[optIdx] = fm;
                 } else {
                   updated.push(fm);
                 }
               }
-              // Don't re-sort existing messages — preserve send order to avoid reordering
+              // Remove any remaining stale optimistic messages
+              const now = Date.now();
+              updated = updated.filter(m =>
+                !String(m.id).startsWith('optimistic-') ||
+                (now - new Date(m.created_at).getTime()) < 10000
+              );
               if (updated.length > 500) updated.splice(0, updated.length - 500);
               return { ...prev, chatMessages: updated };
             });
@@ -778,7 +802,6 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
 
     const nonce = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     payload.nonce = nonce;
-
     // Add optimistic message BEFORE sending so the WS echo can't arrive first
     setState(prev => {
       if (!prev.currentUser) return prev;
@@ -1239,11 +1262,17 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
         const msg: GuildMessage = data;
         setState(prev => {
           if (prev.guildMessages.some(m => m.id === msg.id)) return prev;
-          const optIdx = prev.guildMessages.findIndex(
+          let optIdx = prev.guildMessages.findIndex(
             m => String(m.id).startsWith('optimistic-') &&
               String(m.author.id) === String(msg.author?.id) &&
               m.content === msg.content
           );
+          if (optIdx === -1) {
+            optIdx = prev.guildMessages.findIndex(
+              m => String(m.id).startsWith('optimistic-') &&
+                String(m.author.id) === String(msg.author?.id)
+            );
+          }
           let msgs: GuildMessage[];
           if (optIdx !== -1) {
             msgs = [...prev.guildMessages];

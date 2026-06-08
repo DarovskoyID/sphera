@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useRef, useCallback, useLayoutEffect } from 'react';
-import { Phone, Video, Search, Menu, ArrowLeft, Plus, Smile, Send, FileText, FileImage, FileVideo, FileAudio, File, Download, X, MoreHorizontal, Reply, Copy, Trash2, Flag, Pin, Clock, Ban, Check, CheckCheck } from 'lucide-react';
+import { Phone, Video, Search, Menu, ArrowLeft, Plus, Send, FileText, FileImage, FileVideo, FileAudio, File, Download, X, MoreHorizontal, Reply, Copy, Trash2, Flag, Pin, Ban, Check, CheckCheck } from 'lucide-react';
 import type { ChatAttachment, ChatMessage as ChatMessageType } from '../types';
 import { useApp, reportError } from '../context/AppContext';
 import { Settings } from './Settings';
 import { CallWindow } from './CallWindow';
 import { useTranslation } from '../i18n/useTranslation';
-import { EmojiPicker, MessageText } from './EmojiPicker';
+import { MessageText } from './EmojiPicker';
+import { UnifiedPicker } from './StickerGifPicker';
 import type { CustomEmoji } from '../types';
 
 export const ChatMain: React.FC = () => {
@@ -720,13 +721,6 @@ const MAX_FILES = 5;
 
 type PendingFile = { file: File; preview?: string };
 
-const DELAY_OPTIONS = [
-  { label: '5 sec', ms: 5000 },
-  { label: '30 sec', ms: 30000 },
-  { label: '1 min', ms: 60000 },
-  { label: '5 min', ms: 300000 },
-];
-
 const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: () => void; onScheduled: (item: ScheduledItem) => void }> = ({ replyTo, onCancelReply, onScheduled }) => {
   const { sendChatMessage, chatConversationId, currentServerIP, authToken, scheduleMessage } = useApp();
   const tr = useTranslation();
@@ -734,10 +728,10 @@ const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: (
   const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
   const [limitWarning, setLimitWarning] = useState(false);
   const [uploading, setUploading] = useState(false);
-  const [showDelayMenu, setShowDelayMenu] = useState(false);
-  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [showPicker, setShowPicker] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const emojiButtonRef = useRef<HTMLButtonElement>(null);
+  const pickerButtonRef = useRef<HTMLButtonElement>(null);
+  const stickerSendGuard = useRef(false);
 
   const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const selected = Array.from(e.target.files || []);
@@ -821,7 +815,7 @@ const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: (
   const handleDelayedSend = useCallback(async (delayMs: number) => {
     if (!message.trim() && pendingFiles.length === 0) return;
     if (!chatConversationId) return;
-    setShowDelayMenu(false);
+    setShowPicker(false);
     const text = message;
     const files = [...pendingFiles];
     const replyId = replyTo?.id;
@@ -921,48 +915,38 @@ const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: (
           )}
         </div>
         <button
-          ref={emojiButtonRef}
+          ref={pickerButtonRef}
           className="icon-btn glass-btn"
           title={tr('chat_emoji')}
-          onClick={() => setShowEmojiPicker(v => !v)}
+          onClick={() => setShowPicker(v => !v)}
         >
-          <Smile size={20} />
+          <MoreHorizontal size={20} />
         </button>
-        {showEmojiPicker && (
-          <EmojiPicker
-            anchorRef={emojiButtonRef}
-            onSelect={emoji => setMessage(prev => prev + emoji)}
-            onClose={() => setShowEmojiPicker(false)}
+        {showPicker && (
+          <UnifiedPicker
+            anchorRef={pickerButtonRef}
+            onSelectEmoji={emoji => setMessage(prev => prev + emoji)}
+            onSelectGif={url => {
+              if (stickerSendGuard.current) return;
+              stickerSendGuard.current = true;
+              sendChatMessage(url, undefined, replyTo?.id);
+              onCancelReply();
+              setShowPicker(false);
+              setTimeout(() => { stickerSendGuard.current = false; }, 500);
+            }}
+            onSelectSticker={(url) => {
+              if (stickerSendGuard.current) return;
+              stickerSendGuard.current = true;
+              sendChatMessage(url, undefined, replyTo?.id);
+              onCancelReply();
+              setShowPicker(false);
+              setTimeout(() => { stickerSendGuard.current = false; }, 500);
+            }}
+            onDelayedSend={ms => handleDelayedSend(ms)}
+            canSchedule={canSend}
+            onClose={() => setShowPicker(false)}
           />
         )}
-
-        {/* Delayed send */}
-        <div style={{ position: 'relative' }}>
-          <button
-            className="icon-btn glass-btn"
-            title="Schedule send"
-            onClick={() => setShowDelayMenu(v => !v)}
-            disabled={uploading || !canSend}
-            style={{ opacity: canSend ? 1 : 0.4 }}
-          >
-            <Clock size={20} />
-          </button>
-          {showDelayMenu && (
-            <div style={{ position: 'absolute', bottom: '110%', right: 0, background: 'var(--bg-primary, #1a1a2e)', border: '1px solid var(--border-color, #333)', borderRadius: 10, boxShadow: '0 8px 32px rgba(0,0,0,0.5)', minWidth: 130, overflow: 'hidden', zIndex: 200 }}>
-              {DELAY_OPTIONS.map(opt => (
-                <button
-                  key={opt.label}
-                  onClick={() => handleDelayedSend(opt.ms)}
-                  style={{ display: 'block', width: '100%', padding: '9px 14px', background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, color: 'var(--text-primary, #fff)', textAlign: 'left' }}
-                  onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg-secondary, #222)')}
-                  onMouseLeave={e => (e.currentTarget.style.background = 'none')}
-                >
-                  {opt.label}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
 
         <button
           className="icon-btn glass-btn send-btn"

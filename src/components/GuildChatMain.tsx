@@ -1,8 +1,9 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { Hash, Send, Pin, Trash2, CornerUpLeft, Plus, Smile, Clock, X, Download, FileText, FileImage, FileVideo, FileAudio, File, ChevronLeft } from 'lucide-react';
+import { Hash, Send, Pin, Trash2, CornerUpLeft, Plus, MoreHorizontal, X, Download, FileText, FileImage, FileVideo, FileAudio, File, ChevronLeft } from 'lucide-react';
 import { useApp, reportError } from '../context/AppContext';
 import { useTranslation } from '../i18n/useTranslation';
-import { EmojiPicker, MessageText } from './EmojiPicker';
+import { MessageText } from './EmojiPicker';
+import { UnifiedPicker } from './StickerGifPicker';
 import type { GuildMessage } from '../types';
 
 const MAX_FILES = 10;
@@ -208,13 +209,6 @@ export const GuildChatMain: React.FC = () => {
   } = useApp();
   const tr = useTranslation();
 
-  const DELAY_OPTIONS = [
-    { labelKey: 'guild_delay_5s' as const, ms: 5_000 },
-    { labelKey: 'guild_delay_1m' as const, ms: 60_000 },
-    { labelKey: 'guild_delay_10m' as const, ms: 600_000 },
-    { labelKey: 'guild_delay_1h' as const, ms: 3_600_000 },
-  ];
-
   const formatDate = (iso: string) => {
     const d = new Date(iso);
     const today = new Date();
@@ -231,8 +225,7 @@ export const GuildChatMain: React.FC = () => {
   const [hasMore, setHasMore] = useState(true);
   const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
   const [uploading, setUploading] = useState(false);
-  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
-  const [showDelayMenu, setShowDelayMenu] = useState(false);
+  const [showPicker, setShowPicker] = useState(false);
   const [scheduledItems, setScheduledItems] = useState<ScheduledItem[]>([]);
   const [limitWarning, setLimitWarning] = useState(false);
 
@@ -240,7 +233,8 @@ export const GuildChatMain: React.FC = () => {
   const listRef = useRef<HTMLDivElement>(null);
   const prevLenRef = useRef(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const emojiButtonRef = useRef<HTMLButtonElement>(null);
+  const pickerButtonRef = useRef<HTMLButtonElement>(null);
+  const stickerSendGuard = useRef(false);
 
   useEffect(() => {
     if (guildMessages.length > prevLenRef.current) {
@@ -326,7 +320,7 @@ export const GuildChatMain: React.FC = () => {
 
   const handleDelayedSend = useCallback(async (delayMs: number) => {
     if (!input.trim() && pendingFiles.length === 0) return;
-    setShowDelayMenu(false);
+    setShowPicker(false);
     const text = input;
     const files = [...pendingFiles];
     const replyId = replyTo?.id;
@@ -487,46 +481,38 @@ export const GuildChatMain: React.FC = () => {
             style={{ flex: 1 }}
           />
           <button
-            ref={emojiButtonRef}
+            ref={pickerButtonRef}
             className="icon-btn"
             title={tr('chat_emoji')}
-            onClick={() => setShowEmojiPicker(v => !v)}
+            onClick={() => setShowPicker(v => !v)}
           >
-            <Smile size={20} />
+            <MoreHorizontal size={20} />
           </button>
-          {showEmojiPicker && (
-            <EmojiPicker
-              anchorRef={emojiButtonRef}
-              onSelect={emoji => setInput(prev => prev + emoji)}
-              onClose={() => setShowEmojiPicker(false)}
+          {showPicker && (
+            <UnifiedPicker
+              anchorRef={pickerButtonRef}
+              onSelectEmoji={emoji => setInput(prev => prev + emoji)}
+              onSelectGif={url => {
+                if (stickerSendGuard.current) return;
+                stickerSendGuard.current = true;
+                sendGuildMessage(url, replyTo?.id);
+                setReplyTo(null);
+                setShowPicker(false);
+                setTimeout(() => { stickerSendGuard.current = false; }, 500);
+              }}
+              onSelectSticker={(url) => {
+                if (stickerSendGuard.current) return;
+                stickerSendGuard.current = true;
+                sendGuildMessage(url, replyTo?.id);
+                setReplyTo(null);
+                setShowPicker(false);
+                setTimeout(() => { stickerSendGuard.current = false; }, 500);
+              }}
+              onDelayedSend={ms => handleDelayedSend(ms)}
+              canSchedule={canSend}
+              onClose={() => setShowPicker(false)}
             />
           )}
-          <div style={{ position: 'relative' }}>
-            <button
-              className="icon-btn"
-              title={tr('guild_schedule_send')}
-              onClick={() => setShowDelayMenu(v => !v)}
-              disabled={uploading || !canSend}
-              style={{ opacity: canSend ? 1 : 0.4 }}
-            >
-              <Clock size={20} />
-            </button>
-            {showDelayMenu && (
-              <div style={{ position: 'absolute', bottom: '110%', right: 0, background: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: 10, boxShadow: '0 8px 32px rgba(0,0,0,0.5)', minWidth: 130, overflow: 'hidden', zIndex: 200 }}>
-                {DELAY_OPTIONS.map(opt => (
-                  <button
-                    key={opt.labelKey}
-                    onClick={() => handleDelayedSend(opt.ms)}
-                    style={{ display: 'block', width: '100%', padding: '9px 14px', background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, color: 'var(--text-primary)', textAlign: 'left' }}
-                    onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg-secondary)')}
-                    onMouseLeave={e => (e.currentTarget.style.background = 'none')}
-                  >
-                    {tr(opt.labelKey)}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
           <button
             className="send-btn"
             onClick={handleSend}

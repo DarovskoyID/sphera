@@ -175,7 +175,7 @@ def send_message(request, conversation_id):
                     'id': str(rt.author.id),
                     'username': rt.author.username,
                     'nickname': getattr(rt.author, 'nickname', '') or '',
-                    'avatar': getattr(rt.author, 'avatar', '') or '',
+                    'avatar': rt.author.avatar.url if getattr(rt.author, 'avatar', None) else '',
                 },
                 'content': rt.content[:200],
             }
@@ -186,7 +186,7 @@ def send_message(request, conversation_id):
         'id': str(request.user.id),
         'username': request.user.username,
         'nickname': getattr(request.user, 'nickname', '') or '',
-        'avatar': getattr(request.user, 'avatar', '') or '',
+        'avatar': getattr(getattr(request.user, 'avatar', None), 'url', '') if getattr(request.user, 'avatar', None) else '',
         'status': getattr(request.user, 'status', 'online'),
     }
 
