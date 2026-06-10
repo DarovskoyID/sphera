@@ -572,9 +572,12 @@ const VideoCirclePlayer: React.FC<{ url: string }> = ({ url }) => {
   const [playing, setPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
   const [holding, setHolding] = useState(false);
+  const [seeking, setSeeking] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
   const rafRef = useRef(0);
   const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isDown = useRef(false);
 
   useEffect(() => {
     let revoked = false;
@@ -609,16 +612,60 @@ const VideoCirclePlayer: React.FC<{ url: string }> = ({ url }) => {
     else { v.play(); setPlaying(true); rafRef.current = requestAnimationFrame(tick); }
   }, [playing, tick]);
 
-  const onDown = useCallback(() => {
+  const seekFromEvent = useCallback((clientX: number, clientY: number) => {
+    const el = containerRef.current;
+    const v = videoRef.current;
+    if (!el || !v || !v.duration) return;
+    const rect = el.getBoundingClientRect();
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top + rect.height / 2;
+    let angle = Math.atan2(clientY - cy, clientX - cx) + Math.PI / 2;
+    if (angle < 0) angle += 2 * Math.PI;
+    const p = angle / (2 * Math.PI);
+    v.currentTime = p * v.duration;
+    setProgress(p);
+  }, []);
+
+  const onDown = useCallback((e: React.MouseEvent | React.TouchEvent) => {
+    isDown.current = true;
+    const el = containerRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top + rect.height / 2;
+    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
+    const dist = Math.sqrt((clientX - cx) ** 2 + (clientY - cy) ** 2);
+    const r = rect.width / 2;
+
+    if (dist > r * 0.82) {
+      setSeeking(true);
+      seekFromEvent(clientX, clientY);
+      return;
+    }
+
     holdTimer.current = setTimeout(() => {
       setHolding(true);
       const v = videoRef.current;
       if (v) { v.playbackRate = 2; if (v.paused) { v.play(); setPlaying(true); rafRef.current = requestAnimationFrame(tick); } }
     }, 300);
-  }, [tick]);
+  }, [tick, seekFromEvent]);
+
+  const onMove = useCallback((e: MouseEvent | TouchEvent) => {
+    if (!seeking) return;
+    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
+    seekFromEvent(clientX, clientY);
+  }, [seeking, seekFromEvent]);
 
   const onUp = useCallback(() => {
+    if (!isDown.current) return;
+    isDown.current = false;
     if (holdTimer.current) { clearTimeout(holdTimer.current); holdTimer.current = null; }
+    if (seeking) {
+      setSeeking(false);
+      return;
+    }
     if (holding) {
       setHolding(false);
       const v = videoRef.current;
@@ -626,19 +673,32 @@ const VideoCirclePlayer: React.FC<{ url: string }> = ({ url }) => {
     } else {
       toggle();
     }
-  }, [holding, toggle]);
+  }, [holding, seeking, toggle]);
 
   useEffect(() => {
-    const h = () => onUp();
-    window.addEventListener('mouseup', h);
-    window.addEventListener('touchend', h);
-    return () => { window.removeEventListener('mouseup', h); window.removeEventListener('touchend', h); };
-  }, [onUp]);
+    window.addEventListener('mouseup', onUp);
+    window.addEventListener('touchend', onUp);
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('touchmove', onMove);
+    return () => {
+      window.removeEventListener('mouseup', onUp);
+      window.removeEventListener('touchend', onUp);
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('touchmove', onMove);
+    };
+  }, [onUp, onMove]);
 
   const size = 200;
-  const r = size / 2;
-  const stroke = 3;
-  const circumference = 2 * Math.PI * (r - stroke);
+  const ringWidth = 5;
+  const gap = 3;
+  const videoSize = size - (ringWidth + gap) * 2;
+  const accentColor = holding ? '#ff4444' : '#3a8ee6';
+  const progressDeg = progress * 360;
+
+  const thumbAngle = (progress * 360 - 90) * (Math.PI / 180);
+  const thumbR = size / 2 - ringWidth / 2;
+  const thumbX = size / 2 + thumbR * Math.cos(thumbAngle);
+  const thumbY = size / 2 + thumbR * Math.sin(thumbAngle);
 
   if (!blobUrl) {
     return (
@@ -650,33 +710,59 @@ const VideoCirclePlayer: React.FC<{ url: string }> = ({ url }) => {
 
   return (
     <div
-      style={{ position: 'relative', width: size, height: size, marginTop: 6, cursor: 'pointer', userSelect: 'none' }}
-      onMouseDown={e => { e.preventDefault(); onDown(); }}
-      onTouchStart={e => { e.preventDefault(); onDown(); }}
+      ref={containerRef}
+      style={{
+        position: 'relative', width: size, height: size, marginTop: 6,
+        cursor: 'pointer', userSelect: 'none',
+        borderRadius: '50%',
+        background: `conic-gradient(from -90deg, ${accentColor} ${progressDeg}deg, rgba(255,255,255,0.2) ${progressDeg}deg 360deg)`,
+        padding: ringWidth,
+      }}
+      onMouseDown={e => { e.preventDefault(); onDown(e); }}
+      onTouchStart={e => { onDown(e); }}
     >
-      <svg width={size} height={size} style={{ position: 'absolute', top: 0, left: 0, transform: 'rotate(-90deg)' }}>
-        <circle cx={r} cy={r} r={r - stroke} fill="none" stroke="var(--bg-secondary)" strokeWidth={stroke} />
-        <circle cx={r} cy={r} r={r - stroke} fill="none" stroke={holding ? '#ff4444' : 'var(--accent-primary)'} strokeWidth={stroke}
-          strokeDasharray={circumference} strokeDashoffset={circumference * (1 - progress)}
-          strokeLinecap="round" style={{ transition: 'stroke 0.2s' }}
+      <div style={{
+        width: size - ringWidth * 2, height: size - ringWidth * 2,
+        borderRadius: '50%', background: 'var(--bg-primary)',
+        padding: gap, boxSizing: 'border-box',
+      }}>
+        <video
+          ref={el => {
+            videoRef.current = el;
+            if (el) el.onended = () => { setPlaying(false); setProgress(0); };
+          }}
+          src={blobUrl}
+          playsInline
+          style={{ width: videoSize, height: videoSize, borderRadius: '50%', objectFit: 'cover', display: 'block', background: '#000' }}
         />
-      </svg>
-      <video
-        ref={el => {
-          videoRef.current = el;
-          if (el) el.onended = () => { setPlaying(false); setProgress(0); };
-        }}
-        src={blobUrl}
-        playsInline
-        style={{ width: size - stroke * 2, height: size - stroke * 2, borderRadius: '50%', objectFit: 'cover', position: 'absolute', top: stroke, left: stroke, background: '#000' }}
-      />
-      {!playing && (
-        <div style={{ position: 'absolute', top: 0, left: 0, width: size, height: size, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.3)' }}>
+      </div>
+      {/* Thumb dot */}
+      <div style={{
+        position: 'absolute',
+        width: seeking ? 16 : 12, height: seeking ? 16 : 12,
+        borderRadius: '50%',
+        background: accentColor,
+        border: '2px solid #fff',
+        boxShadow: '0 0 4px rgba(0,0,0,0.5)',
+        top: thumbY - (seeking ? 8 : 6),
+        left: thumbX - (seeking ? 8 : 6),
+        transition: 'width 0.15s, height 0.15s',
+        pointerEvents: 'none',
+      }} />
+      {!playing && progress === 0 && (
+        <div style={{
+          position: 'absolute',
+          top: ringWidth + gap, left: ringWidth + gap,
+          width: videoSize, height: videoSize,
+          borderRadius: '50%',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          background: 'rgba(0,0,0,0.35)',
+        }}>
           <Play size={40} style={{ color: '#fff', marginLeft: 4 }} />
         </div>
       )}
       {holding && (
-        <div style={{ position: 'absolute', bottom: 8, left: '50%', transform: 'translateX(-50%)', background: 'rgba(0,0,0,0.7)', color: '#fff', fontSize: 12, fontWeight: 700, padding: '2px 8px', borderRadius: 10 }}>
+        <div style={{ position: 'absolute', bottom: 14, left: '50%', transform: 'translateX(-50%)', background: 'rgba(0,0,0,0.7)', color: '#fff', fontSize: 12, fontWeight: 700, padding: '2px 8px', borderRadius: 10 }}>
           ×2
         </div>
       )}
@@ -1051,7 +1137,16 @@ const MessageRow = React.memo(({ msg, isOwn, isFirstInGroup, onContextMenu, onRe
           {msg.attachments?.map(att => (
             <AttachmentView key={att.id} att={att} />
           ))}
-          {!msg.content && msg.attachments?.length && (
+          {!msg.content && !msg.attachments?.length && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderRadius: 16, background: 'var(--bg-secondary)', maxWidth: 240, animation: 'pulse 1.5s ease-in-out infinite' }}>
+              <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'var(--border-color)', flexShrink: 0 }} />
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <div style={{ height: 10, borderRadius: 4, background: 'var(--border-color)', width: '80%' }} />
+                <div style={{ height: 8, borderRadius: 4, background: 'var(--border-color)', width: '50%' }} />
+              </div>
+            </div>
+          )}
+          {!msg.content && (msg.attachments?.length ?? 0) > 0 && (
             <span className="message-timestamp message-timestamp-standalone">
               {time}
               {isOwn && <ReadReceipt msg={msg} />}
