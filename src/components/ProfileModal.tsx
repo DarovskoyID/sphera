@@ -4,6 +4,8 @@
 import React, { useState, useEffect } from 'react';
 import { X, Phone, Video, UserMinus, UserPlus } from 'lucide-react';
 import { useApp } from '../context/AppContext';
+import { useTranslation } from '../i18n/useTranslation';
+import ConfirmModal from './ConfirmModal';
 
 export type ProfileUser = {
   id: string;
@@ -46,7 +48,9 @@ export const ProfileModal: React.FC<{
 }> = ({ user, onClose, onCall }) => {
   const { currentServerIP, authToken, friends, sendFriendRequest, removeFriend } = useApp();
   const [mutualFriends, setMutualFriends] = useState<ProfileUser[]>([]);
+  const [showRemoveConfirm, setShowRemoveConfirm] = useState(false);
   const [note, setNote] = useState(() => localStorage.getItem(`note_${user.id}`) ?? '');
+  const tr = useTranslation();
   const displayName = user.nickname || user.username;
   const isFriend = friends.some(f => String(f.id) === String(user.id));
 
@@ -140,7 +144,7 @@ export const ProfileModal: React.FC<{
               </>
             )}
             {isFriend ? (
-              <button onClick={() => { removeFriend(user.id); onClose(); }} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '9px 12px', background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 8, color: '#ef4444', fontWeight: 600, fontSize: 13, cursor: 'pointer' }} title="Remove friend">
+              <button onClick={() => setShowRemoveConfirm(true)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '9px 12px', background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 8, color: '#ef4444', fontWeight: 600, fontSize: 13, cursor: 'pointer' }} title="Remove friend">
                 <UserMinus size={15} />
               </button>
             ) : (
@@ -174,6 +178,17 @@ export const ProfileModal: React.FC<{
           )}
         </div>
       </div>
+
+      {showRemoveConfirm && (
+        <ConfirmModal
+          title={tr('remove_friend_title')}
+          message={tr('remove_friend_confirm')}
+          confirmLabel={tr('remove_friend_button')}
+          cancelLabel={tr('cancel')}
+          onConfirm={() => { removeFriend(user.id); onClose(); }}
+          onCancel={() => setShowRemoveConfirm(false)}
+        />
+      )}
     </div>
   );
 };

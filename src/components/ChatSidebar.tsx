@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { useApp, reportError } from '../context/AppContext';
 import { useTranslation } from '../i18n/useTranslation';
+import ConfirmModal from './ConfirmModal';
 import type { ServerUser } from '../types';
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -280,6 +281,8 @@ const FriendContextMenu: React.FC<{
     blockUser, removeFriend,
   } = useApp();
   const [showMuteMenu, setShowMuteMenu] = useState(false);
+  const [showRemoveConfirm, setShowRemoveConfirm] = useState(false);
+  const tr = useTranslation();
   const ref = useRef<HTMLDivElement>(null);
   const [adjustedPos, setAdjustedPos] = useState({ x: ctx?.x ?? 0, y: ctx?.y ?? 0 });
 
@@ -349,7 +352,12 @@ const FriendContextMenu: React.FC<{
     try { await blockUser(friend.id); } catch (e) { reportError(e); }
   };
 
-  const handleRemove = async () => {
+  const handleRemove = () => {
+    setShowRemoveConfirm(true);
+  };
+
+  const confirmRemove = async () => {
+    setShowRemoveConfirm(false);
     onClose();
     try { await removeFriend(friend.id); } catch (e) { reportError(e); }
   };
@@ -447,6 +455,17 @@ const FriendContextMenu: React.FC<{
       <button style={dangerStyle} onMouseEnter={h} onMouseLeave={l} onClick={handleDeleteDialog}>
         <Trash2 size={14} />Delete dialog
       </button>
+
+      {showRemoveConfirm && (
+        <ConfirmModal
+          title={tr('remove_friend_title')}
+          message={tr('remove_friend_confirm')}
+          confirmLabel={tr('remove_friend_button')}
+          cancelLabel={tr('cancel')}
+          onConfirm={confirmRemove}
+          onCancel={() => setShowRemoveConfirm(false)}
+        />
+      )}
     </div>
   );
 };
@@ -571,6 +590,7 @@ export const ChatSidebar: React.FC = () => {
   const [addError, setAddError] = useState('');
   const [addSuccess, setAddSuccess] = useState('');
   const [showLogoutModal, setShowLogoutModal] = useState(false);
+  const [showRemoveConfirm, setShowRemoveConfirm] = useState(false);
   const [ctxMenu, setCtxMenu] = useState<CtxState>(null);
   const [blockedCtxMenu, setBlockedCtxMenu] = useState<BlockedCtxState>(null);
   const [profileFriend, setProfileFriend] = useState<FriendInfo | null>(null);
@@ -661,8 +681,14 @@ export const ChatSidebar: React.FC = () => {
     setCallActive(true);
   };
 
-  const handleProfileRemove = async () => {
+  const handleProfileRemove = () => {
     if (!profileFriend) return;
+    setShowRemoveConfirm(true);
+  };
+
+  const confirmProfileRemove = async () => {
+    if (!profileFriend) return;
+    setShowRemoveConfirm(false);
     try { await removeFriend(profileFriend.id); } catch (e) { reportError(e); }
     setProfileFriend(null);
   };
@@ -695,15 +721,15 @@ export const ChatSidebar: React.FC = () => {
           {/* Sent requests */}
           {sentRequests.length > 0 && (
             <>
-              <div className="section-title">{tr('friends_requests_sent') || 'Sent requests'} ({sentRequests.length})</div>
+              <div className="section-title">{tr('friends_requests_sent')} ({sentRequests.length})</div>
               {sentRequests.map(user => (
-                <div key={user.id} className="chat-item" style={{ gap: 8 }}>
+                <div key={user.id} className="chat-item" style={{ gap: 8, alignItems: 'center' }}>
                   <div className="chat-avatar">
                     <Avatar name={user.nickname || user.username} avatar={user.avatar} size={36} />
                   </div>
                   <div className="chat-info" style={{ flex: 1 }}>
                     <div className="chat-name">{user.nickname || user.username}</div>
-                    <div className="chat-message">{tr('friends_request_pending') || 'Request sent'}</div>
+                    <div className="chat-message">{tr('friends_request_pending')}</div>
                   </div>
                 </div>
               ))}
@@ -717,7 +743,7 @@ export const ChatSidebar: React.FC = () => {
                 {tr('friends_requests')} ({pendingRequests.length})
               </div>
               {pendingRequests.map(req => (
-                <div key={req.id} className="chat-item" style={{ gap: 8 }}>
+                <div key={req.id} className="chat-item" style={{ gap: 8, alignItems: 'center' }}>
                   <div className="chat-avatar" style={{ position: 'relative' }}>
                     <Avatar
                       name={req.from_user.nickname || req.from_user.username}
@@ -735,14 +761,16 @@ export const ChatSidebar: React.FC = () => {
                     <div className="chat-name">{req.from_user.nickname || req.from_user.username}</div>
                     <div className="chat-message">{tr('friends_wants_to_be')}</div>
                   </div>
-                  <button className="icon-btn glass-btn" style={{ color: '#22c55e', padding: 4 }}
-                    onClick={() => handleAccept(req.id)} title={tr('friends_accept')}>
-                    <Check size={16} />
-                  </button>
-                  <button className="icon-btn glass-btn" style={{ color: '#ef4444', padding: 4 }}
-                    onClick={() => handleReject(req.id)} title={tr('friends_decline')}>
-                    <X size={16} />
-                  </button>
+                  <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                    <button className="icon-btn glass-btn" style={{ color: '#22c55e', padding: 4 }}
+                      onClick={() => handleAccept(req.id)} title={tr('friends_accept')}>
+                      <Check size={16} />
+                    </button>
+                    <button className="icon-btn glass-btn" style={{ color: '#ef4444', padding: 4 }}
+                      onClick={() => handleReject(req.id)} title={tr('friends_decline')}>
+                      <X size={16} />
+                    </button>
+                  </div>
                 </div>
               ))}
             </>
@@ -910,6 +938,17 @@ export const ChatSidebar: React.FC = () => {
             </div>
           </div>
         </div>
+      )}
+
+      {showRemoveConfirm && (
+        <ConfirmModal
+          title={tr('remove_friend_title')}
+          message={tr('remove_friend_confirm')}
+          confirmLabel={tr('remove_friend_button')}
+          cancelLabel={tr('cancel')}
+          onConfirm={confirmProfileRemove}
+          onCancel={() => setShowRemoveConfirm(false)}
+        />
       )}
 
       <UserProfile />

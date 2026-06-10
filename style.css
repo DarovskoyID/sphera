@@ -315,6 +315,16 @@ svg {
   to   { opacity: 1; }
 }
 
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(-20px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes toast-out {
+  from { opacity: 1; transform: translateY(0); }
+  to   { opacity: 0; transform: translateY(-20px); }
+}
+
 .modal-box {
   background: var(--bg-primary, #1a1a2e);
   border: 1px solid var(--border-color, #333);
@@ -660,6 +670,7 @@ svg {
   margin: var(--spacing-md);
   border-radius: var(--radius-sm);
   border: 1px solid var(--border-color);
+  box-sizing: border-box;
 }
 
 .search-icon {
@@ -670,6 +681,7 @@ svg {
 
 .search-bar input {
   flex: 1;
+  min-width: 0;
   background: transparent;
   color: var(--text-primary);
   font-size: 14px;
@@ -1015,6 +1027,40 @@ svg {
 
 .message-item.own {
   flex-direction: row-reverse;
+}
+
+.message-reply-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  font-size: 13px;
+  padding: 6px 10px;
+  margin-bottom: 4px;
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.06);
+  border-left: 3px solid var(--accent-primary);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.message-reply-preview:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.message-reply-author {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text-primary);
+  display: block;
+}
+
+.message-reply-text {
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: block;
+  font-size: 13px;
 }
 
 .message-item.own .message-content {

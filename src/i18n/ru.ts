@@ -45,6 +45,8 @@ export const ru: Translations = {
   friends_no_users: 'Пользователи не найдены',
   friends_search_failed: 'Ошибка поиска',
   friends_request_sent: 'Запрос отправлен!',
+  friends_request_pending: 'Запрос отправлен',
+  friends_requests_sent: 'ОТПРАВЛЕННЫЕ ЗАПРОСЫ',
   friends_none: 'Пока нет друзей. Нажмите +, чтобы добавить.',
 
   call_incoming: 'Входящий вызов',
@@ -66,6 +68,13 @@ export const ru: Translations = {
   call_msg_video: 'Видеозвонок',
   call_msg_duration: 'Длительность',
   call_msg_callback: 'Перезвонить',
+
+  remove_friend_title: 'Удалить из друзей',
+  remove_friend_confirm: 'Вы уверены, что хотите удалить этого пользователя из друзей?',
+  remove_friend_button: 'Удалить',
+  delete_message_title: 'Удалить сообщение',
+  delete_message_confirm: 'Вы уверены, что хотите удалить это сообщение? Это действие нельзя отменить.',
+  delete_message_button: 'Удалить',
 
   logout_title: 'Выход',
   logout_confirm: 'Вы уверены, что хотите выйти?',

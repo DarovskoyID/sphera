@@ -135,6 +135,8 @@ interface AppContextType extends AppState {
   showError: (message: string) => void;
   clearError: () => void;
   errorMessage: string | null;
+  toasts: Array<{ id: number; message: string }>;
+  dismissToast: (id: number) => void;
   guildKickNotification: { title: string; message: string } | null;
   clearGuildKickNotification: () => void;
   // Guild methods
@@ -263,6 +265,15 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const showError = useCallback((message: string) => setErrorMessage(message), []);
   const clearError = useCallback(() => setErrorMessage(null), []);
+  const toastIdRef = useRef(0);
+  const [toasts, setToasts] = useState<Array<{ id: number; message: string }>>([]);
+  const addToast = useCallback((message: string) => {
+    const id = ++toastIdRef.current;
+    setToasts(prev => [...prev, { id, message }]);
+  }, []);
+  const dismissToast = useCallback((id: number) => {
+    setToasts(prev => prev.filter(t => t.id !== id));
+  }, []);
   const [guildKickNotification, setGuildKickNotification] = useState<{ title: string; message: string } | null>(null);
   const clearGuildKickNotification = useCallback(() => setGuildKickNotification(null), []);
 
@@ -270,16 +281,14 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
   // redirect all future console.error / window errors into the modal.
   useEffect(() => {
     // Drain queue
-    if (_errorQueue.length > 0) {
-      setErrorMessage(_errorQueue[0]);
-      _errorQueue.length = 0;
-    }
-    // Point the global sink at this context
-    _errorSink = (msg: string) => setErrorMessage(msg);
+    for (const msg of _errorQueue) addToast(msg);
+    _errorQueue.length = 0;
+    // Point the global sink at toasts
+    _errorSink = (msg: string) => addToast(msg);
     return () => {
       _errorSink = null;
     };
-  }, []);
+  }, [addToast]);
 
   const chatWs = useRef<WebSocket | null>(null);
   const chatLastMsgId = useRef<string | null>(null);
@@ -1109,6 +1118,13 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
             friends: prev.friends.filter(f => String(f.id) !== String(data.user.id)),
             currentChat: String(prev.currentChat) === String(data.user.id) ? '' : prev.currentChat,
             mobileActivePanel: String(prev.currentChat) === String(data.user.id) ? 'chat-list' as MobilePanel : prev.mobileActivePanel,
+          }));
+          return;
+        }
+        if (data.type === 'friend-request-rejected') {
+          setState(prev => ({
+            ...prev,
+            sentRequests: prev.sentRequests.filter(u => String(u.id) !== String(data.user.id)),
           }));
           return;
         }
@@ -2109,6 +2125,8 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       showError,
       clearError,
       errorMessage,
+      toasts,
+      dismissToast,
       guildKickNotification,
       clearGuildKickNotification,
       loadGuilds,

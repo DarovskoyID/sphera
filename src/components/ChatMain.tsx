@@ -8,6 +8,7 @@ import { useTranslation } from '../i18n/useTranslation';
 import { MessageText } from './EmojiPicker';
 import { UnifiedPicker } from './StickerGifPicker';
 import type { CustomEmoji } from '../types';
+import ConfirmModal from './ConfirmModal';
 
 export const ChatMain: React.FC = () => {
   const { currentView, currentChat, currentSettingsPage, setMobileActivePanel } = useApp();
@@ -669,25 +670,27 @@ const MessageRow = React.memo(({ msg, isOwn, isFirstInGroup, onContextMenu, onRe
         }
       </div>
       <div className="message-content" style={{ flex: 1, minWidth: 0 }}>
-        {msg.reply_to && (
-          <div className="message-reply-preview">
-            {msg.reply_to.deleted ? (
-              <span style={{ fontStyle: 'italic', opacity: 0.6 }}>Message deleted</span>
-            ) : (
-              <>
-                <span style={{ fontWeight: 600 }}>
-                  {msg.reply_to.author.nickname || msg.reply_to.author.username}:
-                </span>{' '}
-                <MessageText text={msg.reply_to.content} customEmojis={customEmojis} />
-              </>
-            )}
-          </div>
-        )}
         <div className="message-bubble">
           {msg.content && (
             <div className="message-text">
               {isFirstInGroup && (
                 <div className="message-author-bubble">{displayName}</div>
+              )}
+              {msg.reply_to && (
+                <div className="message-reply-preview">
+                  {msg.reply_to.deleted ? (
+                    <span style={{ fontStyle: 'italic', opacity: 0.6 }}>Message deleted</span>
+                  ) : (
+                    <>
+                      <span className="message-reply-author">
+                        {msg.reply_to.author.nickname || msg.reply_to.author.username}
+                      </span>
+                      <span className="message-reply-text">
+                        <MessageText text={msg.reply_to.content} customEmojis={customEmojis} />
+                      </span>
+                    </>
+                  )}
+                </div>
               )}
               <div className="message-line">
                 <span className="message-body">
@@ -747,6 +750,7 @@ const MessagesContainer: React.FC<{
   const wasAtBottom = useRef(true);
   const loadingOlder = useRef(false);
   const [ctxMenu, setCtxMenu] = useState<CtxMenu | null>(null);
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
   useEffect(() => {
     const el = containerRef.current;
@@ -783,13 +787,23 @@ const MessagesContainer: React.FC<{
 
   return (
     <>
+      {deleteConfirmId && (
+        <ConfirmModal
+          title={tr('delete_message_title')}
+          message={tr('delete_message_confirm')}
+          confirmLabel={tr('delete_message_button')}
+          cancelLabel={tr('cancel')}
+          onConfirm={() => { deleteMessage(deleteConfirmId); setDeleteConfirmId(null); }}
+          onCancel={() => setDeleteConfirmId(null)}
+        />
+      )}
       {ctxMenu && (
         <MessageContextMenu
           menu={ctxMenu}
           isOwn={String(ctxMenu.msg.author.id) === String(userIDonServer)}
           onClose={closeCtx}
           onReply={msg => { onReply(msg); closeCtx(); }}
-          onDelete={id => deleteMessage(id)}
+          onDelete={id => { closeCtx(); setDeleteConfirmId(id); }}
           onPin={id => pinMessage(id)}
           onReport={id => reportMessage(id)}
           onCopy={text => navigator.clipboard.writeText(text).catch(() => {})}

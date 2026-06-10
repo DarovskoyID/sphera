@@ -1,6 +1,6 @@
 import { AppProvider, useApp } from './context/AppContext';
 import { useTranslation } from './i18n/useTranslation';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { ServerSidebar } from './components/ServerSidebar';
 import { ChatSidebar } from './components/ChatSidebar';
 import { ChatMain } from './components/ChatMain';
@@ -47,38 +47,112 @@ function GuildKickNotification() {
   );
 }
 
-function ErrorModal() {
-  const { errorMessage, clearError } = useApp();
-  if (!errorMessage) return null;
+const TOAST_DURATION = 5000;
+
+function ToastItem({ id, message, onDismiss }: { id: number; message: string; onDismiss: (id: number) => void }) {
+  const [exiting, setExiting] = useState(false);
+  const [paused, setPaused] = useState(false);
+  const remainRef = useRef(TOAST_DURATION);
+  const startRef = useRef(Date.now());
+  const timerRef = useRef<ReturnType<typeof setTimeout>>();
+  const barRef = useRef<HTMLDivElement>(null);
+  const rafRef = useRef<number>();
+
+  const dismiss = useCallback(() => {
+    setExiting(true);
+    setTimeout(() => onDismiss(id), 300);
+  }, [id, onDismiss]);
+
+  const startTimer = useCallback(() => {
+    startRef.current = Date.now();
+    timerRef.current = setTimeout(dismiss, remainRef.current);
+  }, [dismiss]);
+
+  const pauseTimer = useCallback(() => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    remainRef.current -= Date.now() - startRef.current;
+    if (remainRef.current < 0) remainRef.current = 0;
+  }, []);
+
+  useEffect(() => {
+    startTimer();
+    return () => { if (timerRef.current) clearTimeout(timerRef.current); };
+  }, [startTimer]);
+
+  useEffect(() => {
+    const animate = () => {
+      if (barRef.current) {
+        const elapsed = paused
+          ? TOAST_DURATION - remainRef.current
+          : TOAST_DURATION - remainRef.current + (Date.now() - startRef.current);
+        const pct = Math.min(100, (elapsed / TOAST_DURATION) * 100);
+        barRef.current.style.width = `${100 - pct}%`;
+      }
+      rafRef.current = requestAnimationFrame(animate);
+    };
+    rafRef.current = requestAnimationFrame(animate);
+    return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
+  }, [paused]);
+
   return (
-    <div style={{
-      position: 'fixed', inset: 0, zIndex: 99999,
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
-      background: 'rgba(0,0,0,0.6)',
-    }}>
-      <div style={{
+    <div
+      onMouseEnter={() => { setPaused(true); pauseTimer(); }}
+      onMouseLeave={() => { setPaused(false); startTimer(); }}
+      style={{
         background: 'var(--bg-primary, #1a1a2e)',
         border: '1px solid var(--border-color, #333)',
-        borderRadius: 12,
-        padding: '28px 32px',
-        maxWidth: 360,
-        width: '90%',
-        boxShadow: '0 12px 48px rgba(0,0,0,0.6)',
-        display: 'flex', flexDirection: 'column', gap: 18,
-      }}>
-        <div style={{ color: '#ff6666', fontWeight: 700, fontSize: 15 }}>Error</div>
-        <div style={{ color: 'var(--text-primary, #fff)', fontSize: 14, lineHeight: 1.5 }}>{errorMessage}</div>
+        borderLeft: '4px solid #ed4245',
+        borderRadius: 8,
+        padding: '12px 16px 10px',
+        minWidth: 300,
+        maxWidth: 420,
+        boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+        display: 'flex', flexDirection: 'column' as const, gap: 8,
+        animation: exiting ? 'toast-out 0.3s ease forwards' : 'toast-in 0.3s ease',
+        overflow: 'hidden',
+        position: 'relative' as const,
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+        <div style={{ flex: 1 }}>
+          <div style={{ color: '#ed4245', fontWeight: 700, fontSize: 13, marginBottom: 4 }}>Error</div>
+          <div style={{ color: 'var(--text-primary, #fff)', fontSize: 13, lineHeight: 1.4, wordBreak: 'break-word' }}>{message}</div>
+        </div>
         <button
-          onClick={clearError}
+          onClick={dismiss}
           style={{
-            alignSelf: 'flex-end', padding: '8px 24px',
-            background: 'var(--accent-primary, #5865f2)', border: 'none',
-            borderRadius: 8, color: '#fff', fontWeight: 600, fontSize: 14, cursor: 'pointer',
+            background: 'none', border: 'none', color: 'var(--text-secondary, #888)',
+            cursor: 'pointer', padding: 2, fontSize: 18, lineHeight: 1, flexShrink: 0,
           }}
         >
-          OK
+          ×
         </button>
       </div>
+      <div style={{
+        height: 3, borderRadius: 2, background: 'rgba(255,255,255,0.08)',
+        overflow: 'hidden', marginTop: 2,
+      }}>
+        <div ref={barRef} style={{
+          height: '100%', background: '#ed4245', borderRadius: 2,
+          width: '100%', transition: paused ? 'none' : undefined,
+        }} />
+      </div>
+    </div>
+  );
+}
+
+function ToastContainer() {
+  const { toasts, dismissToast } = useApp();
+  if (toasts.length === 0) return null;
+  return (
+    <div style={{
+      position: 'fixed', top: 16, left: '50%', transform: 'translateX(-50%)',
+      zIndex: 99999, display: 'flex', flexDirection: 'column', gap: 8,
+      pointerEvents: 'auto',
+    }}>
+      {toasts.map(t => (
+        <ToastItem key={t.id} id={t.id} message={t.message} onDismiss={dismissToast} />
+      ))}
     </div>
   );
 }
@@ -125,7 +199,7 @@ function AppContent() {
       <IncomingCallModal />
       {isCallActive && !inChat && <CallWindow />}
       {currentVoiceChannel && <GuildVoiceRoom />}
-      <ErrorModal />
+      <ToastContainer />
       <GuildKickNotification />
     </div>
   );

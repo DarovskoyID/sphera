@@ -48,6 +48,8 @@ export const en = {
   friends_no_users: 'No users found',
   friends_search_failed: 'Search failed',
   friends_request_sent: 'Friend request sent!',
+  friends_request_pending: 'Request sent',
+  friends_requests_sent: 'SENT REQUESTS',
   friends_none: 'No friends yet. Click + to add someone.',
 
   // Call
@@ -70,6 +72,14 @@ export const en = {
   call_msg_video: 'Video call',
   call_msg_duration: 'Duration',
   call_msg_callback: 'Call back',
+
+  // Confirmations
+  remove_friend_title: 'Remove Friend',
+  remove_friend_confirm: 'Are you sure you want to remove this person from your friends?',
+  remove_friend_button: 'Remove',
+  delete_message_title: 'Delete Message',
+  delete_message_confirm: 'Are you sure you want to delete this message? This action cannot be undone.',
+  delete_message_button: 'Delete',
 
   // Logout
   logout_title: 'Log Out',

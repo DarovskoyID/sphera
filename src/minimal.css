@@ -175,6 +175,7 @@ body {
   border: 1px solid var(--border-color);
   border-radius: 8px;
   box-shadow: none;
+  box-sizing: border-box;
 }
 .search-bar:focus-within {
   border-color: var(--accent-primary);
@@ -299,7 +300,7 @@ body {
 .message-author-bubble {
   color: var(--text-secondary);
   font-weight: 600;
-  font-size: 12px;
+  font-size: 14px;
 }
 .message-timestamp {
   color: var(--text-tertiary);

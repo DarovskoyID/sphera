@@ -294,6 +294,8 @@ def friend_request_reject(request, friendship_id):
         )
     friendship.status = 'rejected'
     friendship.save()
+    me_data = UserSerializer(request.user, context={'request': request}).data
+    _push_friend_event(str(friendship.from_user_id), 'friend-request-rejected', me_data)
     return Response(FriendshipSerializer(
         friendship, context={'request': request}
     ).data)
