@@ -1421,7 +1421,7 @@ const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: (
               : <Send size={20} />
             }
           </button>
-        ) : recordState === 'idle' ? (
+        ) : recordState !== 'preview' ? (
           <button
             className="icon-btn glass-btn send-btn"
             title={recordMode === 'voice' ? tr('chat_voice_message') : tr('chat_video_circle')}
@@ -1429,6 +1429,7 @@ const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: (
             onTouchStart={handleRecordButtonDown}
             onTouchEnd={e => { e.preventDefault(); handleRecordButtonUp(); }}
             disabled={uploading}
+            style={recordState === 'recording' ? { color: '#ff4444' } : undefined}
           >
             {recordMode === 'voice' ? <Mic size={20} /> : <Circle size={20} />}
           </button>
