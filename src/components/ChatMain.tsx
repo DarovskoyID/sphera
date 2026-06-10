@@ -1060,6 +1060,8 @@ const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: (
     setIsPlaying(false);
   }, [cleanupRecording, recordedUrl]);
 
+  const liveVideoRef = useRef<HTMLVideoElement | null>(null);
+
   const handleRecordButtonDown = useCallback(() => {
     isPressHold.current = false;
     pressTimerRef.current = setTimeout(() => {
@@ -1078,6 +1080,12 @@ const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: (
     isPressHold.current = false;
   }, [recordState, stopRecording]);
 
+  useEffect(() => {
+    if (recordState === 'recording' && recordMode === 'video' && liveVideoRef.current && mediaStreamRef.current) {
+      liveVideoRef.current.srcObject = mediaStreamRef.current;
+    }
+  }, [recordState, recordMode]);
+
   const togglePlayback = useCallback(() => {
     if (!recordedUrl) return;
     if (recordMode === 'video') {
@@ -1087,8 +1095,10 @@ const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: (
       else { vid.play(); setIsPlaying(true); }
     } else {
       if (!audioPreviewRef.current) {
-        audioPreviewRef.current = new Audio(recordedUrl);
-        audioPreviewRef.current.onended = () => setIsPlaying(false);
+        const a = document.createElement('audio');
+        a.src = recordedUrl;
+        a.onended = () => setIsPlaying(false);
+        audioPreviewRef.current = a;
       }
       if (isPlaying) { audioPreviewRef.current.pause(); setIsPlaying(false); }
       else { audioPreviewRef.current.play(); setIsPlaying(true); }
@@ -1203,11 +1213,9 @@ const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: (
     if (!recordedBlob || !chatConversationId) return;
     setUploading(true);
     try {
-      const ext = recordMode === 'video' ? 'webm' : 'webm';
-      const fileName = recordMode === 'video' ? `video_${Date.now()}.${ext}` : `voice_${Date.now()}.${ext}`;
-      const file = new File([recordedBlob], fileName, { type: recordedBlob.type });
+      const fileName = recordMode === 'video' ? `video_${Date.now()}.webm` : `voice_${Date.now()}.webm`;
       const form = new FormData();
-      form.append('file', file);
+      form.append('file', recordedBlob, fileName);
       const res = await fetch(
         `${currentServerIP}/api/conversations/${chatConversationId}/upload/`,
         { method: 'POST', headers: { Authorization: `Bearer ${authToken}` }, body: form }
@@ -1221,6 +1229,14 @@ const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: (
     finally { setUploading(false); }
     discardRecording();
   }, [recordedBlob, chatConversationId, currentServerIP, authToken, sendChatMessage, replyTo, onCancelReply, discardRecording, recordMode]);
+
+  useEffect(() => {
+    const onGlobalUp = () => {
+      if (isPressHold.current || pressTimerRef.current) handleRecordButtonUp();
+    };
+    window.addEventListener('mouseup', onGlobalUp);
+    return () => window.removeEventListener('mouseup', onGlobalUp);
+  }, [handleRecordButtonUp]);
 
   useEffect(() => {
     return () => {
@@ -1318,12 +1334,17 @@ const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: (
       {/* Recording indicator */}
       {recordState === 'recording' && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '8px 8px 0', padding: '8px 12px', borderRadius: 10, background: 'var(--bg-secondary)', border: '1px solid #ff4444' }}>
-          <div style={{ width: 10, height: 10, borderRadius: '50%', background: '#ff4444', animation: 'pulse 1s infinite' }} />
+          {recordMode === 'video' ? (
+            <video
+              ref={liveVideoRef}
+              autoPlay muted playsInline
+              style={{ width: 48, height: 48, borderRadius: '50%', objectFit: 'cover', background: '#000', flexShrink: 0, border: '2px solid #ff4444' }}
+            />
+          ) : (
+            <div style={{ width: 10, height: 10, borderRadius: '50%', background: '#ff4444', animation: 'pulse 1s infinite', flexShrink: 0 }} />
+          )}
           <span style={{ fontSize: 13, color: '#ff4444', fontWeight: 600 }}>{tr('chat_recording')}</span>
           <span style={{ fontSize: 13, color: 'var(--text-secondary)', marginLeft: 'auto' }}>{formatTime(recordDuration)}</span>
-          <button onClick={() => { stopRecording(); }} className="icon-btn glass-btn" title="Stop" style={{ color: '#ff4444' }}>
-            <Square size={18} />
-          </button>
         </div>
       )}
 
@@ -1405,8 +1426,6 @@ const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: (
             className="icon-btn glass-btn send-btn"
             title={recordMode === 'voice' ? tr('chat_voice_message') : tr('chat_video_circle')}
             onMouseDown={handleRecordButtonDown}
-            onMouseUp={handleRecordButtonUp}
-            onMouseLeave={() => { if (pressTimerRef.current) { clearTimeout(pressTimerRef.current); pressTimerRef.current = null; } }}
             onTouchStart={handleRecordButtonDown}
             onTouchEnd={e => { e.preventDefault(); handleRecordButtonUp(); }}
             disabled={uploading}
