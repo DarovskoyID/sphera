@@ -441,9 +441,257 @@ const AuthMedia: React.FC<{ url: string; contentType: string; filename: string }
   );
 };
 
+// ── Voice Message Player ─────────────────────────────────────────────────────
+
+const VoiceMessagePlayer: React.FC<{ url: string }> = ({ url }) => {
+  const { authToken, currentServerIP } = useApp();
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+  const [playing, setPlaying] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [bars, setBars] = useState<number[]>([]);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const rafRef = useRef(0);
+
+  useEffect(() => {
+    let revoked = false;
+    (async () => {
+      try {
+        const res = await fetch(`${currentServerIP}${url}`, {
+          headers: { Authorization: `Bearer ${authToken}` },
+        });
+        if (!res.ok) return;
+        const blob = await res.blob();
+        if (revoked) return;
+        const bu = URL.createObjectURL(blob);
+        setBlobUrl(bu);
+
+        try {
+          const ac = new AudioContext();
+          const ab = await ac.decodeAudioData(await blob.arrayBuffer());
+          const raw = ab.getChannelData(0);
+          const count = 40;
+          const step = Math.floor(raw.length / count);
+          const result: number[] = [];
+          for (let i = 0; i < count; i++) {
+            let sum = 0;
+            for (let j = 0; j < step; j++) sum += Math.abs(raw[i * step + j]);
+            result.push(sum / step);
+          }
+          const mx = Math.max(...result, 0.01);
+          setBars(result.map(v => Math.max(0.08, v / mx)));
+          ac.close();
+        } catch {
+          setBars(Array.from({ length: 40 }, () => 0.15 + Math.random() * 0.85));
+        }
+      } catch { /* ignore */ }
+    })();
+    return () => { revoked = true; };
+  }, [url, authToken, currentServerIP]);
+
+  useEffect(() => {
+    return () => { if (blobUrl) URL.revokeObjectURL(blobUrl); };
+  }, [blobUrl]);
+
+  const tick = useCallback(() => {
+    const a = audioRef.current;
+    if (!a) return;
+    if (a.duration) {
+      setProgress(a.currentTime / a.duration);
+      setDuration(a.duration);
+    }
+    if (!a.paused) rafRef.current = requestAnimationFrame(tick);
+  }, []);
+
+  const toggle = useCallback(() => {
+    if (!blobUrl) return;
+    if (!audioRef.current) {
+      const a = document.createElement('audio');
+      a.src = blobUrl;
+      a.onended = () => { setPlaying(false); setProgress(0); };
+      a.onloadedmetadata = () => setDuration(a.duration);
+      audioRef.current = a;
+    }
+    const a = audioRef.current;
+    if (playing) { a.pause(); setPlaying(false); cancelAnimationFrame(rafRef.current); }
+    else { a.play(); setPlaying(true); rafRef.current = requestAnimationFrame(tick); }
+  }, [blobUrl, playing, tick]);
+
+  const seek = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    const a = audioRef.current;
+    if (!a || !a.duration) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const p = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    a.currentTime = p * a.duration;
+    setProgress(p);
+  }, []);
+
+  const fmt = (s: number) => `${Math.floor(s / 60)}:${Math.floor(s % 60).toString().padStart(2, '0')}`;
+
+  if (!blobUrl) {
+    return (
+      <div style={{ width: 240, height: 48, borderRadius: 20, background: 'var(--bg-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginTop: 6 }}>
+        <div style={{ width: 16, height: 16, border: '2px solid var(--accent-primary)', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} />
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6, padding: '8px 12px', borderRadius: 20, background: 'var(--bg-secondary)', maxWidth: 320, minWidth: 220 }}>
+      <button onClick={toggle} style={{ width: 36, height: 36, borderRadius: '50%', background: 'var(--accent-primary)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, color: '#fff' }}>
+        {playing ? <Pause size={16} /> : <Play size={16} style={{ marginLeft: 2 }} />}
+      </button>
+      <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
+        <div onClick={seek} style={{ display: 'flex', alignItems: 'flex-end', gap: 1.5, height: 28, cursor: 'pointer' }}>
+          {bars.map((h, i) => {
+            const filled = i / bars.length < progress;
+            return (
+              <div key={i} style={{
+                flex: 1, minWidth: 2, maxWidth: 4, borderRadius: 2,
+                height: `${Math.max(15, h * 100)}%`,
+                background: filled ? 'var(--accent-primary)' : 'var(--text-secondary)',
+                opacity: filled ? 1 : 0.35,
+                transition: 'background 0.1s',
+              }} />
+            );
+          })}
+        </div>
+        <span style={{ fontSize: 11, color: 'var(--text-secondary)', userSelect: 'none' }}>
+          {playing || progress > 0 ? fmt(duration * progress) : fmt(duration)}
+        </span>
+      </div>
+    </div>
+  );
+};
+
+// ── Video Circle Player ──────────────────────────────────────────────────────
+
+const VideoCirclePlayer: React.FC<{ url: string }> = ({ url }) => {
+  const { authToken, currentServerIP } = useApp();
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+  const [playing, setPlaying] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [holding, setHolding] = useState(false);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const rafRef = useRef(0);
+  const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    let revoked = false;
+    (async () => {
+      try {
+        const res = await fetch(`${currentServerIP}${url}`, {
+          headers: { Authorization: `Bearer ${authToken}` },
+        });
+        if (!res.ok) return;
+        const blob = await res.blob();
+        if (!revoked) setBlobUrl(URL.createObjectURL(blob));
+      } catch { /* ignore */ }
+    })();
+    return () => { revoked = true; };
+  }, [url, authToken, currentServerIP]);
+
+  useEffect(() => {
+    return () => { if (blobUrl) URL.revokeObjectURL(blobUrl); };
+  }, [blobUrl]);
+
+  const tick = useCallback(() => {
+    const v = videoRef.current;
+    if (!v) return;
+    if (v.duration) setProgress(v.currentTime / v.duration);
+    if (!v.paused) rafRef.current = requestAnimationFrame(tick);
+  }, []);
+
+  const toggle = useCallback(() => {
+    const v = videoRef.current;
+    if (!v) return;
+    if (playing) { v.pause(); setPlaying(false); cancelAnimationFrame(rafRef.current); }
+    else { v.play(); setPlaying(true); rafRef.current = requestAnimationFrame(tick); }
+  }, [playing, tick]);
+
+  const onDown = useCallback(() => {
+    holdTimer.current = setTimeout(() => {
+      setHolding(true);
+      const v = videoRef.current;
+      if (v) { v.playbackRate = 2; if (v.paused) { v.play(); setPlaying(true); rafRef.current = requestAnimationFrame(tick); } }
+    }, 300);
+  }, [tick]);
+
+  const onUp = useCallback(() => {
+    if (holdTimer.current) { clearTimeout(holdTimer.current); holdTimer.current = null; }
+    if (holding) {
+      setHolding(false);
+      const v = videoRef.current;
+      if (v) v.playbackRate = 1;
+    } else {
+      toggle();
+    }
+  }, [holding, toggle]);
+
+  useEffect(() => {
+    const h = () => onUp();
+    window.addEventListener('mouseup', h);
+    window.addEventListener('touchend', h);
+    return () => { window.removeEventListener('mouseup', h); window.removeEventListener('touchend', h); };
+  }, [onUp]);
+
+  const size = 200;
+  const r = size / 2;
+  const stroke = 3;
+  const circumference = 2 * Math.PI * (r - stroke);
+
+  if (!blobUrl) {
+    return (
+      <div style={{ width: size, height: size, borderRadius: '50%', background: 'var(--bg-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginTop: 6 }}>
+        <div style={{ width: 20, height: 20, border: '2px solid var(--accent-primary)', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} />
+      </div>
+    );
+  }
+
+  return (
+    <div
+      style={{ position: 'relative', width: size, height: size, marginTop: 6, cursor: 'pointer', userSelect: 'none' }}
+      onMouseDown={e => { e.preventDefault(); onDown(); }}
+      onTouchStart={e => { e.preventDefault(); onDown(); }}
+    >
+      <svg width={size} height={size} style={{ position: 'absolute', top: 0, left: 0, transform: 'rotate(-90deg)' }}>
+        <circle cx={r} cy={r} r={r - stroke} fill="none" stroke="var(--bg-secondary)" strokeWidth={stroke} />
+        <circle cx={r} cy={r} r={r - stroke} fill="none" stroke={holding ? '#ff4444' : 'var(--accent-primary)'} strokeWidth={stroke}
+          strokeDasharray={circumference} strokeDashoffset={circumference * (1 - progress)}
+          strokeLinecap="round" style={{ transition: 'stroke 0.2s' }}
+        />
+      </svg>
+      <video
+        ref={el => {
+          videoRef.current = el;
+          if (el) el.onended = () => { setPlaying(false); setProgress(0); };
+        }}
+        src={blobUrl}
+        playsInline
+        style={{ width: size - stroke * 2, height: size - stroke * 2, borderRadius: '50%', objectFit: 'cover', position: 'absolute', top: stroke, left: stroke, background: '#000' }}
+      />
+      {!playing && (
+        <div style={{ position: 'absolute', top: 0, left: 0, width: size, height: size, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.3)' }}>
+          <Play size={40} style={{ color: '#fff', marginLeft: 4 }} />
+        </div>
+      )}
+      {holding && (
+        <div style={{ position: 'absolute', bottom: 8, left: '50%', transform: 'translateX(-50%)', background: 'rgba(0,0,0,0.7)', color: '#fff', fontSize: 12, fontWeight: 700, padding: '2px 8px', borderRadius: 10 }}>
+          ×2
+        </div>
+      )}
+    </div>
+  );
+};
+
 const AttachmentView: React.FC<{ att: ChatAttachment }> = ({ att }) => {
   const isImage = att.content_type.startsWith('image/');
   const isVideo = att.content_type.startsWith('video/');
+  const isVoice = att.filename.startsWith('voice_') && att.filename.endsWith('.webm');
+  const isVideoCircle = att.filename.startsWith('video_') && att.filename.endsWith('.webm');
+
+  if (isVoice) return <VoiceMessagePlayer url={att.url} />;
+  if (isVideoCircle) return <VideoCirclePlayer url={att.url} />;
 
   if (isImage || isVideo) {
     return <AuthMedia url={att.url} contentType={att.content_type} filename={att.filename} />;
