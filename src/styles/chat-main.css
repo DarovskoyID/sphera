@@ -1,0 +1,327 @@
+/* ================================
+   MAIN CHAT AREA
+   ================================ */
+
+.chat-main {
+  display: flex;
+  flex-direction: column;
+  background-color: var(--bg-chat);
+  overflow: hidden;
+  transition: background-color var(--transition-normal);
+}
+
+/* Chat Header */
+.chat-header {
+  padding: var(--spacing-md) var(--spacing-lg);
+  border-bottom: 1px solid var(--border-color);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--spacing-md);
+  min-height: 60px;
+}
+
+.chat-header-info {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+}
+
+.header-avatar {
+  position: relative;
+  width: 40px;
+  height: 40px;
+}
+
+.header-avatar img {
+  width: 100%;
+  height: 100%;
+  border-radius: var(--radius-full);
+  object-fit: cover;
+}
+
+.header-avatar .status-indicator {
+  border-color: var(--bg-chat);
+}
+
+.chat-header h3 {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.chat-header p {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.chat-header-actions {
+  display: flex;
+  gap: var(--spacing-sm);
+  align-items: center;
+}
+
+/* Messages Container */
+.messages-container {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--spacing-lg);
+  display: flex;
+  flex-direction: column;
+}
+
+.messages-container::-webkit-scrollbar {
+  width: 8px;
+}
+
+.messages-container::-webkit-scrollbar-thumb {
+  background-color: var(--border-color);
+  border-radius: 4px;
+}
+
+.messages-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--chat-message-gap, 16px);
+}
+
+/* Message Item */
+.message-item {
+  display: flex;
+  gap: var(--spacing-md);
+  padding: 2px var(--spacing-sm);
+  border-radius: var(--radius-md);
+  transition: background-color var(--transition-fast);
+}
+
+.message-item:hover {
+  background-color: var(--hover-bg);
+}
+
+.message-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-full);
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.message-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.message-header {
+  display: flex;
+  align-items: baseline;
+  gap: var(--spacing-sm);
+  margin-bottom: var(--spacing-xs);
+}
+
+.message-author {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.message-timestamp {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+.message-text {
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+
+.message-item.own {
+  flex-direction: row-reverse;
+}
+
+.message-reply-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  font-size: 13px;
+  padding: 6px 10px;
+  margin-bottom: 4px;
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.06);
+  border-left: 3px solid var(--accent-primary);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.message-reply-preview:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.message-reply-author {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text-primary);
+  display: block;
+}
+
+.message-reply-text {
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: block;
+  font-size: 13px;
+}
+
+.message-item.own .message-content {
+  text-align: right;
+}
+
+.message-item.own .message-bubble {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+.message-item.own .message-text {
+  display: inline-block;
+  text-align: left;
+  background-color: var(--message-own);
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-radius: var(--radius-md);
+  border-bottom-right-radius: 4px;
+  max-width: 80%;
+}
+
+.message-item:not(.own) .message-text {
+  display: inline-block;
+  background-color: var(--message-other);
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-radius: var(--radius-md);
+  border-bottom-left-radius: 4px;
+  max-width: 80%;
+}
+
+.message-timestamp {
+  padding-left: 4px;
+}
+
+/* Author name above the bubble line — pinned to the right for own messages */
+.message-item.own .message-author-bubble {
+  text-align: right;
+  display: block;
+}
+
+/* message-line is the row that holds body + timestamp + read-receipt.
+   For own messages we put receipt + time on the LEFT of the body. */
+.message-line {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+/* For own messages: receipt + time on the LEFT, body fills the rest */
+.message-item.own .message-timestamp {
+  padding-left: 0;
+  padding-right: 6px;
+  order: 2;
+}
+
+.message-item.own .message-body {
+  order: 3;
+  flex: 1;
+}
+
+/* Read receipt (svg from lucide) sits LEFTMOST for own messages */
+.message-item.own .message-line > svg {
+  order: 1;
+}
+
+/* Date Divider */
+.date-divider {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  margin: var(--spacing-lg) 0;
+  font-size: 12px;
+  color: var(--text-tertiary);
+  font-weight: 600;
+}
+
+.date-divider::before,
+.date-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background-color: var(--border-color);
+}
+
+/* Message Input */
+.message-input-container {
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-top: 1px solid var(--border-color);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.message-input-wrapper {
+  flex: 1;
+  position: relative;
+}
+
+.message-input {
+  width: 100%;
+  padding: var(--spacing-md);
+  background-color: var(--bg-secondary);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-size: 15px;
+  transition: background-color var(--transition-fast);
+}
+
+.message-input:focus {
+  background-color: var(--bg-tertiary);
+}
+
+.message-input::placeholder {
+  color: var(--text-tertiary);
+}
+
+/* Typing Indicator */
+.typing-indicator {
+  position: absolute;
+  bottom: -20px;
+  left: var(--spacing-md);
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.typing-dot {
+  width: 6px;
+  height: 6px;
+  background-color: var(--text-tertiary);
+  border-radius: var(--radius-full);
+  animation: typing 1.4s infinite;
+}
+
+.typing-dot:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.typing-dot:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+@keyframes typing {
+  0%, 60%, 100% {
+    transform: translateY(0);
+  }
+  30% {
+    transform: translateY(-8px);
+  }
+}
+

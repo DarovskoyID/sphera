@@ -78,6 +78,17 @@ class Attachment(models.Model):
         return f'{self.original_filename} ({self.file_size} bytes)'
 
 
+class MessagePin(models.Model):
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='pinned_messages')
+    message = models.ForeignKey(Message, on_delete=models.CASCADE, related_name='pins')
+
+    class Meta:
+        unique_together = ('user', 'message')
+        indexes = [
+            models.Index(fields=['user', 'message']),
+        ]
+
+
 class MessageReport(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     reporter = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='reports')

@@ -10,7 +10,7 @@ from rest_framework.response import Response
 from rest_framework import status
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
-from .models import Conversation, Message, Attachment, MessageReport, ScheduledMessage, Guild, GuildMembership, GuildChannel, GuildMessage, GuildAttachment, GuildScheduledMessage, GuildEmoji, GuildSticker, GuildSound, GuildRole, GuildMemberRole, GuildInvite, GuildAuditLog
+from .models import Conversation, Message, Attachment, MessageReport, MessagePin, ScheduledMessage, Guild, GuildMembership, GuildChannel, GuildMessage, GuildAttachment, GuildScheduledMessage, GuildEmoji, GuildSticker, GuildSound, GuildRole, GuildMemberRole, GuildInvite, GuildAuditLog
 from .serializers import ConversationSerializer, MessageSerializer, AttachmentSerializer
 from .encryption import encrypt_bytes, decrypt_bytes, encrypt_text
 from ionik_auth.models import BlockedUser
@@ -122,7 +122,11 @@ def message_list(request, conversation_id):
     messages = list(qs[:limit])
     messages.reverse()
 
-    return Response(MessageSerializer(messages, many=True, context={'request': request}).data)
+    pinned_ids = set(
+        MessagePin.objects.filter(user=request.user, message__in=messages).values_list('message_id', flat=True)
+    )
+
+    return Response(MessageSerializer(messages, many=True, context={'request': request, 'pinned_ids': pinned_ids}).data)
 
 
 @api_view(['POST'])
@@ -262,16 +266,19 @@ def pin_message(request, message_id):
     except Message.DoesNotExist:
         return Response({'error': 'not found'}, status=status.HTTP_404_NOT_FOUND)
 
-    msg.is_pinned = not msg.is_pinned
-    msg.save(update_fields=['is_pinned'])
+    _, created = MessagePin.objects.get_or_create(user=request.user, message=msg)
+    if not created:
+        MessagePin.objects.filter(user=request.user, message=msg).delete()
+
+    is_pinned = created
 
     channel_layer = get_channel_layer()
     async_to_sync(channel_layer.group_send)(
-        f'chat_{msg.conversation_id}',
-        {'type': 'message_pinned', 'message_id': str(message_id), 'is_pinned': msg.is_pinned}
+        f'user_{request.user.id}',
+        {'type': 'dm.pin.toggled', 'message_id': str(message_id), 'is_pinned': is_pinned}
     )
 
-    return Response({'is_pinned': msg.is_pinned})
+    return Response({'is_pinned': is_pinned})
 
 
 @api_view(['POST'])

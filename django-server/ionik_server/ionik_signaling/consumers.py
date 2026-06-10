@@ -160,6 +160,13 @@ class SignalingConsumer(AsyncWebsocketConsumer):
             'user': event['user'],
         }))
 
+    async def dm_pin_toggled(self, event):
+        await self.send(text_data=json.dumps({
+            'type': 'message_pinned',
+            'id': event['message_id'],
+            'is_pinned': event['is_pinned'],
+        }))
+
     async def guild_kicked(self, event):
         await self.send(text_data=json.dumps({
             'type': 'guild_kicked_direct',

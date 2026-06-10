@@ -76,6 +76,15 @@ export const ru: Translations = {
   delete_message_confirm: 'Вы уверены, что хотите удалить это сообщение? Это действие нельзя отменить.',
   delete_message_button: 'Удалить',
 
+  block_user_title: 'Заблокировать пользователя',
+  block_user_confirm: 'Вы уверены, что хотите заблокировать этого пользователя? Он не сможет отправлять вам сообщения и видеть ваш статус.',
+  block_user_button: 'Заблокировать',
+
+  delete_dialog_title: 'Удалить диалог',
+  delete_dialog_warning: 'ДИАЛОГ БУДЕТ БЕЗВОЗВРАТНО УДАЛЁН У ОБОИХ СОБЕСЕДНИКОВ И НЕ ПОДЛЕЖИТ ВОССТАНОВЛЕНИЮ!',
+  delete_dialog_confirm: 'Для подтверждения удаления введите свой логин:',
+  delete_dialog_button: 'Удалить навсегда',
+
   logout_title: 'Выход',
   logout_confirm: 'Вы уверены, что хотите выйти?',
   logout_button: 'Выйти',

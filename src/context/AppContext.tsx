@@ -675,13 +675,6 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
                     : m
                   ),
               }));
-            } else if (data.type === 'message_pinned') {
-              setState(prev => ({
-                ...prev,
-                chatMessages: prev.chatMessages.map(m =>
-                  m.id === data.id ? { ...m, is_pinned: data.is_pinned } : m
-                ),
-              }));
             } else if (data.type === 'message_status') {
               const ids: string[] = data.ids || [];
               const field: 'delivered_at' | 'read_at' = data.field;
@@ -1188,6 +1181,15 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
               } : null,
             };
           });
+          return;
+        }
+        if (data.type === 'message_pinned') {
+          setState(prev => ({
+            ...prev,
+            chatMessages: prev.chatMessages.map(m =>
+              m.id === data.id ? { ...m, is_pinned: data.is_pinned } : m
+            ),
+          }));
           return;
         }
         if (data.type === 'guild_kicked_direct') {

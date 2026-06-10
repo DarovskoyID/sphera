@@ -1,0 +1,287 @@
+/* ================================
+   MAIN LAYOUT STRUCTURE
+   ================================ */
+
+.app-container {
+  display: grid;
+  grid-template-columns: 72px 260px 1fr;
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+}
+
+
+/* ================================
+   UTILITY CLASSES
+   ================================ */
+
+.hidden {
+  display: none !important;
+}
+
+
+/* ================================
+   RESPONSIVE DESIGN
+   ================================ */
+
+/* Hide mobile-only elements on desktop */
+.mobile-back-btn,
+.mobile-hamburger-btn,
+.mobile-overlay,
+.settings-mobile-header {
+  display: none !important;
+}
+
+
+/* Tablet */
+@media (max-width: 1024px) {
+  .app-container {
+    grid-template-columns: 72px 240px 1fr;
+  }
+
+  .chat-sidebar-header h2 {
+    font-size: 14px;
+  }
+}
+
+/* ================================
+   MOBILE — Telegram-like layout
+   ================================ */
+@media (max-width: 768px) {
+
+  /* --- Base: flex column, dock at bottom --- */
+  .app-container {
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    height: 100vh;
+    height: 100svh;
+    overflow: hidden;
+    --safe-bottom: max(env(safe-area-inset-bottom), 24px);
+  }
+
+  /* Server sidebar = bottom dock (macOS-style) */
+  .server-sidebar {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    height: calc(60px);
+    z-index: 100;
+    flex-direction: row;
+    border-right: none;
+    border-top: 1px solid var(--border-color);
+    padding: 0 var(--spacing-sm);
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+
+  .server-sidebar .server-list {
+    flex-direction: row;
+    gap: var(--spacing-sm);
+    height: 100%;
+    width: auto;
+    flex-wrap: nowrap;
+    justify-content: center;
+  }
+
+  .server-sidebar .server-icon {
+    width: 40px;
+    height: 40px;
+    min-width: 40px;
+  }
+
+  .server-sidebar .server-divider {
+    width: 1px;
+    height: 28px;
+    margin: 0 var(--spacing-xs);
+  }
+
+  .server-sidebar .server-icon::after {
+    display: none;
+  }
+
+  /* Panels fill space above the dock */
+  .chat-sidebar {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: calc(100% - 60px);
+    z-index: 10;
+    transition: transform var(--transition-normal);
+    transform: translateX(0);
+  }
+
+  .chat-main {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: calc(100% - 60px);
+    z-index: 20;
+    transition: transform var(--transition-normal);
+    transform: translateX(100%);
+  }
+
+  /* --- Panel switching via class on .app-container --- */
+
+  .mobile-panel-chat-list .chat-sidebar {
+    transform: translateX(0);
+  }
+  .mobile-panel-chat-list .chat-main {
+    transform: translateX(100%);
+  }
+
+  .mobile-panel-chat-view .chat-sidebar {
+    transform: translateX(-100%);
+  }
+  .mobile-panel-chat-view .chat-main {
+    transform: translateX(0);
+  }
+
+  /* --- Show mobile-only buttons --- */
+  .mobile-back-btn {
+    display: flex !important;
+  }
+
+  /* Hamburger not needed — dock is always visible */
+  .mobile-hamburger-btn {
+    display: none !important;
+  }
+
+  .mobile-menu-btn {
+    display: none !important;
+  }
+
+  .settings-mobile-header {
+    display: flex !important;
+  }
+
+  /* Show call/video/search buttons on mobile chat header */
+  .chat-header-actions > .icon-btn {
+    display: flex;
+  }
+
+  /* --- Chat header Telegram-style --- */
+  .chat-header {
+    padding: var(--spacing-sm) var(--spacing-md);
+  }
+
+  .chat-header h3 {
+    font-size: 15px;
+  }
+
+  .chat-header p {
+    font-size: 12px;
+  }
+
+  /* --- Chat sidebar Telegram-style header --- */
+  .chat-sidebar-header {
+    padding: var(--spacing-sm) var(--spacing-md);
+  }
+
+  /* --- Messages --- */
+  .messages-container {
+    padding: var(--spacing-sm) var(--spacing-md);
+  }
+
+  .message-input-container {
+    padding: var(--spacing-sm) var(--spacing-md);
+  }
+
+  .message-item {
+    gap: var(--spacing-sm);
+  }
+
+  .message-avatar {
+    width: 36px;
+    height: 36px;
+  }
+
+  .message-author {
+    font-size: 14px;
+  }
+
+  .message-text {
+    font-size: 14px;
+  }
+
+  /* --- Compact UI elements --- */
+  .icon-btn {
+    width: 36px;
+    height: 36px;
+  }
+
+  .icon-btn svg {
+    width: 20px;
+    height: 20px;
+  }
+
+  /* --- User profile at bottom of sidebar --- */
+  .user-profile-section {
+    margin: var(--spacing-sm) var(--spacing-xs) var(--spacing-xs);
+  }
+
+  /* --- Profile modal fullscreen on mobile --- */
+  .profile-modal-content {
+    width: 95%;
+    max-width: 100%;
+  }
+
+  .profile-modal-header h2 {
+    font-size: 16px;
+  }
+
+  .profile-modal-body {
+    padding: var(--spacing-md);
+  }
+
+  .profile-modal-avatar {
+    width: 80px;
+    height: 80px;
+  }
+
+  /* Overlay not needed — dock is always visible */
+  .mobile-overlay {
+    display: none !important;
+  }
+
+  /* --- CallWindow fullscreen on mobile (above dock) --- */
+  .call-window {
+    position: fixed !important;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: calc(100svh - 60px) !important;
+    z-index: 300;
+    flex-direction: column;
+  }
+
+  .call-window video {
+    height: auto;
+  }
+}
+
+/* Hide mobile menu button on desktop */
+@media (min-width: 769px) {
+  .mobile-menu-btn {
+    display: none;
+  }
+}
+
+/* ================================
+   THEME TRANSITION ANIMATION
+   ================================ */
+
+body,
+.app-container,
+.server-sidebar,
+.chat-sidebar,
+.chat-main,
+.glass-panel,
+.glass-btn {
+  transition: background-color var(--transition-normal),
+              color var(--transition-normal),
+              border-color var(--transition-normal);
+}

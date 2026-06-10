@@ -278,10 +278,13 @@ const FriendContextMenu: React.FC<{
     currentServerIP, authToken,
     setCurrentChat, setCallActive, setCallTargetId,
     chatConversationId, currentChat,
-    blockUser, removeFriend,
+    blockUser, removeFriend, currentUser,
   } = useApp();
   const [showMuteMenu, setShowMuteMenu] = useState(false);
   const [showRemoveConfirm, setShowRemoveConfirm] = useState(false);
+  const [showBlockConfirm, setShowBlockConfirm] = useState(false);
+  const [showDeleteDialogConfirm, setShowDeleteDialogConfirm] = useState(false);
+  const [deleteLoginInput, setDeleteLoginInput] = useState('');
   const tr = useTranslation();
   const ref = useRef<HTMLDivElement>(null);
   const [adjustedPos, setAdjustedPos] = useState({ x: ctx?.x ?? 0, y: ctx?.y ?? 0 });
@@ -331,7 +334,13 @@ const FriendContextMenu: React.FC<{
     if (id != null) navigator.clipboard.writeText(String(id)).catch(() => {});
   };
 
-  const handleDeleteDialog = async () => {
+  const handleDeleteDialog = () => {
+    setDeleteLoginInput('');
+    setShowDeleteDialogConfirm(true);
+  };
+
+  const confirmDeleteDialog = async () => {
+    setShowDeleteDialogConfirm(false);
     onClose();
     const id = await getConvoId();
     if (id == null) return;
@@ -340,14 +349,17 @@ const FriendContextMenu: React.FC<{
         method: 'DELETE', headers: { Authorization: `Bearer ${authToken}` },
       });
       if (res.ok && isActiveFriend) {
-        // If this chat is open, navigate away — the WS event will also clear
-        // state on the other side, but handle it locally too for the deleter
         setCurrentChat('');
       }
     } catch (e) { reportError(e); }
   };
 
-  const handleBlock = async () => {
+  const handleBlock = () => {
+    setShowBlockConfirm(true);
+  };
+
+  const confirmBlock = async () => {
+    setShowBlockConfirm(false);
     onClose();
     try { await blockUser(friend.id); } catch (e) { reportError(e); }
   };
@@ -466,6 +478,62 @@ const FriendContextMenu: React.FC<{
           onCancel={() => setShowRemoveConfirm(false)}
         />
       )}
+
+      {showBlockConfirm && (
+        <ConfirmModal
+          title={tr('block_user_title')}
+          message={tr('block_user_confirm')}
+          confirmLabel={tr('block_user_button')}
+          cancelLabel={tr('cancel')}
+          onConfirm={confirmBlock}
+          onCancel={() => setShowBlockConfirm(false)}
+        />
+      )}
+
+      {showDeleteDialogConfirm && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9000 }}>
+          <div style={{ background: 'var(--bg-secondary)', borderRadius: 12, padding: 24, maxWidth: 420, width: '90%', border: '1px solid var(--border-color)' }}>
+            <h3 style={{ margin: '0 0 12px', color: 'var(--text-primary)', fontSize: 18, fontWeight: 700 }}>{tr('delete_dialog_title')}</h3>
+            <div style={{
+              background: 'rgba(239, 68, 68, 0.15)', border: '2px solid #ef4444', borderRadius: 8,
+              padding: '12px 14px', marginBottom: 16, textAlign: 'center',
+            }}>
+              <span style={{ color: '#ef4444', fontSize: 15, fontWeight: 800, letterSpacing: 0.3, lineHeight: 1.4 }}>
+                ⚠ {tr('delete_dialog_warning')}
+              </span>
+            </div>
+            <p style={{ margin: '0 0 8px', color: 'var(--text-secondary)', fontSize: 14 }}>{tr('delete_dialog_confirm')}</p>
+            <input
+              type="text"
+              value={deleteLoginInput}
+              onChange={e => setDeleteLoginInput(e.target.value)}
+              placeholder={currentUser?.username ?? ''}
+              autoFocus
+              style={{
+                width: '100%', padding: '8px 12px', fontSize: 14, borderRadius: 8,
+                border: '1px solid var(--border-color)', background: 'var(--bg-tertiary)',
+                color: 'var(--text-primary)', outline: 'none', boxSizing: 'border-box', marginBottom: 16,
+              }}
+            />
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button onClick={() => setShowDeleteDialogConfirm(false)} style={{ padding: '8px 20px', background: 'var(--bg-tertiary)', color: 'var(--text-primary)', border: '1px solid var(--border-color)', borderRadius: 8, fontSize: 14, cursor: 'pointer' }}>
+                {tr('cancel')}
+              </button>
+              <button
+                onClick={confirmDeleteDialog}
+                disabled={deleteLoginInput !== currentUser?.username}
+                style={{
+                  padding: '8px 20px', background: deleteLoginInput === currentUser?.username ? '#ef4444' : '#555',
+                  color: '#fff', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 600,
+                  cursor: deleteLoginInput === currentUser?.username ? 'pointer' : 'not-allowed', opacity: deleteLoginInput === currentUser?.username ? 1 : 0.5,
+                }}
+              >
+                {tr('delete_dialog_button')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -478,9 +546,12 @@ const BlockedContextMenu: React.FC<{
   ctx: BlockedCtxState;
   onClose: () => void;
 }> = ({ ctx, onClose }) => {
-  const { currentServerIP, authToken, setCurrentChat, currentChat, chatConversationId, unblockUser, removeBlockedContact } = useApp();
+  const { currentServerIP, authToken, setCurrentChat, currentChat, chatConversationId, unblockUser, removeBlockedContact, currentUser } = useApp();
   const ref = useRef<HTMLDivElement>(null);
   const [adjustedPos, setAdjustedPos] = useState({ x: ctx?.x ?? 0, y: ctx?.y ?? 0 });
+  const [showDeleteDialogConfirm, setShowDeleteDialogConfirm] = useState(false);
+  const [deleteLoginInput, setDeleteLoginInput] = useState('');
+  const tr = useTranslation();
 
   useLayoutEffect(() => {
     const el = ref.current;
@@ -525,7 +596,13 @@ const BlockedContextMenu: React.FC<{
     } catch (e) { reportError(e); }
   };
 
-  const handleDeleteDialog = async () => {
+  const handleDeleteDialog = () => {
+    setDeleteLoginInput('');
+    setShowDeleteDialogConfirm(true);
+  };
+
+  const confirmDeleteDialog = async () => {
+    setShowDeleteDialogConfirm(false);
     onClose();
     removeBlockedContact(user.id);
     if (isActive) setCurrentChat('');
@@ -565,6 +642,51 @@ const BlockedContextMenu: React.FC<{
       <button style={danger} onMouseEnter={h} onMouseLeave={l} onClick={handleDeleteDialog}>
         <Trash2 size={14} />Delete dialog
       </button>
+
+      {showDeleteDialogConfirm && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9000 }}>
+          <div style={{ background: 'var(--bg-secondary)', borderRadius: 12, padding: 24, maxWidth: 420, width: '90%', border: '1px solid var(--border-color)' }}>
+            <h3 style={{ margin: '0 0 12px', color: 'var(--text-primary)', fontSize: 18, fontWeight: 700 }}>{tr('delete_dialog_title')}</h3>
+            <div style={{
+              background: 'rgba(239, 68, 68, 0.15)', border: '2px solid #ef4444', borderRadius: 8,
+              padding: '12px 14px', marginBottom: 16, textAlign: 'center',
+            }}>
+              <span style={{ color: '#ef4444', fontSize: 15, fontWeight: 800, letterSpacing: 0.3, lineHeight: 1.4 }}>
+                ⚠ {tr('delete_dialog_warning')}
+              </span>
+            </div>
+            <p style={{ margin: '0 0 8px', color: 'var(--text-secondary)', fontSize: 14 }}>{tr('delete_dialog_confirm')}</p>
+            <input
+              type="text"
+              value={deleteLoginInput}
+              onChange={e => setDeleteLoginInput(e.target.value)}
+              placeholder={currentUser?.username ?? ''}
+              autoFocus
+              style={{
+                width: '100%', padding: '8px 12px', fontSize: 14, borderRadius: 8,
+                border: '1px solid var(--border-color)', background: 'var(--bg-tertiary)',
+                color: 'var(--text-primary)', outline: 'none', boxSizing: 'border-box', marginBottom: 16,
+              }}
+            />
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button onClick={() => setShowDeleteDialogConfirm(false)} style={{ padding: '8px 20px', background: 'var(--bg-tertiary)', color: 'var(--text-primary)', border: '1px solid var(--border-color)', borderRadius: 8, fontSize: 14, cursor: 'pointer' }}>
+                {tr('cancel')}
+              </button>
+              <button
+                onClick={confirmDeleteDialog}
+                disabled={deleteLoginInput !== currentUser?.username}
+                style={{
+                  padding: '8px 20px', background: deleteLoginInput === currentUser?.username ? '#ef4444' : '#555',
+                  color: '#fff', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 600,
+                  cursor: deleteLoginInput === currentUser?.username ? 'pointer' : 'not-allowed', opacity: deleteLoginInput === currentUser?.username ? 1 : 0.5,
+                }}
+              >
+                {tr('delete_dialog_button')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

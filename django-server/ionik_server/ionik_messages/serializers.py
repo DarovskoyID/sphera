@@ -29,10 +29,17 @@ class MessageSerializer(serializers.ModelSerializer):
     content = serializers.CharField(read_only=True)
     attachments = AttachmentSerializer(many=True, read_only=True)
     reply_to = ReplyPreviewSerializer(read_only=True)
+    is_pinned = serializers.SerializerMethodField()
 
     class Meta:
         model = Message
         fields = ['id', 'author', 'content', 'attachments', 'reply_to', 'is_pinned', 'created_at', 'delivered_at', 'read_at']
+
+    def get_is_pinned(self, obj):
+        pinned_ids = self.context.get('pinned_ids')
+        if pinned_ids is not None:
+            return obj.id in pinned_ids
+        return False
 
 
 class ConversationSerializer(serializers.ModelSerializer):

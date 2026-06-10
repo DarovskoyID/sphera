@@ -81,6 +81,15 @@ export const en = {
   delete_message_confirm: 'Are you sure you want to delete this message? This action cannot be undone.',
   delete_message_button: 'Delete',
 
+  block_user_title: 'Block User',
+  block_user_confirm: 'Are you sure you want to block this user? They will not be able to send you messages or see your status.',
+  block_user_button: 'Block',
+
+  delete_dialog_title: 'Delete Dialog',
+  delete_dialog_warning: 'THIS DIALOG WILL BE PERMANENTLY DELETED FOR BOTH PARTICIPANTS AND CANNOT BE RESTORED!',
+  delete_dialog_confirm: 'To confirm deletion, type your login:',
+  delete_dialog_button: 'Delete Forever',
+
   // Logout
   logout_title: 'Log Out',
   logout_confirm: 'Are you sure you want to log out?',
