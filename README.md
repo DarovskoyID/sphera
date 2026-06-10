@@ -1,75 +1,98 @@
-# React + TypeScript + Vite
+<p align="center">
+  <img src="https://img.shields.io/badge/React-18-61DAFB?style=for-the-badge&logo=react&logoColor=white" />
+  <img src="https://img.shields.io/badge/TypeScript-5-3178C6?style=for-the-badge&logo=typescript&logoColor=white" />
+  <img src="https://img.shields.io/badge/Vite-7-646CFF?style=for-the-badge&logo=vite&logoColor=white" />
+  <img src="https://img.shields.io/badge/Tailwind_CSS-3-06B6D4?style=for-the-badge&logo=tailwindcss&logoColor=white" />
+  <img src="https://img.shields.io/badge/Supabase-Backend-3FCF8E?style=for-the-badge&logo=supabase&logoColor=white" />
+</p>
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+# ⚡ Ionik
 
-Currently, two official plugins are available:
+**Real-time messenger with guilds, voice calls, and rich chat features** — inspired by Discord, built with React + TypeScript.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+---
 
-## React Compiler
+## ✨ Features
 
-The React Compiler is enabled on this template. See [this documentation](https://react.dev/learn/react-compiler) for more information.
+| Category | Details |
+|----------|---------|
+| **Messaging** | Direct messages, group chats, file attachments, emoji & sticker picker |
+| **Guilds** | Server-like guilds with text channels, voice rooms, roles & permissions |
+| **Voice Calls** | 1-on-1 and guild voice rooms with incoming call modal |
+| **Auth** | Sign up / sign in with Supabase authentication |
+| **i18n** | 7 languages — English, Russian, German, French, Spanish, Portuguese, Chinese |
+| **Themes** | Customizable appearance & settings panel |
+| **Responsive** | Full mobile support with adaptive layout |
 
-Note: This will impact Vite dev & build performances.
+---
 
-## Expanding the ESLint configuration
+## 🚀 Getting Started
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+### Prerequisites
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+- **Node.js** 18+
+- **npm** or **yarn**
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+### Installation
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+# Clone the repository
+git clone https://github.com/DarovskoyID/ionik-all.git
+cd ionik-all
+
+# Install dependencies
+npm install
+
+# Start the dev server
+npm run dev
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+The app will be available at `http://localhost:5173`.
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+### Scripts
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+| Command | Description |
+|---------|-------------|
+| `npm run dev` | Start development server with HMR |
+| `npm run build` | Build for production |
+| `npm run preview` | Preview production build |
+| `npm run lint` | Run ESLint |
+| `npm run typecheck` | Type-check without emitting |
+
+---
+
+## 🏗 Tech Stack
+
+- **Frontend** — React 18, TypeScript, Tailwind CSS
+- **Build** — Vite 7
+- **Backend** — Supabase (auth, database, realtime)
+- **Icons** — Lucide React
+
+---
+
+## 📁 Project Structure
+
 ```
+src/
+├── components/       # UI components (Chat, Guild, Auth, Calls, etc.)
+├── config/           # Server & network configuration
+├── context/          # React context (AppContext)
+├── data/             # Mock data & emoji sets
+├── i18n/             # Translations (en, ru, de, fr, es, pt, zh)
+├── types/            # TypeScript interfaces
+├── utils/            # Helper functions
+├── App.tsx           # Root component
+└── main.tsx          # Entry point
+```
+
+---
+
+## 🌍 Supported Languages
+
+🇬🇧 English · 🇷🇺 Русский · 🇩🇪 Deutsch · 🇫🇷 Français · 🇪🇸 Español · 🇧🇷 Português · 🇨🇳 中文
+
+---
+
+## 📄 License
+
+This project is private.
