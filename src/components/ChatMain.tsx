@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useLayoutEffect } from 'react';
-import { Phone, PhoneOff, PhoneIncoming, PhoneMissed, Video, Search, Menu, ArrowLeft, Plus, Send, FileText, FileImage, FileVideo, FileAudio, File, Download, X, MoreHorizontal, Reply, Copy, Trash2, Flag, Pin, Ban, Check, CheckCheck } from 'lucide-react';
+import { Phone, PhoneOff, PhoneIncoming, PhoneMissed, Video, Search, Menu, ArrowLeft, Plus, Send, FileText, FileImage, FileVideo, FileAudio, File, Download, X, MoreHorizontal, Reply, Copy, Trash2, Flag, Pin, Ban, Check, CheckCheck, ChevronUp, ChevronDown, Mic, Circle, Play, Square, Pause } from 'lucide-react';
 import type { ChatAttachment, ChatMessage as ChatMessageType } from '../types';
 import { useApp, reportError } from '../context/AppContext';
 import { Settings } from './Settings';
@@ -56,7 +56,10 @@ export const ChatMain: React.FC = () => {
 const ChatHeader: React.FC<{
   onSearchToggle: () => void;
   searchOpen: boolean;
-}> = ({ onSearchToggle, searchOpen }) => {
+  onPinnedToggle: () => void;
+  pinnedOpen: boolean;
+  pinnedCount: number;
+}> = ({ onSearchToggle, searchOpen, onPinnedToggle, pinnedOpen, pinnedCount }) => {
   const { isCallActive, currentChat, friends, blockedContacts, toggleMobileSidebar, setCallActive, setVideoActive, setCallTargetId, setMobileActivePanel } = useApp();
   const tr = useTranslation();
 
@@ -114,6 +117,22 @@ const ChatHeader: React.FC<{
             <Video size={20} />
           </button>
         </>}
+        {pinnedCount > 0 && (
+          <button
+            className="icon-btn glass-btn"
+            title="Pinned messages"
+            onClick={onPinnedToggle}
+            style={{ color: pinnedOpen ? 'var(--accent-primary)' : undefined, position: 'relative' }}
+          >
+            <Pin size={20} />
+            <span style={{
+              position: 'absolute', top: 2, right: 2,
+              background: 'var(--accent-primary)', color: '#fff',
+              fontSize: 9, fontWeight: 700, borderRadius: '50%',
+              width: 14, height: 14, display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}>{pinnedCount}</span>
+          </button>
+        )}
         <button
           className="icon-btn glass-btn"
           title={tr('chat_search')}
@@ -173,6 +192,66 @@ const MessageSearchBar: React.FC<{
   );
 };
 
+const PinnedBar: React.FC<{
+  onClose: () => void;
+  onScrollTo: (msgId: string) => void;
+}> = ({ onClose, onScrollTo }) => {
+  const { chatMessages, pinMessage } = useApp();
+  const pinned = chatMessages.filter(m => m.is_pinned);
+  const [idx, setIdx] = useState(0);
+
+  useEffect(() => { setIdx(0); }, [pinned.length]);
+
+  if (pinned.length === 0) return null;
+
+  const current = pinned[Math.min(idx, pinned.length - 1)];
+  const displayName = current.author.nickname || current.author.username;
+  const preview = current.content?.slice(0, 80) || '(attachment)';
+
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 8,
+      padding: '6px 12px', background: 'var(--bg-secondary)',
+      borderBottom: '1px solid var(--border-color)', flexShrink: 0,
+      minHeight: 40,
+    }}>
+      <Pin size={14} style={{ color: 'var(--accent-primary)', flexShrink: 0 }} />
+      <div
+        style={{ flex: 1, minWidth: 0, cursor: 'pointer', overflow: 'hidden' }}
+        onClick={() => onScrollTo(current.id)}
+      >
+        <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--accent-primary)' }}>{displayName}</div>
+        <div style={{ fontSize: 12, color: 'var(--text-secondary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{preview}</div>
+      </div>
+      {pinned.length > 1 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 0, flexShrink: 0 }}>
+          <button
+            onClick={() => setIdx(i => (i - 1 + pinned.length) % pinned.length)}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', padding: 0, lineHeight: 1, display: 'flex' }}
+          ><ChevronUp size={14} /></button>
+          <button
+            onClick={() => setIdx(i => (i + 1) % pinned.length)}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', padding: 0, lineHeight: 1, display: 'flex' }}
+          ><ChevronDown size={14} /></button>
+        </div>
+      )}
+      <span style={{ fontSize: 11, color: 'var(--text-tertiary)', flexShrink: 0 }}>
+        {pinned.length > 1 ? `${Math.min(idx, pinned.length - 1) + 1}/${pinned.length}` : ''}
+      </span>
+      <button
+        onClick={() => pinMessage(current.id)}
+        title="Unpin"
+        style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-tertiary)', padding: 2, display: 'flex', flexShrink: 0 }}
+      ><X size={14} /></button>
+      <button
+        onClick={onClose}
+        title="Close"
+        style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-tertiary)', padding: 2, display: 'flex', flexShrink: 0 }}
+      ><X size={16} /></button>
+    </div>
+  );
+};
+
 const ChatView: React.FC = () => {
   const { chatConversationId, listScheduled, cancelScheduledMessage, chatMessages, currentChat, blockedContacts, chatBlockedByOther } = useApp();
   const isBlockedByMe = blockedContacts.some(u => String(u.id) === String(currentChat));
@@ -181,6 +260,8 @@ const ChatView: React.FC = () => {
   const [scheduled, setScheduled] = useState<ScheduledItem[]>([]);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [pinnedBarOpen, setPinnedBarOpen] = useState(false);
+  const scrollToMsgRef = useRef<((id: string) => void) | null>(null);
 
   // Load pending scheduled messages when conversation opens
   useEffect(() => {
@@ -219,7 +300,16 @@ const ChatView: React.FC = () => {
       <ChatHeader
         onSearchToggle={() => { setSearchOpen(v => !v); setSearchQuery(''); }}
         searchOpen={searchOpen}
+        onPinnedToggle={() => setPinnedBarOpen(v => !v)}
+        pinnedOpen={pinnedBarOpen}
+        pinnedCount={chatMessages.filter(m => m.is_pinned).length}
       />
+      {pinnedBarOpen && (
+        <PinnedBar
+          onClose={() => setPinnedBarOpen(false)}
+          onScrollTo={id => scrollToMsgRef.current?.(id)}
+        />
+      )}
       {searchOpen && (
         <MessageSearchBar
           query={searchQuery}
@@ -234,6 +324,7 @@ const ChatView: React.FC = () => {
       <MessagesContainer
         onReply={setReplyTo}
         searchQuery={searchQuery}
+        scrollToRef={scrollToMsgRef}
       />
       {isBlockedByMe
         ? <div style={{
@@ -624,7 +715,7 @@ const CallMessageRow: React.FC<{
   );
 };
 
-const MessageRow = React.memo(({ msg, isOwn, isFirstInGroup, onContextMenu, onReply, customEmojis, searchQuery }: {
+const MessageRow = React.memo(({ msg, isOwn, isFirstInGroup, onContextMenu, onReply, customEmojis, searchQuery, highlight }: {
   msg: ChatMessageType;
   isOwn: boolean;
   isFirstInGroup: boolean;
@@ -632,6 +723,7 @@ const MessageRow = React.memo(({ msg, isOwn, isFirstInGroup, onContextMenu, onRe
   onReply: (msg: ChatMessageType) => void;
   customEmojis: CustomEmoji[];
   searchQuery?: string;
+  highlight?: boolean;
 }) => {
   const displayName = msg.author.nickname || msg.author.username;
   const time = new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -642,19 +734,23 @@ const MessageRow = React.memo(({ msg, isOwn, isFirstInGroup, onContextMenu, onRe
 
   return (
     <div
+      data-msg-id={msg.id}
       className={`message-item ${isOwn ? 'own' : ''} ${isFirstInGroup ? '' : 'compact'}`}
       style={{
         minHeight: isFirstInGroup ? MSG_HEIGHT : undefined, position: 'relative',
-        background: isSearchMatch
+        background: highlight
+          ? 'rgba(0,112,243,0.18)'
+          : isSearchMatch
           ? 'rgba(255,200,0,0.07)'
           : msg.is_pinned ? 'rgba(0,112,243,0.08)' : undefined,
+        transition: 'background 0.3s ease',
       }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       onContextMenu={e => { e.preventDefault(); onContextMenu(e, msg); }}
     >
       {msg.is_pinned && (
-        <div style={{ position: 'absolute', top: 4, right: 8, color: 'var(--accent-primary)', opacity: 0.7 }}>
+        <div style={{ position: 'absolute', top: 4, left: 4, color: 'var(--accent-primary)', opacity: 0.7, zIndex: 1 }}>
           <Pin size={12} />
         </div>
       )}
@@ -716,7 +812,7 @@ const MessageRow = React.memo(({ msg, isOwn, isFirstInGroup, onContextMenu, onRe
         </div>
       </div>
       {hovered && (
-        <div style={{ position: 'absolute', top: 4, right: msg.is_pinned ? 28 : 8, display: 'flex', gap: 4 }}>
+        <div style={{ position: 'absolute', top: 4, right: 8, display: 'flex', gap: 4 }}>
           <button
             onClick={() => onReply(msg)}
             style={{ background: 'var(--bg-secondary)', border: 'none', borderRadius: 6, padding: '3px 6px', cursor: 'pointer', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center' }}
@@ -740,7 +836,8 @@ const MessageRow = React.memo(({ msg, isOwn, isFirstInGroup, onContextMenu, onRe
 const MessagesContainer: React.FC<{
   onReply: (msg: ChatMessageType) => void;
   searchQuery: string;
-}> = ({ onReply, searchQuery }) => {
+  scrollToRef?: React.MutableRefObject<((id: string) => void) | null>;
+}> = ({ onReply, searchQuery, scrollToRef }) => {
   const { chatMessages, userIDonServer, loadOlderMessages, deleteMessage, pinMessage, reportMessage, customEmojis, currentChat, setCallActive, setVideoActive, setCallTargetId } = useApp();
   const filteredMessages = searchQuery.trim()
     ? chatMessages.filter(m => m.content?.toLowerCase().includes(searchQuery.toLowerCase()))
@@ -751,6 +848,22 @@ const MessagesContainer: React.FC<{
   const loadingOlder = useRef(false);
   const [ctxMenu, setCtxMenu] = useState<CtxMenu | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [highlightId, setHighlightId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (scrollToRef) {
+      scrollToRef.current = (id: string) => {
+        const el = containerRef.current;
+        if (!el) return;
+        const target = el.querySelector(`[data-msg-id="${id}"]`) as HTMLElement | null;
+        if (target) {
+          target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          setHighlightId(id);
+          setTimeout(() => setHighlightId(null), 1500);
+        }
+      };
+    }
+  }, [scrollToRef]);
 
   useEffect(() => {
     const el = containerRef.current;
@@ -839,6 +952,7 @@ const MessagesContainer: React.FC<{
               onReply={onReply}
               customEmojis={customEmojis}
               searchQuery={searchQuery}
+              highlight={highlightId === msg.id}
             />
             );
           })}
@@ -852,6 +966,9 @@ const MAX_FILES = 5;
 
 type PendingFile = { file: File; preview?: string };
 
+type RecordMode = 'idle' | 'voice' | 'video';
+type RecordState = 'idle' | 'recording' | 'preview';
+
 const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: () => void; onScheduled: (item: ScheduledItem) => void }> = ({ replyTo, onCancelReply, onScheduled }) => {
   const { sendChatMessage, chatConversationId, currentServerIP, authToken, scheduleMessage } = useApp();
   const tr = useTranslation();
@@ -863,6 +980,120 @@ const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: (
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pickerButtonRef = useRef<HTMLButtonElement>(null);
   const stickerSendGuard = useRef(false);
+
+  const [recordMode, setRecordMode] = useState<RecordMode>('voice');
+  const [recordState, setRecordState] = useState<RecordState>('idle');
+  const [recordedBlob, setRecordedBlob] = useState<Blob | null>(null);
+  const [recordedUrl, setRecordedUrl] = useState<string | null>(null);
+  const [recordDuration, setRecordDuration] = useState(0);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+  const recordTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isPressHold = useRef(false);
+  const audioPreviewRef = useRef<HTMLAudioElement | null>(null);
+  const videoPreviewRef = useRef<HTMLVideoElement | null>(null);
+
+  const stopMediaStream = useCallback(() => {
+    mediaStreamRef.current?.getTracks().forEach(t => t.stop());
+    mediaStreamRef.current = null;
+  }, []);
+
+  const cleanupRecording = useCallback(() => {
+    if (recordTimerRef.current) { clearInterval(recordTimerRef.current); recordTimerRef.current = null; }
+    if (pressTimerRef.current) { clearTimeout(pressTimerRef.current); pressTimerRef.current = null; }
+    if (mediaRecorderRef.current?.state !== 'inactive') {
+      try { mediaRecorderRef.current?.stop(); } catch {}
+    }
+    mediaRecorderRef.current = null;
+    stopMediaStream();
+    chunksRef.current = [];
+  }, [stopMediaStream]);
+
+  const startRecording = useCallback(async (mode: RecordMode) => {
+    try {
+      const constraints = mode === 'video'
+        ? { audio: true, video: { width: 240, height: 240, facingMode: 'user' } }
+        : { audio: true };
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      mediaStreamRef.current = stream;
+      const mimeType = mode === 'video'
+        ? (MediaRecorder.isTypeSupported('video/webm;codecs=vp9,opus') ? 'video/webm;codecs=vp9,opus' : 'video/webm')
+        : (MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : 'audio/webm');
+      const recorder = new MediaRecorder(stream, { mimeType });
+      chunksRef.current = [];
+      recorder.ondataavailable = e => { if (e.data.size > 0) chunksRef.current.push(e.data); };
+      recorder.onstop = () => {
+        const blob = new Blob(chunksRef.current, { type: mimeType });
+        const url = URL.createObjectURL(blob);
+        setRecordedBlob(blob);
+        setRecordedUrl(url);
+        setRecordState('preview');
+        stopMediaStream();
+      };
+      mediaRecorderRef.current = recorder;
+      recorder.start();
+      setRecordState('recording');
+      setRecordDuration(0);
+      recordTimerRef.current = setInterval(() => setRecordDuration(d => d + 1), 1000);
+    } catch {
+      stopMediaStream();
+    }
+  }, [stopMediaStream]);
+
+  const stopRecording = useCallback(() => {
+    if (recordTimerRef.current) { clearInterval(recordTimerRef.current); recordTimerRef.current = null; }
+    if (mediaRecorderRef.current?.state === 'recording') {
+      mediaRecorderRef.current.stop();
+    }
+  }, []);
+
+  const discardRecording = useCallback(() => {
+    cleanupRecording();
+    if (recordedUrl) URL.revokeObjectURL(recordedUrl);
+    setRecordedBlob(null);
+    setRecordedUrl(null);
+    setRecordState('idle');
+    setRecordDuration(0);
+    setIsPlaying(false);
+  }, [cleanupRecording, recordedUrl]);
+
+  const handleRecordButtonDown = useCallback(() => {
+    isPressHold.current = false;
+    pressTimerRef.current = setTimeout(() => {
+      isPressHold.current = true;
+      startRecording(recordMode);
+    }, 300);
+  }, [recordMode, startRecording]);
+
+  const handleRecordButtonUp = useCallback(() => {
+    if (pressTimerRef.current) { clearTimeout(pressTimerRef.current); pressTimerRef.current = null; }
+    if (isPressHold.current && recordState === 'recording') {
+      stopRecording();
+    } else if (!isPressHold.current) {
+      setRecordMode(prev => prev === 'voice' ? 'video' : 'voice');
+    }
+    isPressHold.current = false;
+  }, [recordState, stopRecording]);
+
+  const togglePlayback = useCallback(() => {
+    if (!recordedUrl) return;
+    if (recordMode === 'video') {
+      const vid = videoPreviewRef.current;
+      if (!vid) return;
+      if (isPlaying) { vid.pause(); setIsPlaying(false); }
+      else { vid.play(); setIsPlaying(true); }
+    } else {
+      if (!audioPreviewRef.current) {
+        audioPreviewRef.current = new Audio(recordedUrl);
+        audioPreviewRef.current.onended = () => setIsPlaying(false);
+      }
+      if (isPlaying) { audioPreviewRef.current.pause(); setIsPlaying(false); }
+      else { audioPreviewRef.current.play(); setIsPlaying(true); }
+    }
+  }, [recordedUrl, isPlaying, recordMode]);
 
   const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const selected = Array.from(e.target.files || []);
@@ -968,7 +1199,40 @@ const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: (
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
   };
 
+  const sendRecording = useCallback(async () => {
+    if (!recordedBlob || !chatConversationId) return;
+    setUploading(true);
+    try {
+      const ext = recordMode === 'video' ? 'webm' : 'webm';
+      const fileName = recordMode === 'video' ? `video_${Date.now()}.${ext}` : `voice_${Date.now()}.${ext}`;
+      const file = new File([recordedBlob], fileName, { type: recordedBlob.type });
+      const form = new FormData();
+      form.append('file', file);
+      const res = await fetch(
+        `${currentServerIP}/api/conversations/${chatConversationId}/upload/`,
+        { method: 'POST', headers: { Authorization: `Bearer ${authToken}` }, body: form }
+      );
+      if (res.ok) {
+        const d = await res.json();
+        sendChatMessage('', [d.id], replyTo?.id);
+        onCancelReply();
+      }
+    } catch (e) { reportError(e); }
+    finally { setUploading(false); }
+    discardRecording();
+  }, [recordedBlob, chatConversationId, currentServerIP, authToken, sendChatMessage, replyTo, onCancelReply, discardRecording, recordMode]);
+
+  useEffect(() => {
+    return () => {
+      cleanupRecording();
+      if (recordedUrl) URL.revokeObjectURL(recordedUrl);
+      if (audioPreviewRef.current) { audioPreviewRef.current.pause(); audioPreviewRef.current = null; }
+    };
+  }, []);
+
   const canSend = message.trim().length > 0 || pendingFiles.length > 0;
+  const hasText = message.trim().length > 0;
+  const formatTime = (s: number) => `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, '0')}`;
 
   return (
     <div className="message-input-container glass-panel" style={{ flexDirection: 'column', gap: 0, alignItems: 'stretch' }}>
@@ -1018,6 +1282,51 @@ const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: (
         </div>
       )}
 
+      {/* Recording preview */}
+      {recordState === 'preview' && recordedUrl && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '8px 8px 0', padding: '8px 12px', borderRadius: 10, background: 'var(--bg-secondary)', border: '1px solid var(--border-color)' }}>
+          {recordMode === 'video' ? (
+            <video
+              ref={videoPreviewRef}
+              src={recordedUrl}
+              onEnded={() => setIsPlaying(false)}
+              style={{ width: 60, height: 60, borderRadius: '50%', objectFit: 'cover', background: '#000', flexShrink: 0 }}
+            />
+          ) : (
+            <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'var(--accent-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              <Mic size={18} style={{ color: '#fff' }} />
+            </div>
+          )}
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>
+              {recordMode === 'video' ? tr('chat_video_circle') : tr('chat_voice_message')}
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{formatTime(recordDuration)}</div>
+          </div>
+          <button onClick={togglePlayback} className="icon-btn glass-btn" title={isPlaying ? 'Pause' : 'Play'}>
+            {isPlaying ? <Pause size={18} /> : <Play size={18} />}
+          </button>
+          <button onClick={discardRecording} className="icon-btn glass-btn" title={tr('chat_record_cancel')} style={{ color: '#ff4444' }}>
+            <Trash2 size={18} />
+          </button>
+          <button onClick={sendRecording} className="icon-btn glass-btn send-btn" title={tr('chat_record_send')} disabled={uploading}>
+            <Send size={18} />
+          </button>
+        </div>
+      )}
+
+      {/* Recording indicator */}
+      {recordState === 'recording' && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '8px 8px 0', padding: '8px 12px', borderRadius: 10, background: 'var(--bg-secondary)', border: '1px solid #ff4444' }}>
+          <div style={{ width: 10, height: 10, borderRadius: '50%', background: '#ff4444', animation: 'pulse 1s infinite' }} />
+          <span style={{ fontSize: 13, color: '#ff4444', fontWeight: 600 }}>{tr('chat_recording')}</span>
+          <span style={{ fontSize: 13, color: 'var(--text-secondary)', marginLeft: 'auto' }}>{formatTime(recordDuration)}</span>
+          <button onClick={() => { stopRecording(); }} className="icon-btn glass-btn" title="Stop" style={{ color: '#ff4444' }}>
+            <Square size={18} />
+          </button>
+        </div>
+      )}
+
       {/* Input row */}
       <div style={{ display: 'flex', gap : 8, alignItems: 'center', width: '100%', position: 'relative' }}>
         <input ref={fileInputRef} type="file" multiple style={{ display: 'none' }} onChange={handleFileSelect} />
@@ -1033,7 +1342,7 @@ const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: (
             maxLength={5000}
             onChange={e => setMessage(e.target.value)}
             onKeyDown={handleKeyDown}
-            disabled={uploading}
+            disabled={uploading || recordState !== 'idle'}
           />
           {message.length > 4000 && (
             <span style={{
@@ -1079,17 +1388,32 @@ const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: (
           />
         )}
 
-        <button
-          className="icon-btn glass-btn send-btn"
-          onClick={handleSend}
-          title={tr('chat_send')}
-          disabled={uploading || !canSend}
-        >
-          {uploading
-            ? <div style={{ width: 18, height: 18, border: '2px solid currentColor', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} />
-            : <Send size={20} />
-          }
-        </button>
+        {hasText || pendingFiles.length > 0 ? (
+          <button
+            className="icon-btn glass-btn send-btn"
+            onClick={handleSend}
+            title={tr('chat_send')}
+            disabled={uploading || !canSend}
+          >
+            {uploading
+              ? <div style={{ width: 18, height: 18, border: '2px solid currentColor', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} />
+              : <Send size={20} />
+            }
+          </button>
+        ) : recordState === 'idle' ? (
+          <button
+            className="icon-btn glass-btn send-btn"
+            title={recordMode === 'voice' ? tr('chat_voice_message') : tr('chat_video_circle')}
+            onMouseDown={handleRecordButtonDown}
+            onMouseUp={handleRecordButtonUp}
+            onMouseLeave={() => { if (pressTimerRef.current) { clearTimeout(pressTimerRef.current); pressTimerRef.current = null; } }}
+            onTouchStart={handleRecordButtonDown}
+            onTouchEnd={e => { e.preventDefault(); handleRecordButtonUp(); }}
+            disabled={uploading}
+          >
+            {recordMode === 'voice' ? <Mic size={20} /> : <Circle size={20} />}
+          </button>
+        ) : null}
       </div>
     </div>
   );

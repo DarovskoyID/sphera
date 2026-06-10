@@ -26,6 +26,12 @@ export const en = {
   chat_send: 'Send Message',
   chat_attachment: 'Add Attachment',
   chat_emoji: 'Emoji',
+  chat_voice_message: 'Voice message',
+  chat_video_circle: 'Video message',
+  chat_recording: 'Recording...',
+  chat_record_cancel: 'Cancel',
+  chat_record_send: 'Send',
+  chat_record_preview: 'Preview',
   chat_no_messages: 'No messages yet. Say hello!',
   chat_search: 'Search',
   chat_voice_call: 'Voice Call',
@@ -283,6 +289,10 @@ export const en = {
   // Misc
   loading: 'Loading...',
   error_network: 'Network error',
+  error_unauthorized: 'Session expired. Please log in again.',
+  error_forbidden: 'Access denied.',
+  error_not_found: 'Resource not found.',
+  error_server: 'Server error. Please try again later.',
   server_channels_soon: 'Server channels coming soon',
 
   // Guild (server)

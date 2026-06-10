@@ -3,7 +3,7 @@ import type { Translations } from './index';
 export const zh: Translations = {
   auth_create_account: '创建账户', auth_welcome_back: '欢迎回来', auth_signup_desc: '注册以开始使用', auth_signin_desc: '登录以继续', auth_login: '用户名', auth_register: '注册', auth_password: '密码', auth_nickname: '昵称（显示名称）', auth_photo: '头像', auth_already_have: '已有账户？', auth_dont_have: '没有账户？', auth_signin: '登录', auth_connection_error: '连接错误',
   nav_settings: '设置', nav_direct_messages: '私信', nav_back: '返回', nav_menu: '菜单', nav_toggle_theme: '切换主题',
-  chat_type_message: '输入消息...', chat_send: '发送', chat_attachment: '添加附件', chat_emoji: '表情', chat_no_messages: '还没有消息，打个招呼吧！', chat_search: '搜索', chat_voice_call: '语音通话', chat_video_call: '视频通话',
+  chat_type_message: '输入消息...', chat_send: '发送', chat_attachment: '添加附件', chat_emoji: '表情', chat_voice_message: '语音消息', chat_video_circle: '视频消息', chat_recording: '录制中...', chat_record_cancel: '取消', chat_record_send: '发送', chat_record_preview: '预览', chat_no_messages: '还没有消息，打个招呼吧！', chat_search: '搜索', chat_voice_call: '语音通话', chat_video_call: '视频通话',
   welcome_title: '你的消息', welcome_desc: '从侧边栏选择一个对话开始聊天。',
   friends_search: '搜索好友', friends_requests: '好友请求', friends_wants_to_be: '想成为好友', friends_accept: '接受', friends_decline: '拒绝', friends_direct_messages: '私信', friends_add: '添加好友', friends_search_placeholder: '按用户名或昵称搜索', friends_find: '查找', friends_no_users: '未找到用户', friends_search_failed: '搜索失败', friends_request_sent: '请求已发送！', friends_request_pending: '已发送请求', friends_requests_sent: '已发送的请求', friends_none: '还没有好友。点击 + 添加。',
   call_incoming: '来电', call_calling_you: '正在呼叫你...', call_accept: '接听', call_decline: '拒绝', call_no_video: '无视频', call_video_playing: '视频播放中', call_video_enabled: '视频已开启', call_video_disabled: '视频已关闭', call_video_off: '视频已关闭', call_remote_video_off: '对方已关闭视频', call_msg_completed: '通话结束', call_msg_missed: '未接来电', call_msg_declined: '通话已拒绝', call_msg_cancelled: '通话已取消', call_msg_no_answer: '无人接听', call_msg_voice: '语音通话', call_msg_video: '视频通话', call_msg_duration: '时长', call_msg_callback: '回拨',
@@ -29,7 +29,7 @@ export const zh: Translations = {
   sacc_title: '无障碍', sacc_desc: '配置无障碍功能以提高可用性。', sacc_contrast: '高对比度模式', sacc_reader: '屏幕阅读器支持',
   sbind_title: '快捷键', sbind_mute: '静音/取消静音', sbind_deafen: '全部静音/取消', sbind_ptt: '按键说话',
   sexp_title: '导出与导入', sexp_desc: '备份和恢复你的设置', sexp_export: '导出设置', sexp_export_desc: '将设置下载为JSON文件', sexp_import: '导入设置', sexp_import_desc: '上传之前导出的设置文件',
-  loading: '加载中...', error_network: '网络错误', server_channels_soon: '服务器频道即将推出',
+  loading: '加载中...', error_network: '网络错误', error_unauthorized: '会话已过期，请重新登录。', error_forbidden: '访问被拒绝。', error_not_found: '资源未找到。', error_server: '服务器错误，请稍后重试。', server_channels_soon: '服务器频道即将推出',
 
   guild_create_server: '创建服务器',
   guild_join_server: '加入服务器',

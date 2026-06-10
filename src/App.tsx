@@ -49,7 +49,9 @@ function GuildKickNotification() {
 
 const TOAST_DURATION = 5000;
 
-function ToastItem({ id, message, onDismiss }: { id: number; message: string; onDismiss: (id: number) => void }) {
+function ToastItem({ id, message: rawMessage, onDismiss }: { id: number; message: string; onDismiss: (id: number) => void }) {
+  const tr = useTranslation();
+  const message = rawMessage.startsWith('error_') ? (tr(rawMessage as any) || rawMessage) : rawMessage;
   const [exiting, setExiting] = useState(false);
   const [paused, setPaused] = useState(false);
   const remainRef = useRef(TOAST_DURATION);
@@ -162,7 +164,10 @@ function AppContent() {
   const isMobile = useMobile();
 
   if (!authToken) {
-    return <AuthScreen />;
+    return <>
+      <AuthScreen />
+      <ToastContainer />
+    </>;
   }
 
   const inChat = isCallActive && currentView === 'home' && !!currentChat;

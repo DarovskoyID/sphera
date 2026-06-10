@@ -26,7 +26,7 @@ let _errorSink: ((msg: string) => void) | null = null;
 function _dispatch(msg: string) {
   if (_errorSink) {
     _errorSink(msg);
-  } else {
+  } else if (!_errorQueue.includes(msg)) {
     _errorQueue.push(msg);
   }
 }
@@ -268,8 +268,11 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
   const toastIdRef = useRef(0);
   const [toasts, setToasts] = useState<Array<{ id: number; message: string }>>([]);
   const addToast = useCallback((message: string) => {
-    const id = ++toastIdRef.current;
-    setToasts(prev => [...prev, { id, message }]);
+    setToasts(prev => {
+      if (prev.some(t => t.message === message)) return prev;
+      const id = ++toastIdRef.current;
+      return [...prev, { id, message }];
+    });
   }, []);
   const dismissToast = useCallback((id: number) => {
     setToasts(prev => prev.filter(t => t.id !== id));
@@ -294,14 +297,31 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
   const chatLastMsgId = useRef<string | null>(null);
   const [chatReinitTrigger, setChatReinitTrigger] = useState(0);
 
+  // ==================== Logout helper ====================
+  const logout = useCallback(() => {
+    localStorage.removeItem('authToken');
+    setState(prev => ({ ...prev, authToken: '', currentUser: null, friends: [], pendingRequests: [], sentRequests: [], userIDonServer: '', currentChat: '' }));
+  }, []);
+
+  const handleAuthError = useCallback((status: number) => {
+    if (status === 401) {
+      logout();
+      throw new Error('error_unauthorized');
+    }
+    if (status === 403) throw new Error('error_forbidden');
+    if (status === 404) throw new Error('error_not_found');
+    if (status >= 500) throw new Error('error_server');
+    throw new Error(`Error ${status}`);
+  }, [logout]);
+
   // ==================== API helpers ====================
   const apiGet = useCallback(async (path: string, token: string, serverIP: string) => {
     const res = await fetch(`${serverIP}${path}`, {
       headers: { 'Authorization': `Bearer ${token}` },
     });
-    if (!res.ok) throw new Error(`${res.status}`);
+    if (!res.ok) handleAuthError(res.status);
     return res.json();
-  }, []);
+  }, [handleAuthError]);
 
   const apiPost = useCallback(async (path: string, token: string, serverIP: string, body: any) => {
     const res = await fetch(`${serverIP}${path}`, {
@@ -310,11 +330,16 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       body: JSON.stringify(body),
     });
     if (!res.ok) {
-      const data = await res.json();
-      throw new Error(typeof data === 'object' ? Object.values(data).flat().join(', ') : String(data));
+      if (res.status === 401) { logout(); throw new Error('error_unauthorized'); }
+      const data = await res.json().catch(() => null);
+      if (data && typeof data === 'object') {
+        const msg = Object.values(data).flat().join(', ');
+        if (msg) throw new Error(msg);
+      }
+      handleAuthError(res.status);
     }
     return res.json();
-  }, []);
+  }, [handleAuthError, logout]);
 
   // ==================== Load user info after login ====================
   useEffect(() => {
@@ -579,7 +604,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
           setState(prev => ({ ...prev, chatBlockedByOther: true, chatMessages: [], chatConversationId: null }));
           return;
         }
-        if (!convoRes.ok) throw new Error(`${convoRes.status}`);
+        if (!convoRes.ok) handleAuthError(convoRes.status);
         const convo = await convoRes.json();
         if (cancelled) return;
         if (convo.blocked_by_other) {
@@ -1529,7 +1554,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
         headers: { Authorization: `Bearer ${state.authToken}` },
         body: form,
       });
-      if (!res.ok) throw new Error(`${res.status}`);
+      if (!res.ok) handleAuthError(res.status);
       const updated: Guild = await res.json();
       setState(prev => ({
         ...prev,
@@ -1554,7 +1579,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       const res = await fetch(`${state.currentServerIP}/api/guilds/${guildId}/emojis/`, {
         method: 'POST', headers: { Authorization: `Bearer ${state.authToken}` }, body: form,
       });
-      if (!res.ok) throw new Error(`${res.status}`);
+      if (!res.ok) handleAuthError(res.status);
       const e: GuildEmoji = await res.json();
       return { ...e, image: e.image ? `${state.currentServerIP}${e.image}` : e.image };
     } catch (err) { reportError(err); return null; }
@@ -1582,7 +1607,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       const res = await fetch(`${state.currentServerIP}/api/guilds/${guildId}/stickers/`, {
         method: 'POST', headers: { Authorization: `Bearer ${state.authToken}` }, body: form,
       });
-      if (!res.ok) throw new Error(`${res.status}`);
+      if (!res.ok) handleAuthError(res.status);
       const s: GuildSticker = await res.json();
       return { ...s, image: s.image ? `${state.currentServerIP}${s.image}` : s.image };
     } catch (err) { reportError(err); return null; }
@@ -1609,7 +1634,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       const res = await fetch(`${state.currentServerIP}/api/guilds/${guildId}/sounds/`, {
         method: 'POST', headers: { Authorization: `Bearer ${state.authToken}` }, body: form,
       });
-      if (!res.ok) throw new Error(`${res.status}`);
+      if (!res.ok) handleAuthError(res.status);
       const s: GuildSound = await res.json();
       return { ...s, url: s.url ? `${state.currentServerIP}${s.url}` : s.url };
     } catch (err) { reportError(err); return null; }
@@ -1632,7 +1657,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
         method: 'POST', headers: { Authorization: `Bearer ${state.authToken}`, 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
       });
-      if (!res.ok) throw new Error(`${res.status}`);
+      if (!res.ok) handleAuthError(res.status);
       return res.json();
     } catch (err) { reportError(err); return null; }
   }, [state.authToken, state.currentServerIP]);
@@ -1643,7 +1668,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
         method: 'PATCH', headers: { Authorization: `Bearer ${state.authToken}`, 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
       });
-      if (!res.ok) throw new Error(`${res.status}`);
+      if (!res.ok) handleAuthError(res.status);
       return res.json();
     } catch (err) { reportError(err); return null; }
   }, [state.authToken, state.currentServerIP]);
@@ -1677,7 +1702,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
         method: 'POST', headers: { Authorization: `Bearer ${state.authToken}`, 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
       });
-      if (!res.ok) throw new Error(`${res.status}`);
+      if (!res.ok) handleAuthError(res.status);
       return res.json();
     } catch (err) { reportError(err); return null; }
   }, [state.authToken, state.currentServerIP]);

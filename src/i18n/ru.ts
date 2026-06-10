@@ -25,6 +25,12 @@ export const ru: Translations = {
   chat_send: 'Отправить',
   chat_attachment: 'Прикрепить файл',
   chat_emoji: 'Эмодзи',
+  chat_voice_message: 'Голосовое сообщение',
+  chat_video_circle: 'Видеосообщение',
+  chat_recording: 'Запись...',
+  chat_record_cancel: 'Отмена',
+  chat_record_send: 'Отправить',
+  chat_record_preview: 'Предпросмотр',
   chat_no_messages: 'Пока нет сообщений. Скажите привет!',
   chat_search: 'Поиск',
   chat_voice_call: 'Голосовой звонок',
@@ -258,6 +264,10 @@ export const ru: Translations = {
 
   loading: 'Загрузка...',
   error_network: 'Ошибка сети',
+  error_unauthorized: 'Сессия истекла. Пожалуйста, войдите снова.',
+  error_forbidden: 'Доступ запрещён.',
+  error_not_found: 'Ресурс не найден.',
+  error_server: 'Ошибка сервера. Попробуйте позже.',
   server_channels_soon: 'Каналы серверов скоро',
 
   guild_create_server: 'Создать сервер',
