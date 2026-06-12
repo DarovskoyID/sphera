@@ -617,4 +617,22 @@ export const en = {
   gs_cat_safety: 'Safety',
   gs_cat_danger: 'Danger Zone',
   gs_soon: 'SOON',
+
+  // Servers
+  settings_servers: 'Servers',
+  srv_title: 'Servers',
+  srv_desc: 'Manage server addresses. Select the server to connect to.',
+  srv_add_server: 'Add server',
+  srv_url_placeholder: 'Server address (e.g. https://example.com:8000)',
+  srv_name_placeholder: 'Name',
+  srv_add: 'Add',
+  srv_remove: 'Remove',
+  srv_offline: 'Offline',
+  srv_refresh_ping: 'Refresh ping',
+  srv_already_exists: 'This server is already in the list',
+  srv_turn_host: 'TURN host',
+  srv_turn_port: 'Port',
+  srv_turn_user: 'Username',
+  srv_turn_password: 'Password',
+  srv_turn_hint: 'Leave empty to use default TURN server',
 } as const;

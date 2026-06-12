@@ -14,14 +14,111 @@ export const TURN_CREDENTIAL = 'ionikturn123';
 
 export const SERVER_IPS: string[] = [API_BASE_URL];
 
-export const getIceServers = (): RTCIceServer[] => [
-  { urls: `stun:${TURN_HOST}:${TURN_PORT}` },
-  {
-    urls: [
-      `turn:${TURN_HOST}:${TURN_PORT}?transport=udp`,
-      `turn:${TURN_HOST}:${TURN_PORT}?transport=tcp`,
-    ],
-    username: TURN_USERNAME,
-    credential: TURN_CREDENTIAL,
-  },
+export const getIceServers = (entry?: ServerEntry | null): RTCIceServer[] => {
+  const host = entry?.turn_host || TURN_HOST;
+  const port = entry?.turn_port || TURN_PORT;
+  const user = entry?.turn_username || TURN_USERNAME;
+  const cred = entry?.turn_credential || TURN_CREDENTIAL;
+  return [
+    { urls: `stun:${host}:${port}` },
+    {
+      urls: [
+        `turn:${host}:${port}?transport=udp`,
+        `turn:${host}:${port}?transport=tcp`,
+      ],
+      username: user,
+      credential: cred,
+    },
+  ];
+};
+
+// ── Dynamic server list (localStorage-backed) ──────────────────────────────
+
+export interface ServerEntry {
+  url: string;
+  name: string;
+  turn_host?: string;
+  turn_port?: number;
+  turn_username?: string;
+  turn_credential?: string;
+}
+
+const LS_SERVERS_KEY = 'ionik_servers';
+const LS_SELECTED_KEY = 'ionik_selected_server';
+
+const DEFAULT_SERVERS: ServerEntry[] = [
+  { url: API_BASE_URL, name: 'Main', turn_host: TURN_HOST, turn_port: TURN_PORT, turn_username: TURN_USERNAME, turn_credential: TURN_CREDENTIAL },
 ];
+
+export function loadServers(): ServerEntry[] {
+  try {
+    const raw = localStorage.getItem(LS_SERVERS_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw) as ServerEntry[];
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        const main = DEFAULT_SERVERS[0];
+        return parsed.map(s => s.url === main.url ? { ...main, ...s, turn_host: main.turn_host, turn_port: main.turn_port, turn_username: main.turn_username, turn_credential: main.turn_credential } : s);
+      }
+    }
+  } catch { /* ignore */ }
+  return [...DEFAULT_SERVERS];
+}
+
+export function saveServers(servers: ServerEntry[]) {
+  localStorage.setItem(LS_SERVERS_KEY, JSON.stringify(servers));
+}
+
+export function loadSelectedServer(): string {
+  return localStorage.getItem(LS_SELECTED_KEY) || API_BASE_URL;
+}
+
+export function saveSelectedServer(url: string) {
+  localStorage.setItem(LS_SELECTED_KEY, url);
+}
+
+export function getSelectedServerEntry(): ServerEntry | null {
+  const url = loadSelectedServer();
+  const servers = loadServers();
+  return servers.find(s => s.url === url) || null;
+}
+
+export async function pingStun(host: string, port: number, username?: string, credential?: string): Promise<boolean> {
+  return new Promise(resolve => {
+    try {
+      const iceServers: RTCIceServer[] = [{ urls: `stun:${host}:${port}` }];
+      if (username && credential) {
+        iceServers.push({
+          urls: [`turn:${host}:${port}?transport=udp`, `turn:${host}:${port}?transport=tcp`],
+          username,
+          credential,
+        });
+      }
+      const pc = new RTCPeerConnection({ iceServers });
+      let done = false;
+      const finish = (ok: boolean) => { if (!done) { done = true; clearTimeout(timer); pc.close(); resolve(ok); } };
+      const timer = setTimeout(() => finish(false), 5000);
+      pc.createDataChannel('');
+      pc.createOffer().then(offer => pc.setLocalDescription(offer)).catch(() => finish(false));
+      pc.onicecandidate = e => {
+        if (done || !e.candidate) return;
+        if (e.candidate.type === 'srflx' || e.candidate.type === 'relay') finish(true);
+      };
+      pc.onicegatheringstatechange = () => {
+        if (!done && pc.iceGatheringState === 'complete') finish(false);
+      };
+    } catch { resolve(false); }
+  });
+}
+
+export async function pingServer(url: string): Promise<number | null> {
+  const start = performance.now();
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 3000);
+    await fetch(`${url}/api/auth/me/`, { method: 'HEAD', mode: 'no-cors', signal: controller.signal });
+    clearTimeout(timer);
+    return Math.round(performance.now() - start);
+  } catch {
+    return null;
+  }
+}

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef, createContext, useContext } from 'react';
-import { Shield, Monitor, Smartphone, Tablet, Trash2, UserX, Camera, Upload, Play, Square, RotateCcw } from 'lucide-react';
+import { Shield, Monitor, Smartphone, Tablet, Trash2, UserX, Camera, Upload, Play, Square, RotateCcw, Server } from 'lucide-react';
+import { ServerSelector } from './ServerSelector';
 import { useApp, reportError } from '../context/AppContext';
 import { useTranslation } from '../i18n/useTranslation';
 import { languages, type LangCode } from '../i18n';
@@ -95,9 +96,11 @@ const Check: React.FC<{ label: string; field: keyof SettingsData }> = ({ label, 
 // ==================== Main Settings ====================
 
 export const Settings: React.FC = () => {
-  const { currentSettingsPage, currentServerIP, authToken, setLanguage } = useApp();
-  const [s, setS] = useState<SettingsData>(defaultSettings);
+  const { currentSettingsPage, currentServerIP, authToken, language } = useApp();
+  const [s, setS] = useState<SettingsData>(() => ({ ...defaultSettings, language }));
   const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => { setS(prev => prev.language === language ? prev : { ...prev, language }); }, [language]);
 
   // Load settings from API
   useEffect(() => {
@@ -109,8 +112,7 @@ export const Settings: React.FC = () => {
         });
         if (res.ok) {
           const data = await res.json();
-          setS(prev => ({ ...prev, ...data }));
-          if (data.language) setLanguage(data.language);
+          setS(prev => ({ ...prev, ...data, language: prev.language }));
         }
       } catch { /* use defaults */ }
       setLoaded(true);
@@ -174,6 +176,7 @@ export const Settings: React.FC = () => {
           {currentSettingsPage === 'special' && <SpecialSettings />}
           {currentSettingsPage === 'binds' && <BindsSettings />}
           {currentSettingsPage === 'exportImport' && <ExportImportSettings />}
+          {currentSettingsPage === 'servers' && <ServersSettings />}
           {currentSettingsPage === 'family' && <Placeholder title="Family Center" />}
           {currentSettingsPage === 'integration' && <Placeholder title="Integrations" />}
           {currentSettingsPage === 'apps' && <Placeholder title="Connected Apps" />}
@@ -918,6 +921,19 @@ const ExportImportSettings: React.FC = () => {
     <p>{tr('sexp_import_desc')}</p>
     <button type="button" style={btnSecondary}>{tr('sexp_import')}</button>
   </section>
+  );
+};
+
+// ==================== Servers ====================
+
+const ServersSettings: React.FC = () => {
+  const tr = useTranslation();
+  return (
+    <section>
+      <h1><Server size={20} style={{ verticalAlign: 'middle', marginRight: 8 }} />{tr('srv_title')}</h1>
+      <p>{tr('srv_desc')}</p>
+      <ServerSelector />
+    </section>
   );
 };
 

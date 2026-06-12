@@ -1,8 +1,6 @@
 import React, { useEffect, useRef, useCallback, useState } from 'react';
 import { useApp } from '../context/AppContext';
-import { getIceServers } from '../config/network';
-
-const ICE_SERVERS = getIceServers();
+import { getIceServers, getSelectedServerEntry } from '../config/network';
 const SPEAKING_THRESHOLD = 15; // 0–255 RMS; tune as needed
 
 function AudioEl({ stream }: { stream: MediaStream }) {
@@ -121,7 +119,7 @@ export const GuildVoiceRoom: React.FC = () => {
   const getOrCreatePeer = useCallback((remoteId: string): PeerEntry => {
     if (peers.current.has(remoteId)) return peers.current.get(remoteId)!;
 
-    const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+    const pc = new RTCPeerConnection({ iceServers: getIceServers(getSelectedServerEntry()) });
     const entry: PeerEntry = { pc, makingOffer: false, ignoreOffer: false };
     peers.current.set(remoteId, entry);
 

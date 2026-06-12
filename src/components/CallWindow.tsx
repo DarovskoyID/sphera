@@ -2,7 +2,7 @@ import { useRef, useEffect, useState, useCallback } from 'react';
 import { Maximize2, Minimize2 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { useTranslation } from '../i18n/useTranslation';
-import { getIceServers } from '../config/network';
+import { getIceServers, getSelectedServerEntry } from '../config/network';
 
 // ── Module-level helpers (never redefined) ────────────────────────────────────
 
@@ -427,7 +427,7 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
 
   const createPeerConnection = (remoteId: string): RTCPeerConnection => {
     const pc = new RTCPeerConnection({
-      iceServers: getIceServers(),
+      iceServers: getIceServers(getSelectedServerEntry()),
     });
 
     pc.onicecandidate = (event) => {

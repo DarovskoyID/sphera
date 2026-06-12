@@ -1,8 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback, type ReactNode } from 'react';
 import type { AppState, ViewType, MobilePanel, ServerUser, PendingRequest, ChatMessage, Guild, GuildChannel, GuildMessage, GuildRole, GuildEmoji, GuildSticker, GuildSound, GuildInviteData, GuildAuditLogEntry } from '../types';
 import type { CustomEmoji } from '../types';
-import { SERVER_IPS } from '../config/network';
-import { resolveServerIP } from '../utils/resolveServer';
+import { loadSelectedServer } from '../config/network';
 
 
 // ── Inject X-Ionik-Client header into every fetch ────────────────────────────
@@ -212,7 +211,10 @@ interface AppProviderProps {
 export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
   const [state, setState] = useState<AppState>(() => {
     const savedTheme = localStorage.getItem('messengerTheme') as 'light' | 'dark' || 'dark';
-    const savedLanguage = localStorage.getItem('messengerLanguage') || 'en';
+    const supportedLangs = ['en', 'ru', 'es', 'zh', 'fr', 'de', 'pt'];
+    const browserLang = (navigator.language || '').slice(0, 2).toLowerCase();
+    const defaultLang = supportedLangs.includes(browserLang) ? browserLang : 'en';
+    const savedLanguage = localStorage.getItem('messengerLanguage') || defaultLang;
     const savedServer = localStorage.getItem('messengerCurrentServer') || 'home';
     const savedChat = localStorage.getItem('messengerCurrentChat') || '';
     const savedChannel = localStorage.getItem('messengerCurrentChannel') || 'general';
@@ -235,7 +237,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       isHeadphonesActive: true,
       SpeakersActive: ["", ""],
       callStatus: 'inactive',
-      currentServerIP: SERVER_IPS[0] ?? 'http://127.0.0.1:8000',
+      currentServerIP: loadSelectedServer(),
       userIDonServer: '',
       authToken: savedToken,
       currentUser: null,
@@ -259,12 +261,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     };
   });
 
-  // Resolve the best server IP on startup
-  useEffect(() => {
-    resolveServerIP().then(ip => {
-      setState(prev => prev.currentServerIP === ip ? prev : { ...prev, currentServerIP: ip });
-    });
-  }, []);
+  // Server IP is now user-selected via ServerSelector
 
   const signalingWs = useRef<WebSocket | null>(null);
   const callTargetIdRef = useRef<string | null>(null);
@@ -360,7 +357,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       try {
         const user: ServerUser = await apiGet('/api/auth/me/', state.authToken, state.currentServerIP);
         setState(prev => ({ ...prev, currentUser: user, userIDonServer: String(user.id) }));
-      } catch (e) { reportError(e); }
+      } catch (e) { logout(); return; }
       try {
         const [friendsRaw, blockedRaw]: [ServerUser[], any[]] = await Promise.all([
           apiGet('/api/auth/friends/', state.authToken, state.currentServerIP),

@@ -1,9 +1,11 @@
 import { useState, useRef } from 'react';
 import { useApp } from '../context/AppContext';
 import { useTranslation } from '../i18n/useTranslation';
+import { languages, type LangCode } from '../i18n';
+import { ServerSelector } from './ServerSelector';
 
 export const AuthScreen = () => {
-  const { currentServerIP, setAuthToken } = useApp();
+  const { currentServerIP, setAuthToken, setLanguage, language } = useApp();
   const tr = useTranslation();
 
   const [login, setLogin] = useState('');
@@ -14,6 +16,7 @@ export const AuthScreen = () => {
   const [error, setError] = useState('');
   const [isRegister, setIsRegister] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [showServers, setShowServers] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -203,6 +206,53 @@ export const AuthScreen = () => {
             {isRegister ? tr('auth_signin') : tr('auth_register')}
           </span>
         </p>
+
+        <div style={{ marginTop: 20, borderTop: '1px solid var(--border-color)', paddingTop: 14 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+            <select
+              value={language}
+              onChange={e => setLanguage(e.target.value)}
+              style={{
+                background: 'var(--bg-primary)', border: '1px solid var(--border-color)',
+                borderRadius: 8, color: 'var(--text-primary)', fontSize: 13,
+                padding: '6px 10px', cursor: 'pointer', outline: 'none',
+                appearance: 'none', WebkitAppearance: 'none',
+                backgroundImage: 'url("data:image/svg+xml,%3Csvg width=\'10\' height=\'6\' viewBox=\'0 0 10 6\' fill=\'none\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cpath d=\'M1 1L5 5L9 1\' stroke=\'%23888\' stroke-width=\'1.5\' stroke-linecap=\'round\' stroke-linejoin=\'round\'/%3E%3C/svg%3E")',
+                backgroundRepeat: 'no-repeat',
+                backgroundPosition: 'right 8px center',
+                paddingRight: 28,
+              }}
+            >
+              {(Object.entries(languages) as [LangCode, string][]).map(([code, name]) => (
+                <option key={code} value={code}>{name}</option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={() => setShowServers(!showServers)}
+              style={{
+                background: showServers ? 'var(--bg-primary)' : 'transparent',
+                border: '1px solid var(--border-color)',
+                borderRadius: 8, color: 'var(--text-secondary)', fontSize: 13,
+                padding: '6px 12px', cursor: 'pointer', display: 'flex',
+                alignItems: 'center', gap: 6, transition: 'all 0.15s',
+              }}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="2" y="2" width="20" height="8" rx="2" ry="2" />
+                <rect x="2" y="14" width="20" height="8" rx="2" ry="2" />
+                <circle cx="6" cy="6" r="1" fill="currentColor" />
+                <circle cx="6" cy="18" r="1" fill="currentColor" />
+              </svg>
+              {tr('srv_title')}
+            </button>
+          </div>
+          {showServers && (
+            <div style={{ marginTop: 12 }}>
+              <ServerSelector compact maxListHeight={200} />
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

@@ -590,4 +590,22 @@ export const ru: Translations = {
   gs_cat_safety: 'Безопасность',
   gs_cat_danger: 'Опасная зона',
   gs_soon: 'СКОРО',
+
+  // Серверы
+  settings_servers: 'Серверы',
+  srv_title: 'Серверы',
+  srv_desc: 'Управление адресами серверов. Выберите сервер для подключения.',
+  srv_add_server: 'Добавить сервер',
+  srv_url_placeholder: 'Адрес сервера (напр. https://example.com:8000)',
+  srv_name_placeholder: 'Название',
+  srv_add: 'Добавить',
+  srv_remove: 'Удалить',
+  srv_offline: 'Недоступен',
+  srv_refresh_ping: 'Обновить пинг',
+  srv_already_exists: 'Этот сервер уже в списке',
+  srv_turn_host: 'TURN хост',
+  srv_turn_port: 'Порт',
+  srv_turn_user: 'Логин',
+  srv_turn_password: 'Пароль',
+  srv_turn_hint: 'Оставьте пустым для TURN-сервера по умолчанию',
 };
