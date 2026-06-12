@@ -117,7 +117,7 @@ function ToastItem({ id, message: rawMessage, onDismiss }: { id: number; message
     >
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
         <div style={{ flex: 1 }}>
-          <div style={{ color: '#ed4245', fontWeight: 700, fontSize: 13, marginBottom: 4 }}>Error</div>
+          <div style={{ color: '#ed4245', fontWeight: 700, fontSize: 13, marginBottom: 4 }}>{tr('error_label')}</div>
           <div style={{ color: 'var(--text-primary, #fff)', fontSize: 13, lineHeight: 1.4, wordBreak: 'break-word' }}>{message}</div>
         </div>
         <button
@@ -161,6 +161,7 @@ function ToastContainer() {
 
 function AppContent() {
   const { authToken, isCallActive, currentView, currentChat, mobileActivePanel, currentGuild, currentVoiceChannel, leaveVoiceChannel } = useApp();
+  const tr = useTranslation();
   const isMobile = useMobile();
 
   if (!authToken) {
@@ -191,12 +192,12 @@ function AppContent() {
         <div className="app-voice-banner">
           <Volume2 size={13} style={{ color: '#3ba55c', flexShrink: 0 }} />
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 10, color: '#3ba55c', fontWeight: 600, lineHeight: 1 }}>Voice Connected</div>
+            <div style={{ fontSize: 10, color: '#3ba55c', fontWeight: 600, lineHeight: 1 }}>{tr('voice_connected')}</div>
             <div style={{ fontSize: 11, color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {currentGuild ? `${currentGuild.name} / ${currentVoiceChannel.name}` : currentVoiceChannel.name}
             </div>
           </div>
-          <button onClick={leaveVoiceChannel} title="Disconnect" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ed4245', padding: 4, borderRadius: 4, display: 'flex', alignItems: 'center' }}>
+          <button onClick={leaveVoiceChannel} title={tr('voice_disconnect')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ed4245', padding: 4, borderRadius: 4, display: 'flex', alignItems: 'center' }}>
             <PhoneOff size={14} />
           </button>
         </div>

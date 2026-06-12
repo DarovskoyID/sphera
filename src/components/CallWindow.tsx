@@ -1,6 +1,7 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
 import { Maximize2, Minimize2 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
+import { useTranslation } from '../i18n/useTranslation';
 import { getIceServers } from '../config/network';
 
 // ── Module-level helpers (never redefined) ────────────────────────────────────
@@ -22,6 +23,7 @@ const Tile = ({ id, label, children, expandedTile, setExpandedTile }: {
   expandedTile: string | null;
   setExpandedTile: (id: string | null) => void;
 }) => {
+  const tr = useTranslation();
   const isExp = expandedTile === id;
   return (
     <div style={isExp
@@ -34,7 +36,7 @@ const Tile = ({ id, label, children, expandedTile, setExpandedTile }: {
       </span>
       <button
         onClick={() => setExpandedTile(isExp ? null : id)}
-        title={isExp ? 'Restore' : 'Expand to full window'}
+        title={isExp ? tr('call_tile_restore') : tr('call_tile_expand')}
         style={{ position: 'absolute', top: isExp ? 12 : 4, right: isExp ? 12 : 4, background: 'var(--bg-secondary)', border: 'none', borderRadius: 6, padding: isExp ? '6px 8px' : 3, cursor: 'pointer', color: 'var(--text-primary)', display: 'flex' }}
       >
         {isExp ? <Minimize2 size={16} /> : <Maximize2 size={12} />}
@@ -113,14 +115,18 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
   isVideoActiveRef.current = isVideoActive;
 
   // Visual state — initialised from module-level so it's correct after remount
+  const tr = useTranslation();
   const [remoteVideoStatus, setRemoteVideoStatus] = useState<string>(
-    _call.remoteStream ? 'видео играет' : 'видео выключено'
+    _call.remoteStream ? 'playing' : 'off'
   );
   const [, setLocalVideoStatus] = useState<string>(
-    _call.cameraStream?.active ? 'видео играет' : 'видео выключено'
+    _call.cameraStream?.active ? 'playing' : 'off'
   );
   const [windowExpanded, setWindowExpanded] = useState(false);
   const [expandedTile, setExpandedTile] = useState<string | null>(null);
+  const [isRinging, setIsRinging] = useState(false);
+  const dialToneRef = useRef<HTMLAudioElement | null>(null);
+  const ringTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // These two need to stay in sync with _call so remounts read correct value
   const [remotePeerId, setRemotePeerIdState] = useState<string | null>(_call.remotePeerId);
@@ -142,7 +148,7 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
       cameraVideoRef.current.muted = true;
       cameraVideoRef.current.playsInline = true;
       cameraVideoRef.current.play().catch(() => {});
-      setLocalVideoStatus('видео играет');
+      setLocalVideoStatus('playing');
     }
     if (_call.remoteStream && remoteVideoRef.current) {
       remoteVideoRef.current.srcObject = _call.remoteStream;
@@ -150,7 +156,7 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
       remoteVideoRef.current.playsInline = true;
       remoteVideoRef.current.play().catch(() => {});
       const hasVideo = _call.remoteStream.getVideoTracks().some(t => t.enabled && !t.muted);
-      setRemoteVideoStatus(hasVideo ? 'видео играет' : 'видео выключено');
+      setRemoteVideoStatus(hasVideo ? 'playing' : 'off');
     }
     if (_call.remoteStream && remoteAudioRef.current) {
       remoteAudioRef.current.srcObject = _call.remoteStream;
@@ -166,6 +172,14 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
     }
   }, []); // only on mount
 
+  // Cleanup dial tone on unmount
+  useEffect(() => {
+    return () => {
+      if (dialToneRef.current) { dialToneRef.current.pause(); dialToneRef.current = null; }
+      if (ringTimeoutRef.current) { clearTimeout(ringTimeoutRef.current); ringTimeoutRef.current = null; }
+    };
+  }, []);
+
   // ==================== Local video helpers ====================
   const attachStreamToVideo = (
     videoEl: HTMLVideoElement | null,
@@ -180,7 +194,7 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
     videoEl.playsInline = true;
     videoEl.onloadedmetadata = () => {
       videoEl.play()
-        .then(() => setStatus('видео играет'))
+        .then(() => setStatus('playing'))
         .catch(err => setStatus(err.name));
     };
   };
@@ -326,7 +340,34 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
     _call.localMediaStream = new MediaStream();
     if (cameraVideoRef.current) cameraVideoRef.current.srcObject = null;
     if (screenVideoRef.current) screenVideoRef.current.srcObject = null;
-    setLocalVideoStatus('нет видео');
+    setLocalVideoStatus('off');
+  };
+
+  // ==================== Dial tone (caller side) ====================
+  const startDialTone = () => {
+    setIsRinging(true);
+    const audio = new Audio('/rington.mp3');
+    audio.loop = true;
+    audio.volume = 0.5;
+    audio.play().catch(() => {});
+    dialToneRef.current = audio;
+    if (ringTimeoutRef.current) clearTimeout(ringTimeoutRef.current);
+    ringTimeoutRef.current = setTimeout(() => {
+      stopCall(true, false, true);
+    }, 60000);
+  };
+
+  const stopDialTone = () => {
+    setIsRinging(false);
+    if (dialToneRef.current) {
+      dialToneRef.current.pause();
+      dialToneRef.current.currentTime = 0;
+      dialToneRef.current = null;
+    }
+    if (ringTimeoutRef.current) {
+      clearTimeout(ringTimeoutRef.current);
+      ringTimeoutRef.current = null;
+    }
   };
 
   // ==================== WebRTC ====================
@@ -353,7 +394,7 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
     const hasVideo = stream.getVideoTracks().some(t => t.enabled && !t.muted);
     const tryPlay = () => {
       videoEl.play()
-        .then(() => { if (hasVideo) setRemoteVideoStatus('видео играет'); })
+        .then(() => { if (hasVideo) setRemoteVideoStatus('playing'); })
         .catch(() => setTimeout(tryPlay, 500));
     };
     tryPlay();
@@ -398,6 +439,7 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
         if (!_call.wasConnected) {
           _call.wasConnected = true;
           _call.callStartTime = Date.now();
+          stopDialTone();
         }
       }
     };
@@ -433,14 +475,14 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
       const videoTracks = stream.getVideoTracks();
       const hasActiveVideo = videoTracks.some(t => t.enabled && !t.muted);
       if (!hasActiveVideo) {
-        setRemoteVideoStatus('видео выключено');
+        setRemoteVideoStatus('off');
       }
 
       videoTracks.forEach(t => {
-        t.onunmute = () => setRemoteVideoStatus('видео играет');
+        t.onunmute = () => setRemoteVideoStatus('playing');
         t.onmute = () => {
           const stillHasVideo = stream.getVideoTracks().some(vt => vt.enabled && !vt.muted);
-          if (!stillHasVideo) setRemoteVideoStatus('видео выключено');
+          if (!stillHasVideo) setRemoteVideoStatus('off');
         };
       });
     };
@@ -541,7 +583,7 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
         }
       } catch { }
     } else if (msg.type === 'video-toggle') {
-      setRemoteVideoStatus(msg.enabled ? 'видео включено' : 'видео выключено');
+      setRemoteVideoStatus(msg.enabled ? 'playing' : 'off');
     } else if (msg.type === 'demo-toggle') {
       if (!msg.enabled) {
         _call.remoteScreenStream = null;
@@ -626,6 +668,8 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
       await pc.setLocalDescription(offer);
       sendSignal({ type: 'offer', sdp: offer, withVideo: wantVideo, to: peerId });
     } catch { }
+
+    startDialTone();
   };
 
   const processIncomingOffer = async (msg: any) => {
@@ -683,7 +727,8 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
     } catch { }
   };
 
-  const stopCall = (notifyRemote = true, remoteInitiated = false) => {
+  const stopCall = (notifyRemote = true, remoteInitiated = false, timedOut = false) => {
+    stopDialTone();
     const targetId = _call.targetId;
     const wasConnected = _call.wasConnected;
     const callStartTime = _call.callStartTime;
@@ -716,6 +761,8 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
     if (wasConnected && callStartTime) {
       callStatus = 'completed';
       duration = Math.round((Date.now() - callStartTime) / 1000);
+    } else if (timedOut) {
+      callStatus = 'no_answer';
     } else if (notifyRemote && !wasIncoming) {
       callStatus = 'cancelled';
     } else if (!notifyRemote && !wasIncoming) {
@@ -738,7 +785,7 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
 
     setCallTargetId(null);
     setRemotePeerIdState(null);
-    setRemoteVideoStatus('видео выключено');
+    setRemoteVideoStatus('off');
     setRemoteScreenActiveState(false);
     setCallActive(false);
     setCallStatus('inactive');
@@ -782,7 +829,7 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
             <UserAvatar name={remoteName} avatar={remoteAvatar} size={28} />
             <div style={{ flex: 1 }}>
               <div style={{ color: 'var(--text-primary)', fontWeight: 600, fontSize: 13, lineHeight: 1.2 }}>{remoteName}</div>
-              <div style={{ color: 'var(--text-secondary)', fontSize: 11 }}>In call</div>
+              <div style={{ color: 'var(--text-secondary)', fontSize: 11 }}>{tr('call_in_call')}</div>
             </div>
           </>
         ) : (
@@ -790,7 +837,7 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
         )}
         <button
           onClick={() => setWindowExpanded(v => !v)}
-          title={windowExpanded ? 'Restore window' : 'Maximize call window'}
+          title={windowExpanded ? tr('call_restore') : tr('call_maximize')}
           style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', display: 'flex', padding: 4, borderRadius: 6 }}
         >
           {windowExpanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
@@ -799,12 +846,12 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
 
       {/* Video grid */}
       <div style={{ flex: 1, display: 'grid', gridTemplateColumns: `repeat(${cols}, 1fr)`, gridAutoRows: '1fr', gap: 3, padding: 3, minHeight: 0, overflow: 'hidden' }}>
-        <Tile id="local" label="You" expandedTile={expandedTile} setExpandedTile={setExpandedTile}>
+        <Tile id="local" label={tr('call_you')} expandedTile={expandedTile} setExpandedTile={setExpandedTile}>
           <video ref={cameraVideoRef} autoPlay muted playsInline style={{ ...videoFill, display: isVideoActive ? 'block' : 'none' }} />
           {!isVideoActive && (
             <div style={placeholderStyle}>
               <UserAvatar name="Me" avatar="" size={48} />
-              <span style={{ color: 'var(--text-secondary)', fontSize: 12 }}>Video off</span>
+              <span style={{ color: 'var(--text-secondary)', fontSize: 12 }}>{tr('call_video_off')}</span>
             </div>
           )}
         </Tile>
@@ -812,27 +859,31 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
         <Tile id="remote" label={remoteName} expandedTile={expandedTile} setExpandedTile={setExpandedTile}>
           <video
             ref={remoteVideoRef} autoPlay muted playsInline
-            style={{ ...videoFill, display: remoteVideoStatus !== 'видео выключено' ? 'block' : 'none' }}
+            style={{ ...videoFill, display: remoteVideoStatus !== 'off' ? 'block' : 'none' }}
             
           />
           <audio ref={remoteAudioRef} autoPlay playsInline style={{ display: 'none' }} />
-          {remoteVideoStatus === 'видео выключено' && (
+          {remoteVideoStatus === 'off' && (
             <div style={placeholderStyle}>
-              <UserAvatar name={remoteName} avatar={remoteAvatar} size={48} />
+              <div style={isRinging ? { animation: 'call-pulse 1.5s ease-in-out infinite' } : undefined}>
+                <UserAvatar name={remoteName} avatar={remoteAvatar} size={48} />
+              </div>
               <span style={{ color: 'var(--text-primary)', fontWeight: 600, fontSize: 13 }}>{remoteName}</span>
-              <span style={{ color: 'var(--text-secondary)', fontSize: 11 }}>Video off</span>
+              <span style={{ color: 'var(--text-secondary)', fontSize: 11 }}>
+                {isRinging ? (tr('call_ringing') || tr('call_calling_you')) : tr('call_video_off')}
+              </span>
             </div>
           )}
         </Tile>
 
         {isDemonstrationActive && (
-          <Tile id="screen" label="Your screen" expandedTile={expandedTile} setExpandedTile={setExpandedTile}>
+          <Tile id="screen" label={tr('call_your_screen')} expandedTile={expandedTile} setExpandedTile={setExpandedTile}>
             <video ref={screenVideoRef} autoPlay muted playsInline style={videoFill} />
           </Tile>
         )}
 
         {remoteScreenActive && (
-          <Tile id="remoteScreen" label={`${remoteName} — screen`} expandedTile={expandedTile} setExpandedTile={setExpandedTile}>
+          <Tile id="remoteScreen" label={tr('call_remote_screen').replace('{name}', remoteName)} expandedTile={expandedTile} setExpandedTile={setExpandedTile}>
             <video ref={remoteScreenVideoRef} autoPlay muted playsInline style={videoFill} />
           </Tile>
         )}

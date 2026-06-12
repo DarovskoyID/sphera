@@ -85,11 +85,35 @@
   gap: var(--chat-message-gap, 16px);
 }
 
+/* Date Separator */
+.date-separator {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px;
+  user-select: none;
+}
+
+.date-separator::before,
+.date-separator::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border-color);
+}
+
+.date-separator-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+}
+
 /* Message Item */
 .message-item {
   display: flex;
   gap: var(--spacing-md);
-  padding: 2px var(--spacing-sm);
+  padding: 0 var(--spacing-sm);
   border-radius: var(--radius-md);
   transition: background-color var(--transition-fast);
 }
@@ -222,21 +246,20 @@
   flex-wrap: wrap;
 }
 
-/* For own messages: receipt + time on the LEFT, body fills the rest */
+/* For own messages: body first, then time, then receipt on the RIGHT */
 .message-item.own .message-timestamp {
-  padding-left: 0;
-  padding-right: 6px;
+  padding-left: 4px;
+  padding-right: 0;
   order: 2;
 }
 
 .message-item.own .message-body {
-  order: 3;
-  flex: 1;
+  order: 1;
 }
 
-/* Read receipt (svg from lucide) sits LEFTMOST for own messages */
+/* Read receipt (svg from lucide) sits RIGHTMOST for own messages */
 .message-item.own .message-line > svg {
-  order: 1;
+  order: 3;
 }
 
 /* Date Divider */

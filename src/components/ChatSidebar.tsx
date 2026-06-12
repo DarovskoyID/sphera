@@ -19,11 +19,11 @@ type CtxState = { x: number; y: number; friend: FriendInfo } | null;
 // ── Mute helpers ─────────────────────────────────────────────────────────────
 
 const MUTE_OPTIONS = [
-  { label: '15 minutes', ms: 15 * 60 * 1000 },
-  { label: '1 hour',     ms: 60 * 60 * 1000 },
-  { label: '1 day',      ms: 24 * 60 * 60 * 1000 },
-  { label: '1 week',     ms: 7 * 24 * 60 * 60 * 1000 },
-  { label: 'Until I turn it off', ms: -1 },
+  { key: 'mute_15min' as const, ms: 15 * 60 * 1000 },
+  { key: 'mute_1hour' as const, ms: 60 * 60 * 1000 },
+  { key: 'mute_1day' as const,  ms: 24 * 60 * 60 * 1000 },
+  { key: 'mute_1week' as const, ms: 7 * 24 * 60 * 60 * 1000 },
+  { key: 'mute_forever' as const, ms: -1 },
 ];
 
 function getMuteExpiry(userId: string): number {
@@ -83,6 +83,7 @@ const ProfileModal: React.FC<{
   onRemove: () => void;
 }> = ({ friend, onClose, onCall, onRemove }) => {
   const { currentServerIP, authToken, friends } = useApp();
+  const tr = useTranslation();
   const [mutualFriends, setMutualFriends] = useState<ServerUser[]>([]);
   const [note, setNote] = useState(() => localStorage.getItem(`note_${friend.id}`) ?? '');
   const displayName = friend.nickname || friend.username;
@@ -190,7 +191,7 @@ const ProfileModal: React.FC<{
                 color: '#fff', fontWeight: 600, fontSize: 13, cursor: 'pointer',
               }}
             >
-              <Phone size={15} /> Call
+              <Phone size={15} /> {tr('profile_call')}
             </button>
             <button
               onClick={() => onCall(true)}
@@ -202,7 +203,7 @@ const ProfileModal: React.FC<{
                 fontWeight: 600, fontSize: 13, cursor: 'pointer',
               }}
             >
-              <Video size={15} /> Video
+              <Video size={15} /> {tr('profile_video')}
             </button>
             {isFriend && (
               <button
@@ -214,7 +215,7 @@ const ProfileModal: React.FC<{
                   borderRadius: 8, color: '#ef4444',
                   fontWeight: 600, fontSize: 13, cursor: 'pointer',
                 }}
-                title="Remove friend"
+                title={tr('profile_remove_friend')}
               >
                 <UserMinus size={15} />
               </button>
@@ -224,7 +225,7 @@ const ProfileModal: React.FC<{
           {/* Note (visible only to me) */}
           <div style={{ marginBottom: 14 }}>
             <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-tertiary)', letterSpacing: 0.5, marginBottom: 5, textTransform: 'uppercase' }}>
-              Note (only visible to you)
+              {tr('profile_note')}
             </div>
             <textarea
               value={note}
@@ -232,7 +233,7 @@ const ProfileModal: React.FC<{
                 setNote(e.target.value);
                 localStorage.setItem(`note_${friend.id}`, e.target.value);
               }}
-              placeholder="Add a note about this person..."
+              placeholder={tr('profile_note_placeholder')}
               style={{
                 width: '100%', padding: '8px 10px',
                 background: 'var(--bg-tertiary)', border: '1px solid var(--border-color)',
@@ -247,7 +248,7 @@ const ProfileModal: React.FC<{
           {mutualFriends.length > 0 && (
             <div style={{ marginBottom: 16 }}>
               <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-tertiary)', letterSpacing: 0.5, marginBottom: 8, textTransform: 'uppercase' }}>
-                {mutualFriends.length} Mutual Friend{mutualFriends.length !== 1 ? 's' : ''}
+                {mutualFriends.length} {mutualFriends.length !== 1 ? tr('profile_mutual_friends') : tr('profile_mutual_friend')}
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 {mutualFriends.map(mf => (
@@ -414,13 +415,13 @@ const FriendContextMenu: React.FC<{
 
       <button style={itemBase} onMouseEnter={h} onMouseLeave={l}
         onClick={() => { onOpenProfile(friend); onClose(); }}>
-        <Search size={14} />Open profile
+        <Search size={14} />{tr('ctx_open_profile')}
       </button>
       <button style={itemBase} onMouseEnter={h} onMouseLeave={l} onClick={handleStartCall}>
-        <Phone size={14} />Start call
+        <Phone size={14} />{tr('ctx_start_call')}
       </button>
       <button style={itemBase} onMouseEnter={h} onMouseLeave={l} onClick={handleCopyChannelId}>
-        <Copy size={14} />Copy channel ID
+        <Copy size={14} />{tr('ctx_copy_channel_id')}
       </button>
 
       {/* Mute submenu */}
@@ -429,7 +430,7 @@ const FriendContextMenu: React.FC<{
         onMouseLeave={() => setShowMuteMenu(false)}>
         <button style={{ ...itemBase, justifyContent: 'space-between' }} onMouseEnter={h} onMouseLeave={l}>
           <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <BellOff size={14} />{isMuted ? 'Muted ✓' : 'Mute'}
+            <BellOff size={14} />{isMuted ? tr('ctx_muted') : tr('ctx_mute')}
           </span>
           <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>▶</span>
         </button>
@@ -443,13 +444,13 @@ const FriendContextMenu: React.FC<{
             {isMuted && (
               <button style={dangerStyle} onMouseEnter={h} onMouseLeave={l}
                 onClick={() => { clearMute(friend.id); onClose(); }}>
-                Unmute
+                {tr('ctx_unmute')}
               </button>
             )}
             {MUTE_OPTIONS.map(opt => (
-              <button key={opt.label} style={itemBase} onMouseEnter={h} onMouseLeave={l}
+              <button key={opt.key} style={itemBase} onMouseEnter={h} onMouseLeave={l}
                 onClick={() => { saveMute(friend.id, opt.ms); onClose(); }}>
-                {opt.label}
+                {tr(opt.key)}
               </button>
             ))}
           </div>
@@ -459,13 +460,13 @@ const FriendContextMenu: React.FC<{
       <div style={{ height: 1, background: 'var(--border-color)', margin: '3px 0' }} />
 
       <button style={itemBase} onMouseEnter={h} onMouseLeave={l} onClick={handleRemove}>
-        <UserMinus size={14} />Remove friend
+        <UserMinus size={14} />{tr('ctx_remove_friend')}
       </button>
       <button style={dangerStyle} onMouseEnter={h} onMouseLeave={l} onClick={handleBlock}>
-        <Ban size={14} />Block user
+        <Ban size={14} />{tr('ctx_block_user')}
       </button>
       <button style={dangerStyle} onMouseEnter={h} onMouseLeave={l} onClick={handleDeleteDialog}>
-        <Trash2 size={14} />Delete dialog
+        <Trash2 size={14} />{tr('ctx_delete_dialog')}
       </button>
 
       {showRemoveConfirm && (
@@ -634,13 +635,13 @@ const BlockedContextMenu: React.FC<{
     <div ref={ref} style={s}>
       <div style={{ padding: '8px 14px 6px', borderBottom: '1px solid var(--border-color)', marginBottom: 2 }}>
         <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>{user.nickname || user.username}</div>
-        <div style={{ fontSize: 11, color: '#f97316' }}>Blocked</div>
+        <div style={{ fontSize: 11, color: '#f97316' }}>{tr('status_blocked')}</div>
       </div>
       <button style={item} onMouseEnter={h} onMouseLeave={l} onClick={handleUnblock}>
-        <Ban size={14} />Unblock
+        <Ban size={14} />{tr('ctx_unblock')}
       </button>
       <button style={danger} onMouseEnter={h} onMouseLeave={l} onClick={handleDeleteDialog}>
-        <Trash2 size={14} />Delete dialog
+        <Trash2 size={14} />{tr('ctx_delete_dialog')}
       </button>
 
       {showDeleteDialogConfirm && (
@@ -934,7 +935,7 @@ export const ChatSidebar: React.FC = () => {
                     <div style={{ color: 'var(--text-secondary)', fontSize: 11 }}>@{u.username}</div>
                   </div>
                   <button className="glass-btn" style={{ padding: '4px 8px', fontSize: 11, borderRadius: 6 }}
-                    onClick={() => handleSendRequest(u.id)}>Add</button>
+                    onClick={() => handleSendRequest(u.id)}>{tr('friends_add_btn')}</button>
                 </div>
               ))}
             </div>
@@ -961,7 +962,7 @@ export const ChatSidebar: React.FC = () => {
                 <div className="chat-name">{friend.nickname || friend.username}</div>
                 <div className="chat-message" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                   <StatusDot status={friend.status} size={7} />
-                  <span style={{ textTransform: 'capitalize' }}>{friend.status ?? 'offline'}</span>
+                  <span>{tr((`status_${friend.status ?? 'offline'}`) as any)}</span>
                 </div>
               </div>
             </div>
@@ -977,7 +978,7 @@ export const ChatSidebar: React.FC = () => {
           {filteredBlocked.length > 0 && (
             <>
               <div style={{ padding: '8px 12px 2px', fontSize: 10, fontWeight: 700, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'flex', alignItems: 'center', gap: 4 }}>
-                <Ban size={10} /> Blocked
+                <Ban size={10} /> {tr('status_blocked')}
               </div>
               {filteredBlocked.map(user => (
                 <div
@@ -991,7 +992,7 @@ export const ChatSidebar: React.FC = () => {
                   </div>
                   <div className="chat-info">
                     <div className="chat-name">{user.nickname || user.username}</div>
-                    <div className="chat-message" style={{ fontSize: 11, color: '#f97316' }}>Blocked</div>
+                    <div className="chat-message" style={{ fontSize: 11, color: '#f97316' }}>{tr('status_blocked')}</div>
                   </div>
                 </div>
               ))}
@@ -1140,12 +1141,12 @@ export const UserProfile: React.FC = () => {
       }}>
         <Volume2 size={13} style={{ color: '#3ba55c', flexShrink: 0 }} />
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 10, color: '#3ba55c', fontWeight: 600, lineHeight: 1 }}>Voice Connected</div>
+          <div style={{ fontSize: 10, color: '#3ba55c', fontWeight: 600, lineHeight: 1 }}>{tr('voice_connected')}</div>
           <div style={{ fontSize: 11, color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {currentGuild ? `${currentGuild.name} / ${currentVoiceChannel.name}` : currentVoiceChannel.name}
           </div>
         </div>
-        <button onClick={leaveVoiceChannel} title="Disconnect" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ed4245', padding: 4, borderRadius: 4, display: 'flex', alignItems: 'center' }}>
+        <button onClick={leaveVoiceChannel} title={tr('voice_disconnect')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ed4245', padding: 4, borderRadius: 4, display: 'flex', alignItems: 'center' }}>
           <PhoneOff size={14} />
         </button>
       </div>
@@ -1164,7 +1165,7 @@ export const UserProfile: React.FC = () => {
         <div className="profile-name">{displayName}</div>
         <div className="profile-status" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
           <StatusDot status={currentUser?.status ?? 'online'} size={7} />
-          <span style={{ textTransform: 'capitalize' }}>{currentUser?.status ?? 'online'}</span>
+          <span>{tr((`status_${currentUser?.status ?? 'online'}`) as any)}</span>
         </div>
       </div>
       <div className="profile-controls">

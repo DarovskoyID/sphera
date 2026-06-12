@@ -81,6 +81,7 @@ function AuthMedia({ src, contentType, filename }: { src: string; contentType: s
 
 function AttachmentView({ att }: { att: { id: string; filename: string; content_type: string; file_size: number; url: string } }) {
   const { currentServerIP, authToken } = useApp();
+  const tr = useTranslation();
   const isMedia = att.content_type.startsWith('image/') || att.content_type.startsWith('video/');
   const src = `${currentServerIP}${att.url}`;
 
@@ -106,7 +107,7 @@ function AttachmentView({ att }: { att: { id: string; filename: string; content_
         <div style={{ fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{att.filename}</div>
         <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{formatFileSize(att.file_size)}</div>
       </div>
-      <button onClick={handleDownload} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', padding: 4 }} title="Download">
+      <button onClick={handleDownload} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', padding: 4 }} title={tr('chat_download')}>
         <Download size={16} />
       </button>
     </div>
@@ -123,6 +124,7 @@ function MessageBubble({
   onReply: (msg: GuildMessage) => void;
 }) {
   const { deleteGuildMessage, pinGuildMessage, customEmojis } = useApp();
+  const tr = useTranslation();
   const [hover, setHover] = useState(false);
 
   const sameAuthor = prevMsg && prevMsg.author.id === msg.author.id &&
@@ -181,16 +183,16 @@ function MessageBubble({
 
       {hover && (
         <div className="guild-message-actions">
-          <button className="msg-action-btn" onClick={() => onReply(msg)} title="Reply">
+          <button className="msg-action-btn" onClick={() => onReply(msg)} title={tr('chat_reply')}>
             <CornerUpLeft size={14} />
           </button>
           {canPin && (
-            <button className="msg-action-btn" onClick={() => pinGuildMessage(msg.id)} title={msg.is_pinned ? 'Unpin' : 'Pin'}>
+            <button className="msg-action-btn" onClick={() => pinGuildMessage(msg.id)} title={msg.is_pinned ? tr('chat_unpin_msg') : tr('chat_pin')}>
               <Pin size={14} />
             </button>
           )}
           {canDelete && (
-            <button className="msg-action-btn danger" onClick={() => deleteGuildMessage(msg.id)} title="Delete">
+            <button className="msg-action-btn danger" onClick={() => deleteGuildMessage(msg.id)} title={tr('chat_delete')}>
               <Trash2 size={14} />
             </button>
           )}

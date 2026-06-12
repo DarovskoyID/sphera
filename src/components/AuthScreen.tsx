@@ -20,6 +20,7 @@ export const AuthScreen = () => {
     const file = e.target.files?.[0];
     if (!file) return;
     setAvatarFile(file);
+    if (avatarPreview) URL.revokeObjectURL(avatarPreview);
     setAvatarPreview(URL.createObjectURL(file));
   };
 

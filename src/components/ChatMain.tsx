@@ -103,7 +103,7 @@ const ChatHeader: React.FC<{
         <div>
           <h3>{displayName}</h3>
           {blockedUser
-            ? <p style={{ color: '#f97316' }}>Blocked</p>
+            ? <p style={{ color: '#f97316' }}>{tr('status_blocked')}</p>
             : <p>@{chatUser.username}</p>
           }
         </div>
@@ -120,7 +120,7 @@ const ChatHeader: React.FC<{
         {pinnedCount > 0 && (
           <button
             className="icon-btn glass-btn"
-            title="Pinned messages"
+            title={tr('chat_pinned_messages')}
             onClick={onPinnedToggle}
             style={{ color: pinnedOpen ? 'var(--accent-primary)' : undefined, position: 'relative' }}
           >
@@ -159,6 +159,7 @@ const MessageSearchBar: React.FC<{
   onClose: () => void;
   matchCount: number;
 }> = ({ query, onChange, onClose, matchCount }) => {
+  const tr = useTranslation();
   const inputRef = useRef<HTMLInputElement>(null);
   useEffect(() => { inputRef.current?.focus(); }, []);
   return (
@@ -172,14 +173,14 @@ const MessageSearchBar: React.FC<{
         ref={inputRef}
         className="field-input"
         type="text"
-        placeholder="Search messages..."
+        placeholder={tr('chat_search_messages')}
         value={query}
         onChange={e => onChange(e.target.value)}
         style={{ flex: 1, border: 'none', background: 'transparent', fontSize: 14 }}
       />
       {query && (
         <span style={{ fontSize: 12, color: 'var(--text-tertiary)', whiteSpace: 'nowrap' }}>
-          {matchCount} result{matchCount !== 1 ? 's' : ''}
+          {matchCount} {matchCount !== 1 ? tr('chat_results') : tr('chat_result')}
         </span>
       )}
       <button
@@ -206,7 +207,8 @@ const PinnedBar: React.FC<{
 
   const current = pinned[Math.min(idx, pinned.length - 1)];
   const displayName = current.author.nickname || current.author.username;
-  const preview = current.content?.slice(0, 80) || '(attachment)';
+  const tr = useTranslation();
+  const preview = current.content?.slice(0, 80) || tr('chat_attachment_label');
 
   return (
     <div style={{
@@ -240,12 +242,12 @@ const PinnedBar: React.FC<{
       </span>
       <button
         onClick={() => pinMessage(current.id)}
-        title="Unpin"
+        title={tr('chat_unpin')}
         style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-tertiary)', padding: 2, display: 'flex', flexShrink: 0 }}
       ><X size={14} /></button>
       <button
         onClick={onClose}
-        title="Close"
+        title={tr('chat_close')}
         style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-tertiary)', padding: 2, display: 'flex', flexShrink: 0 }}
       ><X size={16} /></button>
     </div>
@@ -254,6 +256,7 @@ const PinnedBar: React.FC<{
 
 const ChatView: React.FC = () => {
   const { chatConversationId, listScheduled, cancelScheduledMessage, chatMessages, currentChat, blockedContacts, chatBlockedByOther } = useApp();
+  const tr = useTranslation();
   const isBlockedByMe = blockedContacts.some(u => String(u.id) === String(currentChat));
   const blockedName = isBlockedByMe ? (blockedContacts.find(u => String(u.id) === String(currentChat))?.nickname || blockedContacts.find(u => String(u.id) === String(currentChat))?.username || '') : '';
   const [replyTo, setReplyTo] = useState<ChatMessageType | null>(null);
@@ -334,7 +337,7 @@ const ChatView: React.FC = () => {
             color: '#f97316', fontSize: 14, flexShrink: 0,
           }}>
             <Ban size={16} />
-            You have blocked <strong style={{ marginLeft: 3 }}>{blockedName}</strong> — messaging is disabled
+            {tr('chat_blocked_messaging')} <strong style={{ marginLeft: 3 }}>{blockedName}</strong> {tr('chat_blocked_messaging_suffix')}
           </div>
         : chatBlockedByOther
         ? <div style={{
@@ -344,7 +347,7 @@ const ChatView: React.FC = () => {
             color: 'var(--text-secondary)', fontSize: 14, flexShrink: 0,
           }}>
             <Ban size={16} />
-            You cannot send messages to this user
+            {tr('chat_cannot_send')}
           </div>
         : <MessageInput replyTo={replyTo} onCancelReply={() => setReplyTo(null)} onScheduled={item => setScheduled(prev => [...prev, item])} />
       }
@@ -353,6 +356,7 @@ const ChatView: React.FC = () => {
 };
 
 const ScheduledBanner: React.FC<{ item: ScheduledItem; onCancel: (id: string) => void }> = ({ item, onCancel }) => {
+  const tr = useTranslation();
   const [remaining, setRemaining] = useState(() => Math.max(0, Math.round((new Date(item.send_at).getTime() - Date.now()) / 1000)));
 
   useEffect(() => {
@@ -366,12 +370,38 @@ const ScheduledBanner: React.FC<{ item: ScheduledItem; onCancel: (id: string) =>
     <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '4px 8px 0', padding: '7px 12px', borderRadius: 8, background: 'rgba(88,101,242,0.15)', border: '1px solid var(--accent-primary)', flexShrink: 0 }}>
       <Clock size={14} style={{ color: 'var(--accent-primary)', flexShrink: 0 }} />
       <span style={{ fontSize: 13, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-        Sending in <b>{remaining}s</b>: {item.content || '[attachment]'}
+        {tr('chat_sending_in')} <b>{remaining}s</b>: {item.content || tr('chat_attachment_label')}
       </span>
-      <button onClick={() => onCancel(item.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ff6666', fontSize: 12, padding: 0, flexShrink: 0 }}>Cancel</button>
+      <button onClick={() => onCancel(item.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ff6666', fontSize: 12, padding: 0, flexShrink: 0 }}>{tr('cancel')}</button>
     </div>
   );
 };
+
+function getDateLabel(dateStr: string, tr: (key: any) => string): string {
+  const date = new Date(dateStr);
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+  const msgDay = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+
+  if (msgDay.getTime() === today.getTime()) return tr('chat_today');
+  if (msgDay.getTime() === yesterday.getTime()) return tr('chat_yesterday');
+  return date.toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: date.getFullYear() !== now.getFullYear() ? 'numeric' : undefined });
+}
+
+function shouldShowDateSeparator(current: ChatMessageType, prev?: ChatMessageType): boolean {
+  if (!prev) return true;
+  const d1 = new Date(prev.created_at);
+  const d2 = new Date(current.created_at);
+  return d1.getFullYear() !== d2.getFullYear() || d1.getMonth() !== d2.getMonth() || d1.getDate() !== d2.getDate();
+}
+
+const DateSeparator: React.FC<{ label: string }> = ({ label }) => (
+  <div className="date-separator">
+    <span className="date-separator-label">{label}</span>
+  </div>
+);
 
 const MSG_HEIGHT = 60;
 
@@ -394,6 +424,8 @@ const AuthMedia: React.FC<{ url: string; contentType: string; filename: string }
   const { authToken, currentServerIP } = useApp();
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
 
+  const blobUrlRef = useRef<string | null>(null);
+
   useEffect(() => {
     let revoked = false;
     (async () => {
@@ -403,14 +435,19 @@ const AuthMedia: React.FC<{ url: string; contentType: string; filename: string }
         });
         if (!res.ok) return;
         const blob = await res.blob();
-        if (!revoked) setBlobUrl(URL.createObjectURL(blob));
+        if (revoked) return;
+        const bu = URL.createObjectURL(blob);
+        blobUrlRef.current = bu;
+        setBlobUrl(bu);
       } catch { /* ignore */ }
     })();
     return () => {
       revoked = true;
-      if (blobUrl) URL.revokeObjectURL(blobUrl);
+      if (blobUrlRef.current) {
+        URL.revokeObjectURL(blobUrlRef.current);
+        blobUrlRef.current = null;
+      }
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [url, authToken, currentServerIP]);
 
   if (!blobUrl) {
@@ -492,6 +529,13 @@ const VoiceMessagePlayer: React.FC<{ url: string }> = ({ url }) => {
   useEffect(() => {
     return () => { if (blobUrl) URL.revokeObjectURL(blobUrl); };
   }, [blobUrl]);
+
+  useEffect(() => {
+    return () => {
+      cancelAnimationFrame(rafRef.current);
+      if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
+    };
+  }, []);
 
   const tick = useCallback(() => {
     const a = audioRef.current;
@@ -575,6 +619,7 @@ const VideoCirclePlayer: React.FC<{ url: string }> = ({ url }) => {
   const [seeking, setSeeking] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const rafRef = useRef(0);
   const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isDown = useRef(false);
@@ -597,6 +642,13 @@ const VideoCirclePlayer: React.FC<{ url: string }> = ({ url }) => {
   useEffect(() => {
     return () => { if (blobUrl) URL.revokeObjectURL(blobUrl); };
   }, [blobUrl]);
+
+  useEffect(() => {
+    return () => {
+      cancelAnimationFrame(rafRef.current);
+      if (holdTimer.current) { clearTimeout(holdTimer.current); holdTimer.current = null; }
+    };
+  }, []);
 
   const tick = useCallback(() => {
     const v = videoRef.current;
@@ -688,15 +740,42 @@ const VideoCirclePlayer: React.FC<{ url: string }> = ({ url }) => {
     };
   }, [onUp, onMove]);
 
+  useEffect(() => {
+    const el = canvasRef.current;
+    if (!el) return;
+    const ctx = el.getContext('2d');
+    if (!ctx) return;
+    const ringW = 4;
+    const s = 200 + ringW * 2;
+    if (el.width !== s * 2) { el.width = s * 2; el.height = s * 2; }
+    const c = s;
+    const r = 200 / 2 + ringW / 2;
+    const scale = 2;
+    ctx.clearRect(0, 0, s * 2, s * 2);
+    ctx.lineWidth = ringW * scale;
+    // bg track
+    ctx.beginPath();
+    ctx.arc(c, c, r * scale, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+    ctx.stroke();
+    // progress
+    if (progress > 0.001) {
+      const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent-primary').trim() || '#3a8ee6';
+      ctx.beginPath();
+      ctx.arc(c, c, r * scale, -Math.PI / 2, -Math.PI / 2 + progress * Math.PI * 2);
+      ctx.strokeStyle = holding ? '#ff4444' : accent;
+      ctx.lineCap = 'round';
+      ctx.stroke();
+    }
+  }, [progress, holding]);
+
   const size = 200;
-  const ringWidth = 5;
-  const gap = 3;
-  const videoSize = size - (ringWidth + gap) * 2;
-  const accentColor = holding ? '#ff4444' : '#3a8ee6';
+  const ringWidth = 4;
+  const accentColor = holding ? '#ff4444' : `var(--accent-primary)`;
   const progressDeg = progress * 360;
 
   const thumbAngle = (progress * 360 - 90) * (Math.PI / 180);
-  const thumbR = size / 2 - ringWidth / 2;
+  const thumbR = size / 2 + ringWidth / 2;
   const thumbX = size / 2 + thumbR * Math.cos(thumbAngle);
   const thumbY = size / 2 + thumbR * Math.sin(thumbAngle);
 
@@ -714,46 +793,48 @@ const VideoCirclePlayer: React.FC<{ url: string }> = ({ url }) => {
       style={{
         position: 'relative', width: size, height: size, marginTop: 6,
         cursor: 'pointer', userSelect: 'none',
-        borderRadius: '50%',
-        background: `conic-gradient(from -90deg, ${accentColor} ${progressDeg}deg, rgba(255,255,255,0.2) ${progressDeg}deg 360deg)`,
-        padding: ringWidth,
       }}
       onMouseDown={e => { e.preventDefault(); onDown(e); }}
       onTouchStart={e => { onDown(e); }}
     >
-      <div style={{
-        width: size - ringWidth * 2, height: size - ringWidth * 2,
-        borderRadius: '50%', background: 'var(--bg-primary)',
-        padding: gap, boxSizing: 'border-box',
-      }}>
-        <video
-          ref={el => {
-            videoRef.current = el;
-            if (el) el.onended = () => { setPlaying(false); setProgress(0); };
-          }}
-          src={blobUrl}
-          playsInline
-          style={{ width: videoSize, height: videoSize, borderRadius: '50%', objectFit: 'cover', display: 'block', background: '#000' }}
-        />
-      </div>
-      {/* Thumb dot */}
+      <video
+        ref={el => {
+          videoRef.current = el;
+          if (el) el.onended = () => { setPlaying(false); setProgress(0); };
+        }}
+        src={blobUrl}
+        playsInline
+        style={{
+          width: size, height: size,
+          borderRadius: '50%', objectFit: 'cover', background: '#000',
+          display: 'block',
+        }}
+      />
+      <canvas
+        ref={canvasRef}
+        style={{
+          position: 'absolute', top: -ringWidth, left: -ringWidth,
+          width: size + ringWidth * 2, height: size + ringWidth * 2,
+          pointerEvents: 'none',
+        }}
+      />
+      {/* Thumb */}
       <div style={{
         position: 'absolute',
-        width: seeking ? 16 : 12, height: seeking ? 16 : 12,
+        width: seeking ? 14 : 10, height: seeking ? 14 : 10,
         borderRadius: '50%',
         background: accentColor,
         border: '2px solid #fff',
         boxShadow: '0 0 4px rgba(0,0,0,0.5)',
-        top: thumbY - (seeking ? 8 : 6),
-        left: thumbX - (seeking ? 8 : 6),
-        transition: 'width 0.15s, height 0.15s',
+        top: thumbY - (seeking ? 7 : 5),
+        left: thumbX - (seeking ? 7 : 5),
         pointerEvents: 'none',
       }} />
       {!playing && progress === 0 && (
         <div style={{
           position: 'absolute',
-          top: ringWidth + gap, left: ringWidth + gap,
-          width: videoSize, height: videoSize,
+          top: 0, left: 0,
+          width: size, height: size,
           borderRadius: '50%',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           background: 'rgba(0,0,0,0.35)',
@@ -812,6 +893,7 @@ const AttachmentView: React.FC<{ att: ChatAttachment }> = ({ att }) => {
 
 const AuthDownloadButton: React.FC<{ url: string; filename: string }> = ({ url, filename }) => {
   const { authToken, currentServerIP } = useApp();
+  const tr = useTranslation();
   const handleDownload = async (e: React.MouseEvent) => {
     e.preventDefault();
     try {
@@ -828,7 +910,7 @@ const AuthDownloadButton: React.FC<{ url: string; filename: string }> = ({ url, 
     } catch { /* ignore */ }
   };
   return (
-    <button onClick={handleDownload} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', padding: 4, flexShrink: 0 }} title="Download">
+    <button onClick={handleDownload} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', padding: 4, flexShrink: 0 }} title={tr('chat_download')}>
       <Download size={16} />
     </button>
   );
@@ -848,6 +930,7 @@ const MessageContextMenu: React.FC<{
   onReport: (id: string) => void;
   onCopy: (text: string) => void;
 }> = ({ menu, isOwn, onClose, onReply, onDelete, onPin, onReport, onCopy }) => {
+  const tr = useTranslation();
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -905,11 +988,11 @@ const MessageContextMenu: React.FC<{
 
   return (
     <div ref={ref} style={style}>
-      {item(<Reply size={15} />, 'Reply', () => onReply(menu.msg))}
-      {item(<Copy size={15} />, 'Copy text', () => onCopy(menu.msg.content))}
-      {item(<Pin size={15} />, menu.msg.is_pinned ? 'Unpin' : 'Pin', () => onPin(menu.msg.id))}
-      {!isOwn && item(<Flag size={15} />, 'Report', () => onReport(menu.msg.id))}
-      {isOwn && item(<Trash2 size={15} />, 'Delete', () => onDelete(menu.msg.id), true)}
+      {item(<Reply size={15} />, tr('chat_reply'), () => onReply(menu.msg))}
+      {item(<Copy size={15} />, tr('chat_copy_text'), () => onCopy(menu.msg.content))}
+      {item(<Pin size={15} />, menu.msg.is_pinned ? tr('chat_unpin_msg') : tr('chat_pin'), () => onPin(menu.msg.id))}
+      {!isOwn && item(<Flag size={15} />, tr('chat_report'), () => onReport(menu.msg.id))}
+      {isOwn && item(<Trash2 size={15} />, tr('chat_delete'), () => onDelete(menu.msg.id), true)}
     </div>
   );
 };
@@ -977,6 +1060,10 @@ const CallMessageRow: React.FC<{
   const typeText = info.video ? tr('call_msg_video') : tr('call_msg_voice');
 
   const isBad = info.status === 'missed' || info.status === 'declined' || info.status === 'no_answer';
+  const showCallback = isBad && (
+    (info.status === 'cancelled' && !isOwn) ||
+    (info.status !== 'cancelled' && isOwn)
+  );
   const accentColor = isBad ? '#ff4444' : '#44cc44';
 
   const Icon = info.status === 'missed' ? PhoneMissed
@@ -988,7 +1075,7 @@ const CallMessageRow: React.FC<{
     <div style={{
       display: 'flex',
       justifyContent: 'center',
-      padding: '8px 16px',
+      padding: '0 16px',
     }}>
       <div style={{
         display: 'flex',
@@ -1022,10 +1109,9 @@ const CallMessageRow: React.FC<{
             {info.duration != null && info.duration > 0 && (
               <span>{formatCallDuration(info.duration)}</span>
             )}
-            <span>{time}</span>
           </div>
         </div>
-        {isBad && (
+        {showCallback && (
           <button
             onClick={() => onStartCall(!!info.video)}
             style={{
@@ -1044,6 +1130,7 @@ const CallMessageRow: React.FC<{
             {tr('call_msg_callback')}
           </button>
         )}
+        <span style={{ fontSize: 11, color: 'var(--text-secondary)', alignSelf: 'flex-end', flexShrink: 0 }}>{time}</span>
       </div>
     </div>
   );
@@ -1059,6 +1146,7 @@ const MessageRow = React.memo(({ msg, isOwn, isFirstInGroup, onContextMenu, onRe
   searchQuery?: string;
   highlight?: boolean;
 }) => {
+  const tr = useTranslation();
   const displayName = msg.author.nickname || msg.author.username;
   const time = new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   const [hovered, setHovered] = useState(false);
@@ -1084,7 +1172,7 @@ const MessageRow = React.memo(({ msg, isOwn, isFirstInGroup, onContextMenu, onRe
       onContextMenu={e => { e.preventDefault(); onContextMenu(e, msg); }}
     >
       {msg.is_pinned && (
-        <div style={{ position: 'absolute', top: 4, left: 4, color: 'var(--accent-primary)', opacity: 0.7, zIndex: 1 }}>
+        <div style={{ position: 'absolute', top: 4, ...(isOwn ? { left: 4 } : { right: 4 }), color: 'var(--accent-primary)', opacity: 0.7, zIndex: 1 }}>
           <Pin size={12} />
         </div>
       )}
@@ -1102,14 +1190,14 @@ const MessageRow = React.memo(({ msg, isOwn, isFirstInGroup, onContextMenu, onRe
       <div className="message-content" style={{ flex: 1, minWidth: 0 }}>
         <div className="message-bubble">
           {msg.content && (
-            <div className="message-text">
+            <div className="message-text" style={{ position: 'relative' }}>
               {isFirstInGroup && (
                 <div className="message-author-bubble">{displayName}</div>
               )}
               {msg.reply_to && (
                 <div className="message-reply-preview">
                   {msg.reply_to.deleted ? (
-                    <span style={{ fontStyle: 'italic', opacity: 0.6 }}>Message deleted</span>
+                    <span style={{ fontStyle: 'italic', opacity: 0.6 }}>{tr('chat_message_deleted')}</span>
                   ) : (
                     <>
                       <span className="message-reply-author">
@@ -1132,6 +1220,24 @@ const MessageRow = React.memo(({ msg, isOwn, isFirstInGroup, onContextMenu, onRe
                 <span className="message-timestamp">{time}</span>
                 {isOwn && <ReadReceipt msg={msg} />}
               </div>
+              {hovered && (
+                <div style={{ position: 'absolute', top: -8, ...(isOwn ? { left: -8 } : { right: -8 }), display: 'flex', gap: 4, zIndex: 2 }}>
+                  <button
+                    onClick={() => onReply(msg)}
+                    style={{ background: 'var(--bg-secondary)', border: 'none', borderRadius: 6, padding: '3px 6px', cursor: 'pointer', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center' }}
+                    title={tr('chat_reply')}
+                  >
+                    <Reply size={14} />
+                  </button>
+                  <button
+                    onClick={e => onContextMenu(e, msg)}
+                    style={{ background: 'var(--bg-secondary)', border: 'none', borderRadius: 6, padding: '3px 6px', cursor: 'pointer', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center' }}
+                    title={tr('chat_more')}
+                  >
+                    <MoreHorizontal size={14} />
+                  </button>
+                </div>
+              )}
             </div>
           )}
           {msg.attachments?.map(att => (
@@ -1154,24 +1260,6 @@ const MessageRow = React.memo(({ msg, isOwn, isFirstInGroup, onContextMenu, onRe
           )}
         </div>
       </div>
-      {hovered && (
-        <div style={{ position: 'absolute', top: 4, right: 8, display: 'flex', gap: 4 }}>
-          <button
-            onClick={() => onReply(msg)}
-            style={{ background: 'var(--bg-secondary)', border: 'none', borderRadius: 6, padding: '3px 6px', cursor: 'pointer', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center' }}
-            title="Reply"
-          >
-            <Reply size={14} />
-          </button>
-          <button
-            onClick={e => onContextMenu(e, msg)}
-            style={{ background: 'var(--bg-secondary)', border: 'none', borderRadius: 6, padding: '3px 6px', cursor: 'pointer', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center' }}
-            title="More"
-          >
-            <MoreHorizontal size={14} />
-          </button>
-        </div>
-      )}
     </div>
   );
 });
@@ -1269,34 +1357,41 @@ const MessagesContainer: React.FC<{
         <div className="messages-list">
           {filteredMessages.length === 0 && (
             <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-secondary)' }}>
-              {searchQuery.trim() ? 'No messages match your search.' : tr('chat_no_messages')}
+              {searchQuery.trim() ? tr('chat_no_search_results') : tr('chat_no_messages')}
             </div>
           )}
           {filteredMessages.map((msg, i) => {
+            const prev = filteredMessages[i - 1];
+            const showDate = !searchQuery.trim() && shouldShowDateSeparator(msg, prev);
+            const dateSep = showDate ? <DateSeparator key={`date-${msg.id || i}`} label={getDateLabel(msg.created_at, tr)} /> : null;
+
             if (msg.message_type === 'call' && msg.call_info) {
               return (
-                <CallMessageRow
-                  key={msg.id || `call-${i}`}
-                  msg={msg}
-                  isOwn={String(msg.author.id) === String(userIDonServer)}
-                  onStartCall={handleStartCall}
-                />
+                <React.Fragment key={msg.id || `call-${i}`}>
+                  {dateSep}
+                  <CallMessageRow
+                    msg={msg}
+                    isOwn={String(msg.author.id) === String(userIDonServer)}
+                    onStartCall={handleStartCall}
+                  />
+                </React.Fragment>
               );
             }
-            const prev = filteredMessages[i - 1];
-            const isFirstInGroup = !prev || String(prev.author.id) !== String(msg.author.id) || prev.message_type === 'call';
+            const isFirstInGroup = showDate || !prev || String(prev.author.id) !== String(msg.author.id) || prev.message_type === 'call';
             return (
-            <MessageRow
-              key={msg.id || `tmp-${i}`}
-              msg={msg}
-              isOwn={String(msg.author.id) === String(userIDonServer)}
-              isFirstInGroup={isFirstInGroup}
-              onContextMenu={openCtx}
-              onReply={onReply}
-              customEmojis={customEmojis}
-              searchQuery={searchQuery}
-              highlight={highlightId === msg.id}
-            />
+              <React.Fragment key={msg.id || `tmp-${i}`}>
+                {dateSep}
+                <MessageRow
+                  msg={msg}
+                  isOwn={String(msg.author.id) === String(userIDonServer)}
+                  isFirstInGroup={isFirstInGroup}
+                  onContextMenu={openCtx}
+                  onReply={onReply}
+                  customEmojis={customEmojis}
+                  searchQuery={searchQuery}
+                  highlight={highlightId === msg.id}
+                />
+              </React.Fragment>
             );
           })}
         </div>
@@ -1581,10 +1676,15 @@ const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: (
     return () => window.removeEventListener('mouseup', onGlobalUp);
   }, [handleRecordButtonUp]);
 
+  const cleanupRef = useRef(cleanupRecording);
+  cleanupRef.current = cleanupRecording;
+  const recordedUrlRef = useRef(recordedUrl);
+  recordedUrlRef.current = recordedUrl;
+
   useEffect(() => {
     return () => {
-      cleanupRecording();
-      if (recordedUrl) URL.revokeObjectURL(recordedUrl);
+      cleanupRef.current();
+      if (recordedUrlRef.current) URL.revokeObjectURL(recordedUrlRef.current);
       if (audioPreviewRef.current) { audioPreviewRef.current.pause(); audioPreviewRef.current = null; }
     };
   }, []);
@@ -1604,7 +1704,7 @@ const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: (
               {replyTo.author.nickname || replyTo.author.username}
             </span>
             <span style={{ fontSize: 12, color: 'var(--text-secondary)', marginLeft: 6, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'inline-block', maxWidth: 200, verticalAlign: 'middle' }}>
-              {replyTo.content || '[attachment]'}
+              {replyTo.content || tr('chat_attachment_label')}
             </span>
           </div>
           <button onClick={onCancelReply} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', padding: 2, flexShrink: 0 }}>
@@ -1616,7 +1716,7 @@ const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: (
       {/* File limit warning */}
       {limitWarning && (
         <div style={{ margin: '8px 8px 0', padding: '8px 12px', borderRadius: 8, background: '#ff444422', border: '1px solid #ff4444', color: '#ff6666', fontSize: 13 }}>
-          Maximum {MAX_FILES} files per message
+          {tr('chat_max_files').replace('{n}', String(MAX_FILES))}
         </div>
       )}
 
@@ -1633,7 +1733,7 @@ const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: (
                 <div style={{ fontSize: 12, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 100 }}>{pf.file.name}</div>
                 <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{formatFileSize(pf.file.size)}</div>
               </div>
-              <button onClick={() => removeFile(i)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', padding: 2, flexShrink: 0 }} title="Remove">
+              <button onClick={() => removeFile(i)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', padding: 2, flexShrink: 0 }} title={tr('chat_remove')}>
                 <X size={14} />
               </button>
             </div>
@@ -1662,7 +1762,7 @@ const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: (
             </div>
             <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{formatTime(recordDuration)}</div>
           </div>
-          <button onClick={togglePlayback} className="icon-btn glass-btn" title={isPlaying ? 'Pause' : 'Play'}>
+          <button onClick={togglePlayback} className="icon-btn glass-btn" title={isPlaying ? tr('chat_pause') : tr('chat_play')}>
             {isPlaying ? <Pause size={18} /> : <Play size={18} />}
           </button>
           <button onClick={discardRecording} className="icon-btn glass-btn" title={tr('chat_record_cancel')} style={{ color: '#ff4444' }}>
@@ -1815,7 +1915,7 @@ const SettingsView: React.FC = () => {
             </svg>
           </div>
           <h2>{tr('nav_settings')}</h2>
-          <p>Customize your experience. Choose a category from the sidebar to get started.</p>
+          <p>{tr('settings_welcome')}</p>
         </div>
       </div>
     </div>

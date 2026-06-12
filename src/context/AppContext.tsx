@@ -67,11 +67,20 @@ function enrichCallMessage(msg: ChatMessage): ChatMessage {
 
 // ── Accent colour (premium blue default) ─────────────────────────────────────
 const DEFAULT_ACCENT = '#0070F3';
+function hexToRgb(hex: string): [number, number, number] {
+  const n = parseInt(hex.replace('#', ''), 16);
+  return [(n >> 16) & 0xff, (n >> 8) & 0xff, n & 0xff];
+}
 function applyAccent(color: string) {
   document.documentElement.style.setProperty('--accent-primary', color);
-  // Darken 15% for hover/active
   document.documentElement.style.setProperty('--accent-hover', shadeColor(color, -15));
   document.documentElement.style.setProperty('--accent-active', shadeColor(color, -25));
+  const [r, g, b] = hexToRgb(color);
+  const isDark = document.body.classList.contains('dark-theme');
+  const msgOwn = isDark
+    ? `rgba(${r}, ${g}, ${b}, 0.18)`
+    : `rgba(${r}, ${g}, ${b}, 0.15)`;
+  document.documentElement.style.setProperty('--message-own', msgOwn);
 }
 function shadeColor(hex: string, pct: number): string {
   const n = parseInt(hex.replace('#', ''), 16);
@@ -1971,6 +1980,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       document.body.classList.remove('dark-theme');
     }
     localStorage.setItem('messengerTheme', state.theme);
+    applyAccent(localStorage.getItem('accentColor') || DEFAULT_ACCENT);
   }, [state.theme]);
 
   useEffect(() => { localStorage.setItem('messengerCurrentServer', state.currentServer); }, [state.currentServer]);

@@ -769,8 +769,8 @@ const ChatSettings: React.FC = () => {
     <Check label={tr('sc_emoji')} field="chat_emoji_reactions" />
     <Check label={tr('sc_compact')} field="chat_compact_mode" />
     <div style={{ ...card, marginTop: 16 }}>
-      <h3 style={sectionH3}>Message Spacing</h3>
-      <div style={fieldLabel as React.CSSProperties}>Gap between messages (px)</div>
+      <h3 style={sectionH3}>{tr('sc_message_spacing')}</h3>
+      <div style={fieldLabel as React.CSSProperties}>{tr('sc_gap_between')}</div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
         <input
           type="number"

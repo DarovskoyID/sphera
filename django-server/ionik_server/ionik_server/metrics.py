@@ -95,24 +95,31 @@ def _redis_stats():
         import redis as redis_mod
         url = os.environ.get('REDIS_URL', 'redis://127.0.0.1:6379/0')
         r = redis_mod.Redis.from_url(url, socket_connect_timeout=2)
-        info = r.info(section='memory')
-        clients = r.info(section='clients')
-        return {
-            'connected': True,
-            'used_memory_mb': round(info.get('used_memory', 0) / 1024 / 1024, 2),
-            'connected_clients': clients.get('connected_clients', 0),
-            'max_memory_mb': round(info.get('maxmemory', 0) / 1024 / 1024, 2),
-        }
+        try:
+            info = r.info(section='memory')
+            clients = r.info(section='clients')
+            return {
+                'connected': True,
+                'used_memory_mb': round(info.get('used_memory', 0) / 1024 / 1024, 2),
+                'connected_clients': clients.get('connected_clients', 0),
+                'max_memory_mb': round(info.get('maxmemory', 0) / 1024 / 1024, 2),
+            }
+        finally:
+            r.close()
     except Exception as e:
         return {'connected': False, 'error': str(e)}
 
 
+_kafka_admin_client = None
+
 def _kafka_stats():
+    global _kafka_admin_client
     try:
         from confluent_kafka.admin import AdminClient
         brokers = os.environ.get('KAFKA_BOOTSTRAP_SERVERS', 'localhost:9092')
-        admin = AdminClient({'bootstrap.servers': brokers, 'socket.timeout.ms': 3000})
-        meta = admin.list_topics(timeout=3)
+        if _kafka_admin_client is None:
+            _kafka_admin_client = AdminClient({'bootstrap.servers': brokers, 'socket.timeout.ms': 3000})
+        meta = _kafka_admin_client.list_topics(timeout=3)
         topics = {}
         for name, t in meta.topics.items():
             if not name.startswith('__'):
@@ -123,6 +130,7 @@ def _kafka_stats():
             'topics': topics,
         }
     except Exception as e:
+        _kafka_admin_client = None
         return {'connected': False, 'error': str(e)}
 
 

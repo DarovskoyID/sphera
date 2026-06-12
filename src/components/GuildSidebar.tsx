@@ -304,7 +304,7 @@ export const GuildSidebar: React.FC = () => {
           </button>
           {isAdmin && (
             <button className="context-menu-item" onClick={() => { setShowSettings(false); setShowSettingsModal(true); }}>
-              <Settings size={13} /> Server Settings
+              <Settings size={13} /> {tr('guild_server_settings')}
             </button>
           )}
           {myRole === 'owner' && (
@@ -324,7 +324,7 @@ export const GuildSidebar: React.FC = () => {
               <div style={{ borderTop: '1px solid var(--border-color)', margin: '4px 0' }} />
               <div style={{ padding: '4px 10px 2px', fontSize: 10, fontWeight: 700, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
                 <Ban size={10} style={{ display: 'inline', marginRight: 4 }} />
-                Blocked — {blockedContacts.length}
+                {tr('guild_blocked_count').replace('{n}', String(blockedContacts.length))}
               </div>
               {blockedContacts.map(u => (
                 <div key={u.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 10px' }}>
@@ -339,7 +339,7 @@ export const GuildSidebar: React.FC = () => {
                   </span>
                   <button
                     onClick={() => unblockUser(u.id)}
-                    title="Unblock"
+                    title={tr('guild_unblock')}
                     style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#3ba55c', display: 'flex', alignItems: 'center', padding: 2, flexShrink: 0 }}
                   >
                     <ShieldOff size={13} />
@@ -469,9 +469,9 @@ export const GuildSidebar: React.FC = () => {
           <div style={{ background: 'var(--bg-secondary)', borderRadius: 12, padding: 28, maxWidth: 420, width: '90%', border: '1px solid var(--border-color)' }}>
             <h3 style={{ margin: '0 0 8px', color: '#ef4444', fontSize: 18, fontWeight: 700 }}>{tr('guild_delete_server')}</h3>
             <p style={{ margin: '0 0 16px', color: 'var(--text-secondary)', fontSize: 14, lineHeight: 1.5 }}>
-              This action is <strong style={{ color: 'var(--text-primary)' }}>permanent</strong> and cannot be undone.
-              All channels, messages, and members will be lost.<br /><br />
-              Type <strong style={{ color: 'var(--text-primary)' }}>{currentGuild.name}</strong> to confirm:
+              {tr('guild_delete_permanent')}<br /><br />
+              {tr('guild_delete_type_confirm').replace('{name}', '')}
+              <strong style={{ color: 'var(--text-primary)' }}>{currentGuild.name}</strong>
             </p>
             <input
               autoFocus
@@ -490,7 +490,7 @@ export const GuildSidebar: React.FC = () => {
               <button
                 onClick={() => { setShowDeleteConfirm(false); setDeleteInput(''); }}
                 style={{ padding: '9px 20px', background: 'var(--bg-tertiary)', color: 'var(--text-primary)', border: '1px solid var(--border-color)', borderRadius: 8, fontSize: 14, cursor: 'pointer' }}>
-                Cancel
+                {tr('cancel')}
               </button>
               <button
                 disabled={deleteInput !== currentGuild.name}
@@ -502,7 +502,7 @@ export const GuildSidebar: React.FC = () => {
                   cursor: deleteInput === currentGuild.name ? 'pointer' : 'not-allowed',
                   transition: 'background 0.15s, color 0.15s',
                 }}>
-                Delete Server
+                {tr('guild_delete_server')}
               </button>
             </div>
           </div>

@@ -23,8 +23,8 @@ const STATUS_COLOR: Record<string, string> = {
   offline: 'var(--status-offline)',
 };
 
-const STATUS_LABEL: Record<string, string> = {
-  online: 'Online', idle: 'Idle', dnd: 'Do Not Disturb', offline: 'Offline',
+const STATUS_KEYS: Record<string, string> = {
+  online: 'status_online', idle: 'status_idle', dnd: 'status_dnd', offline: 'status_offline',
 };
 
 const Avatar: React.FC<{ name: string; avatar: string; size?: number }> = ({ name, avatar, size = 40 }) => (
@@ -119,7 +119,7 @@ export const ProfileModal: React.FC<{
               <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.2 }}>{displayName}</div>
               <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>@{user.username}</div>
               <div style={{ fontSize: 12, color: STATUS_COLOR[user.status] ?? STATUS_COLOR.offline, marginTop: 2 }}>
-                {STATUS_LABEL[user.status] ?? 'Offline'}
+                {tr((STATUS_KEYS[user.status] ?? 'status_offline') as any)}
               </div>
             </div>
           </div>
@@ -136,19 +136,19 @@ export const ProfileModal: React.FC<{
             {onCall && (
               <>
                 <button onClick={() => onCall(false)} style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '9px 0', background: 'var(--accent-primary)', border: 'none', borderRadius: 8, color: '#fff', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
-                  <Phone size={15} /> Call
+                  <Phone size={15} /> {tr('profile_call')}
                 </button>
                 <button onClick={() => onCall(true)} style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '9px 0', background: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 8, color: 'var(--text-primary)', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
-                  <Video size={15} /> Video
+                  <Video size={15} /> {tr('profile_video')}
                 </button>
               </>
             )}
             {isFriend ? (
-              <button onClick={() => setShowRemoveConfirm(true)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '9px 12px', background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 8, color: '#ef4444', fontWeight: 600, fontSize: 13, cursor: 'pointer' }} title="Remove friend">
+              <button onClick={() => setShowRemoveConfirm(true)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '9px 12px', background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 8, color: '#ef4444', fontWeight: 600, fontSize: 13, cursor: 'pointer' }} title={tr('profile_remove_friend')}>
                 <UserMinus size={15} />
               </button>
             ) : (
-              <button onClick={() => sendFriendRequest(user.id)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '9px 12px', background: 'var(--accent-primary)', border: 'none', borderRadius: 8, color: '#fff', fontWeight: 600, fontSize: 13, cursor: 'pointer' }} title="Add friend">
+              <button onClick={() => sendFriendRequest(user.id)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '9px 12px', background: 'var(--accent-primary)', border: 'none', borderRadius: 8, color: '#fff', fontWeight: 600, fontSize: 13, cursor: 'pointer' }} title={tr('profile_add_friend')}>
                 <UserPlus size={15} />
               </button>
             )}
@@ -156,15 +156,15 @@ export const ProfileModal: React.FC<{
 
           {/* Note */}
           <div style={{ marginBottom: 14 }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-tertiary)', letterSpacing: 0.5, marginBottom: 5, textTransform: 'uppercase' }}>Note (only visible to you)</div>
-            <textarea value={note} onChange={e => { setNote(e.target.value); localStorage.setItem(`note_${user.id}`, e.target.value); }} placeholder="Add a note about this person..." style={{ width: '100%', padding: '8px 10px', background: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 8, color: 'var(--text-primary)', fontSize: 13, fontFamily: 'inherit', resize: 'vertical', minHeight: 64, outline: 'none' }} />
+            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-tertiary)', letterSpacing: 0.5, marginBottom: 5, textTransform: 'uppercase' }}>{tr('profile_note')}</div>
+            <textarea value={note} onChange={e => { setNote(e.target.value); localStorage.setItem(`note_${user.id}`, e.target.value); }} placeholder={tr('profile_note_placeholder')} style={{ width: '100%', padding: '8px 10px', background: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 8, color: 'var(--text-primary)', fontSize: 13, fontFamily: 'inherit', resize: 'vertical', minHeight: 64, outline: 'none' }} />
           </div>
 
           {/* Mutual friends */}
           {mutualFriends.length > 0 && (
             <div style={{ marginBottom: 16 }}>
               <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-tertiary)', letterSpacing: 0.5, marginBottom: 8, textTransform: 'uppercase' }}>
-                {mutualFriends.length} Mutual Friend{mutualFriends.length !== 1 ? 's' : ''}
+                {mutualFriends.length} {mutualFriends.length !== 1 ? tr('profile_mutual_friends') : tr('profile_mutual_friend')}
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 {mutualFriends.map(mf => (

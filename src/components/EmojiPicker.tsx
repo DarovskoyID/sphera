@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Search, X, Plus, Trash2 } from 'lucide-react';
 import { EMOJI_CATEGORIES } from '../data/emojis';
 import { useApp } from '../context/AppContext';
+import { useTranslation } from '../i18n/useTranslation';
 import type { CustomEmoji } from '../types';
 
 /** @deprecated use CustomEmoji from types */
@@ -26,6 +27,7 @@ function addRecent(emoji: string) {
 
 export const EmojiPicker: React.FC<Props> = ({ onSelect, onClose, anchorRef }) => {
   const { authToken, currentServerIP, currentUser, customEmojis, loadCustomEmojis } = useApp();
+  const tr = useTranslation();
   const [tab, setTab] = useState('recent');
   const [search, setSearch] = useState('');
   const [recent, setRecent] = useState<string[]>(getRecent);
@@ -109,12 +111,12 @@ export const EmojiPicker: React.FC<Props> = ({ onSelect, onClose, anchorRef }) =
     const f = e.target.files?.[0];
     if (!f) return;
     if (!['image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(f.type)) {
-      setCreateError('Only PNG, JPG, GIF, or WebP allowed');
+      setCreateError(tr('emoji_file_type'));
       e.target.value = '';
       return;
     }
     if (f.size > 2 * 1024 * 1024) {
-      setCreateError('Image must be under 2 MB');
+      setCreateError(tr('emoji_file_size'));
       e.target.value = '';
       return;
     }
@@ -126,8 +128,8 @@ export const EmojiPicker: React.FC<Props> = ({ onSelect, onClose, anchorRef }) =
   };
 
   const handleCreate = async () => {
-    if (!createName.trim() || !createFile) { setCreateError('Name and image required'); return; }
-    if (!/^[a-z0-9_]+$/.test(createName)) { setCreateError('Only lowercase letters, numbers, underscore'); return; }
+    if (!createName.trim() || !createFile) { setCreateError(tr('emoji_name_required')); return; }
+    if (!/^[a-z0-9_]+$/.test(createName)) { setCreateError(tr('emoji_name_invalid')); return; }
     setCreating(true);
     setCreateError('');
     try {
@@ -149,9 +151,9 @@ export const EmojiPicker: React.FC<Props> = ({ onSelect, onClose, anchorRef }) =
         setTab('custom');
       } else {
         const data = await res.json();
-        setCreateError(data.error || 'Failed to create emoji');
+        setCreateError(data.error || tr('emoji_create_failed'));
       }
-    } catch { setCreateError('Network error'); }
+    } catch { setCreateError(tr('error_network')); }
     finally { setCreating(false); }
   };
 
@@ -192,9 +194,9 @@ export const EmojiPicker: React.FC<Props> = ({ onSelect, onClose, anchorRef }) =
   };
 
   const allTabs = [
-    { id: 'recent', icon: '🕐', label: 'Recent' },
+    { id: 'recent', icon: '🕐', label: tr('emoji_recent') },
     ...EMOJI_CATEGORIES.map(c => ({ id: c.id, icon: c.icon, label: c.label })),
-    { id: 'custom', icon: '⭐', label: 'Custom' },
+    { id: 'custom', icon: '⭐', label: tr('emoji_custom') },
   ];
 
   const currentCat = EMOJI_CATEGORIES.find(c => c.id === tab);
@@ -262,7 +264,7 @@ export const EmojiPicker: React.FC<Props> = ({ onSelect, onClose, anchorRef }) =
           <input
             value={search}
             onChange={e => setSearch(e.target.value)}
-            placeholder="Search emoji…"
+            placeholder={tr('emoji_search')}
             style={{ flex: 1, background: 'none', border: 'none', outline: 'none', fontSize: 13, color: 'inherit' }}
             autoFocus
           />
@@ -314,12 +316,12 @@ export const EmojiPicker: React.FC<Props> = ({ onSelect, onClose, anchorRef }) =
               )
             )}
             {displayEmojis.length === 0 && (
-              <div style={{ padding: 16, color: 'var(--text-secondary, #888)', fontSize: 13 }}>No results</div>
+              <div style={{ padding: 16, color: 'var(--text-secondary, #888)', fontSize: 13 }}>{tr('emoji_no_results')}</div>
             )}
           </div>
         ) : tab === 'recent' ? (
           recent.length === 0
-            ? <div style={{ padding: 16, color: 'var(--text-secondary, #888)', fontSize: 13 }}>No recent emojis yet</div>
+            ? <div style={{ padding: 16, color: 'var(--text-secondary, #888)', fontSize: 13 }}>{tr('emoji_no_recent')}</div>
             : <div style={{ display: 'flex', flexWrap: 'wrap', gap: 2 }}>
                 {recent.map((e, i) =>
                   e.startsWith(':') ? (
@@ -345,16 +347,16 @@ export const EmojiPicker: React.FC<Props> = ({ onSelect, onClose, anchorRef }) =
                 onClick={() => setShowCreate(true)}
                 style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'var(--bg-secondary, #222)', border: '1px dashed var(--border-color, #333)', borderRadius: 8, padding: '8px 12px', cursor: 'pointer', color: 'var(--accent-primary, #5865f2)', fontSize: 13, marginBottom: 10, width: '100%' }}
               >
-                <Plus size={14} /> Add custom emoji
+                <Plus size={14} /> {tr('emoji_add_custom')}
               </button>
             ) : (
               <div style={{ background: 'var(--bg-secondary, #222)', borderRadius: 8, padding: 10, marginBottom: 10 }}>
-                <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8 }}>New emoji</div>
+                <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8 }}>{tr('emoji_new')}</div>
                 <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', marginBottom: 8 }}>
                   <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, flexShrink: 0 }}>
                     <div
                       onClick={() => fileRef.current?.click()}
-                      title="Click to pick image (PNG/JPG/GIF/WebP, max 2 MB)"
+                      title={tr('emoji_pick_image')}
                       style={{ width: 48, height: 48, border: '2px dashed var(--border-color, #333)', borderRadius: 8, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}
                     >
                       {createPreview
@@ -362,13 +364,13 @@ export const EmojiPicker: React.FC<Props> = ({ onSelect, onClose, anchorRef }) =
                         : <Plus size={20} style={{ color: 'var(--text-secondary, #888)' }} />
                       }
                     </div>
-                    <span style={{ fontSize: 9, color: 'var(--text-secondary, #888)', textAlign: 'center', lineHeight: 1.2 }}>PNG/JPG<br/>max 2 MB</span>
+                    <span style={{ fontSize: 9, color: 'var(--text-secondary, #888)', textAlign: 'center', lineHeight: 1.2 }}>{tr('emoji_format_hint').split('\n').map((l, i) => i === 0 ? l : <><br/>{l}</>)}</span>
                   </div>
                   <div style={{ flex: 1 }}>
                     <input
                       value={createName}
                       onChange={e => setCreateName(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''))}
-                      placeholder="name (e.g. fire)"
+                      placeholder={tr('emoji_name_placeholder')}
                       style={{ width: '100%', background: 'var(--bg-primary, #1a1a2e)', border: '1px solid var(--border-color, #333)', borderRadius: 6, padding: '5px 8px', fontSize: 13, color: 'inherit', outline: 'none', boxSizing: 'border-box' }}
                     />
                     <div style={{ fontSize: 11, color: 'var(--text-secondary, #888)', marginTop: 4 }}>Will insert as <b>:{createName || 'name'}:</b></div>
@@ -382,13 +384,13 @@ export const EmojiPicker: React.FC<Props> = ({ onSelect, onClose, anchorRef }) =
                     disabled={creating}
                     style={{ flex: 1, background: 'var(--accent-primary, #5865f2)', border: 'none', borderRadius: 6, padding: '6px 0', cursor: 'pointer', color: '#fff', fontSize: 13, fontWeight: 600 }}
                   >
-                    {creating ? '…' : 'Create'}
+                    {creating ? '…' : tr('emoji_create')}
                   </button>
                   <button
                     onClick={() => { setShowCreate(false); setCreateError(''); setCreateName(''); setCreateFile(null); if (createPreview) URL.revokeObjectURL(createPreview); setCreatePreview(null); }}
                     style={{ background: 'var(--bg-primary, #1a1a2e)', border: '1px solid var(--border-color, #333)', borderRadius: 6, padding: '6px 12px', cursor: 'pointer', color: 'inherit', fontSize: 13 }}
                   >
-                    Cancel
+                    {tr('emoji_cancel')}
                   </button>
                 </div>
               </div>
@@ -396,7 +398,7 @@ export const EmojiPicker: React.FC<Props> = ({ onSelect, onClose, anchorRef }) =
 
             {/* Custom emoji grid */}
             {customEmojis.length === 0 && !showCreate && (
-              <div style={{ color: 'var(--text-secondary, #888)', fontSize: 13, padding: '8px 0' }}>No custom emojis yet</div>
+              <div style={{ color: 'var(--text-secondary, #888)', fontSize: 13, padding: '8px 0' }}>{tr('emoji_no_custom')}</div>
             )}
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
               {customEmojis.map(e => (
@@ -412,7 +414,7 @@ export const EmojiPicker: React.FC<Props> = ({ onSelect, onClose, anchorRef }) =
                   {e.created_by === currentUser?.username && (
                     <button
                       onClick={() => handleDeleteCustom(e.id)}
-                      title="Delete emoji"
+                      title={tr('emoji_delete')}
                       style={{ display: 'flex', position: 'absolute', top: 2, right: 2, background: '#ff444488', border: 'none', borderRadius: 4, padding: 2, cursor: 'pointer', color: '#fff', alignItems: 'center', justifyContent: 'center' }}
                     >
                       <Trash2 size={10} />

@@ -46,9 +46,11 @@ class ChatConsumer(AsyncWebsocketConsumer):
         _metrics_inc('ws_connections_total')
 
         # Start asyncio tasks for any pending scheduled messages
+        self._scheduled_tasks = []
         pending = await self.get_pending_scheduled()
         for item in pending:
-            asyncio.ensure_future(self._deliver_scheduled(item['id'], item['send_at']))
+            task = asyncio.ensure_future(self._deliver_scheduled(item['id'], item['send_at']))
+            self._scheduled_tasks.append(task)
 
         # Mark all incoming (other-author) messages without delivered_at as delivered
         delivered = await self.mark_delivered(user.id)
@@ -59,6 +61,9 @@ class ChatConsumer(AsyncWebsocketConsumer):
             )
 
     async def disconnect(self, close_code):
+        for task in getattr(self, '_scheduled_tasks', []):
+            task.cancel()
+        self._scheduled_tasks = []
         await self.channel_layer.group_discard(self.room_group, self.channel_name)
 
     async def receive(self, text_data):
@@ -255,7 +260,11 @@ class ChatConsumer(AsyncWebsocketConsumer):
         send_at_str = event['send_at']
         send_at = parse_datetime(send_at_str)
         if send_at:
-            asyncio.ensure_future(self._deliver_scheduled(scheduled_id, send_at))
+            task = asyncio.ensure_future(self._deliver_scheduled(scheduled_id, send_at))
+            if not hasattr(self, '_scheduled_tasks'):
+                self._scheduled_tasks = []
+            self._scheduled_tasks = [t for t in self._scheduled_tasks if not t.done()]
+            self._scheduled_tasks.append(task)
 
     async def _deliver_scheduled(self, scheduled_id, send_at):
         now = timezone.now()
@@ -499,13 +508,18 @@ class GuildChannelConsumer(AsyncWebsocketConsumer):
                 }))
 
         # Deliver any pending scheduled messages
+        self._scheduled_tasks = []
         pending = await self.get_pending_scheduled()
         for item in pending:
-            asyncio.ensure_future(
+            task = asyncio.ensure_future(
                 self._deliver_scheduled(item['id'], item['send_at'])
             )
+            self._scheduled_tasks.append(task)
 
     async def disconnect(self, close_code):
+        for task in getattr(self, '_scheduled_tasks', []):
+            task.cancel()
+        self._scheduled_tasks = []
         await self.channel_layer.group_discard(self.room_group, self.channel_name)
         await self.channel_layer.group_discard(self.guild_group, self.channel_name)
 
@@ -614,7 +628,11 @@ class GuildChannelConsumer(AsyncWebsocketConsumer):
         if send_at and send_at.tzinfo is None:
             send_at = make_aware(send_at)
         if send_at:
-            asyncio.ensure_future(self._deliver_scheduled(scheduled_id, send_at))
+            task = asyncio.ensure_future(self._deliver_scheduled(scheduled_id, send_at))
+            if not hasattr(self, '_scheduled_tasks'):
+                self._scheduled_tasks = []
+            self._scheduled_tasks = [t for t in self._scheduled_tasks if not t.done()]
+            self._scheduled_tasks.append(task)
 
     async def _deliver_scheduled(self, scheduled_id, send_at):
         now = timezone.now()

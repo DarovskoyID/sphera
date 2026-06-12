@@ -20,15 +20,10 @@
   --text-secondary: #55555e;
   --text-tertiary:  #7c7c86;
 
-  --accent-primary: #2563eb;
-  --accent-hover:   #1e54d6;
-  --accent-active:  #1a48b8;
-
   --border-color: #c8c8ce;
   --hover-bg:     #d2d2d8;
   --active-bg:    #c9c9d0;
 
-  --message-own:   #cddaf0;
   --message-other: #d8d8de;
 
   --glass-bg:     #e2e2e7;
@@ -66,15 +61,10 @@ body.dark-theme {
   --text-secondary: #a1a1aa;
   --text-tertiary:  #71717a;
 
-  --accent-primary: #3b82f6;
-  --accent-hover:   #4d8ff7;
-  --accent-active:  #2e6ee0;
-
   --border-color: #26262a;
   --hover-bg:     #1e1e22;
   --active-bg:    #26262a;
 
-  --message-own:   #1d2e4d;
   --message-other: #1a1a1d;
 
   --glass-bg:     #161618;
