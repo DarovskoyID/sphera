@@ -441,6 +441,8 @@ export const en = {
   emoji_recent: 'Recent',
   emoji_custom: 'Custom',
 
+  call_voice: 'Voice call',
+  call_video: 'Video call',
   call_in_call: 'In call',
   call_video_off: 'Video off',
   call_your_screen: 'Your screen',
@@ -450,6 +452,14 @@ export const en = {
   call_maximize: 'Maximize call window',
   call_tile_restore: 'Restore',
   call_tile_expand: 'Expand to full window',
+  call_info: 'Connection info',
+  call_info_server: 'Server',
+  call_info_stun: 'STUN/TURN',
+  call_info_ping: 'Ping',
+  call_info_status: 'Status',
+  call_info_connected: 'Connected',
+  call_info_connecting: 'Connecting...',
+  call_info_type: 'Connection type',
 
   // Guild Settings
   gs_server_profile: 'Server Profile',

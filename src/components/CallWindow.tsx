@@ -1,8 +1,8 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
-import { Maximize2, Minimize2 } from 'lucide-react';
+import { Maximize2, Minimize2, Info } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { useTranslation } from '../i18n/useTranslation';
-import { getIceServers, getSelectedServerEntry } from '../config/network';
+import { getIceServers, getSelectedServerEntry, getResolvedTurn, pingServer, pingStun, API_BASE_URL, APP_HOST, type ServerEntry } from '../config/network';
 
 // ── Module-level helpers (never redefined) ────────────────────────────────────
 
@@ -74,6 +74,7 @@ const _call = {
   wasConnected: false,
   wasVideo: false,
   wasIncoming: false,
+  activeIceServers: null as RTCIceServer[] | null,
 };
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -125,6 +126,10 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
   const [windowExpanded, setWindowExpanded] = useState(false);
   const [expandedTile, setExpandedTile] = useState<string | null>(null);
   const [isRinging, setIsRinging] = useState(false);
+  const [showInfo, setShowInfo] = useState(false);
+  const [connInfo, setConnInfo] = useState<{ candidateType?: string; protocol?: string; localAddr?: string; remoteAddr?: string } | null>(null);
+  const [infoPing, setInfoPing] = useState<number | null | 'loading'>(null);
+  const [infoStun, setInfoStun] = useState<boolean | 'loading' | 'local' | null>(null);
   const dialToneRef = useRef<HTMLAudioElement | null>(null);
   const ringTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -171,6 +176,74 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
       remoteScreenVideoRef.current.play().catch(() => {});
     }
   }, []); // only on mount
+
+  // Gather connection info when info popup opens
+  useEffect(() => {
+    if (!showInfo) return;
+    const entry = getSelectedServerEntry();
+    setInfoPing('loading');
+    pingServer(entry?.url || API_BASE_URL).then(ms => setInfoPing(ms));
+    // Determine STUN host/port from active ICE servers
+    const active = _call.activeIceServers;
+    let stunHost = '';
+    let stunPort = 3478;
+    let stunUser: string | undefined;
+    let stunCred: string | undefined;
+    if (active && active.length > 0) {
+      const rawUrls = active[0]?.urls;
+      const firstUrl = Array.isArray(rawUrls) ? rawUrls[0] : rawUrls;
+      const m = (firstUrl || '').match(/^stun:(.+):(\d+)$/);
+      if (m) { stunHost = m[1]; stunPort = Number(m[2]); }
+      const turnEntry = active[1];
+      if (turnEntry && 'username' in turnEntry) { stunUser = turnEntry.username; stunCred = turnEntry.credential as string; }
+    }
+    if (!stunHost) {
+      const turn = getResolvedTurn(entry);
+      stunHost = turn.host; stunPort = turn.port; stunUser = turn.username; stunCred = turn.credential;
+    }
+    setInfoStun('loading');
+    pingStun(stunHost, stunPort, stunUser, stunCred).then(ok => setInfoStun(ok));
+    const pc = _call.pc;
+    if (pc) {
+      pc.getStats().then(stats => {
+        let activePairId: string | undefined;
+        stats.forEach((report: any) => {
+          if (report.type === 'transport' && report.selectedCandidatePairId) {
+            activePairId = report.selectedCandidatePairId;
+          }
+        });
+        if (activePairId) {
+          const pair = stats.get(activePairId) as any;
+          if (pair) {
+            const remote = stats.get(pair.remoteCandidateId) as any;
+            const local = stats.get(pair.localCandidateId) as any;
+            setConnInfo({
+              candidateType: remote?.candidateType,
+              protocol: local?.protocol,
+              localAddr: local ? `${local.address}:${local.port}` : undefined,
+              remoteAddr: remote ? `${remote.address}:${remote.port}` : undefined,
+            });
+            return;
+          }
+        }
+        // Fallback: find succeeded pair
+        stats.forEach((report: any) => {
+          if (report.type === 'candidate-pair' && report.state === 'succeeded') {
+            const remote = stats.get(report.remoteCandidateId) as any;
+            const local = stats.get(report.localCandidateId) as any;
+            setConnInfo({
+              candidateType: remote?.candidateType,
+              protocol: local?.protocol,
+              localAddr: local ? `${local.address}:${local.port}` : undefined,
+              remoteAddr: remote ? `${remote.address}:${remote.port}` : undefined,
+            });
+          }
+        });
+      }).catch(() => {});
+    } else {
+      setConnInfo(null);
+    }
+  }, [showInfo]);
 
   // Cleanup dial tone on unmount
   useEffect(() => {
@@ -425,10 +498,10 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
   _attachRemoteScreenRef = _attachRemoteScreenLocalRef;
   _clearRemoteScreenRef = _clearRemoteScreenLocalRef;
 
-  const createPeerConnection = (remoteId: string): RTCPeerConnection => {
-    const pc = new RTCPeerConnection({
-      iceServers: getIceServers(getSelectedServerEntry()),
-    });
+  const createPeerConnection = (remoteId: string, customIceServers?: RTCIceServer[]): RTCPeerConnection => {
+    const iceServers = customIceServers || getIceServers(getSelectedServerEntry());
+    _call.activeIceServers = iceServers;
+    const pc = new RTCPeerConnection({ iceServers });
 
     pc.onicecandidate = (event) => {
       if (event.candidate) sendSignal({ type: 'candidate', candidate: event.candidate, to: remoteId });
@@ -559,7 +632,8 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
     }
 
     if (!_call.pc || String(_call.targetId) !== senderId) {
-      _call.pc = createPeerConnection(senderId);
+      const sigIce = msg.turnHost ? getIceServers({ url: '', name: '', turn_host: msg.turnHost, turn_port: msg.turnPort, turn_username: msg.turnUser, turn_credential: msg.turnCred }) : undefined;
+      _call.pc = createPeerConnection(senderId, sigIce);
       _call.targetId = senderId;
       _call.pendingCandidates = [];
     }
@@ -666,7 +740,8 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
     try {
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
-      sendSignal({ type: 'offer', sdp: offer, withVideo: wantVideo, to: peerId });
+      const callerTurn = getResolvedTurn(getSelectedServerEntry());
+      sendSignal({ type: 'offer', sdp: offer, withVideo: wantVideo, turnHost: callerTurn.host, turnPort: callerTurn.port, turnUser: callerTurn.username, turnCred: callerTurn.credential, to: peerId });
     } catch { }
 
     startDialTone();
@@ -694,7 +769,8 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
 
     try {
       if (_call.pc) _call.pc.close();
-      _call.pc = createPeerConnection(senderId);
+      const callerIce = msg.turnHost ? getIceServers({ url: '', name: '', turn_host: msg.turnHost, turn_port: msg.turnPort, turn_username: msg.turnUser, turn_credential: msg.turnCred }) : undefined;
+      _call.pc = createPeerConnection(senderId, callerIce);
       _call.targetId = senderId;
       _call.pendingCandidates = [];
       _call.remoteStream = null;
@@ -750,6 +826,7 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
     _call.remoteScreenActive = false;
     _call.wasConnected = false;
     _call.callStartTime = null;
+    _call.activeIceServers = null;
 
     if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
     if (remoteAudioRef.current) remoteAudioRef.current.srcObject = null;
@@ -835,6 +912,67 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
         ) : (
           <div style={{ flex: 1 }} />
         )}
+        <div style={{ position: 'relative' }}>
+          <button
+            onMouseEnter={() => setShowInfo(true)}
+            onMouseLeave={() => setShowInfo(false)}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', display: 'flex', padding: 4, borderRadius: 6 }}
+            title={tr('call_info')}
+          >
+            <Info size={16} />
+          </button>
+          {showInfo && (() => {
+            const entry = getSelectedServerEntry();
+            const isMain = entry?.url === API_BASE_URL || !entry;
+            const serverName = isMain ? 'Main' : (entry?.name || entry?.url || '');
+            const active = _call.activeIceServers;
+            const rawUrls = active?.[0]?.urls;
+            const firstUrl = Array.isArray(rawUrls) ? rawUrls[0] : rawUrls;
+            const activeMatch = (firstUrl || '').match(/^stun:(.+):(\d+)$/);
+            const activeHost = activeMatch?.[1] || '';
+            const activePort = activeMatch?.[2] || '';
+            const isMainStun = activeHost === APP_HOST || !activeHost;
+            const iceState = _call.pc?.iceConnectionState;
+            const row = (label: string, value: React.ReactNode) => (
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+                <span style={{ color: 'var(--text-secondary)', flexShrink: 0 }}>{label}</span>
+                {value}
+              </div>
+            );
+            return (
+              <div
+                onMouseEnter={() => setShowInfo(true)}
+                onMouseLeave={() => setShowInfo(false)}
+                style={{
+                  position: 'absolute', top: '100%', right: 0, zIndex: 100,
+                  background: 'var(--bg-secondary)', border: '1px solid var(--border-color)',
+                  borderRadius: 8, padding: 12, minWidth: 200, boxShadow: 'var(--shadow-lg)',
+                }}
+              >
+                <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 8 }}>{tr('call_info')}</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 11 }}>
+                  {row(tr('call_info_server'), <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{serverName}</span>)}
+                  {!isMain && row('URL', <span style={{ color: 'var(--text-primary)', fontSize: 10, maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{entry?.url}</span>)}
+                  {row(tr('call_info_ping'), <span style={{ color: infoPing === 'loading' ? 'var(--text-secondary)' : infoPing === null ? '#ef4444' : (infoPing as number) < 100 ? '#22c55e' : (infoPing as number) < 300 ? '#f59e0b' : '#ef4444', fontWeight: 600 }}>
+                    {infoPing === 'loading' ? '...' : infoPing === null ? 'offline' : `${infoPing} ms`}
+                  </span>)}
+                  {row(tr('call_info_stun'), <span style={{ fontWeight: 600, color: infoStun === 'loading' ? 'var(--text-secondary)' : infoStun === true ? '#22c55e' : infoStun === 'local' ? '#3b82f6' : infoStun === false ? '#ef4444' : 'var(--text-secondary)' }}>
+                    {infoStun === 'loading' ? '...' : infoStun === true ? (isMainStun ? '✓ Main' : `✓ ${activeHost}:${activePort}`) : infoStun === 'local' ? (isMainStun ? 'LAN · Main' : `LAN · ${activeHost}`) : infoStun === false ? (isMainStun ? '✗ Main' : `✗ ${activeHost}`) : '—'}
+                  </span>)}
+                  {_call.pc && (<>
+                    <div style={{ borderTop: '1px solid var(--border-color)', margin: '4px 0' }} />
+                    {row(tr('call_info_status'), <span style={{ fontWeight: 600, color: iceState === 'connected' || iceState === 'completed' ? '#22c55e' : iceState === 'failed' ? '#ef4444' : '#f59e0b' }}>
+                      {iceState === 'connected' || iceState === 'completed' ? tr('call_info_connected') : iceState === 'failed' ? 'Failed' : tr('call_info_connecting')}
+                    </span>)}
+                    {connInfo?.candidateType && row(tr('call_info_type'), <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>
+                      {connInfo.candidateType === 'relay' ? 'TURN relay' : connInfo.candidateType === 'srflx' ? 'STUN' : connInfo.candidateType}{connInfo.protocol ? ` / ${connInfo.protocol}` : ''}
+                    </span>)}
+                  </>)}
+                </div>
+              </div>
+            );
+          })()}
+        </div>
         <button
           onClick={() => setWindowExpanded(v => !v)}
           title={windowExpanded ? tr('call_restore') : tr('call_maximize')}

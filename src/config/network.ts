@@ -82,7 +82,18 @@ export function getSelectedServerEntry(): ServerEntry | null {
   return servers.find(s => s.url === url) || null;
 }
 
-export async function pingStun(host: string, port: number, username?: string, credential?: string): Promise<boolean> {
+export function getResolvedTurn(entry?: ServerEntry | null) {
+  return {
+    host: entry?.turn_host || TURN_HOST,
+    port: entry?.turn_port || TURN_PORT,
+    username: entry?.turn_username || TURN_USERNAME,
+    credential: entry?.turn_credential || TURN_CREDENTIAL,
+    isDefault: !entry?.turn_host,
+  };
+}
+
+export async function pingStun(host: string, port: number, username?: string, credential?: string): Promise<boolean | 'local'> {
+  const isLocal = /^(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(host);
   return new Promise(resolve => {
     try {
       const iceServers: RTCIceServer[] = [{ urls: `stun:${host}:${port}` }];
@@ -95,8 +106,8 @@ export async function pingStun(host: string, port: number, username?: string, cr
       }
       const pc = new RTCPeerConnection({ iceServers });
       let done = false;
-      const finish = (ok: boolean) => { if (!done) { done = true; clearTimeout(timer); pc.close(); resolve(ok); } };
-      const timer = setTimeout(() => finish(false), 5000);
+      const finish = (result: boolean | 'local') => { if (!done) { done = true; clearTimeout(timer); pc.close(); resolve(result); } };
+      const timer = setTimeout(() => finish(isLocal ? 'local' : false), 5000);
       pc.createDataChannel('');
       pc.createOffer().then(offer => pc.setLocalDescription(offer)).catch(() => finish(false));
       pc.onicecandidate = e => {
@@ -104,7 +115,7 @@ export async function pingStun(host: string, port: number, username?: string, cr
         if (e.candidate.type === 'srflx' || e.candidate.type === 'relay') finish(true);
       };
       pc.onicegatheringstatechange = () => {
-        if (!done && pc.iceGatheringState === 'complete') finish(false);
+        if (!done && pc.iceGatheringState === 'complete') finish(isLocal ? 'local' : false);
       };
     } catch { resolve(false); }
   });

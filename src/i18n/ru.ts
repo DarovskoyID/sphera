@@ -414,6 +414,8 @@ export const ru: Translations = {
   emoji_recent: 'Недавние',
   emoji_custom: 'Свои',
 
+  call_voice: 'Голосовой звонок',
+  call_video: 'Видеозвонок',
   call_in_call: 'В звонке',
   call_video_off: 'Видео выключено',
   call_your_screen: 'Ваш экран',
@@ -423,6 +425,14 @@ export const ru: Translations = {
   call_maximize: 'Развернуть окно звонка',
   call_tile_restore: 'Восстановить',
   call_tile_expand: 'На весь экран',
+  call_info: 'Информация о соединении',
+  call_info_server: 'Сервер',
+  call_info_stun: 'STUN/TURN',
+  call_info_ping: 'Пинг',
+  call_info_status: 'Статус',
+  call_info_connected: 'Подключено',
+  call_info_connecting: 'Подключение...',
+  call_info_type: 'Тип соединения',
 
   // Настройки сервера
   gs_server_profile: 'Профиль сервера',

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useTranslation } from '../i18n/useTranslation';
-import { loadServers, saveServers, loadSelectedServer, saveSelectedServer, pingServer, pingStun, API_BASE_URL, type ServerEntry } from '../config/network';
+import { loadServers, saveServers, loadSelectedServer, saveSelectedServer, pingServer, pingStun, getResolvedTurn, API_BASE_URL, type ServerEntry } from '../config/network';
 import { useApp } from '../context/AppContext';
 
 const card: React.CSSProperties = { background: 'var(--bg-secondary)', borderRadius: 12, border: '1px solid var(--border-color)', padding: 16, marginBottom: 10 };
@@ -107,7 +107,7 @@ export const ServerSelector: React.FC<Props> = ({ compact, maxListHeight }) => {
   const [servers, setServers] = useState<ServerEntry[]>(loadServers);
   const [selected, setSelected] = useState(loadSelectedServer);
   const [pings, setPings] = useState<Record<string, number | null | 'loading'>>({});
-  const [stunStatus, setStunStatus] = useState<Record<string, boolean | 'loading' | 'none'>>({});
+  const [stunStatus, setStunStatus] = useState<Record<string, boolean | 'loading' | 'none' | 'local'>>({});
   const [newUrl, setNewUrl] = useState('');
   const [newName, setNewName] = useState('');
   const [addError, setAddError] = useState('');
@@ -123,14 +123,11 @@ export const ServerSelector: React.FC<Props> = ({ compact, maxListHeight }) => {
         setPings(prev => ({ ...prev, [s.url]: ms }));
       });
       const stunKey = s.url;
-      if (s.turn_host) {
-        setStunStatus(prev => ({ ...prev, [stunKey]: 'loading' }));
-        pingStun(s.turn_host, s.turn_port || 3478, s.turn_username, s.turn_credential).then(ok => {
-          setStunStatus(prev => ({ ...prev, [stunKey]: ok }));
-        });
-      } else {
-        setStunStatus(prev => ({ ...prev, [stunKey]: 'none' }));
-      }
+      const turn = getResolvedTurn(s);
+      setStunStatus(prev => ({ ...prev, [stunKey]: 'loading' }));
+      pingStun(turn.host, turn.port, turn.username, turn.credential).then(ok => {
+        setStunStatus(prev => ({ ...prev, [stunKey]: ok }));
+      });
     });
   }, []);
 
@@ -192,9 +189,10 @@ export const ServerSelector: React.FC<Props> = ({ compact, maxListHeight }) => {
 
   const stunBadge = (url: string) => {
     const st = stunStatus[url];
-    if (st === 'none' || st === undefined) return <span style={{ fontSize: 10, color: 'var(--text-secondary)' }}>STUN —</span>;
+    if (st === undefined) return <span style={{ fontSize: 10, color: 'var(--text-secondary)' }}>STUN —</span>;
     if (st === 'loading') return <span style={{ fontSize: 10, color: 'var(--text-secondary)' }}>STUN ...</span>;
     if (st === true) return <span style={{ fontSize: 10, color: '#22c55e', fontWeight: 600 }}>STUN ✓</span>;
+    if (st === 'local') return <span style={{ fontSize: 10, color: '#3b82f6', fontWeight: 600 }}>LAN</span>;
     return <span style={{ fontSize: 10, color: '#ef4444' }}>STUN ✗</span>;
   };
 
