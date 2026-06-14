@@ -1,8 +1,9 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { Send, Plus, X, FileText } from 'lucide-react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
+import { Send, Plus, X, FileText, Camera, Mic, Circle, Music, Square, ChevronLeft, ChevronRight, Image as ImageIcon, Eye, MessageCircle, Trash2, Settings } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { MessageText } from './EmojiPicker';
-import type { GuildMessage } from '../types';
+import { VoiceMessagePlayer, VideoCirclePlayer } from './ChatMain';
+import type { Guild } from '../types';
 
 const QUICK_REACTIONS = ['👍', '❤️', '🔥', '😂', '😮', '👏', '🎉'];
 
@@ -10,10 +11,20 @@ function formatDate(iso: string) {
   const d = new Date(iso);
   const now = new Date();
   const diff = now.getTime() - d.getTime();
-  if (diff < 60000) return 'just now';
-  if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
-  if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
+  if (diff < 60000) return 'только что';
+  if (diff < 3600000) return `${Math.floor(diff / 60000)} мин назад`;
+  if (diff < 86400000) return `${Math.floor(diff / 3600000)} ч назад`;
   return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: d.getFullYear() !== now.getFullYear() ? 'numeric' : undefined });
+}
+
+function isAudioAttachment(att: { content_type: string; filename: string }) {
+  return att.content_type.startsWith('audio/') || (att.filename.startsWith('voice_') && att.filename.endsWith('.webm'));
+}
+function isVoiceNote(att: { filename: string }) {
+  return att.filename.startsWith('voice_') && att.filename.endsWith('.webm');
+}
+function isVideoCircle(att: { filename: string }) {
+  return att.filename.startsWith('video_') && att.filename.endsWith('.webm');
 }
 
 function AuthMedia({ src, contentType, filename }: { src: string; contentType: string; filename: string }) {
@@ -38,23 +49,327 @@ function AuthMedia({ src, contentType, filename }: { src: string; contentType: s
   </div>;
 
   if (contentType.startsWith('image/'))
-    return <img src={blobUrl} alt={filename} style={{ maxWidth: '100%', maxHeight: 400, borderRadius: 12, display: 'block', cursor: 'pointer' }} onClick={() => window.open(blobUrl, '_blank')} />;
+    return <img src={blobUrl} alt={filename} style={{ maxWidth: 'min(400px, 100%)', maxHeight: 300, borderRadius: 12, display: 'block', cursor: 'pointer', objectFit: 'contain' }} onClick={() => window.open(blobUrl, '_blank')} />;
   if (contentType.startsWith('video/'))
-    return <video src={blobUrl} controls style={{ maxWidth: '100%', maxHeight: 400, borderRadius: 12, display: 'block' }} />;
+    return <video src={blobUrl} controls style={{ maxWidth: 'min(400px, 100%)', maxHeight: 300, borderRadius: 12, display: 'block' }} />;
   return null;
 }
 
-function PostCard({ msg, guildId, serverIP }: { msg: GuildMessage; guildId: string; serverIP: string }) {
-  const { toggleReaction, currentUser } = useApp();
+type Att = { id: string; filename: string; content_type: string; file_size: number; url: string };
+
+function useAuthBlob(src: string | null) {
+  const { authToken } = useApp();
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+  useEffect(() => {
+    if (!src) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(src, { headers: { Authorization: `Bearer ${authToken}` } });
+        if (!res.ok || cancelled) return;
+        const blob = await res.blob();
+        if (!cancelled) setBlobUrl(URL.createObjectURL(blob));
+      } catch { /* ignore */ }
+    })();
+    return () => { cancelled = true; setBlobUrl(prev => { if (prev) URL.revokeObjectURL(prev); return null; }); };
+  }, [src, authToken]);
+  return blobUrl;
+}
+
+const Spinner = () => (
+  <div style={{ width: 24, height: 24, border: '3px solid var(--border-color)', borderTopColor: 'var(--accent-primary)', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} />
+);
+
+function GalleryThumb({ src, onClick, overlay }: { src: string; onClick: () => void; overlay?: string }) {
+  const blobUrl = useAuthBlob(src);
+  return (
+    <div onClick={onClick} style={{ position: 'relative', width: '100%', height: '100%', cursor: 'pointer', background: 'var(--bg-tertiary)', overflow: 'hidden' }}>
+      {blobUrl
+        ? <img src={blobUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+        : <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Spinner /></div>}
+      {overlay && (
+        <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 26, fontWeight: 700 }}>
+          {overlay}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Lightbox({ srcs, index, onClose, onIndex }: { srcs: string[]; index: number; onClose: () => void; onIndex: (i: number) => void }) {
+  const blobUrl = useAuthBlob(srcs[index] ?? null);
+  const prev = useCallback(() => onIndex((index - 1 + srcs.length) % srcs.length), [index, srcs.length, onIndex]);
+  const next = useCallback(() => onIndex((index + 1) % srcs.length), [index, srcs.length, onIndex]);
+
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+      else if (e.key === 'ArrowLeft') prev();
+      else if (e.key === 'ArrowRight') next();
+    };
+    window.addEventListener('keydown', h);
+    return () => window.removeEventListener('keydown', h);
+  }, [onClose, prev, next]);
+
+  return (
+    <div onClick={onClose} style={{
+      position: 'fixed', inset: 0, zIndex: 100000, background: 'rgba(0,0,0,0.92)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+    }}>
+      <button onClick={onClose} style={{ position: 'absolute', top: 20, right: 24, background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: '50%', width: 44, height: 44, cursor: 'pointer', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <X size={24} />
+      </button>
+      {srcs.length > 1 && (
+        <div style={{ position: 'absolute', top: 24, left: 24, color: 'rgba(255,255,255,0.7)', fontSize: 14, fontWeight: 600 }}>
+          {index + 1} / {srcs.length}
+        </div>
+      )}
+      {srcs.length > 1 && (
+        <button onClick={e => { e.stopPropagation(); prev(); }} style={{ position: 'absolute', left: 16, background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: '50%', width: 52, height: 52, cursor: 'pointer', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 28 }}>
+          <ChevronLeft size={30} />
+        </button>
+      )}
+      <div onClick={e => e.stopPropagation()} style={{ maxWidth: '88vw', maxHeight: '88vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        {blobUrl
+          ? <img src={blobUrl} alt="" style={{ maxWidth: '88vw', maxHeight: '88vh', objectFit: 'contain', borderRadius: 8, display: 'block' }} />
+          : <Spinner />}
+      </div>
+      {srcs.length > 1 && (
+        <button onClick={e => { e.stopPropagation(); next(); }} style={{ position: 'absolute', right: 16, background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: '50%', width: 52, height: 52, cursor: 'pointer', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <ChevronRight size={30} />
+        </button>
+      )}
+    </div>
+  );
+}
+
+function CountBadge({ n }: { n: number }) {
+  return (
+    <div style={{
+      position: 'absolute', top: 10, right: 10, zIndex: 2,
+      display: 'flex', alignItems: 'center', gap: 5,
+      padding: '4px 9px', borderRadius: 20,
+      background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)',
+      color: '#fff', fontSize: 12, fontWeight: 700, pointerEvents: 'none',
+    }}>
+      <ImageIcon size={13} />
+      {n}
+    </div>
+  );
+}
+
+function PhotoGallery({ images, serverIP }: { images: Att[]; serverIP: string }) {
+  const [lightbox, setLightbox] = useState<number | null>(null);
+  const srcs = images.map(a => (a.url.startsWith('http') ? a.url : serverIP + a.url));
+  const n = images.length;
+
+  const lb = lightbox !== null && <Lightbox srcs={srcs} index={lightbox} onClose={() => setLightbox(null)} onIndex={setLightbox} />;
+
+  // Single image
+  if (n === 1) {
+    return (
+      <>
+        <div style={{ borderRadius: 12, overflow: 'hidden', maxWidth: '100%' }}>
+          <GalleryThumb src={srcs[0]} onClick={() => setLightbox(0)} />
+        </div>
+        {lb}
+      </>
+    );
+  }
+
+  // Two images — side by side
+  if (n === 2) {
+    return (
+      <>
+        <div style={{ position: 'relative', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 3, borderRadius: 12, overflow: 'hidden' }}>
+          <CountBadge n={n} />
+          {srcs.map((s, i) => (
+            <div key={images[i].id} style={{ height: 200 }}>
+              <GalleryThumb src={s} onClick={() => setLightbox(i)} />
+            </div>
+          ))}
+        </div>
+        {lb}
+      </>
+    );
+  }
+
+  // 3+ — Telegram-style: first image full width, rest in a 2-column grid below
+  const restMax = 4;                       // up to 4 tiles in the lower grid
+  const rest = images.slice(1);
+  const restVisible = Math.min(rest.length, restMax);
+  const hiddenCount = rest.length - restVisible;
+
+  return (
+    <>
+      <div style={{ position: 'relative', display: 'flex', flexDirection: 'column', gap: 3, borderRadius: 12, overflow: 'hidden' }}>
+        <CountBadge n={n} />
+        {/* Hero image */}
+        <div style={{ height: 240 }}>
+          <GalleryThumb src={srcs[0]} onClick={() => setLightbox(0)} />
+        </div>
+        {/* Lower grid */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 3 }}>
+          {Array.from({ length: restVisible }).map((_, i) => {
+            const idx = i + 1; // offset by hero
+            const isLast = i === restVisible - 1 && hiddenCount > 0;
+            return (
+              <div key={images[idx].id} style={{ height: 130 }}>
+                <GalleryThumb src={srcs[idx]} onClick={() => setLightbox(idx)} overlay={isLast ? `+${hiddenCount + 1}` : undefined} />
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      {lb}
+    </>
+  );
+}
+
+function AttachmentBlock({ att }: { att: { id: string; filename: string; content_type: string; file_size: number; url: string } }) {
+  const { currentServerIP } = useApp();
+  // players prefix currentServerIP internally, so they get the raw path
+  const rawUrl = att.url; // e.g. /api/guild-attachments/{id}/
+
+  if (isVideoCircle(att)) {
+    return <VideoCirclePlayer url={rawUrl} />;
+  }
+  if (isAudioAttachment(att)) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-tertiary)', fontWeight: 600 }}>
+          <Music size={13} />
+          {isVoiceNote(att) ? 'Голосовое сообщение' : `Аудиофайл · ${att.filename}`}
+        </div>
+        <VoiceMessagePlayer url={rawUrl} />
+      </div>
+    );
+  }
+  if (att.content_type.startsWith('image/') || att.content_type.startsWith('video/')) {
+    const fullUrl = att.url.startsWith('http') ? att.url : currentServerIP + att.url;
+    return <AuthMedia src={fullUrl} contentType={att.content_type} filename={att.filename} />;
+  }
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', background: 'var(--bg-tertiary)', borderRadius: 8 }}>
+      <FileText size={18} style={{ color: 'var(--text-secondary)' }} />
+      <span style={{ flex: 1, fontSize: 13, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{att.filename}</span>
+    </div>
+  );
+}
+
+function CommentsModal({ guild, messageId, serverIP, onClose }: { guild: Guild; messageId: string; serverIP: string; onClose: () => void }) {
+  const { loadPostComments, addPostComment, deletePostComment, currentUser } = useApp();
+  const [comments, setComments] = useState<import('../types').PostComment[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [input, setInput] = useState('');
+  const [sending, setSending] = useState(false);
+  const listRef = useRef<HTMLDivElement>(null);
+
+  const isOwner = currentUser && guild.owner_id === currentUser.id;
+
+  const refresh = useCallback(async () => {
+    const c = await loadPostComments(guild.id, messageId);
+    setComments(c);
+    setLoading(false);
+  }, [guild.id, messageId, loadPostComments]);
+
+  useEffect(() => { refresh(); }, [refresh]);
+
+  const send = async () => {
+    if (!input.trim() || sending) return;
+    setSending(true);
+    const c = await addPostComment(guild.id, messageId, input.trim());
+    if (c) { setComments(prev => [...prev, c]); setInput(''); setTimeout(() => { if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight; }, 30); }
+    setSending(false);
+  };
+
+  const remove = async (id: string) => {
+    await deletePostComment(guild.id, id);
+    setComments(prev => prev.filter(c => c.id !== id));
+  };
+
+  const fmt = (iso: string) => new Date(iso).toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 99000, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+      <div onClick={e => e.stopPropagation()} style={{
+        width: '100%', maxWidth: 460, maxHeight: '85vh', display: 'flex', flexDirection: 'column',
+        background: 'var(--bg-primary)', borderRadius: 16, border: '1px solid var(--border-color)', overflow: 'hidden',
+      }}>
+        {/* Header */}
+        <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+          <MessageCircle size={18} style={{ color: 'var(--accent-primary)' }} />
+          <span style={{ fontWeight: 700, fontSize: 15, flex: 1, color: 'var(--text-primary)' }}>Комментарии {comments.length > 0 ? `· ${comments.length}` : ''}</span>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', padding: 4 }}><X size={18} /></button>
+        </div>
+
+        {/* List */}
+        <div ref={listRef} style={{ flex: '1 1 auto', minHeight: 120, overflowY: 'auto', padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+          {loading ? (
+            <div style={{ display: 'flex', justifyContent: 'center', padding: 30 }}><Spinner /></div>
+          ) : comments.length === 0 ? (
+            <div style={{ textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13, padding: '30px 10px' }}>Пока нет комментариев</div>
+          ) : comments.map(c => {
+            const av = c.author.avatar ? (c.author.avatar.startsWith('http') ? c.author.avatar : serverIP + c.author.avatar) : '';
+            const canDelete = isOwner || (currentUser && c.author.id === currentUser.id);
+            return (
+              <div key={c.id} style={{ display: 'flex', gap: 10 }}>
+                {av ? <img src={av} alt="" style={{ width: 32, height: 32, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />
+                  : <div style={{ width: 32, height: 32, borderRadius: '50%', background: 'var(--accent-primary)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 13, flexShrink: 0 }}>{(c.author.nickname || c.author.username)[0]?.toUpperCase()}</div>}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                    <span style={{ fontWeight: 600, fontSize: 13, color: 'var(--text-primary)' }}>{c.author.nickname || c.author.username}</span>
+                    <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{fmt(c.created_at)}</span>
+                    {canDelete && <button onClick={() => remove(c.id)} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-tertiary)', padding: 2 }}><Trash2 size={13} /></button>}
+                  </div>
+                  <div style={{ fontSize: 14, color: 'var(--text-primary)', lineHeight: 1.4, wordBreak: 'break-word', whiteSpace: 'pre-wrap' }}>{c.content}</div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Input */}
+        {guild.comments_enabled ? (
+          <div style={{ padding: 12, borderTop: '1px solid var(--border-color)', display: 'flex', gap: 8, flexShrink: 0 }}>
+            <input
+              value={input}
+              onChange={e => setInput(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); send(); } }}
+              placeholder="Написать комментарий..."
+              autoFocus
+              style={{ flex: 1, padding: '10px 14px', borderRadius: 20, border: '1px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: 14, outline: 'none' }}
+            />
+            <button onClick={send} disabled={!input.trim() || sending} style={{ background: 'var(--accent-primary)', border: 'none', borderRadius: '50%', width: 40, height: 40, cursor: 'pointer', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, opacity: !input.trim() || sending ? 0.5 : 1 }}><Send size={16} /></button>
+          </div>
+        ) : (
+          <div style={{ padding: 14, borderTop: '1px solid var(--border-color)', textAlign: 'center', fontSize: 13, color: 'var(--text-tertiary)', flexShrink: 0 }}>Комментарии отключены</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function PostCard({ msg, guild, serverIP }: { msg: import('../types').GuildMessage; guild: Guild; serverIP: string }) {
+  const { toggleReaction, registerMessageView, customEmojis } = useApp();
   const [showReactions, setShowReactions] = useState(false);
+  const [showComments, setShowComments] = useState(false);
   const reactions = msg.reactions || [];
+  const isOptimistic = msg.id.startsWith('optimistic-');
+
+  // Register a view once when the post first renders (optimistic, deduped server-side per user)
+  useEffect(() => {
+    if (!msg.id.startsWith('optimistic-')) registerMessageView(guild.id, msg.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [msg.id]);
 
   const handleReaction = (emoji: string) => {
-    toggleReaction(guildId, msg.id, emoji);
+    toggleReaction(guild.id, msg.id, emoji);
     setShowReactions(false);
   };
 
-  const avatarUrl = msg.author.avatar ? (msg.author.avatar.startsWith('http') ? msg.author.avatar : serverIP + msg.author.avatar) : '';
+  // Show CHANNEL identity (name + icon), not the posting user
+  const channelAvatar = guild.icon ? (guild.icon.startsWith('http') ? guild.icon : serverIP + guild.icon) : '';
 
   return (
     <article style={{
@@ -62,53 +377,46 @@ function PostCard({ msg, guildId, serverIP }: { msg: GuildMessage; guildId: stri
       borderRadius: 16,
       border: '1px solid var(--border-color)',
       overflow: 'hidden',
-      maxWidth: 600,
+      maxWidth: 450,
       width: '100%',
+      flexShrink: 0,
     }}>
-      {/* Header */}
-      <div style={{ padding: '16px 20px 0', display: 'flex', alignItems: 'center', gap: 12 }}>
-        {avatarUrl ? (
-          <img src={avatarUrl} alt="" style={{ width: 40, height: 40, borderRadius: '50%', objectFit: 'cover' }} />
+      {/* Header — channel identity */}
+      <div style={{ padding: '16px 20px 8px', display: 'flex', alignItems: 'center', gap: 12 }}>
+        {channelAvatar ? (
+          <img src={channelAvatar} alt="" style={{ width: 40, height: 40, borderRadius: 12, objectFit: 'cover' }} />
         ) : (
-          <div style={{ width: 40, height: 40, borderRadius: '50%', background: 'var(--accent-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 700, fontSize: 16 }}>
-            {(msg.author.nickname || msg.author.username)[0]?.toUpperCase()}
+          <div style={{ width: 40, height: 40, borderRadius: 12, background: 'linear-gradient(135deg, var(--accent-primary), #7c3aed)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 700, fontSize: 16 }}>
+            {guild.name[0]?.toUpperCase()}
           </div>
         )}
         <div style={{ flex: 1 }}>
-          <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--text-primary)' }}>{msg.author.nickname || msg.author.username}</div>
+          <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--text-primary)' }}>{guild.name}</div>
           <div style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>{formatDate(msg.created_at)}</div>
         </div>
       </div>
 
       {/* Content */}
-      <div style={{ padding: '12px 20px' }}>
-        {msg.content && (
-          <div style={{ fontSize: 15, lineHeight: 1.6, color: 'var(--text-primary)', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-            <MessageText text={msg.content} />
-          </div>
-        )}
-      </div>
+      {msg.content && msg.content.trim() ? (
+        <div style={{ padding: '12px 20px 0', fontSize: 15, lineHeight: 1.6, color: 'var(--text-primary)', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+          <MessageText text={msg.content} customEmojis={customEmojis} />
+        </div>
+      ) : null}
 
       {/* Attachments */}
-      {msg.attachments && msg.attachments.length > 0 && (
-        <div style={{ padding: '0 20px 12px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {msg.attachments.map(att => {
-            const url = att.url.startsWith('http') ? att.url : serverIP + att.url;
-            if (att.content_type.startsWith('image/') || att.content_type.startsWith('video/')) {
-              return <AuthMedia key={att.id} src={url} contentType={att.content_type} filename={att.filename} />;
-            }
-            return (
-              <div key={att.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', background: 'var(--bg-tertiary)', borderRadius: 8 }}>
-                <FileText size={18} style={{ color: 'var(--text-secondary)' }} />
-                <span style={{ flex: 1, fontSize: 13, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{att.filename}</span>
-              </div>
-            );
-          })}
-        </div>
-      )}
+      {msg.attachments && msg.attachments.length > 0 && (() => {
+        const images = msg.attachments.filter(a => a.content_type.startsWith('image/'));
+        const others = msg.attachments.filter(a => !a.content_type.startsWith('image/'));
+        return (
+          <div style={{ padding: '12px 20px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {images.length > 0 && <PhotoGallery images={images} serverIP={serverIP} />}
+            {others.map(att => <AttachmentBlock key={att.id} att={att} />)}
+          </div>
+        );
+      })()}
 
       {/* Reactions */}
-      <div style={{ padding: '0 20px 14px', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+      <div style={{ padding: '8px 20px 14px', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
         {reactions.map(r => (
           <button
             key={r.emoji}
@@ -151,19 +459,144 @@ function PostCard({ msg, guildId, serverIP }: { msg: GuildMessage; guildId: stri
             ))}
           </div>
         )}
+        {/* View counter */}
+        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 4, color: 'var(--text-tertiary)', fontSize: 12, fontWeight: 600 }}>
+          <Eye size={14} />
+          {msg.views ?? 0}
+        </div>
       </div>
+
+      {/* Comments button (Telegram-style) */}
+      {guild.comments_enabled && !isOptimistic && (
+        <button
+          onClick={() => setShowComments(true)}
+          style={{
+            width: '100%', padding: '11px 20px', border: 'none', borderTop: '1px solid var(--border-color)',
+            background: 'transparent', cursor: 'pointer', color: 'var(--accent-primary)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7,
+            fontSize: 13, fontWeight: 600, transition: 'background 0.15s',
+          }}
+          onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg-tertiary)')}
+          onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+        >
+          <MessageCircle size={16} />
+          {msg.comments_count ? `Комментарии · ${msg.comments_count}` : 'Комментировать'}
+        </button>
+      )}
+
+      {showComments && <CommentsModal guild={guild} messageId={msg.id} serverIP={serverIP} onClose={() => setShowComments(false)} />}
     </article>
   );
 }
 
+function Toggle({ on, onChange }: { on: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <button onClick={() => onChange(!on)} style={{
+      width: 44, height: 26, borderRadius: 13, border: 'none', cursor: 'pointer', flexShrink: 0,
+      background: on ? 'var(--accent-primary)' : 'var(--bg-tertiary)', position: 'relative', transition: 'background 0.2s',
+    }}>
+      <span style={{
+        position: 'absolute', top: 3, left: on ? 21 : 3, width: 20, height: 20, borderRadius: '50%',
+        background: '#fff', transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
+      }} />
+    </button>
+  );
+}
+
+function ChannelSettingsModal({ guild, serverIP, onClose }: { guild: Guild; serverIP: string; onClose: () => void }) {
+  const { updateGuild } = useApp();
+  const [comments, setComments] = useState(guild.comments_enabled);
+  const [discoverable, setDiscoverable] = useState(guild.is_discoverable);
+  const [name, setName] = useState(guild.name);
+  const [saving, setSaving] = useState(false);
+  const photoInputRef = useRef<HTMLInputElement>(null);
+  const channelAvatar = guild.icon ? (guild.icon.startsWith('http') ? guild.icon : serverIP + guild.icon) : '';
+
+  const save = async () => {
+    setSaving(true);
+    await updateGuild(guild.id, {
+      name: name.trim() || guild.name,
+      comments_enabled: comments,
+      is_discoverable: discoverable,
+    });
+    setSaving(false);
+    onClose();
+  };
+
+  const changePhoto = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    e.target.value = '';
+    if (!f || !f.type.startsWith('image/')) return;
+    await updateGuild(guild.id, { icon: f });
+  };
+
+  const Row = ({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) => (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 0', borderBottom: '1px solid var(--border-color)' }}>
+      <div style={{ flex: 1 }}>
+        <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>{label}</div>
+        {hint && <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 2 }}>{hint}</div>}
+      </div>
+      {children}
+    </div>
+  );
+
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 99000, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+      <div onClick={e => e.stopPropagation()} style={{ width: '100%', maxWidth: 420, background: 'var(--bg-primary)', borderRadius: 16, border: '1px solid var(--border-color)', overflow: 'hidden' }}>
+        <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Settings size={18} style={{ color: 'var(--accent-primary)' }} />
+          <span style={{ fontWeight: 700, fontSize: 15, flex: 1, color: 'var(--text-primary)' }}>Настройки канала</span>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', padding: 4 }}><X size={18} /></button>
+        </div>
+        <div style={{ padding: '8px 18px 18px' }}>
+          {/* Photo */}
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, padding: '16px 0' }}>
+            <div onClick={() => photoInputRef.current?.click()} style={{ position: 'relative', width: 80, height: 80, borderRadius: 20, cursor: 'pointer', overflow: 'hidden', background: 'linear-gradient(135deg, var(--accent-primary), #7c3aed)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 700, fontSize: 30 }}>
+              {channelAvatar ? <img src={channelAvatar} alt="" style={{ width: 80, height: 80, objectFit: 'cover' }} /> : guild.name[0]?.toUpperCase()}
+              <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Camera size={22} color="#fff" /></div>
+            </div>
+            <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>Нажмите, чтобы сменить фото</span>
+            <input ref={photoInputRef} type="file" hidden accept="image/*" onChange={changePhoto} />
+          </div>
+
+          <input value={name} onChange={e => setName(e.target.value)} placeholder="Название канала" maxLength={100}
+            style={{ width: '100%', boxSizing: 'border-box', padding: '10px 14px', borderRadius: 10, border: '1px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: 14, outline: 'none', marginBottom: 4 }} />
+
+          <Row label="Комментарии" hint="Подписчики смогут комментировать посты">
+            <Toggle on={comments} onChange={setComments} />
+          </Row>
+          <Row label="Показывать в поиске" hint="Канал виден в глобальном поиске">
+            <Toggle on={discoverable} onChange={setDiscoverable} />
+          </Row>
+
+          <button onClick={save} disabled={saving} style={{ width: '100%', marginTop: 16, padding: '11px', borderRadius: 10, border: 'none', background: 'var(--accent-primary)', color: '#fff', fontWeight: 600, fontSize: 14, cursor: 'pointer', opacity: saving ? 0.6 : 1 }}>
+            {saving ? 'Сохранение…' : 'Сохранить'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export const PersonalChannelFeed: React.FC<{ style?: React.CSSProperties }> = ({ style }) => {
-  const { currentGuild, currentGuildChannel, guildMessages, currentServerIP, authToken, currentUser, sendGuildMessage } = useApp();
-  const tr = useTranslation();
+  const { currentGuild, currentGuildChannel, guildMessages, currentServerIP, authToken, currentUser, sendGuildMessage, updateGuild } = useApp();
+
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const [files, setFiles] = useState<File[]>([]);
+  const [showSettings, setShowSettings] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const avatarInputRef = useRef<HTMLInputElement>(null);
+
+  // Recording state
+  const [recording, setRecording] = useState<null | 'voice' | 'video'>(null);
+  const [recDuration, setRecDuration] = useState(0);
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+  const recTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const liveVideoRef = useRef<HTMLVideoElement | null>(null);
 
   const isOwner = currentGuild && currentUser && currentGuild.owner_id === currentUser.id;
 
@@ -173,104 +606,238 @@ export const PersonalChannelFeed: React.FC<{ style?: React.CSSProperties }> = ({
     }
   }, [guildMessages.length]);
 
+  const stopStream = useCallback(() => {
+    streamRef.current?.getTracks().forEach(t => t.stop());
+    streamRef.current = null;
+  }, []);
+
+  const startRecording = useCallback(async (mode: 'voice' | 'video') => {
+    try {
+      const constraints = mode === 'video'
+        ? { audio: true, video: { width: 320, height: 320, facingMode: 'user' } }
+        : { audio: true };
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      streamRef.current = stream;
+      const mimeType = mode === 'video'
+        ? (MediaRecorder.isTypeSupported('video/webm;codecs=vp9,opus') ? 'video/webm;codecs=vp9,opus' : 'video/webm')
+        : (MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : 'audio/webm');
+      const recorder = new MediaRecorder(stream, { mimeType });
+      chunksRef.current = [];
+      recorder.ondataavailable = e => { if (e.data.size > 0) chunksRef.current.push(e.data); };
+      recorder.onstop = () => {
+        const blob = new Blob(chunksRef.current, { type: mimeType });
+        const name = mode === 'video' ? `video_${Date.now()}.webm` : `voice_${Date.now()}.webm`;
+        const file = new File([blob], name, { type: mimeType });
+        setFiles(prev => [...prev, file]);
+        stopStream();
+      };
+      recorderRef.current = recorder;
+      recorder.start();
+      setRecording(mode);
+      setRecDuration(0);
+      recTimerRef.current = setInterval(() => setRecDuration(d => d + 1), 1000);
+      if (mode === 'video') {
+        setTimeout(() => { if (liveVideoRef.current) liveVideoRef.current.srcObject = stream; }, 50);
+      }
+    } catch { stopStream(); }
+  }, [stopStream]);
+
+  const stopRecording = useCallback(() => {
+    if (recTimerRef.current) { clearInterval(recTimerRef.current); recTimerRef.current = null; }
+    if (recorderRef.current?.state === 'recording') recorderRef.current.stop();
+    recorderRef.current = null;
+    setRecording(null);
+  }, []);
+
+  const cancelRecording = useCallback(() => {
+    if (recTimerRef.current) { clearInterval(recTimerRef.current); recTimerRef.current = null; }
+    if (recorderRef.current?.state === 'recording') {
+      recorderRef.current.ondataavailable = null;
+      recorderRef.current.onstop = null;
+      try { recorderRef.current.stop(); } catch { /* ignore */ }
+    }
+    recorderRef.current = null;
+    chunksRef.current = [];
+    stopStream();
+    setRecording(null);
+  }, [stopStream]);
+
+  useEffect(() => () => { cancelRecording(); }, [cancelRecording]);
+
+  const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    e.target.value = '';
+    if (!f || !currentGuild) return;
+    if (!f.type.startsWith('image/')) return;
+    await updateGuild(currentGuild.id, { icon: f });
+  };
+
   const handleSend = async () => {
     if (!input.trim() && files.length === 0) return;
     if (!currentGuild || !currentGuildChannel) return;
     setSending(true);
 
-    let attachmentIds: string[] = [];
-    for (const f of files) {
-      const form = new FormData();
-      form.append('file', f);
-      try {
+    try {
+      let attachmentIds: string[] = [];
+      for (const f of files) {
+        const form = new FormData();
+        form.append('file', f, f.name);
         const res = await fetch(
           `${currentServerIP}/api/guilds/${currentGuild.id}/channels/${currentGuildChannel.id}/upload/`,
           { method: 'POST', headers: { Authorization: `Bearer ${authToken}` }, body: form }
         );
         if (res.ok) { const d = await res.json(); attachmentIds.push(d.id); }
-      } catch { /* ignore */ }
-    }
+      }
 
-    sendGuildMessage(input.trim(), undefined, attachmentIds.length ? attachmentIds : undefined);
-    setInput('');
-    setFiles([]);
-    setSending(false);
+      sendGuildMessage(input.trim(), undefined, attachmentIds.length ? attachmentIds : undefined);
+      setInput('');
+      setFiles([]);
+    } finally {
+      setSending(false);
+    }
   };
 
   if (!currentGuild || !currentGuildChannel) return null;
 
+  const channelAvatar = currentGuild.icon ? (currentGuild.icon.startsWith('http') ? currentGuild.icon : currentServerIP + currentGuild.icon) : '';
+  const fmtDur = (s: number) => `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, '0')}`;
+
   return (
-    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'var(--bg-primary)', ...style }}>
-      <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
+    <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'var(--bg-primary)', height: '100%', minHeight: 0, ...style }}>
+      <style>{`@keyframes spin { to { transform: rotate(360deg) } } @keyframes recpulse { 0%,100%{opacity:1} 50%{opacity:0.3} }`}</style>
 
       {/* Header */}
       <div style={{
         padding: '14px 24px', borderBottom: '1px solid var(--border-color)',
-        display: 'flex', alignItems: 'center', gap: 12,
+        display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0,
       }}>
-        <div style={{
-          width: 36, height: 36, borderRadius: '50%',
-          background: 'linear-gradient(135deg, var(--accent-primary), #7c3aed)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          color: '#fff', fontWeight: 700, fontSize: 15,
-        }}>
-          {currentGuild.icon ? (
-            <img src={currentGuild.icon.startsWith('http') ? currentGuild.icon : currentServerIP + currentGuild.icon} alt="" style={{ width: 36, height: 36, borderRadius: '50%', objectFit: 'cover' }} />
+        <div
+          onClick={() => { if (isOwner) avatarInputRef.current?.click(); }}
+          title={isOwner ? 'Изменить аватар канала' : undefined}
+          style={{
+            position: 'relative', width: 40, height: 40, borderRadius: 12,
+            background: 'linear-gradient(135deg, var(--accent-primary), #7c3aed)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            color: '#fff', fontWeight: 700, fontSize: 16, flexShrink: 0,
+            cursor: isOwner ? 'pointer' : 'default', overflow: 'hidden',
+          }}
+        >
+          {channelAvatar ? (
+            <img src={channelAvatar} alt="" style={{ width: 40, height: 40, borderRadius: 12, objectFit: 'cover' }} />
           ) : currentGuild.name[0]?.toUpperCase()}
+          {isOwner && (
+            <div style={{
+              position: 'absolute', inset: 0, borderRadius: 12, background: 'rgba(0,0,0,0.45)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: 0,
+              transition: 'opacity 0.15s',
+            }}
+              onMouseEnter={e => (e.currentTarget.style.opacity = '1')}
+              onMouseLeave={e => (e.currentTarget.style.opacity = '0')}
+            >
+              <Camera size={16} color="#fff" />
+            </div>
+          )}
         </div>
-        <div>
+        <input ref={avatarInputRef} type="file" hidden accept="image/*" onChange={handleAvatarChange} />
+        <div style={{ flex: 1 }}>
           <div style={{ fontWeight: 700, fontSize: 16, color: 'var(--text-primary)' }}>{currentGuild.name}</div>
           {currentGuild.description && <div style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>{currentGuild.description}</div>}
         </div>
+        {isOwner && (
+          <button onClick={() => setShowSettings(true)} title="Настройки канала" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', padding: 8, borderRadius: 8, display: 'flex' }}>
+            <Settings size={20} />
+          </button>
+        )}
       </div>
+
+      {showSettings && currentGuild && <ChannelSettingsModal guild={currentGuild} serverIP={currentServerIP} onClose={() => setShowSettings(false)} />}
 
       {/* Feed */}
       <div ref={scrollRef} style={{
-        flex: 1, overflow: 'auto', padding: '24px 16px',
+        flex: '1 1 auto', minHeight: 0, overflowY: 'auto', padding: '24px 16px',
         display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16,
       }}>
         {guildMessages.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--text-tertiary)' }}>
             <div style={{ fontSize: 40, marginBottom: 12 }}>📝</div>
-            <div style={{ fontSize: 15, fontWeight: 600 }}>No posts yet</div>
-            {isOwner && <div style={{ fontSize: 13, marginTop: 4 }}>Write your first post below</div>}
+            <div style={{ fontSize: 15, fontWeight: 600 }}>Пока нет постов</div>
+            {isOwner && <div style={{ fontSize: 13, marginTop: 4 }}>Напишите первый пост ниже</div>}
           </div>
         ) : (
           guildMessages.map(msg => (
-            <PostCard key={msg.id} msg={msg} guildId={currentGuild.id} serverIP={currentServerIP} />
+            <PostCard key={msg.id} msg={msg} guild={currentGuild} serverIP={currentServerIP} />
           ))
         )}
       </div>
 
       {/* Composer (only for owner) */}
       {isOwner && (
-        <div style={{ padding: '12px 20px', borderTop: '1px solid var(--border-color)', background: 'var(--bg-secondary)' }}>
+        <div style={{ padding: '12px 20px', borderTop: '1px solid var(--border-color)', background: 'var(--bg-secondary)', flexShrink: 0 }}>
+          {/* Recording overlay */}
+          {recording && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8, padding: '8px 12px', background: 'var(--bg-tertiary)', borderRadius: 12 }}>
+              {recording === 'video' && (
+                <video ref={liveVideoRef} autoPlay muted playsInline style={{ width: 60, height: 60, borderRadius: '50%', objectFit: 'cover' }} />
+              )}
+              <div style={{ width: 10, height: 10, borderRadius: '50%', background: '#ed4245', animation: 'recpulse 1s infinite' }} />
+              <span style={{ flex: 1, fontSize: 13, color: 'var(--text-primary)', fontWeight: 600 }}>
+                {recording === 'video' ? 'Запись кружочка' : 'Запись голосового'} · {fmtDur(recDuration)}
+              </span>
+              <button onClick={cancelRecording} title="Отмена" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-tertiary)', padding: 6 }}><X size={18} /></button>
+              <button onClick={stopRecording} title="Готово" style={{ background: 'var(--accent-primary)', border: 'none', cursor: 'pointer', color: '#fff', borderRadius: 8, padding: '6px 8px', display: 'flex', alignItems: 'center' }}><Square size={16} /></button>
+            </div>
+          )}
+
           {files.length > 0 && (
             <div style={{ display: 'flex', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
               {files.map((f, i) => (
-                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 8px', background: 'var(--bg-tertiary)', borderRadius: 6, fontSize: 12, color: 'var(--text-secondary)' }}>
-                  <span style={{ maxWidth: 100, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
-                  <button onClick={() => setFiles(prev => prev.filter((_, idx) => idx !== i))} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-tertiary)', padding: 0 }}><X size={12} /></button>
+                <div key={i} style={{ position: 'relative', width: 80, height: 80, borderRadius: 8, overflow: 'hidden', background: 'var(--bg-tertiary)', border: '1px solid var(--border-color)' }}>
+                  {f.type.startsWith('image/') ? (
+                    <img src={URL.createObjectURL(f)} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  ) : f.type.startsWith('video/') ? (
+                    <video src={URL.createObjectURL(f)} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: 4, fontSize: 10, color: 'var(--text-secondary)', textAlign: 'center', padding: 4 }}>
+                      <Music size={20} />
+                      <span style={{ maxWidth: 72, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name.startsWith('voice_') ? 'Голосовое' : f.name}</span>
+                    </div>
+                  )}
+                  <button onClick={() => setFiles(prev => prev.filter((_, idx) => idx !== i))} style={{
+                    position: 'absolute', top: 2, right: 2, width: 18, height: 18, borderRadius: '50%',
+                    background: 'rgba(0,0,0,0.6)', border: 'none', cursor: 'pointer', color: '#fff',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0,
+                  }}><X size={10} /></button>
                 </div>
               ))}
             </div>
           )}
-          <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', padding: 8 }}
-            >
+          <div style={{ display: 'flex', gap: 6, alignItems: 'flex-end' }}>
+            <button onClick={() => fileInputRef.current?.click()} disabled={!!recording} title="Прикрепить файл"
+              style={{ background: 'none', border: 'none', cursor: recording ? 'default' : 'pointer', color: 'var(--text-secondary)', padding: 8, opacity: recording ? 0.4 : 1 }}>
               <Plus size={20} />
             </button>
-            <input ref={fileInputRef} type="file" multiple hidden onChange={e => {
-              if (e.target.files) setFiles(prev => [...prev, ...Array.from(e.target.files!)]);
+            <button onClick={() => recording === 'voice' ? stopRecording() : startRecording('voice')} disabled={recording === 'video'} title="Голосовое сообщение"
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: recording === 'voice' ? '#ed4245' : 'var(--text-secondary)', padding: 8, opacity: recording === 'video' ? 0.4 : 1 }}>
+              <Mic size={20} />
+            </button>
+            <button onClick={() => recording === 'video' ? stopRecording() : startRecording('video')} disabled={recording === 'voice'} title="Видео-кружочек"
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: recording === 'video' ? '#ed4245' : 'var(--text-secondary)', padding: 8, opacity: recording === 'voice' ? 0.4 : 1 }}>
+              <Circle size={20} />
+            </button>
+            <input ref={fileInputRef} type="file" multiple hidden accept="image/*,video/*,audio/*" onChange={e => {
+              if (e.target.files) {
+                const allowed = Array.from(e.target.files).filter(f =>
+                  f.type.startsWith('image/') || f.type.startsWith('video/') || f.type.startsWith('audio/')
+                );
+                if (allowed.length) setFiles(prev => [...prev, ...allowed]);
+              }
               e.target.value = '';
             }} />
             <textarea
               value={input}
               onChange={e => setInput(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
-              placeholder="Write a post..."
+              placeholder="Напишите пост..."
               style={{
                 flex: 1, resize: 'none', padding: '10px 14px', borderRadius: 12,
                 border: '1px solid var(--border-color)', background: 'var(--bg-primary)',
@@ -291,7 +858,7 @@ export const PersonalChannelFeed: React.FC<{ style?: React.CSSProperties }> = ({
                 fontWeight: 600, fontSize: 13,
               }}
             >
-              <Send size={16} /> Post
+              <Send size={16} /> Пост
             </button>
           </div>
         </div>

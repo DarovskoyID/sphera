@@ -149,7 +149,7 @@ interface AppContextType extends AppState {
   clearGuildKickNotification: () => void;
   // Guild methods
   loadGuilds: () => Promise<void>;
-  updateGuild: (guildId: string, data: { name?: string; description?: string; tag?: string; tags?: string; icon?: File | null; banner?: File | null; removeIcon?: boolean; removeBanner?: boolean; boost_level?: number; verification_level?: string; default_notifications?: string; explicit_content_filter?: string; require_2fa?: boolean }) => Promise<void>;
+  updateGuild: (guildId: string, data: { name?: string; description?: string; tag?: string; tags?: string; icon?: File | null; banner?: File | null; removeIcon?: boolean; removeBanner?: boolean; boost_level?: number; verification_level?: string; default_notifications?: string; explicit_content_filter?: string; require_2fa?: boolean; is_discoverable?: boolean; comments_enabled?: boolean }) => Promise<void>;
   loadGuildEmojis: (guildId: string) => Promise<GuildEmoji[]>;
   uploadGuildEmoji: (guildId: string, name: string, file: File) => Promise<GuildEmoji | null>;
   deleteGuildEmoji: (guildId: string, emojiId: string) => Promise<void>;
@@ -172,6 +172,10 @@ interface AppContextType extends AppState {
   createGuild: (name: string, description?: string) => Promise<Guild | null>;
   createPersonalChannel: (name: string, description?: string) => Promise<Guild | null>;
   toggleReaction: (guildId: string, messageId: string, emoji: string) => Promise<void>;
+  registerMessageView: (guildId: string, messageId: string) => Promise<void>;
+  loadPostComments: (guildId: string, messageId: string) => Promise<import('../types').PostComment[]>;
+  addPostComment: (guildId: string, messageId: string, content: string) => Promise<import('../types').PostComment | null>;
+  deletePostComment: (guildId: string, commentId: string) => Promise<void>;
   joinGuild: (inviteCode: string) => Promise<Guild | null>;
   leaveGuild: (guildId: string) => Promise<void>;
   deleteGuild: (guildId: string) => Promise<void>;
@@ -1638,6 +1642,54 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     } catch (e) { reportError(e); }
   }, [state.authToken, state.currentServerIP]);
 
+  const registerMessageView = useCallback(async (guildId: string, messageId: string): Promise<void> => {
+    try {
+      const res = await fetch(`${state.currentServerIP}/api/guilds/${guildId}/messages/${messageId}/view/`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${state.authToken}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setState(prev => ({
+          ...prev,
+          guildMessages: prev.guildMessages.map(m => m.id === messageId ? { ...m, views: data.views } : m),
+        }));
+      }
+    } catch { /* ignore */ }
+  }, [state.authToken, state.currentServerIP]);
+
+  const loadPostComments = useCallback(async (guildId: string, messageId: string): Promise<import('../types').PostComment[]> => {
+    try {
+      return await apiGet(`/api/guilds/${guildId}/messages/${messageId}/comments/`, state.authToken, state.currentServerIP);
+    } catch { return []; }
+  }, [state.authToken, state.currentServerIP, apiGet]);
+
+  const addPostComment = useCallback(async (guildId: string, messageId: string, content: string): Promise<import('../types').PostComment | null> => {
+    try {
+      const res = await fetch(`${state.currentServerIP}/api/guilds/${guildId}/messages/${messageId}/comments/`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${state.authToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content }),
+      });
+      if (!res.ok) return null;
+      const comment = await res.json();
+      setState(prev => ({
+        ...prev,
+        guildMessages: prev.guildMessages.map(m => m.id === messageId ? { ...m, comments_count: (m.comments_count ?? 0) + 1 } : m),
+      }));
+      return comment;
+    } catch (e) { reportError(e); return null; }
+  }, [state.authToken, state.currentServerIP]);
+
+  const deletePostComment = useCallback(async (guildId: string, commentId: string): Promise<void> => {
+    try {
+      await fetch(`${state.currentServerIP}/api/guilds/${guildId}/comments/${commentId}/`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${state.authToken}` },
+      });
+    } catch (e) { reportError(e); }
+  }, [state.authToken, state.currentServerIP]);
+
   const joinGuild = useCallback(async (inviteCode: string): Promise<Guild | null> => {
     try {
       const guild: Guild = await apiPost('/api/guilds/join/', state.authToken, state.currentServerIP, { invite_code: inviteCode });
@@ -1683,7 +1735,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     if (guildPresenceWs.current) { guildPresenceWs.current.close(); guildPresenceWs.current = null; }
   }, [state.authToken, state.currentServerIP]);
 
-  const updateGuild = useCallback(async (guildId: string, data: { name?: string; description?: string; tag?: string; tags?: string; icon?: File | null; banner?: File | null; removeIcon?: boolean; removeBanner?: boolean; boost_level?: number; verification_level?: string; default_notifications?: string; explicit_content_filter?: string; require_2fa?: boolean; is_discoverable?: boolean }) => {
+  const updateGuild = useCallback(async (guildId: string, data: { name?: string; description?: string; tag?: string; tags?: string; icon?: File | null; banner?: File | null; removeIcon?: boolean; removeBanner?: boolean; boost_level?: number; verification_level?: string; default_notifications?: string; explicit_content_filter?: string; require_2fa?: boolean; is_discoverable?: boolean; comments_enabled?: boolean }) => {
     const form = new FormData();
     if (data.name !== undefined) form.append('name', data.name);
     if (data.description !== undefined) form.append('description', data.description);
@@ -1698,6 +1750,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     if (data.explicit_content_filter !== undefined) form.append('explicit_content_filter', data.explicit_content_filter);
     if (data.require_2fa !== undefined) form.append('require_2fa', data.require_2fa ? 'true' : 'false');
     if (data.is_discoverable !== undefined) form.append('is_discoverable', data.is_discoverable ? 'true' : 'false');
+    if (data.comments_enabled !== undefined) form.append('comments_enabled', data.comments_enabled ? 'true' : 'false');
     if (data.tags !== undefined) form.append('tags', data.tags);
     try {
       const res = await fetch(`${state.currentServerIP}/api/guilds/${guildId}/`, {
@@ -2428,6 +2481,10 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       createGuild,
       createPersonalChannel,
       toggleReaction,
+      registerMessageView,
+      loadPostComments,
+      addPostComment,
+      deletePostComment,
       joinGuild,
       leaveGuild,
       deleteGuild,

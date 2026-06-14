@@ -131,6 +131,7 @@ export interface Guild {
   require_2fa: boolean;
   is_discoverable: boolean;
   is_personal_channel: boolean;
+  comments_enabled: boolean;
   my_role: GuildMemberRole;
   my_muted_until: string | null;
   my_notifications_muted: boolean;
@@ -210,6 +211,20 @@ export interface GuildMessage {
     url: string;
   }>;
   reactions?: MessageReaction[];
+  views?: number;
+  comments_count?: number;
+}
+
+export interface PostComment {
+  id: string;
+  author: {
+    id: string;
+    username: string;
+    nickname: string;
+    avatar: string;
+  };
+  content: string;
+  created_at: string;
 }
 
 export type ViewType = 'home' | 'server' | 'settings';

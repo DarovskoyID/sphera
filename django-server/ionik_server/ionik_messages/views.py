@@ -10,7 +10,7 @@ from rest_framework.response import Response
 from rest_framework import status
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
-from .models import Conversation, Message, Attachment, MessageReport, MessagePin, ScheduledMessage, Guild, GuildMembership, GuildChannel, GuildCategory, GuildMessage, GuildAttachment, GuildScheduledMessage, GuildEmoji, GuildSticker, GuildSound, GuildRole, GuildMemberRole, GuildInvite, GuildAuditLog, GuildMessageReaction
+from .models import Conversation, Message, Attachment, MessageReport, MessagePin, ScheduledMessage, Guild, GuildMembership, GuildChannel, GuildCategory, GuildMessage, GuildAttachment, GuildScheduledMessage, GuildEmoji, GuildSticker, GuildSound, GuildRole, GuildMemberRole, GuildInvite, GuildAuditLog, GuildMessageReaction, GuildMessageView, GuildPostComment
 from .serializers import ConversationSerializer, MessageSerializer, AttachmentSerializer
 from .encryption import encrypt_bytes, decrypt_bytes, encrypt_text
 from ionik_auth.models import BlockedUser
@@ -480,6 +480,7 @@ def _guild_data(guild, user):
         'require_2fa': guild.require_2fa,
         'is_discoverable': guild.is_discoverable,
         'is_personal_channel': guild.is_personal_channel,
+        'comments_enabled': guild.comments_enabled,
         'my_role': membership.role if membership else '',
         'my_muted_until': membership.muted_until.isoformat() if membership and membership.muted_until and membership.muted_until > timezone.now() else None,
         'my_notifications_muted': membership.notifications_muted if membership else False,
@@ -570,6 +571,8 @@ def guild_detail(request, guild_id):
             guild.require_2fa = request.data['require_2fa'] in (True, 'true', '1')
         if 'is_discoverable' in request.data:
             guild.is_discoverable = request.data['is_discoverable'] in (True, 'true', '1')
+        if 'comments_enabled' in request.data:
+            guild.comments_enabled = request.data['comments_enabled'] in (True, 'true', '1')
         if 'tags' in request.data:
             raw = request.data['tags']
             if isinstance(raw, str):
@@ -935,7 +938,7 @@ def guild_channel_messages(request, guild_id, channel_id):
 
     limit = min(int(request.GET.get('limit', 50)), 200)
     before_id = request.GET.get('before')
-    qs = ch.messages.select_related('author', 'reply_to', 'reply_to__author').prefetch_related('attachments', 'reactions').order_by('-created_at')
+    qs = ch.messages.select_related('author', 'reply_to', 'reply_to__author').prefetch_related('attachments', 'reactions', 'views', 'comments').order_by('-created_at')
     if before_id:
         try:
             anchor = ch.messages.get(id=before_id)
@@ -974,6 +977,8 @@ def guild_channel_messages(request, guild_id, channel_id):
                 for att in m.attachments.all()
             ],
             'reactions': _aggregate_reactions(m.reactions.all(), request.user),
+            'views': len(m.views.all()),
+            'comments_count': len(m.comments.all()),
         }
 
     return Response([serialize(m) for m in msgs])
@@ -1450,3 +1455,72 @@ def guild_message_reaction(request, guild_id, message_id):
         {'type': 'reaction_update', 'message_id': str(message_id), 'reactions': reactions},
     )
     return Response({'added': added, 'reactions': reactions})
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def guild_message_view(request, guild_id, message_id):
+    try:
+        guild = Guild.objects.get(id=guild_id)
+        GuildMembership.objects.get(guild=guild, user=request.user)
+        msg = GuildMessage.objects.get(id=message_id, channel__guild=guild)
+    except (Guild.DoesNotExist, GuildMembership.DoesNotExist, GuildMessage.DoesNotExist):
+        return Response({'error': 'not found'}, status=status.HTTP_404_NOT_FOUND)
+    GuildMessageView.objects.get_or_create(message=msg, user=request.user)
+    return Response({'views': msg.views.count()})
+
+
+# ── Post comments ─────────────────────────────────────────────────────────────
+def _comment_data(c, server_ip_unused=None):
+    return {
+        'id': str(c.id),
+        'author': {
+            'id': str(c.author.id),
+            'username': c.author.username,
+            'nickname': c.author.nickname or '',
+            'avatar': c.author.avatar.url if c.author.avatar else '',
+        },
+        'content': c.content,
+        'created_at': c.created_at.isoformat(),
+    }
+
+
+@api_view(['GET', 'POST'])
+@permission_classes([IsAuthenticated])
+def guild_message_comments(request, guild_id, message_id):
+    try:
+        guild = Guild.objects.get(id=guild_id)
+        GuildMembership.objects.get(guild=guild, user=request.user)
+        msg = GuildMessage.objects.get(id=message_id, channel__guild=guild)
+    except (Guild.DoesNotExist, GuildMembership.DoesNotExist, GuildMessage.DoesNotExist):
+        return Response({'error': 'not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    if request.method == 'GET':
+        comments = msg.comments.select_related('author').all()
+        return Response([_comment_data(c) for c in comments])
+
+    # POST — add comment
+    if not guild.comments_enabled:
+        return Response({'error': 'comments disabled'}, status=status.HTTP_403_FORBIDDEN)
+    content = (request.data.get('content') or '').strip()
+    if not content:
+        return Response({'error': 'content required'}, status=status.HTTP_400_BAD_REQUEST)
+    comment = GuildPostComment(message=msg, author=request.user)
+    comment.content = content[:2000]
+    comment.save()
+    return Response(_comment_data(comment), status=status.HTTP_201_CREATED)
+
+
+@api_view(['DELETE'])
+@permission_classes([IsAuthenticated])
+def guild_comment_delete(request, guild_id, comment_id):
+    try:
+        guild = Guild.objects.get(id=guild_id)
+        membership = GuildMembership.objects.get(guild=guild, user=request.user)
+        comment = GuildPostComment.objects.get(id=comment_id, message__channel__guild=guild)
+    except (Guild.DoesNotExist, GuildMembership.DoesNotExist, GuildPostComment.DoesNotExist):
+        return Response({'error': 'not found'}, status=status.HTTP_404_NOT_FOUND)
+    if comment.author != request.user and membership.role not in ('owner', 'admin'):
+        return Response({'error': 'forbidden'}, status=status.HTTP_403_FORBIDDEN)
+    comment.delete()
+    return Response(status=status.HTTP_204_NO_CONTENT)

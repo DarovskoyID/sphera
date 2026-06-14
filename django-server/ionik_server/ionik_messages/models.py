@@ -121,6 +121,7 @@ class Guild(models.Model):
     require_2fa = models.BooleanField(default=False)
     is_discoverable = models.BooleanField(default=True)
     is_personal_channel = models.BooleanField(default=False)
+    comments_enabled = models.BooleanField(default=True)
 
     def save(self, *args, **kwargs):
         if not self.invite_code:
@@ -376,3 +377,32 @@ class GuildMessageReaction(models.Model):
 
     class Meta:
         unique_together = ('message', 'user', 'emoji')
+
+
+class GuildMessageView(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    message = models.ForeignKey(GuildMessage, on_delete=models.CASCADE, related_name='views')
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='+')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('message', 'user')
+
+
+class GuildPostComment(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    message = models.ForeignKey(GuildMessage, on_delete=models.CASCADE, related_name='comments')
+    author = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='+')
+    encrypted_content = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ['created_at']
+
+    @property
+    def content(self):
+        return decrypt_text(self.encrypted_content)
+
+    @content.setter
+    def content(self, value):
+        self.encrypted_content = encrypt_text(value)

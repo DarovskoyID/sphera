@@ -480,7 +480,7 @@ const AuthMedia: React.FC<{ url: string; contentType: string; filename: string }
 
 // ── Voice Message Player ─────────────────────────────────────────────────────
 
-const VoiceMessagePlayer: React.FC<{ url: string }> = ({ url }) => {
+export const VoiceMessagePlayer: React.FC<{ url: string }> = ({ url }) => {
   const { authToken, currentServerIP } = useApp();
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
   const [playing, setPlaying] = useState(false);
@@ -610,7 +610,7 @@ const VoiceMessagePlayer: React.FC<{ url: string }> = ({ url }) => {
 
 // ── Video Circle Player ──────────────────────────────────────────────────────
 
-const VideoCirclePlayer: React.FC<{ url: string }> = ({ url }) => {
+export const VideoCirclePlayer: React.FC<{ url: string }> = ({ url }) => {
   const { authToken, currentServerIP } = useApp();
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
   const [playing, setPlaying] = useState(false);
