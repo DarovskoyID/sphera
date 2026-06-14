@@ -791,6 +791,20 @@ class GuildChannelConsumer(AsyncWebsocketConsumer):
             'participants': event['participants'],
         }))
 
+    async def member_muted(self, event):
+        await self.send(text_data=ujson.dumps({
+            'type': 'member_muted',
+            'user_id': event['user_id'],
+            'muted_until': event['muted_until'],
+        }))
+
+    async def member_roles_changed(self, event):
+        await self.send(text_data=ujson.dumps({
+            'type': 'member_roles_changed',
+            'user_id': event['user_id'],
+            'custom_roles': event['custom_roles'],
+        }))
+
     @database_sync_to_async
     def check_membership(self, user_id):
         return GuildMembership.objects.filter(guild_id=self.guild_id, user_id=user_id).exists()
@@ -921,6 +935,20 @@ class GuildPresenceConsumer(AsyncWebsocketConsumer):
             'type': 'member_role_updated',
             'user_id': event['user_id'],
             'role': event['role'],
+        }))
+
+    async def member_muted(self, event):
+        await self.send(text_data=ujson.dumps({
+            'type': 'member_muted',
+            'user_id': event['user_id'],
+            'muted_until': event['muted_until'],
+        }))
+
+    async def member_roles_changed(self, event):
+        await self.send(text_data=ujson.dumps({
+            'type': 'member_roles_changed',
+            'user_id': event['user_id'],
+            'custom_roles': event['custom_roles'],
         }))
 
     @database_sync_to_async

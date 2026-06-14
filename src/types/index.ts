@@ -89,6 +89,7 @@ export interface GuildMember {
   status: 'online' | 'idle' | 'dnd' | 'offline';
   role: GuildMemberRole;
   custom_roles: string[];
+  muted_until?: string | null;
 }
 
 export interface GuildChannel {

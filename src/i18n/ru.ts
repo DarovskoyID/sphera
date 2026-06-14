@@ -309,6 +309,7 @@ export const ru: Translations = {
   guild_mute_hour: 'ч',
   guild_mute_confirm: 'Замутить',
   guild_muted_until: 'Вы замучены до',
+  guild_unmute: 'Размутить',
   guild_select_channel: 'Выберите канал для начала общения.',
   guild_beginning: 'Это начало канала',
   guild_loading_older: 'Загрузка старых сообщений…',

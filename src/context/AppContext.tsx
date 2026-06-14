@@ -1370,6 +1370,34 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
           if (!prev.currentGuild || prev.currentGuild.id !== guild.id) return prev;
           return { ...prev, currentGuild: { ...prev.currentGuild, channels: prev.currentGuild.channels.filter(c => c.id !== data.channel_id) } };
         });
+      } else if (data.type === 'member_muted') {
+        setState(prev => {
+          if (!prev.currentGuild || prev.currentGuild.id !== guild.id) return prev;
+          const isSelf = String(data.user_id) === String(prev.userIDonServer);
+          return {
+            ...prev,
+            currentGuild: {
+              ...prev.currentGuild,
+              ...(isSelf ? { my_muted_until: data.muted_until } : {}),
+              members: prev.currentGuild.members.map(m =>
+                String(m.id) === String(data.user_id) ? { ...m, muted_until: data.muted_until } : m
+              ),
+            },
+          };
+        });
+      } else if (data.type === 'member_roles_changed') {
+        setState(prev => {
+          if (!prev.currentGuild || prev.currentGuild.id !== guild.id) return prev;
+          return {
+            ...prev,
+            currentGuild: {
+              ...prev.currentGuild,
+              members: prev.currentGuild.members.map(m =>
+                String(m.id) === String(data.user_id) ? { ...m, custom_roles: data.custom_roles } : m
+              ),
+            },
+          };
+        });
       } else if (data.type === 'voice_presence_update') {
         setState(prev => ({
           ...prev,
@@ -1468,6 +1496,34 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
         setState(prev => {
           if (!prev.currentGuild || prev.currentGuild.id !== guild.id) return prev;
           return { ...prev, currentGuild: { ...prev.currentGuild, channels: prev.currentGuild.channels.filter(c => c.id !== data.channel_id) } };
+        });
+      } else if (data.type === 'member_muted') {
+        setState(prev => {
+          if (!prev.currentGuild || prev.currentGuild.id !== guild.id) return prev;
+          const isSelf = String(data.user_id) === String(prev.userIDonServer);
+          return {
+            ...prev,
+            currentGuild: {
+              ...prev.currentGuild,
+              ...(isSelf ? { my_muted_until: data.muted_until } : {}),
+              members: prev.currentGuild.members.map(m =>
+                String(m.id) === String(data.user_id) ? { ...m, muted_until: data.muted_until } : m
+              ),
+            },
+          };
+        });
+      } else if (data.type === 'member_roles_changed') {
+        setState(prev => {
+          if (!prev.currentGuild || prev.currentGuild.id !== guild.id) return prev;
+          return {
+            ...prev,
+            currentGuild: {
+              ...prev.currentGuild,
+              members: prev.currentGuild.members.map(m =>
+                String(m.id) === String(data.user_id) ? { ...m, custom_roles: data.custom_roles } : m
+              ),
+            },
+          };
         });
       } else if (data.type === 'voice_presence_update') {
         setState(prev => ({

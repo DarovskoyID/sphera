@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback, useLayoutEffect, useMemo } from 'react';
-import { Hash, Send, Pin, Trash2, CornerUpLeft, Plus, MoreHorizontal, X, Download, FileText, FileImage, FileVideo, FileAudio, File, ChevronLeft, Reply, Copy, Flag, Clock, Ban, UserX, VolumeX, User } from 'lucide-react';
+import { Hash, Send, Pin, Trash2, CornerUpLeft, Plus, MoreHorizontal, X, Download, FileText, FileImage, FileVideo, FileAudio, File, ChevronLeft, Reply, Copy, Flag, Clock, Ban, UserX, VolumeX, Volume1, User } from 'lucide-react';
 import { useApp, reportError } from '../context/AppContext';
 import { useTranslation } from '../i18n/useTranslation';
 import { MessageText } from './EmojiPicker';
@@ -147,7 +147,9 @@ const GuildMessageContextMenu: React.FC<{
   onKick: (userId: string) => void;
   onBlock: (userId: string) => void;
   onMute: (userId: string) => void;
-}> = ({ menu, isOwn, myRole, authorRole, onClose, onReply, onDelete, onPin, onCopy, onProfile, onKick, onBlock, onMute }) => {
+  onUnmute: (userId: string) => void;
+  authorMutedUntil?: string | null;
+}> = ({ menu, isOwn, myRole, authorRole, onClose, onReply, onDelete, onPin, onCopy, onProfile, onKick, onBlock, onMute, onUnmute, authorMutedUntil }) => {
   const tr = useTranslation();
   const ref = useRef<HTMLDivElement>(null);
 
@@ -219,7 +221,9 @@ const GuildMessageContextMenu: React.FC<{
       {canPin && item(<Pin size={15} />, menu.msg.is_pinned ? tr('chat_unpin_msg') : tr('chat_pin'), () => onPin(menu.msg.id))}
       {canDelete && item(<Trash2 size={15} />, tr('chat_delete'), () => onDelete(menu.msg.id), true)}
       {canManageAuthor && sep}
-      {canManageAuthor && item(<VolumeX size={15} />, tr('guild_mute_member'), () => onMute(menu.msg.author.id), true)}
+      {canManageAuthor && authorMutedUntil && new Date(authorMutedUntil).getTime() > Date.now()
+        ? item(<Volume1 size={15} />, tr('guild_unmute'), () => onUnmute(menu.msg.author.id))
+        : canManageAuthor && item(<VolumeX size={15} />, tr('guild_mute_member'), () => onMute(menu.msg.author.id), true)}
       {canManageAuthor && item(<UserX size={15} />, tr('guild_kick'), () => onKick(menu.msg.author.id), true)}
       {canManageAuthor && item(<Ban size={15} />, tr('guild_block'), () => onBlock(menu.msg.author.id), true)}
     </div>
@@ -643,6 +647,14 @@ export const GuildChatMain: React.FC = () => {
             onKick={handleKick}
             onBlock={handleBlock}
             onMute={userId => { closeCtx(); setMuteTarget(userId); }}
+            onUnmute={async userId => {
+              closeCtx();
+              await fetch(`${currentServerIP}/api/guilds/${currentGuild.id}/members/${userId}/mute/`, {
+                method: 'POST', headers: { Authorization: `Bearer ${authToken}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ duration_minutes: 0 }),
+              });
+            }}
+            authorMutedUntil={authorMember?.muted_until}
           />
         );
       })()}

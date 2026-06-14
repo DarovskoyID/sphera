@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
-import { Hash, Volume2, Plus, Trash2, LogOut, Copy, Users, ChevronDown, ChevronRight, Crown, Shield, UserPlus, Ban, User, MicOff, ShieldOff, Settings, Headphones } from 'lucide-react';
+import { Hash, Volume2, Plus, Trash2, LogOut, Copy, Users, ChevronDown, ChevronRight, Crown, Shield, UserPlus, Ban, User, MicOff, ShieldOff, Settings, Headphones, VolumeX, Volume1 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { useTranslation } from '../i18n/useTranslation';
 import { ProfileModal, type ProfileUser } from './ProfileModal';
@@ -19,7 +19,7 @@ function MemberContextMenu({
   onOpenProfile: () => void;
   guildRoles: GuildRole[];
 }) {
-  const { kickMember, setMemberRole, blockUser, sendFriendRequest, friends, userIDonServer, assignMemberRole, removeMemberRole } = useApp();
+  const { kickMember, setMemberRole, blockUser, sendFriendRequest, friends, userIDonServer, assignMemberRole, removeMemberRole, currentServerIP, authToken } = useApp();
   const tr = useTranslation();
   const ref = useRef<HTMLDivElement>(null);
   const [showRoles, setShowRoles] = useState(false);
@@ -68,7 +68,7 @@ function MemberContextMenu({
           <Shield size={13} /> {tr('guild_remove_admin')}
         </button>
       )}
-      {canManage && guildRoles.length > 0 && (
+      {(myRole === 'owner' || myRole === 'admin') && member.role !== 'owner' && guildRoles.length > 0 && (
         <>
           <div style={{ borderTop: '1px solid var(--border-color)', margin: '4px 0' }} />
           <button className="context-menu-item" onClick={() => setShowRoles(v => !v)} style={{ justifyContent: 'space-between' }}>
@@ -96,6 +96,17 @@ function MemberContextMenu({
           })}
           <div style={{ borderTop: '1px solid var(--border-color)', margin: '4px 0' }} />
         </>
+      )}
+      {canManage && member.muted_until && new Date(member.muted_until).getTime() > Date.now() && (
+        <button className="context-menu-item" onClick={async () => {
+          await fetch(`${currentServerIP}/api/guilds/${guildId}/members/${member.id}/mute/`, {
+            method: 'POST', headers: { Authorization: `Bearer ${authToken}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ duration_minutes: 0 }),
+          });
+          onClose();
+        }}>
+          <Volume1 size={13} /> {tr('guild_unmute')}
+        </button>
       )}
       {!isSelf && canManage && member.role !== 'owner' && !(myRole === 'admin' && member.role === 'admin') && (
         <button className="context-menu-item danger" onClick={() => { kickMember(guildId, member.id); onClose(); }}>

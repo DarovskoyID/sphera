@@ -443,6 +443,7 @@ def _guild_data(guild, user):
             'status': u.status,
             'role': m.role,
             'custom_roles': [str(r.role_id) for r in m.custom_role_assignments.all()],
+            'muted_until': m.muted_until.isoformat() if m.muted_until and m.muted_until > timezone.now() else None,
         })
     channels = []
     for ch in guild.channels.all():
@@ -675,11 +676,20 @@ def guild_mute_member(request, guild_id, user_id):
         return Response({'error': 'cannot mute the owner'}, status=status.HTTP_403_FORBIDDEN)
     if my_membership.role == 'admin' and target_membership.role == 'admin':
         return Response({'error': 'admins cannot mute other admins'}, status=status.HTTP_403_FORBIDDEN)
-    minutes = int(request.data.get('duration_minutes', 5))
-    from django.utils import timezone
-    target_membership.muted_until = timezone.now() + timedelta(minutes=minutes)
+    minutes = int(request.data.get('duration_minutes', 0))
+    if minutes > 0:
+        target_membership.muted_until = timezone.now() + timedelta(minutes=minutes)
+    else:
+        target_membership.muted_until = None
     target_membership.save(update_fields=['muted_until'])
-    return Response({'muted_until': target_membership.muted_until.isoformat()})
+    muted_until_iso = target_membership.muted_until.isoformat() if target_membership.muted_until else None
+    channel_layer = get_channel_layer()
+    async_to_sync(channel_layer.group_send)(f'guild_{guild_id}', {
+        'type': 'member_muted',
+        'user_id': str(user_id),
+        'muted_until': muted_until_iso,
+    })
+    return Response({'muted_until': muted_until_iso})
 
 
 @api_view(['POST'])
@@ -1158,11 +1168,18 @@ def guild_member_role(request, guild_id, user_id, role_id):
     if request.method == 'POST':
         GuildMemberRole.objects.get_or_create(membership=target_m, role=role)
         _log(guild, request.user, 'member_role_assign', target_id=str(user_id), target_username=target_m.user.username, details={'role': role.name})
-        return Response({'ok': True})
+    else:
+        GuildMemberRole.objects.filter(membership=target_m, role=role).delete()
+        _log(guild, request.user, 'member_role_remove', target_id=str(user_id), target_username=target_m.user.username, details={'role': role.name})
 
-    GuildMemberRole.objects.filter(membership=target_m, role=role).delete()
-    _log(guild, request.user, 'member_role_remove', target_id=str(user_id), target_username=target_m.user.username, details={'role': role.name})
-    return Response(status=status.HTTP_204_NO_CONTENT)
+    custom_roles = [str(r.role_id) for r in target_m.custom_role_assignments.all()]
+    channel_layer = get_channel_layer()
+    async_to_sync(channel_layer.group_send)(f'guild_{guild_id}', {
+        'type': 'member_roles_changed',
+        'user_id': str(user_id),
+        'custom_roles': custom_roles,
+    })
+    return Response({'ok': True} if request.method == 'POST' else {'ok': True}, status=200)
 
 
 # ── Invites ───────────────────────────────────────────────────────────────────

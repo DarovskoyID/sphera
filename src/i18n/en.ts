@@ -335,6 +335,7 @@ export const en = {
   guild_mute_hour: 'hr',
   guild_mute_confirm: 'Mute',
   guild_muted_until: 'You are muted until',
+  guild_unmute: 'Unmute',
   guild_select_channel: 'Select a channel to start chatting.',
   guild_beginning: 'This is the beginning of',
   guild_loading_older: 'Loading older messages…',
