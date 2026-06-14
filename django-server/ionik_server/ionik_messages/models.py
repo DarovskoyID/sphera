@@ -105,9 +105,9 @@ class MessageReport(models.Model):
 class Guild(models.Model):
     """A Discord-like server (guild)."""
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    name = models.CharField(max_length=100)
+    name = models.CharField(max_length=100, db_index=True)
     description = models.TextField(blank=True)
-    tag = models.CharField(max_length=8, blank=True, default='')
+    tag = models.CharField(max_length=8, blank=True, default='', db_index=True)
     tags = models.JSONField(default=list, blank=True)
     icon = models.ImageField(upload_to='guild_icons/', null=True, blank=True)
     banner = models.ImageField(upload_to='guild_banners/', null=True, blank=True)
@@ -122,6 +122,12 @@ class Guild(models.Model):
     is_discoverable = models.BooleanField(default=True)
     is_personal_channel = models.BooleanField(default=False)
     comments_enabled = models.BooleanField(default=True)
+
+    class Meta:
+        indexes = [
+            # Speeds up the explore query: filter by is_discoverable, order by members
+            models.Index(fields=['is_discoverable', 'name']),
+        ]
 
     def save(self, *args, **kwargs):
         if not self.invite_code:

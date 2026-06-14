@@ -111,6 +111,24 @@ else:
         },
     }
 
+# Django cache backend: Redis (shared across workers) if available, else local memory.
+# The explore/search endpoint leans on this heavily under high traffic.
+if _USE_REDIS:
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.redis.RedisCache',
+            'LOCATION': _REDIS_URL,
+            'KEY_PREFIX': 'ionik',
+        }
+    }
+else:
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+            'LOCATION': 'ionik-locmem',
+        }
+    }
+
 # Kafka for durable message processing pipeline
 KAFKA_ENABLED = os.environ.get('KAFKA_ENABLED', 'false').lower() in ('1', 'true', 'yes')
 KAFKA_BOOTSTRAP_SERVERS = os.environ.get('KAFKA_BOOTSTRAP_SERVERS', 'localhost:9092')

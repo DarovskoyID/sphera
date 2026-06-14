@@ -350,13 +350,14 @@ function CommentsModal({ guild, messageId, serverIP, onClose }: { guild: Guild; 
 }
 
 function PostCard({ msg, guild, serverIP }: { msg: import('../types').GuildMessage; guild: Guild; serverIP: string }) {
-  const { toggleReaction, registerMessageView, customEmojis } = useApp();
+  const { toggleReaction, registerMessageView, deleteGuildMessage, currentUser, customEmojis } = useApp();
   const [showReactions, setShowReactions] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [showComments, setShowComments] = useState(false);
   const emojiBtnRef = useRef<HTMLButtonElement>(null);
   const reactions = msg.reactions || [];
   const isOptimistic = msg.id.startsWith('optimistic-');
+  const isOwner = currentUser && guild.owner_id === currentUser.id;
 
   // Register a view once when the post first renders (optimistic, deduped server-side per user)
   useEffect(() => {
@@ -395,6 +396,17 @@ function PostCard({ msg, guild, serverIP }: { msg: import('../types').GuildMessa
           <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--text-primary)' }}>{guild.name}</div>
           <div style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>{formatDate(msg.created_at)}</div>
         </div>
+        {isOwner && !isOptimistic && (
+          <button
+            onClick={() => { if (confirm('Удалить этот пост?')) deleteGuildMessage(msg.id); }}
+            title="Удалить пост"
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-tertiary)', padding: 6, borderRadius: 6, display: 'flex' }}
+            onMouseEnter={e => (e.currentTarget.style.color = '#ed4245')}
+            onMouseLeave={e => (e.currentTarget.style.color = 'var(--text-tertiary)')}
+          >
+            <Trash2 size={16} />
+          </button>
+        )}
       </div>
 
       {/* Content */}
@@ -520,13 +532,25 @@ function Toggle({ on, onChange }: { on: boolean; onChange: (v: boolean) => void 
 }
 
 function ChannelSettingsModal({ guild, serverIP, onClose }: { guild: Guild; serverIP: string; onClose: () => void }) {
-  const { updateGuild } = useApp();
+  const { updateGuild, deleteGuild } = useApp();
   const [comments, setComments] = useState(guild.comments_enabled);
   const [discoverable, setDiscoverable] = useState(guild.is_discoverable);
   const [name, setName] = useState(guild.name);
+  const [tags, setTags] = useState<string[]>(guild.tags || []);
+  const [tagInput, setTagInput] = useState('');
   const [saving, setSaving] = useState(false);
+  const [showDelete, setShowDelete] = useState(false);
+  const [deletePassword, setDeletePassword] = useState('');
+  const [deleteError, setDeleteError] = useState('');
+  const [deleting, setDeleting] = useState(false);
   const photoInputRef = useRef<HTMLInputElement>(null);
   const channelAvatar = guild.icon ? (guild.icon.startsWith('http') ? guild.icon : serverIP + guild.icon) : '';
+
+  const addTag = () => {
+    const t = tagInput.trim().replace(/^#/, '').slice(0, 24);
+    if (t && !tags.includes(t) && tags.length < 10) setTags(prev => [...prev, t]);
+    setTagInput('');
+  };
 
   const save = async () => {
     setSaving(true);
@@ -534,9 +558,20 @@ function ChannelSettingsModal({ guild, serverIP, onClose }: { guild: Guild; serv
       name: name.trim() || guild.name,
       comments_enabled: comments,
       is_discoverable: discoverable,
+      tags: JSON.stringify(tags),
     });
     setSaving(false);
     onClose();
+  };
+
+  const confirmDelete = async () => {
+    if (!deletePassword) return;
+    setDeleting(true);
+    setDeleteError('');
+    const ok = await deleteGuild(guild.id, deletePassword);
+    setDeleting(false);
+    if (ok) onClose();
+    else setDeleteError('Неверный пароль');
   };
 
   const changePhoto = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -585,9 +620,61 @@ function ChannelSettingsModal({ guild, serverIP, onClose }: { guild: Guild; serv
             <Toggle on={discoverable} onChange={setDiscoverable} />
           </Row>
 
+          {/* Tags */}
+          <div style={{ padding: '12px 0', borderBottom: '1px solid var(--border-color)' }}>
+            <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 2 }}>Теги</div>
+            <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginBottom: 8 }}>Помогают находить канал в поиске (до 10)</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+              {tags.map(t => (
+                <span key={t} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: 12, background: 'rgba(88,101,242,0.15)', color: 'var(--accent-primary)', fontSize: 12, fontWeight: 600 }}>
+                  #{t}
+                  <button onClick={() => setTags(prev => prev.filter(x => x !== t))} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--accent-primary)', padding: 0, display: 'flex' }}><X size={11} /></button>
+                </span>
+              ))}
+            </div>
+            {tags.length < 10 && (
+              <input
+                value={tagInput}
+                onChange={e => setTagInput(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); addTag(); } }}
+                onBlur={addTag}
+                placeholder="Добавить тег и нажать Enter"
+                maxLength={24}
+                style={{ width: '100%', boxSizing: 'border-box', padding: '8px 12px', borderRadius: 8, border: '1px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: 13, outline: 'none' }}
+              />
+            )}
+          </div>
+
           <button onClick={save} disabled={saving} style={{ width: '100%', marginTop: 16, padding: '11px', borderRadius: 10, border: 'none', background: 'var(--accent-primary)', color: '#fff', fontWeight: 600, fontSize: 14, cursor: 'pointer', opacity: saving ? 0.6 : 1 }}>
             {saving ? 'Сохранение…' : 'Сохранить'}
           </button>
+
+          {/* Danger zone — delete channel */}
+          {!showDelete ? (
+            <button onClick={() => setShowDelete(true)} style={{ width: '100%', marginTop: 10, padding: '11px', borderRadius: 10, border: '1px solid rgba(237,66,69,0.4)', background: 'transparent', color: '#ed4245', fontWeight: 600, fontSize: 14, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+              <Trash2 size={15} /> Удалить канал
+            </button>
+          ) : (
+            <div style={{ marginTop: 10, padding: 12, borderRadius: 10, border: '1px solid rgba(237,66,69,0.4)', background: 'rgba(237,66,69,0.06)' }}>
+              <div style={{ fontSize: 13, color: 'var(--text-primary)', marginBottom: 8 }}>Введите пароль для подтверждения удаления. Это действие необратимо.</div>
+              <input
+                type="password"
+                value={deletePassword}
+                onChange={e => { setDeletePassword(e.target.value); setDeleteError(''); }}
+                onKeyDown={e => { if (e.key === 'Enter') confirmDelete(); }}
+                placeholder="Пароль"
+                autoFocus
+                style={{ width: '100%', boxSizing: 'border-box', padding: '9px 12px', borderRadius: 8, border: `1px solid ${deleteError ? '#ed4245' : 'var(--border-color)'}`, background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: 14, outline: 'none' }}
+              />
+              {deleteError && <div style={{ color: '#ed4245', fontSize: 12, marginTop: 6 }}>{deleteError}</div>}
+              <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                <button onClick={() => { setShowDelete(false); setDeletePassword(''); setDeleteError(''); }} style={{ flex: 1, padding: '9px', borderRadius: 8, border: '1px solid var(--border-color)', background: 'transparent', color: 'var(--text-primary)', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>Отмена</button>
+                <button onClick={confirmDelete} disabled={!deletePassword || deleting} style={{ flex: 1, padding: '9px', borderRadius: 8, border: 'none', background: '#ed4245', color: '#fff', fontWeight: 600, fontSize: 13, cursor: 'pointer', opacity: !deletePassword || deleting ? 0.6 : 1 }}>
+                  {deleting ? 'Удаление…' : 'Удалить'}
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

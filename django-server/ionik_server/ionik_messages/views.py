@@ -516,25 +516,69 @@ def guild_list_create(request):
     return Response(_guild_data(guild, request.user), status=status.HTTP_201_CREATED)
 
 
+import re as _re
+
+_FTS_AVAILABLE = None  # lazily detected once per process
+
+
+def _fts_ready():
+    """Detect whether the SQLite FTS5 'guild_fts' table exists (cached per process)."""
+    global _FTS_AVAILABLE
+    if _FTS_AVAILABLE is not None:
+        return _FTS_AVAILABLE
+    from django.db import connection
+    if connection.vendor != 'sqlite':
+        _FTS_AVAILABLE = False
+        return False
+    try:
+        with connection.cursor() as cur:
+            cur.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='guild_fts'")
+            _FTS_AVAILABLE = cur.fetchone() is not None
+    except Exception:
+        _FTS_AVAILABLE = False
+    return _FTS_AVAILABLE
+
+
+def _fts_search_ids(terms):
+    """Return guild ids matching all terms via FTS5 prefix search, or None on failure."""
+    if not _fts_ready():
+        return None
+    # Keep only safe word characters, then require every term as a prefix (implicit AND).
+    cleaned = [_re.sub(r'[^\w]', '', t) for t in terms]
+    cleaned = [t for t in cleaned if t]
+    if not cleaned:
+        return None
+    match = ' '.join(f'{t}*' for t in cleaned)
+    from django.db import connection
+    try:
+        with connection.cursor() as cur:
+            cur.execute(
+                "SELECT guild_id FROM guild_fts WHERE guild_fts MATCH %s LIMIT 300",
+                [match],
+            )
+            return [row[0] for row in cur.fetchall()]
+    except Exception:
+        return None
+
+
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def guild_explore(request):
-    search = request.query_params.get('q', '').strip()
+    from django.core.cache import cache
+
+    search = request.query_params.get('q', '').strip()[:80]
     my_guild_ids = set(GuildMembership.objects.filter(user=request.user).values_list('guild_id', flat=True))
-    qs = Guild.objects.filter(is_discoverable=True).exclude(id__in=my_guild_ids).annotate(
-        member_count=Count('memberships')
-    ).order_by('-member_count')
-    if search:
-        if search.startswith('#'):
-            tag_q = search[1:].strip()
-            if tag_q:
-                qs = qs.filter(Q(tags__icontains=tag_q))
-        else:
-            qs = qs.filter(Q(name__icontains=search) | Q(description__icontains=search) | Q(tag__icontains=search) | Q(tags__icontains=search))
-    guilds = qs[:50]
-    result = []
-    for g in guilds:
-        result.append({
+
+    # Fetch only the columns we serialize — avoids hauling full rows from a huge table.
+    base = (
+        Guild.objects.filter(is_discoverable=True)
+        .annotate(member_count=Count('memberships'))
+        .order_by('-member_count')
+        .only('id', 'name', 'description', 'icon', 'banner', 'invite_code', 'tags', 'tag')
+    )
+
+    def serialize(g):
+        return {
             'id': str(g.id),
             'name': g.name,
             'description': g.description,
@@ -543,8 +587,52 @@ def guild_explore(request):
             'member_count': g.member_count,
             'invite_code': g.invite_code,
             'tags': g.tags or [],
-        })
-    return Response(result)
+        }
+
+    def drop_mine(rows):
+        mine = {str(i) for i in my_guild_ids}
+        return [r for r in rows if r['id'] not in mine]
+
+    # ── No query → cached popular list (dominates traffic) ───────────────────
+    if not search:
+        cache_key = 'guild_explore_popular_v2'
+        cached = cache.get(cache_key)
+        if cached is None:
+            cached = [serialize(g) for g in base[:100]]
+            cache.set(cache_key, cached, 30)
+        return Response(drop_mine(cached))
+
+    # ── Search → cache results per normalized query (shared via Redis) ───────
+    norm = ' '.join(search.lower().split())
+    cache_key = f'guild_explore_q:{norm}'
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return Response(drop_mine(cached))
+
+    if search.startswith('#'):
+        tag_q = search[1:].strip()
+        qs = base.filter(tags__icontains=tag_q) if tag_q else base
+        guilds = list(qs[:50])
+    else:
+        terms = [t for t in search.split() if t][:5]
+        ids = _fts_search_ids(terms)
+        if ids is not None:
+            # FTS5 path — order the matched ids by popularity.
+            qs = base.filter(id__in=ids)
+            guilds = list(qs[:50])
+        else:
+            # Fallback: LIKE across fields, every term must match.
+            cond = Q()
+            for term in terms:
+                cond &= (
+                    Q(name__icontains=term) | Q(description__icontains=term)
+                    | Q(tag__icontains=term) | Q(tags__icontains=term)
+                )
+            guilds = list((base.filter(cond) if terms else base)[:50])
+
+    result = [serialize(g) for g in guilds]
+    cache.set(cache_key, result, 15)
+    return Response(drop_mine(result))
 
 
 @api_view(['GET', 'PATCH', 'DELETE'])
@@ -600,9 +688,12 @@ def guild_detail(request, guild_id):
         _log(guild, request.user, 'guild_update', details={'name': guild.name})
         return Response(_guild_data(guild, request.user))
 
-    # DELETE — owner only
+    # DELETE — owner only, password-confirmed
     if membership.role != 'owner':
         return Response({'error': 'only owner can delete'}, status=status.HTTP_403_FORBIDDEN)
+    password = request.data.get('password', '')
+    if not password or not request.user.check_password(password):
+        return Response({'error': 'invalid password'}, status=status.HTTP_403_FORBIDDEN)
     channel_layer = get_channel_layer()
     async_to_sync(channel_layer.group_send)(
         f'guild_{guild_id}',

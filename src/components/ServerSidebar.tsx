@@ -142,21 +142,36 @@ function JoinGuildModal({ onClose }: { onClose: () => void }) {
 function GuildIcon({ guild, active, onClick, serverIP }: { guild: Guild; active: boolean; onClick: () => void; serverIP: string }) {
   const initials = guild.name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
   const iconUrl = guild.icon ? (guild.icon.startsWith('http') ? guild.icon : `${serverIP}${guild.icon}`) : null;
+  const isChannel = guild.is_personal_channel;
   return (
-    <button
-      className={`server-icon ${active ? 'active' : ''}`}
-      onClick={onClick}
-      title={guild.name}
-      style={guild.is_personal_channel ? { borderRadius: 12 } : undefined}
-    >
-      {iconUrl ? (
-        <img src={iconUrl} alt={guild.name} style={{ width: 36, height: 36, borderRadius: guild.is_personal_channel ? 12 : '50%', objectFit: 'cover' }} />
-      ) : guild.is_personal_channel ? (
-        <Rss size={18} />
-      ) : (
-        <span style={{ fontSize: 13, fontWeight: 700, letterSpacing: 0.5 }}>{initials}</span>
+    <div style={{ position: 'relative', display: 'flex' }}>
+      <button
+        className={`server-icon ${active ? 'active' : ''}`}
+        onClick={onClick}
+        title={isChannel ? `${guild.name} (канал)` : guild.name}
+        style={isChannel ? { borderRadius: 12 } : undefined}
+      >
+        {iconUrl ? (
+          <img src={iconUrl} alt={guild.name} style={{ width: 36, height: 36, borderRadius: isChannel ? 12 : '50%', objectFit: 'cover' }} />
+        ) : isChannel ? (
+          <Rss size={18} />
+        ) : (
+          <span style={{ fontSize: 13, fontWeight: 700, letterSpacing: 0.5 }}>{initials}</span>
+        )}
+      </button>
+      {isChannel && (
+        <span
+          title="Личный канал"
+          style={{
+            position: 'absolute', bottom: -2, right: -2, width: 16, height: 16, borderRadius: '50%',
+            background: 'var(--accent-primary)', border: '2px solid var(--bg-secondary)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none',
+          }}
+        >
+          <Rss size={8} color="#fff" />
+        </span>
       )}
-    </button>
+    </div>
   );
 }
 

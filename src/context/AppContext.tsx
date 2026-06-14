@@ -178,7 +178,7 @@ interface AppContextType extends AppState {
   deletePostComment: (guildId: string, commentId: string) => Promise<void>;
   joinGuild: (inviteCode: string) => Promise<Guild | null>;
   leaveGuild: (guildId: string) => Promise<void>;
-  deleteGuild: (guildId: string) => Promise<void>;
+  deleteGuild: (guildId: string, password?: string) => Promise<boolean>;
   kickMember: (guildId: string, userId: string) => Promise<void>;
   setMemberRole: (guildId: string, userId: string, role: 'admin' | 'member') => Promise<void>;
   createChannel: (guildId: string, name: string, type?: 'text' | 'voice', categoryId?: string) => Promise<void>;
@@ -1718,10 +1718,13 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     if (guildPresenceWs.current) { guildPresenceWs.current.close(); guildPresenceWs.current = null; }
   }, [state.authToken, state.currentServerIP]);
 
-  const deleteGuild = useCallback(async (guildId: string) => {
-    await fetch(`${state.currentServerIP}/api/guilds/${guildId}/`, {
-      method: 'DELETE', headers: { Authorization: `Bearer ${state.authToken}` },
+  const deleteGuild = useCallback(async (guildId: string, password?: string): Promise<boolean> => {
+    const res = await fetch(`${state.currentServerIP}/api/guilds/${guildId}/`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${state.authToken}`, 'Content-Type': 'application/json' },
+      body: password !== undefined ? JSON.stringify({ password }) : undefined,
     });
+    if (!res.ok) return false;
     setState(prev => ({
       ...prev,
       guilds: prev.guilds.filter(g => g.id !== guildId),
@@ -1733,6 +1736,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     }));
     if (guildChannelWs.current) { guildChannelWs.current.close(); guildChannelWs.current = null; }
     if (guildPresenceWs.current) { guildPresenceWs.current.close(); guildPresenceWs.current = null; }
+    return true;
   }, [state.authToken, state.currentServerIP]);
 
   const updateGuild = useCallback(async (guildId: string, data: { name?: string; description?: string; tag?: string; tags?: string; icon?: File | null; banner?: File | null; removeIcon?: boolean; removeBanner?: boolean; boost_level?: number; verification_level?: string; default_notifications?: string; explicit_content_filter?: string; require_2fa?: boolean; is_discoverable?: boolean; comments_enabled?: boolean }) => {
