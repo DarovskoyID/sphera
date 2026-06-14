@@ -92,12 +92,19 @@ export interface GuildMember {
   muted_until?: string | null;
 }
 
+export interface GuildCategory {
+  id: string;
+  name: string;
+  position: number;
+}
+
 export interface GuildChannel {
   id: string;
   name: string;
   type: 'text' | 'voice';
   topic: string;
   position: number;
+  category_id?: string | null;
 }
 
 export interface Guild {
@@ -118,6 +125,7 @@ export interface Guild {
   my_muted_until: string | null;
   members: GuildMember[];
   channels: GuildChannel[];
+  categories: GuildCategory[];
 }
 
 export interface GuildRole {

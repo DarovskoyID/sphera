@@ -89,16 +89,17 @@ function JoinGuildModal({ onClose }: { onClose: () => void }) {
   );
 }
 
-function GuildIcon({ guild, active, onClick }: { guild: Guild; active: boolean; onClick: () => void }) {
+function GuildIcon({ guild, active, onClick, serverIP }: { guild: Guild; active: boolean; onClick: () => void; serverIP: string }) {
   const initials = guild.name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
+  const iconUrl = guild.icon ? (guild.icon.startsWith('http') ? guild.icon : `${serverIP}${guild.icon}`) : null;
   return (
     <button
       className={`server-icon ${active ? 'active' : ''}`}
       onClick={onClick}
       title={guild.name}
     >
-      {guild.icon ? (
-        <img src={guild.icon} alt={guild.name} style={{ width: 36, height: 36, borderRadius: '50%', objectFit: 'cover' }} />
+      {iconUrl ? (
+        <img src={iconUrl} alt={guild.name} style={{ width: 36, height: 36, borderRadius: '50%', objectFit: 'cover' }} />
       ) : (
         <span style={{ fontSize: 13, fontWeight: 700, letterSpacing: 0.5 }}>{initials}</span>
       )}
@@ -107,7 +108,7 @@ function GuildIcon({ guild, active, onClick }: { guild: Guild; active: boolean; 
 }
 
 export const ServerSidebar: React.FC = () => {
-  const { currentServer, setCurrentServer, isMobileSidebarOpen, guilds, currentGuild, selectGuild } = useApp();
+  const { currentServer, setCurrentServer, isMobileSidebarOpen, guilds, currentGuild, selectGuild, currentServerIP } = useApp();
   const tr = useTranslation();
   const [showCreate, setShowCreate] = useState(false);
   const [showJoin, setShowJoin] = useState(false);
@@ -170,6 +171,7 @@ export const ServerSidebar: React.FC = () => {
                 guild={guild}
                 active={currentServer === String(guild.id)}
                 onClick={() => selectGuild(guild)}
+                serverIP={currentServerIP}
               />
             ))}
 

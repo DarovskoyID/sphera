@@ -146,10 +146,25 @@ class GuildMembership(models.Model):
         return f'{self.user.username} in {self.guild.name} ({self.role})'
 
 
+class GuildCategory(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    guild = models.ForeignKey(Guild, on_delete=models.CASCADE, related_name='categories')
+    name = models.CharField(max_length=100)
+    position = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['position', 'created_at']
+
+    def __str__(self):
+        return f'{self.name} ({self.guild.name})'
+
+
 class GuildChannel(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     CHANNEL_TYPE_CHOICES = [('text', 'Text'), ('voice', 'Voice')]
     guild = models.ForeignKey(Guild, on_delete=models.CASCADE, related_name='channels')
+    category = models.ForeignKey(GuildCategory, on_delete=models.SET_NULL, null=True, blank=True, related_name='channels')
     name = models.CharField(max_length=100)
     channel_type = models.CharField(max_length=10, choices=CHANNEL_TYPE_CHOICES, default='text')
     topic = models.CharField(max_length=1024, blank=True)

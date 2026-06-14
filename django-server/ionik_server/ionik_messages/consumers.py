@@ -784,6 +784,12 @@ class GuildChannelConsumer(AsyncWebsocketConsumer):
     async def channel_deleted(self, event):
         await self.send(text_data=ujson.dumps({'type': 'channel_deleted', 'channel_id': event['channel_id']}))
 
+    async def category_created(self, event):
+        await self.send(text_data=ujson.dumps({'type': 'category_created', 'category': event['category']}))
+
+    async def category_deleted(self, event):
+        await self.send(text_data=ujson.dumps({'type': 'category_deleted', 'category_id': event['category_id']}))
+
     async def voice_presence_update(self, event):
         await self.send(text_data=ujson.dumps({
             'type': 'voice_presence_update',
@@ -922,6 +928,12 @@ class GuildPresenceConsumer(AsyncWebsocketConsumer):
 
     async def channel_deleted(self, event):
         await self.send(text_data=ujson.dumps({'type': 'channel_deleted', 'channel_id': event['channel_id']}))
+
+    async def category_created(self, event):
+        await self.send(text_data=ujson.dumps({'type': 'category_created', 'category': event['category']}))
+
+    async def category_deleted(self, event):
+        await self.send(text_data=ujson.dumps({'type': 'category_deleted', 'category_id': event['category_id']}))
 
     async def voice_presence_update(self, event):
         await self.send(text_data=ujson.dumps({

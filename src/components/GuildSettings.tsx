@@ -13,7 +13,7 @@ import type { GuildRole, GuildEmoji, GuildSticker, GuildSound, GuildInviteData, 
 type Section =
   | 'profile' | 'tag' | 'boost'
   | 'emoji' | 'stickers' | 'sounds'
-  | 'members' | 'roles' | 'invites' | 'access' | 'integration'
+  | 'members' | 'roles' | 'invites' | 'blocked' | 'access' | 'integration'
   | 'security' | 'logs' | 'delete';
 
 // ── Shared styles ─────────────────────────────────────────────────────────────
@@ -464,7 +464,7 @@ function SoundsSection() {
 
 // ── Members ───────────────────────────────────────────────────────────────────
 function MembersSection() {
-  const { currentGuild, kickMember, setMemberRole, loadGuildRoles, assignMemberRole, removeMemberRole, blockedContacts, unblockUser } = useApp();
+  const { currentGuild, kickMember, setMemberRole, loadGuildRoles, assignMemberRole, removeMemberRole } = useApp();
   const tr = useTranslation();
   const [roles, setRoles] = useState<GuildRole[]>([]);
   const [search, setSearch] = useState('');
@@ -509,7 +509,7 @@ function MembersSection() {
           const isSelf = m.id === currentGuild.owner_id;
           return (
             <div key={m.id} style={{ borderRadius: 8, background: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', overflow: 'hidden' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', cursor: 'pointer' }}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', cursor: 'pointer', flexWrap: 'wrap' }}
                 onClick={() => setExpandedMember(isExpanded ? null : m.id)}>
                 {m.avatar
                   ? <img src={m.avatar} alt="" style={{ width: 32, height: 32, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />
@@ -518,14 +518,18 @@ function MembersSection() {
                   <span style={{ fontSize: 14, fontWeight: 500, color: 'var(--text-primary)' }}>{m.nickname || m.username}</span>
                   {m.nickname && <span style={{ fontSize: 12, color: 'var(--text-tertiary)', marginLeft: 6 }}>@{m.username}</span>}
                 </div>
-                <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 4, background: 'var(--bg-secondary)', color: roleColors[m.role] ?? '#99aab5', fontWeight: 700 }}>
+                <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 4, background: 'var(--bg-secondary)', color: roleColors[m.role] ?? '#99aab5', fontWeight: 700, flexShrink: 0 }}>
                   {m.role}
                 </span>
-                {(memberRoles[m.id] ?? []).map(rId => {
-                  const r = roles.find(x => x.id === rId);
-                  return r ? <span key={rId} style={{ fontSize: 11, padding: '2px 8px', borderRadius: 4, background: r.color + '22', color: r.color, fontWeight: 700 }}>{r.name}</span> : null;
-                })}
                 <ChevronRight size={14} style={{ transform: isExpanded ? 'rotate(90deg)' : 'none', transition: '0.15s', color: 'var(--text-tertiary)', flexShrink: 0 }} />
+                {(memberRoles[m.id] ?? []).length > 0 && (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, width: '100%', paddingTop: 4 }}>
+                    {(memberRoles[m.id] ?? []).map(rId => {
+                      const r = roles.find(x => x.id === rId);
+                      return r ? <span key={rId} style={{ fontSize: 10, padding: '2px 8px', borderRadius: 4, background: r.color + '22', color: r.color, fontWeight: 700, maxWidth: 150, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.name}</span> : null;
+                    })}
+                  </div>
+                )}
               </div>
               {isExpanded && (
                 <div style={{ padding: '0 12px 12px', borderTop: '1px solid var(--border-color)' }}>
@@ -570,31 +574,6 @@ function MembersSection() {
         })}
       </div>
 
-      {blockedContacts.length > 0 && (
-        <div style={{ marginTop: 28 }}>
-          <h3 style={{ margin: '0 0 4px', fontSize: 16, fontWeight: 700, color: '#ef4444' }}>
-            <Ban size={14} style={{ display: 'inline', marginRight: 6 }} />
-            {tr('gs_blocked_users')} — {blockedContacts.length}
-          </h3>
-          <p style={sectionSubtitle}>{tr('gs_blocked_users_desc')}</p>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            {blockedContacts.map(u => (
-              <div key={u.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 8, background: 'var(--bg-tertiary)', border: '1px solid var(--border-color)' }}>
-                {u.avatar
-                  ? <img src={u.avatar} alt="" style={{ width: 32, height: 32, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />
-                  : <div style={{ width: 32, height: 32, borderRadius: '50%', background: '#ef4444', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, color: '#fff', fontWeight: 700, flexShrink: 0 }}>{(u.nickname || u.username)[0]?.toUpperCase()}</div>}
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <span style={{ fontSize: 14, fontWeight: 500, color: 'var(--text-primary)' }}>{u.nickname || u.username}</span>
-                  {u.nickname && <span style={{ fontSize: 12, color: 'var(--text-tertiary)', marginLeft: 6 }}>@{u.username}</span>}
-                </div>
-                <button onClick={() => unblockUser(u.id)} style={{ padding: '6px 12px', background: '#3ba55c', color: '#fff', border: 'none', borderRadius: 6, fontSize: 12, cursor: 'pointer', fontWeight: 600 }}>
-                  {tr('gs_unblock')}
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -812,6 +791,45 @@ function InvitesSection() {
             ))}
           </div>
         )}
+    </div>
+  );
+}
+
+// ── Blocked ──────────────────────────────────────────────────────────────────
+function BlockedSection() {
+  const { blockedContacts, unblockUser } = useApp();
+  const tr = useTranslation();
+
+  return (
+    <div>
+      <h2 style={sectionTitle}>{tr('gs_blocked_users')}</h2>
+      <p style={sectionSubtitle}>{tr('gs_blocked_users_desc')}</p>
+      {blockedContacts.length === 0 ? (
+        <p style={{ color: 'var(--text-tertiary)', fontSize: 14 }}>{tr('gs_no_blocked')}</p>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          {blockedContacts.map(u => (
+            <div key={u.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 12px', background: 'var(--bg-tertiary)', borderRadius: 8 }}>
+              {u.avatar
+                ? <img src={u.avatar} alt="" style={{ width: 36, height: 36, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />
+                : <div style={{ width: 36, height: 36, borderRadius: '50%', background: '#f97316', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, color: '#fff', fontWeight: 700, flexShrink: 0 }}>
+                    {(u.nickname || u.username)[0]?.toUpperCase()}
+                  </div>
+              }
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 14, fontWeight: 500, color: 'var(--text-primary)' }}>{u.nickname || u.username}</div>
+                {u.nickname && <div style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>@{u.username}</div>}
+              </div>
+              <button
+                onClick={() => unblockUser(u.id)}
+                style={{ padding: '6px 14px', background: 'rgba(59,165,92,0.15)', color: '#3ba55c', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+              >
+                {tr('gs_unblock')}
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -1082,6 +1100,7 @@ export function GuildSettingsModal({ onClose }: { onClose: () => void }) {
     { key: 'members', icon: <Users size={14} />, label: tr('gs_members') },
     { key: 'roles', icon: <Shield size={14} />, label: tr('gs_roles') },
     { key: 'invites', icon: <Link size={14} />, label: tr('gs_invites') },
+    { key: 'blocked', icon: <Ban size={14} />, label: tr('gs_blocked_users') },
     { key: 'access', icon: <Globe size={14} />, label: tr('gs_access') },
     { key: 'integration', icon: <Zap size={14} />, label: tr('gs_integration'), disabled: true },
     { key: 'security', icon: <Lock size={14} />, label: tr('gs_security_settings'), ownerOnly: true },
@@ -1092,7 +1111,7 @@ export function GuildSettingsModal({ onClose }: { onClose: () => void }) {
   const categories = [
     { label: tr('gs_cat_general'), items: ['profile', 'tag', 'boost'] },
     { label: tr('gs_cat_content'), items: ['emoji', 'stickers', 'sounds'] },
-    { label: tr('gs_cat_community'), items: ['members', 'roles', 'invites', 'access', 'integration'] },
+    { label: tr('gs_cat_community'), items: ['members', 'roles', 'invites', 'blocked', 'access', 'integration'] },
     { label: tr('gs_cat_safety'), items: ['security', 'logs'] },
     { label: tr('gs_cat_danger'), items: ['delete'] },
   ];
@@ -1108,6 +1127,7 @@ export function GuildSettingsModal({ onClose }: { onClose: () => void }) {
       case 'members': return <MembersSection />;
       case 'roles': return <RolesSection />;
       case 'invites': return <InvitesSection />;
+      case 'blocked': return <BlockedSection />;
       case 'access': return <AccessSection />;
       case 'integration': return <IntegrationSection />;
       case 'security': return <SecuritySection />;

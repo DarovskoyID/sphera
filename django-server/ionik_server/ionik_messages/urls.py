@@ -24,6 +24,8 @@ urlpatterns = [
     path('guilds/<uuid:guild_id>/kick/<uuid:user_id>/', views.guild_kick),
     path('guilds/<uuid:guild_id>/members/<uuid:user_id>/mute/', views.guild_mute_member),
     path('guilds/<uuid:guild_id>/role/<uuid:user_id>/', views.guild_set_role),
+    path('guilds/<uuid:guild_id>/categories/', views.guild_category_create),
+    path('guilds/<uuid:guild_id>/categories/<uuid:category_id>/', views.guild_category_delete),
     path('guilds/<uuid:guild_id>/channels/', views.guild_channel_list_create),
     path('guilds/<uuid:guild_id>/channels/<uuid:channel_id>/', views.guild_channel_delete),
     path('guilds/<uuid:guild_id>/channels/<uuid:channel_id>/messages/', views.guild_channel_messages),

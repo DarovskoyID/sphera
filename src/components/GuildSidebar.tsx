@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
-import { Hash, Volume2, Plus, Trash2, LogOut, Copy, Users, ChevronDown, ChevronRight, Crown, Shield, UserPlus, Ban, User, MicOff, ShieldOff, Settings, Headphones, VolumeX, Volume1 } from 'lucide-react';
+import { Hash, Volume2, Plus, Trash2, LogOut, Copy, Users, ChevronDown, ChevronRight, Crown, Shield, UserPlus, Ban, User, MicOff, Settings, Headphones, VolumeX, Volume1 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { useTranslation } from '../i18n/useTranslation';
 import { ProfileModal, type ProfileUser } from './ProfileModal';
@@ -316,16 +316,21 @@ export const GuildSidebar: React.FC = () => {
   const {
     currentGuild, currentGuildChannel, selectGuildChannel,
     createChannel, deleteChannel, deleteGuild, leaveGuild,
+    createCategory, deleteCategory,
     joinVoiceChannel, leaveVoiceChannel, currentVoiceChannel,
     voiceChannelParticipants, voiceParticipants, currentServerIP, authToken,
-    blockedContacts, unblockUser,
     setMobileActivePanel, loadGuildRoles,
   } = useApp();
   const tr = useTranslation();
 
   const [showChannelMenu, setShowChannelMenu] = useState<string | null>(null);
   const [addingChannel, setAddingChannel] = useState<'text' | 'voice' | null>(null);
+  const [addingChannelCategoryId, setAddingChannelCategoryId] = useState<string | null>(null);
   const [newChName, setNewChName] = useState('');
+  const [areaMenu, setAreaMenu] = useState<{ x: number; y: number } | null>(null);
+  const [addingCategory, setAddingCategory] = useState(false);
+  const [newCategoryName, setNewCategoryName] = useState('');
+  const [categoryMenu, setCategoryMenu] = useState<{ id: string; x: number; y: number } | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -376,9 +381,17 @@ export const GuildSidebar: React.FC = () => {
 
   const handleAddChannel = async (type: 'text' | 'voice') => {
     if (!newChName.trim()) return;
-    await createChannel(currentGuild.id, newChName.trim(), type);
+    await createChannel(currentGuild.id, newChName.trim(), type, addingChannelCategoryId || undefined);
     setNewChName('');
     setAddingChannel(null);
+    setAddingChannelCategoryId(null);
+  };
+
+  const handleAddCategory = async () => {
+    if (!newCategoryName.trim()) return;
+    await createCategory(currentGuild.id, newCategoryName.trim());
+    setNewCategoryName('');
+    setAddingCategory(false);
   };
 
   const handleCopyInvite = () => {
@@ -426,126 +439,202 @@ export const GuildSidebar: React.FC = () => {
             </button>
           )}
 
-          {/* Blocked users list */}
-          {blockedContacts.length > 0 && (
-            <>
-              <div style={{ borderTop: '1px solid var(--border-color)', margin: '4px 0' }} />
-              <div style={{ padding: '4px 10px 2px', fontSize: 10, fontWeight: 700, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                <Ban size={10} style={{ display: 'inline', marginRight: 4 }} />
-                {tr('guild_blocked_count').replace('{n}', String(blockedContacts.length))}
-              </div>
-              {blockedContacts.map(u => (
-                <div key={u.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 10px' }}>
-                  {u.avatar
-                    ? <img src={u.avatar} alt="" style={{ width: 22, height: 22, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />
-                    : <div style={{ width: 22, height: 22, borderRadius: '50%', background: '#f97316', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, color: '#fff', fontWeight: 700, flexShrink: 0 }}>
-                        {(u.nickname || u.username)[0]?.toUpperCase()}
-                      </div>
-                  }
-                  <span style={{ flex: 1, fontSize: 12, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {u.nickname || u.username}
-                  </span>
-                  <button
-                    onClick={() => unblockUser(u.id)}
-                    title={tr('guild_unblock')}
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#3ba55c', display: 'flex', alignItems: 'center', padding: 2, flexShrink: 0 }}
-                  >
-                    <ShieldOff size={13} />
-                  </button>
-                </div>
-              ))}
-            </>
-          )}
         </div>
       )}
 
       {/* Channel list */}
-      <div className="guild-channel-list">
-        <div className="channel-category">
-          <div className="channel-category-header">
-            <ChevronRight size={12} />
-            <span>{tr('guild_text_channels')}</span>
-            {isAdmin && (
-              <button className="icon-btn-small" onClick={() => setAddingChannel(t => t === 'text' ? null : 'text')} title={tr('guild_add_channel')}>
-                <Plus size={13} />
-              </button>
-            )}
-          </div>
-          {addingChannel === 'text' && (
-            <form onSubmit={e => { e.preventDefault(); handleAddChannel('text'); }} style={{ padding: '4px 8px' }}>
-              <input className="input-field" style={{ fontSize: 12, padding: '4px 8px' }} placeholder={tr('guild_channel_name_placeholder')} value={newChName} onChange={e => setNewChName(e.target.value)} autoFocus onKeyDown={e => e.key === 'Escape' && setAddingChannel(null)} />
-            </form>
-          )}
-          {textChannels.map(ch => (
-            <div
-              key={ch.id}
-              className={`channel-item ${currentGuildChannel?.id === ch.id ? 'active' : ''}`}
-              onClick={() => selectGuildChannel(ch)}
-              onContextMenu={e => { e.preventDefault(); setShowChannelMenu(showChannelMenu === ch.id ? null : ch.id); }}
-            >
-              <Hash size={15} className="channel-icon" />
-              <span style={{ flex: 1 }}>{ch.name}</span>
-              {showChannelMenu === ch.id && isAdmin && (
-                <div className="context-menu" style={{ left: '100%', top: 0, minWidth: 160 }} onMouseLeave={() => setShowChannelMenu(null)}>
-                  <button className="context-menu-item danger" onClick={() => { deleteChannel(currentGuild.id, ch.id); setShowChannelMenu(null); }}>
-                    <Trash2 size={13} /> {tr('guild_delete_channel')}
-                  </button>
+      <div className="guild-channel-list" onContextMenu={e => {
+        if (!isAdmin) return;
+        if ((e.target as HTMLElement).closest('.channel-item, .channel-category-header')) return;
+        e.preventDefault();
+        setAreaMenu({ x: e.clientX, y: e.clientY });
+      }}>
+        {/* Uncategorized channels — default text/voice groups */}
+        {(() => {
+          const uncatText = currentGuild.channels.filter(c => c.type === 'text' && !c.category_id);
+          const uncatVoice = currentGuild.channels.filter(c => c.type === 'voice' && !c.category_id);
+          return (
+            <>
+              {uncatText.length > 0 && (
+                <div className="channel-category">
+                  <div className="channel-category-header">
+                    <ChevronRight size={12} />
+                    <span>{tr('guild_text_channels')}</span>
+                    {isAdmin && (
+                      <button className="icon-btn-small" onClick={() => { setAddingChannel('text'); setAddingChannelCategoryId(null); }} title={tr('guild_add_channel')}>
+                        <Plus size={13} />
+                      </button>
+                    )}
+                  </div>
+                  {addingChannel === 'text' && !addingChannelCategoryId && (
+                    <form onSubmit={e => { e.preventDefault(); handleAddChannel('text'); }} style={{ padding: '4px 8px' }}>
+                      <input className="input-field" style={{ fontSize: 12, padding: '4px 8px' }} placeholder={tr('guild_channel_name_placeholder')} value={newChName} onChange={e => setNewChName(e.target.value)} autoFocus onKeyDown={e => e.key === 'Escape' && setAddingChannel(null)} />
+                    </form>
+                  )}
+                  {uncatText.map(ch => (
+                    <div key={ch.id} className={`channel-item ${currentGuildChannel?.id === ch.id ? 'active' : ''}`} onClick={() => selectGuildChannel(ch)}
+                      onContextMenu={e => { e.preventDefault(); e.stopPropagation(); setShowChannelMenu(showChannelMenu === ch.id ? null : ch.id); }}>
+                      <Hash size={15} className="channel-icon" />
+                      <span style={{ flex: 1 }}>{ch.name}</span>
+                      {showChannelMenu === ch.id && isAdmin && (
+                        <div className="context-menu" style={{ left: '100%', top: 0, minWidth: 160 }} onMouseLeave={() => setShowChannelMenu(null)}>
+                          <button className="context-menu-item danger" onClick={() => { deleteChannel(currentGuild.id, ch.id); setShowChannelMenu(null); }}>
+                            <Trash2 size={13} /> {tr('guild_delete_channel')}
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  ))}
                 </div>
               )}
-            </div>
-          ))}
-        </div>
-
-        <div className="channel-category">
-          <div className="channel-category-header">
-            <ChevronRight size={12} />
-            <span>{tr('guild_voice_channels')}</span>
-            {isAdmin && (
-              <button className="icon-btn-small" onClick={() => setAddingChannel(t => t === 'voice' ? null : 'voice')} title={tr('guild_add_channel')}>
-                <Plus size={13} />
-              </button>
-            )}
-          </div>
-          {addingChannel === 'voice' && (
-            <form onSubmit={e => { e.preventDefault(); handleAddChannel('voice'); }} style={{ padding: '4px 8px' }}>
-              <input className="input-field" style={{ fontSize: 12, padding: '4px 8px' }} placeholder={tr('guild_channel_name_placeholder')} value={newChName} onChange={e => setNewChName(e.target.value)} autoFocus onKeyDown={e => e.key === 'Escape' && setAddingChannel(null)} />
-            </form>
-          )}
-          {voiceChannels.map(ch => {
-            const isActive = currentVoiceChannel?.id === ch.id;
-            const participants = mergedPresence[ch.id] ?? [];
-            return (
-              <div key={ch.id} style={{ display: 'flex', flexDirection: 'column' }}>
-                <div
-                  className={`channel-item ${isActive ? 'active' : ''}`}
-                  style={{ cursor: 'pointer' }}
-                  onClick={() => isActive ? leaveVoiceChannel() : joinVoiceChannel(ch)}
-                >
-                  <Volume2 size={15} className="channel-icon" style={{ color: isActive ? 'var(--accent-primary, #5865f2)' : undefined }} />
-                  <span style={{ flex: 1 }}>{ch.name}</span>
-                  {participants.length > 0 && (
-                    <span style={{ fontSize: 10, color: 'var(--text-secondary, #888)' }}>{participants.length}</span>
-                  )}
-                </div>
-                {participants.length > 0 && (
-                  <div style={{ paddingLeft: 28, display: 'flex', flexDirection: 'column', gap: 2, marginBottom: 2 }}>
-                    {participants.map(p => (
-                      <VoiceParticipantRow
-                        key={p.id}
-                        participant={p}
-                        myRole={myRole}
-                        guildId={currentGuild.id}
-                        members={currentGuild.members}
-                        guildRoles={guildRoles}
-                      />
-                    ))}
+              {uncatVoice.length > 0 && (
+                <div className="channel-category">
+                  <div className="channel-category-header">
+                    <ChevronRight size={12} />
+                    <span>{tr('guild_voice_channels')}</span>
+                    {isAdmin && (
+                      <button className="icon-btn-small" onClick={() => { setAddingChannel('voice'); setAddingChannelCategoryId(null); }} title={tr('guild_add_channel')}>
+                        <Plus size={13} />
+                      </button>
+                    )}
                   </div>
+                  {addingChannel === 'voice' && !addingChannelCategoryId && (
+                    <form onSubmit={e => { e.preventDefault(); handleAddChannel('voice'); }} style={{ padding: '4px 8px' }}>
+                      <input className="input-field" style={{ fontSize: 12, padding: '4px 8px' }} placeholder={tr('guild_channel_name_placeholder')} value={newChName} onChange={e => setNewChName(e.target.value)} autoFocus onKeyDown={e => e.key === 'Escape' && setAddingChannel(null)} />
+                    </form>
+                  )}
+                  {uncatVoice.map(ch => {
+                    const isActive = currentVoiceChannel?.id === ch.id;
+                    const participants = mergedPresence[ch.id] ?? [];
+                    return (
+                      <div key={ch.id} style={{ display: 'flex', flexDirection: 'column' }}>
+                        <div className={`channel-item ${isActive ? 'active' : ''}`} style={{ cursor: 'pointer' }}
+                          onClick={() => isActive ? leaveVoiceChannel() : joinVoiceChannel(ch)}>
+                          <Volume2 size={15} className="channel-icon" style={{ color: isActive ? 'var(--accent-primary, #5865f2)' : undefined }} />
+                          <span style={{ flex: 1 }}>{ch.name}</span>
+                          {participants.length > 0 && <span style={{ fontSize: 10, color: 'var(--text-secondary, #888)' }}>{participants.length}</span>}
+                        </div>
+                        {participants.length > 0 && (
+                          <div style={{ paddingLeft: 28, display: 'flex', flexDirection: 'column', gap: 2, marginBottom: 2 }}>
+                            {participants.map(p => (
+                              <VoiceParticipantRow key={p.id} participant={p} myRole={myRole} guildId={currentGuild.id} members={currentGuild.members} guildRoles={guildRoles} />
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </>
+          );
+        })()}
+
+        {/* Custom categories */}
+        {(currentGuild.categories ?? []).map(cat => {
+          const catChannels = currentGuild.channels.filter(c => c.category_id === cat.id);
+          const catText = catChannels.filter(c => c.type === 'text');
+          const catVoice = catChannels.filter(c => c.type === 'voice');
+          return (
+            <div key={cat.id} className="channel-category">
+              <div className="channel-category-header" onContextMenu={e => {
+                if (!isAdmin) return;
+                e.preventDefault(); e.stopPropagation();
+                setCategoryMenu({ id: cat.id, x: e.clientX, y: e.clientY });
+              }}>
+                <ChevronRight size={12} />
+                <span>{cat.name.toUpperCase()}</span>
+                {isAdmin && (
+                  <button className="icon-btn-small" onClick={() => { setAddingChannel('text'); setAddingChannelCategoryId(cat.id); }} title={tr('guild_add_channel')}>
+                    <Plus size={13} />
+                  </button>
                 )}
               </div>
-            );
-          })}
-        </div>
+              {addingChannel && addingChannelCategoryId === cat.id && (
+                <form onSubmit={e => { e.preventDefault(); handleAddChannel(addingChannel); }} style={{ padding: '4px 8px' }}>
+                  <input className="input-field" style={{ fontSize: 12, padding: '4px 8px' }} placeholder={tr('guild_channel_name_placeholder')} value={newChName} onChange={e => setNewChName(e.target.value)} autoFocus onKeyDown={e => { if (e.key === 'Escape') setAddingChannel(null); }} />
+                </form>
+              )}
+              {catText.map(ch => (
+                <div key={ch.id} className={`channel-item ${currentGuildChannel?.id === ch.id ? 'active' : ''}`} onClick={() => selectGuildChannel(ch)}
+                  onContextMenu={e => { e.preventDefault(); e.stopPropagation(); setShowChannelMenu(showChannelMenu === ch.id ? null : ch.id); }}>
+                  <Hash size={15} className="channel-icon" />
+                  <span style={{ flex: 1 }}>{ch.name}</span>
+                  {showChannelMenu === ch.id && isAdmin && (
+                    <div className="context-menu" style={{ left: '100%', top: 0, minWidth: 160 }} onMouseLeave={() => setShowChannelMenu(null)}>
+                      <button className="context-menu-item danger" onClick={() => { deleteChannel(currentGuild.id, ch.id); setShowChannelMenu(null); }}>
+                        <Trash2 size={13} /> {tr('guild_delete_channel')}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ))}
+              {catVoice.map(ch => {
+                const isActive = currentVoiceChannel?.id === ch.id;
+                const participants = mergedPresence[ch.id] ?? [];
+                return (
+                  <div key={ch.id} style={{ display: 'flex', flexDirection: 'column' }}>
+                    <div className={`channel-item ${isActive ? 'active' : ''}`} style={{ cursor: 'pointer' }}
+                      onClick={() => isActive ? leaveVoiceChannel() : joinVoiceChannel(ch)}>
+                      <Volume2 size={15} className="channel-icon" style={{ color: isActive ? 'var(--accent-primary, #5865f2)' : undefined }} />
+                      <span style={{ flex: 1 }}>{ch.name}</span>
+                      {participants.length > 0 && <span style={{ fontSize: 10, color: 'var(--text-secondary, #888)' }}>{participants.length}</span>}
+                    </div>
+                    {participants.length > 0 && (
+                      <div style={{ paddingLeft: 28, display: 'flex', flexDirection: 'column', gap: 2, marginBottom: 2 }}>
+                        {participants.map(p => (
+                          <VoiceParticipantRow key={p.id} participant={p} myRole={myRole} guildId={currentGuild.id} members={currentGuild.members} guildRoles={guildRoles} />
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })}
+
+        {/* Add category input */}
+        {addingCategory && (
+          <form onSubmit={e => { e.preventDefault(); handleAddCategory(); }} style={{ padding: '4px 8px' }}>
+            <input className="input-field" style={{ fontSize: 12, padding: '4px 8px' }} placeholder={tr('guild_category_name_placeholder')} value={newCategoryName} onChange={e => setNewCategoryName(e.target.value)} autoFocus onKeyDown={e => e.key === 'Escape' && setAddingCategory(false)} />
+          </form>
+        )}
       </div>
+
+      {/* Area context menu (right-click on empty channel list space) */}
+      {areaMenu && isAdmin && (
+        <div style={{ position: 'fixed', left: areaMenu.x, top: areaMenu.y, zIndex: 9999, background: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: 8, boxShadow: '0 10px 40px rgba(0,0,0,0.3)', padding: 4, minWidth: 180 }}
+          onMouseLeave={() => setAreaMenu(null)}>
+          <button className="context-menu-item" onClick={() => { setAddingChannel('text'); setAddingChannelCategoryId(null); setAreaMenu(null); }}>
+            <Hash size={13} /> {tr('guild_create_text_channel')}
+          </button>
+          <button className="context-menu-item" onClick={() => { setAddingChannel('voice'); setAddingChannelCategoryId(null); setAreaMenu(null); }}>
+            <Volume2 size={13} /> {tr('guild_create_voice_channel')}
+          </button>
+          <div style={{ borderTop: '1px solid var(--border-color)', margin: '4px 0' }} />
+          <button className="context-menu-item" onClick={() => { setAddingCategory(true); setAreaMenu(null); }}>
+            <Plus size={13} /> {tr('guild_create_category')}
+          </button>
+        </div>
+      )}
+
+      {/* Category context menu */}
+      {categoryMenu && isAdmin && (
+        <div style={{ position: 'fixed', left: categoryMenu.x, top: categoryMenu.y, zIndex: 9999, background: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: 8, boxShadow: '0 10px 40px rgba(0,0,0,0.3)', padding: 4, minWidth: 180 }}
+          onMouseLeave={() => setCategoryMenu(null)}>
+          <button className="context-menu-item" onClick={() => { setAddingChannel('text'); setAddingChannelCategoryId(categoryMenu.id); setCategoryMenu(null); }}>
+            <Hash size={13} /> {tr('guild_create_text_channel')}
+          </button>
+          <button className="context-menu-item" onClick={() => { setAddingChannel('voice'); setAddingChannelCategoryId(categoryMenu.id); setCategoryMenu(null); }}>
+            <Volume2 size={13} /> {tr('guild_create_voice_channel')}
+          </button>
+          <div style={{ borderTop: '1px solid var(--border-color)', margin: '4px 0' }} />
+          <button className="context-menu-item danger" onClick={() => { deleteCategory(currentGuild.id, categoryMenu.id); setCategoryMenu(null); }}>
+            <Trash2 size={13} /> {tr('guild_delete_category')}
+          </button>
+        </div>
+      )}
 
       {/* Members — fixed height */}
       <div className="guild-members-panel">

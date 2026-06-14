@@ -10,7 +10,7 @@ from rest_framework.response import Response
 from rest_framework import status
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
-from .models import Conversation, Message, Attachment, MessageReport, MessagePin, ScheduledMessage, Guild, GuildMembership, GuildChannel, GuildMessage, GuildAttachment, GuildScheduledMessage, GuildEmoji, GuildSticker, GuildSound, GuildRole, GuildMemberRole, GuildInvite, GuildAuditLog
+from .models import Conversation, Message, Attachment, MessageReport, MessagePin, ScheduledMessage, Guild, GuildMembership, GuildChannel, GuildCategory, GuildMessage, GuildAttachment, GuildScheduledMessage, GuildEmoji, GuildSticker, GuildSound, GuildRole, GuildMemberRole, GuildInvite, GuildAuditLog
 from .serializers import ConversationSerializer, MessageSerializer, AttachmentSerializer
 from .encryption import encrypt_bytes, decrypt_bytes, encrypt_text
 from ionik_auth.models import BlockedUser
@@ -453,6 +453,14 @@ def _guild_data(guild, user):
             'type': ch.channel_type,
             'topic': ch.topic,
             'position': ch.position,
+            'category_id': str(ch.category_id) if ch.category_id else None,
+        })
+    categories = []
+    for cat in guild.categories.all():
+        categories.append({
+            'id': str(cat.id),
+            'name': cat.name,
+            'position': cat.position,
         })
     return {
         'id': str(guild.id),
@@ -472,6 +480,7 @@ def _guild_data(guild, user):
         'my_muted_until': membership.muted_until.isoformat() if membership and membership.muted_until and membership.muted_until > timezone.now() else None,
         'members': members,
         'channels': channels,
+        'categories': categories,
     }
 
 
@@ -731,18 +740,27 @@ def guild_channel_list_create(request, guild_id):
     name = request.data.get('name', '').strip()
     if not name:
         return Response({'error': 'name required'}, status=status.HTTP_400_BAD_REQUEST)
+    category_id = request.data.get('category_id')
+    category = None
+    if category_id:
+        try:
+            category = GuildCategory.objects.get(id=category_id, guild=guild)
+        except GuildCategory.DoesNotExist:
+            pass
     ch = GuildChannel.objects.create(
         guild=guild, name=name,
         channel_type=request.data.get('type', 'text'),
         topic=request.data.get('topic', ''),
         position=guild.channels.count(),
+        category=category,
     )
+    ch_data = {'id': str(ch.id), 'name': ch.name, 'type': ch.channel_type, 'topic': ch.topic, 'position': ch.position, 'category_id': str(ch.category_id) if ch.category_id else None}
     channel_layer = get_channel_layer()
     async_to_sync(channel_layer.group_send)(
         f'guild_{guild_id}',
-        {'type': 'channel_created', 'channel': {'id': str(ch.id), 'name': ch.name, 'type': ch.channel_type, 'topic': ch.topic, 'position': ch.position}},
+        {'type': 'channel_created', 'channel': ch_data},
     )
-    return Response({'id': str(ch.id), 'name': ch.name, 'type': ch.channel_type, 'topic': ch.topic, 'position': ch.position}, status=status.HTTP_201_CREATED)
+    return Response(ch_data, status=status.HTTP_201_CREATED)
 
 
 @api_view(['DELETE'])
@@ -761,6 +779,50 @@ def guild_channel_delete(request, guild_id, channel_id):
     async_to_sync(channel_layer.group_send)(
         f'guild_{guild_id}',
         {'type': 'channel_deleted', 'channel_id': str(channel_id)},
+    )
+    return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def guild_category_create(request, guild_id):
+    try:
+        guild = Guild.objects.get(id=guild_id)
+        membership = GuildMembership.objects.get(guild=guild, user=request.user)
+    except (Guild.DoesNotExist, GuildMembership.DoesNotExist):
+        return Response({'error': 'not found'}, status=status.HTTP_404_NOT_FOUND)
+    if membership.role not in ('owner', 'admin'):
+        return Response({'error': 'forbidden'}, status=status.HTTP_403_FORBIDDEN)
+    name = request.data.get('name', '').strip()
+    if not name:
+        return Response({'error': 'name required'}, status=status.HTTP_400_BAD_REQUEST)
+    cat = GuildCategory.objects.create(guild=guild, name=name, position=guild.categories.count())
+    cat_data = {'id': str(cat.id), 'name': cat.name, 'position': cat.position}
+    channel_layer = get_channel_layer()
+    async_to_sync(channel_layer.group_send)(
+        f'guild_{guild_id}',
+        {'type': 'category_created', 'category': cat_data},
+    )
+    return Response(cat_data, status=status.HTTP_201_CREATED)
+
+
+@api_view(['DELETE'])
+@permission_classes([IsAuthenticated])
+def guild_category_delete(request, guild_id, category_id):
+    try:
+        guild = Guild.objects.get(id=guild_id)
+        membership = GuildMembership.objects.get(guild=guild, user=request.user)
+        cat = GuildCategory.objects.get(id=category_id, guild=guild)
+    except (Guild.DoesNotExist, GuildMembership.DoesNotExist, GuildCategory.DoesNotExist):
+        return Response({'error': 'not found'}, status=status.HTTP_404_NOT_FOUND)
+    if membership.role not in ('owner', 'admin'):
+        return Response({'error': 'forbidden'}, status=status.HTTP_403_FORBIDDEN)
+    cat.channels.update(category=None)
+    cat.delete()
+    channel_layer = get_channel_layer()
+    async_to_sync(channel_layer.group_send)(
+        f'guild_{guild_id}',
+        {'type': 'category_deleted', 'category_id': str(category_id)},
     )
     return Response(status=status.HTTP_204_NO_CONTENT)
 
