@@ -11,6 +11,7 @@ import { IncomingCallModal } from './components/IncomingCallModal';
 import { CallWindow } from './components/CallWindow';
 import { GuildVoiceRoom } from './components/GuildVoiceRoom';
 import { ExploreServers } from './components/ExploreServers';
+import { PersonalChannelFeed } from './components/PersonalChannelFeed';
 import { Volume2, PhoneOff } from 'lucide-react';
 
 function useMobile() {
@@ -181,7 +182,9 @@ function AppContent() {
     <div className={`app-container mobile-panel-${mobileActivePanel}${currentVoiceChannel ? ' voice-connected' : ''}`}>
       <ServerSidebar />
       {inExplore ? (
-        <ExploreServers />
+        <ExploreServers style={{ gridColumn: '2 / -1' }} />
+      ) : inGuild && currentGuild?.is_personal_channel ? (
+        <PersonalChannelFeed style={{ gridColumn: '2 / -1' }} />
       ) : inGuild ? (
         <>
           <GuildSidebar />

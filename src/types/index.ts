@@ -108,11 +108,18 @@ export interface GuildChannel {
   user_limit?: number;
 }
 
+export interface MessageReaction {
+  emoji: string;
+  count: number;
+  me: boolean;
+}
+
 export interface Guild {
   id: string;
   name: string;
   description: string;
   tag: string;
+  tags: string[];
   icon: string;
   banner: string;
   owner_id: string;
@@ -123,6 +130,7 @@ export interface Guild {
   explicit_content_filter: string;
   require_2fa: boolean;
   is_discoverable: boolean;
+  is_personal_channel: boolean;
   my_role: GuildMemberRole;
   my_muted_until: string | null;
   my_notifications_muted: boolean;
@@ -201,6 +209,7 @@ export interface GuildMessage {
     file_size: number;
     url: string;
   }>;
+  reactions?: MessageReaction[];
 }
 
 export type ViewType = 'home' | 'server' | 'settings';

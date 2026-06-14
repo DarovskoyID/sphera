@@ -10,7 +10,7 @@ from rest_framework.response import Response
 from rest_framework import status
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
-from .models import Conversation, Message, Attachment, MessageReport, MessagePin, ScheduledMessage, Guild, GuildMembership, GuildChannel, GuildCategory, GuildMessage, GuildAttachment, GuildScheduledMessage, GuildEmoji, GuildSticker, GuildSound, GuildRole, GuildMemberRole, GuildInvite, GuildAuditLog
+from .models import Conversation, Message, Attachment, MessageReport, MessagePin, ScheduledMessage, Guild, GuildMembership, GuildChannel, GuildCategory, GuildMessage, GuildAttachment, GuildScheduledMessage, GuildEmoji, GuildSticker, GuildSound, GuildRole, GuildMemberRole, GuildInvite, GuildAuditLog, GuildMessageReaction
 from .serializers import ConversationSerializer, MessageSerializer, AttachmentSerializer
 from .encryption import encrypt_bytes, decrypt_bytes, encrypt_text
 from ionik_auth.models import BlockedUser
@@ -468,6 +468,7 @@ def _guild_data(guild, user):
         'name': guild.name,
         'description': guild.description,
         'tag': guild.tag,
+        'tags': guild.tags or [],
         'icon': guild.icon.url if guild.icon else '',
         'banner': guild.banner.url if guild.banner else '',
         'owner_id': str(guild.owner_id),
@@ -478,6 +479,7 @@ def _guild_data(guild, user):
         'explicit_content_filter': guild.explicit_content_filter,
         'require_2fa': guild.require_2fa,
         'is_discoverable': guild.is_discoverable,
+        'is_personal_channel': guild.is_personal_channel,
         'my_role': membership.role if membership else '',
         'my_muted_until': membership.muted_until.isoformat() if membership and membership.muted_until and membership.muted_until > timezone.now() else None,
         'my_notifications_muted': membership.notifications_muted if membership else False,
@@ -499,11 +501,17 @@ def guild_list_create(request):
     name = request.data.get('name', '').strip()
     if not name:
         return Response({'error': 'name required'}, status=status.HTTP_400_BAD_REQUEST)
-    guild = Guild.objects.create(name=name, description=request.data.get('description', ''), owner=request.user)
+    is_personal = bool(request.data.get('is_personal_channel', False))
+    guild = Guild.objects.create(
+        name=name, description=request.data.get('description', ''),
+        owner=request.user, is_personal_channel=is_personal,
+    )
     GuildMembership.objects.create(guild=guild, user=request.user, role='owner')
-    # Default channels
-    GuildChannel.objects.create(guild=guild, name='general', channel_type='text', position=0)
-    GuildChannel.objects.create(guild=guild, name='General', channel_type='voice', position=1)
+    if is_personal:
+        GuildChannel.objects.create(guild=guild, name='feed', channel_type='text', position=0)
+    else:
+        GuildChannel.objects.create(guild=guild, name='general', channel_type='text', position=0)
+        GuildChannel.objects.create(guild=guild, name='General', channel_type='voice', position=1)
     return Response(_guild_data(guild, request.user), status=status.HTTP_201_CREATED)
 
 
@@ -516,7 +524,12 @@ def guild_explore(request):
         member_count=Count('memberships')
     ).order_by('-member_count')
     if search:
-        qs = qs.filter(Q(name__icontains=search) | Q(description__icontains=search) | Q(tag__icontains=search))
+        if search.startswith('#'):
+            tag_q = search[1:].strip()
+            if tag_q:
+                qs = qs.filter(Q(tags__icontains=tag_q))
+        else:
+            qs = qs.filter(Q(name__icontains=search) | Q(description__icontains=search) | Q(tag__icontains=search) | Q(tags__icontains=search))
     guilds = qs[:50]
     result = []
     for g in guilds:
@@ -528,6 +541,7 @@ def guild_explore(request):
             'banner': g.banner.url if g.banner else '',
             'member_count': g.member_count,
             'invite_code': g.invite_code,
+            'tags': g.tags or [],
         })
     return Response(result)
 
@@ -556,6 +570,15 @@ def guild_detail(request, guild_id):
             guild.require_2fa = request.data['require_2fa'] in (True, 'true', '1')
         if 'is_discoverable' in request.data:
             guild.is_discoverable = request.data['is_discoverable'] in (True, 'true', '1')
+        if 'tags' in request.data:
+            raw = request.data['tags']
+            if isinstance(raw, str):
+                import json as _json
+                try:
+                    raw = _json.loads(raw)
+                except Exception:
+                    raw = [t.strip() for t in raw.split(',') if t.strip()]
+            guild.tags = [t[:24] for t in raw[:10]] if isinstance(raw, list) else []
         if 'icon' in request.FILES:
             if guild.icon:
                 guild.icon.delete(save=False)
@@ -890,6 +913,16 @@ def guild_category_delete(request, guild_id, category_id):
     return Response(status=status.HTTP_204_NO_CONTENT)
 
 
+def _aggregate_reactions(reactions_qs, current_user):
+    from collections import defaultdict
+    grouped = defaultdict(lambda: {'count': 0, 'me': False})
+    for r in reactions_qs:
+        grouped[r.emoji]['count'] += 1
+        if r.user_id == current_user.id:
+            grouped[r.emoji]['me'] = True
+    return [{'emoji': k, 'count': v['count'], 'me': v['me']} for k, v in grouped.items()]
+
+
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def guild_channel_messages(request, guild_id, channel_id):
@@ -902,7 +935,7 @@ def guild_channel_messages(request, guild_id, channel_id):
 
     limit = min(int(request.GET.get('limit', 50)), 200)
     before_id = request.GET.get('before')
-    qs = ch.messages.select_related('author', 'reply_to', 'reply_to__author').prefetch_related('attachments').order_by('-created_at')
+    qs = ch.messages.select_related('author', 'reply_to', 'reply_to__author').prefetch_related('attachments', 'reactions').order_by('-created_at')
     if before_id:
         try:
             anchor = ch.messages.get(id=before_id)
@@ -940,6 +973,7 @@ def guild_channel_messages(request, guild_id, channel_id):
                 }
                 for att in m.attachments.all()
             ],
+            'reactions': _aggregate_reactions(m.reactions.all(), request.user),
         }
 
     return Response([serialize(m) for m in msgs])
@@ -1384,3 +1418,35 @@ def guild_audit_log(request, guild_id):
         'details': lg.details,
         'created_at': lg.created_at.isoformat(),
     } for lg in logs])
+
+
+# ── Reactions ───────────────────────────────────���──────────────────────────��─
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def guild_message_reaction(request, guild_id, message_id):
+    emoji = request.data.get('emoji', '').strip()
+    if not emoji:
+        return Response({'error': 'emoji required'}, status=status.HTTP_400_BAD_REQUEST)
+    try:
+        guild = Guild.objects.get(id=guild_id)
+        GuildMembership.objects.get(guild=guild, user=request.user)
+        msg = GuildMessage.objects.get(id=message_id, channel__guild=guild)
+    except (Guild.DoesNotExist, GuildMembership.DoesNotExist, GuildMessage.DoesNotExist):
+        return Response({'error': 'not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    reaction, created = GuildMessageReaction.objects.get_or_create(
+        message=msg, user=request.user, emoji=emoji
+    )
+    if not created:
+        reaction.delete()
+        added = False
+    else:
+        added = True
+
+    reactions = _aggregate_reactions(msg.reactions.all(), request.user)
+    channel_layer = get_channel_layer()
+    async_to_sync(channel_layer.group_send)(
+        f'guild_channel_{msg.channel_id}',
+        {'type': 'reaction_update', 'message_id': str(message_id), 'reactions': reactions},
+    )
+    return Response({'added': added, 'reactions': reactions})

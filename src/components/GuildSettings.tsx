@@ -919,6 +919,8 @@ function SecuritySection() {
   const tr = useTranslation();
   const [require2fa, setRequire2fa] = useState(currentGuild?.require_2fa ?? false);
   const [discoverable, setDiscoverable] = useState(currentGuild?.is_discoverable ?? true);
+  const [tags, setTags] = useState<string[]>(currentGuild?.tags ?? []);
+  const [tagInput, setTagInput] = useState('');
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   if (!currentGuild) return null;
@@ -927,7 +929,7 @@ function SecuritySection() {
 
   const handleSave = async () => {
     setSaving(true);
-    await updateGuild(currentGuild.id, { require_2fa: require2fa, is_discoverable: discoverable });
+    await updateGuild(currentGuild.id, { require_2fa: require2fa, is_discoverable: discoverable, tags: JSON.stringify(tags) });
     setSaving(false); setSaved(true); setTimeout(() => setSaved(false), 2000);
   };
 
@@ -972,6 +974,53 @@ function SecuritySection() {
             </span>
           </label>
         </div>
+      </div>
+
+      <div style={{ padding: 16, background: 'var(--bg-tertiary)', borderRadius: 10, border: '1px solid var(--border-color)', marginBottom: 24 }}>
+        <p style={{ margin: '0 0 4px', fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>{tr('gs_tags')}</p>
+        <p style={{ margin: '0 0 12px', fontSize: 12, color: 'var(--text-secondary)' }}>{tr('gs_tags_desc')}</p>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: tags.length ? 10 : 0 }}>
+          {tags.map((t, i) => (
+            <span key={i} style={{
+              display: 'inline-flex', alignItems: 'center', gap: 4,
+              padding: '4px 10px', borderRadius: 16, fontSize: 12, fontWeight: 500,
+              background: 'var(--accent-primary)', color: '#fff',
+            }}>
+              {t}
+              {isAdmin && (
+                <span onClick={() => setTags(prev => prev.filter((_, j) => j !== i))} style={{ cursor: 'pointer', fontSize: 14, lineHeight: 1, opacity: 0.8 }}>&times;</span>
+              )}
+            </span>
+          ))}
+        </div>
+        {isAdmin && tags.length < 10 && (
+          <div style={{ display: 'flex', gap: 8 }}>
+            <input
+              value={tagInput}
+              onChange={e => setTagInput(e.target.value.slice(0, 24))}
+              onKeyDown={e => {
+                if (e.key === 'Enter' && tagInput.trim() && !tags.includes(tagInput.trim())) {
+                  setTags(prev => [...prev, tagInput.trim()]);
+                  setTagInput('');
+                }
+              }}
+              placeholder={tr('gs_tags_placeholder')}
+              style={{ flex: 1, padding: '6px 10px', borderRadius: 6, border: '1px solid var(--border-color)', background: 'var(--bg-primary)', color: 'var(--text-primary)', fontSize: 13, outline: 'none' }}
+            />
+            <button
+              onClick={() => {
+                if (tagInput.trim() && !tags.includes(tagInput.trim())) {
+                  setTags(prev => [...prev, tagInput.trim()]);
+                  setTagInput('');
+                }
+              }}
+              disabled={!tagInput.trim() || tags.includes(tagInput.trim())}
+              style={{ padding: '6px 14px', borderRadius: 6, border: 'none', background: 'var(--accent-primary)', color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer', opacity: !tagInput.trim() ? 0.5 : 1 }}
+            >
+              +
+            </button>
+          </div>
+        )}
       </div>
 
       {!isOwner && <p style={{ fontSize: 13, color: 'var(--text-tertiary)', marginBottom: 16 }}>{tr('gs_owner_only_security')}</p>}

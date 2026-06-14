@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
-import { Settings, Home, Plus, LogIn, X, Compass } from 'lucide-react';
+import { Settings, Home, Plus, LogIn, X, Compass, Rss } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { useTranslation } from '../i18n/useTranslation';
 import type { Guild } from '../types';
@@ -44,6 +44,56 @@ function CreateGuildModal({ onClose }: { onClose: () => void }) {
           />
           <button className="btn-primary" type="submit" disabled={loading || !name.trim()}>
             {loading ? 'Creating…' : 'Create'}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function CreatePersonalChannelModal({ onClose }: { onClose: () => void }) {
+  const { createPersonalChannel, selectGuild } = useApp();
+  const [name, setName] = useState('');
+  const [desc, setDesc] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!name.trim()) return;
+    setLoading(true);
+    const guild = await createPersonalChannel(name.trim(), desc.trim());
+    setLoading(false);
+    if (guild) { selectGuild(guild); onClose(); }
+  };
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-box" onClick={e => e.stopPropagation()} style={{ maxWidth: 400 }}>
+        <div className="modal-header">
+          <span>Create Personal Channel</span>
+          <button className="icon-btn" onClick={onClose}><X size={18} /></button>
+        </div>
+        <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: '8px 0 12px' }}>
+          Only you can post. Others can view and react.
+        </p>
+        <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <input
+            className="input-field"
+            placeholder="Channel name"
+            value={name}
+            onChange={e => setName(e.target.value)}
+            maxLength={100}
+            autoFocus
+          />
+          <input
+            className="input-field"
+            placeholder="Description (optional)"
+            value={desc}
+            onChange={e => setDesc(e.target.value)}
+            maxLength={500}
+          />
+          <button className="btn-primary" type="submit" disabled={loading || !name.trim()}>
+            {loading ? 'Creating…' : 'Create Channel'}
           </button>
         </form>
       </div>
@@ -97,9 +147,12 @@ function GuildIcon({ guild, active, onClick, serverIP }: { guild: Guild; active:
       className={`server-icon ${active ? 'active' : ''}`}
       onClick={onClick}
       title={guild.name}
+      style={guild.is_personal_channel ? { borderRadius: 12 } : undefined}
     >
       {iconUrl ? (
-        <img src={iconUrl} alt={guild.name} style={{ width: 36, height: 36, borderRadius: '50%', objectFit: 'cover' }} />
+        <img src={iconUrl} alt={guild.name} style={{ width: 36, height: 36, borderRadius: guild.is_personal_channel ? 12 : '50%', objectFit: 'cover' }} />
+      ) : guild.is_personal_channel ? (
+        <Rss size={18} />
       ) : (
         <span style={{ fontSize: 13, fontWeight: 700, letterSpacing: 0.5 }}>{initials}</span>
       )}
@@ -112,6 +165,7 @@ export const ServerSidebar: React.FC = () => {
   const tr = useTranslation();
   const [showCreate, setShowCreate] = useState(false);
   const [showJoin, setShowJoin] = useState(false);
+  const [showCreateChannel, setShowCreateChannel] = useState(false);
   const [showAddMenu, setShowAddMenu] = useState(false);
   const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null);
   const addBtnRef = useRef<HTMLButtonElement>(null);
@@ -208,6 +262,9 @@ export const ServerSidebar: React.FC = () => {
           <button className="context-menu-item" onClick={() => { setShowAddMenu(false); setShowCreate(true); }}>
             <Plus size={14} /> Create Server
           </button>
+          <button className="context-menu-item" onClick={() => { setShowAddMenu(false); setShowCreateChannel(true); }}>
+            <Rss size={14} /> Create Channel
+          </button>
           <button className="context-menu-item" onClick={() => { setShowAddMenu(false); setShowJoin(true); }}>
             <LogIn size={14} /> Join Server
           </button>
@@ -215,6 +272,7 @@ export const ServerSidebar: React.FC = () => {
       )}
 
       {showCreate && <CreateGuildModal onClose={() => setShowCreate(false)} />}
+      {showCreateChannel && <CreatePersonalChannelModal onClose={() => setShowCreateChannel(false)} />}
       {showJoin && <JoinGuildModal onClose={() => setShowJoin(false)} />}
     </>
   );

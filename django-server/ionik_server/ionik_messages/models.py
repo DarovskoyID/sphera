@@ -108,6 +108,7 @@ class Guild(models.Model):
     name = models.CharField(max_length=100)
     description = models.TextField(blank=True)
     tag = models.CharField(max_length=8, blank=True, default='')
+    tags = models.JSONField(default=list, blank=True)
     icon = models.ImageField(upload_to='guild_icons/', null=True, blank=True)
     banner = models.ImageField(upload_to='guild_banners/', null=True, blank=True)
     owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='owned_guilds')
@@ -119,6 +120,7 @@ class Guild(models.Model):
     explicit_content_filter = models.CharField(max_length=30, default='disabled')
     require_2fa = models.BooleanField(default=False)
     is_discoverable = models.BooleanField(default=True)
+    is_personal_channel = models.BooleanField(default=False)
 
     def save(self, *args, **kwargs):
         if not self.invite_code:
@@ -363,3 +365,14 @@ class GuildAuditLog(models.Model):
 
     def __str__(self):
         return f'{self.action} by {self.actor_username} in {self.guild.name}'
+
+
+class GuildMessageReaction(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    message = models.ForeignKey(GuildMessage, on_delete=models.CASCADE, related_name='reactions')
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='+')
+    emoji = models.CharField(max_length=50)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('message', 'user', 'emoji')

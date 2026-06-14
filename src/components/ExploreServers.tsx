@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Search, Users, LogIn } from 'lucide-react';
+import { Search, Users, ArrowRight, Compass, Globe, Gamepad2, Music, Code, BookOpen, Palette, Trophy, MessageCircle, Sparkles, Newspaper } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { useTranslation } from '../i18n/useTranslation';
 
@@ -11,15 +11,33 @@ interface ExploreGuild {
   banner: string;
   member_count: number;
   invite_code: string;
+  tags: string[];
 }
 
-export const ExploreServers: React.FC = () => {
+const CATEGORIES = [
+  { icon: Gamepad2, label: 'Игры', labelEn: 'Gaming', tag: 'gaming', color: '#5865f2', bg: 'rgba(88,101,242,0.12)' },
+  { icon: Music, label: 'Музыка', labelEn: 'Music', tag: 'music', color: '#eb459e', bg: 'rgba(235,69,158,0.12)' },
+  { icon: Code, label: 'Технологии', labelEn: 'Tech', tag: 'tech', color: '#57f287', bg: 'rgba(87,242,135,0.12)' },
+  { icon: BookOpen, label: 'Образование', labelEn: 'Education', tag: 'education', color: '#fee75c', bg: 'rgba(254,231,92,0.12)' },
+  { icon: Palette, label: 'Творчество', labelEn: 'Creative', tag: 'creative', color: '#ed4245', bg: 'rgba(237,66,69,0.12)' },
+  { icon: Trophy, label: 'Киберспорт', labelEn: 'Esports', tag: 'esports', color: '#f47b67', bg: 'rgba(244,123,103,0.12)' },
+  { icon: Newspaper, label: 'Новости', labelEn: 'News', tag: 'news', color: '#3b82f6', bg: 'rgba(59,130,246,0.12)' },
+  { icon: MessageCircle, label: 'Общение', labelEn: 'Social', tag: 'social', color: '#3ba55d', bg: 'rgba(59,165,93,0.12)' },
+  { icon: Sparkles, label: 'Другое', labelEn: 'Other', tag: 'other', color: '#a78bfa', bg: 'rgba(167,139,250,0.12)' },
+];
+
+export const ExploreServers: React.FC<{ style?: React.CSSProperties }> = ({ style }) => {
   const { currentServerIP, authToken, joinGuild, selectGuild } = useApp();
   const tr = useTranslation();
   const [search, setSearch] = useState('');
   const [results, setResults] = useState<ExploreGuild[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [joining, setJoining] = useState<string | null>(null);
+  const [loaded, setLoaded] = useState(false);
+  const [hoveredCard, setHoveredCard] = useState<string | null>(null);
+  const [hoveredJoin, setHoveredJoin] = useState<string | null>(null);
+  const [hoveredCat, setHoveredCat] = useState<number | null>(null);
+  const [searchFocused, setSearchFocused] = useState(false);
 
   const load = useCallback(async (q: string) => {
     if (!authToken) return;
@@ -31,16 +49,16 @@ export const ExploreServers: React.FC = () => {
       if (res.ok) setResults(await res.json());
     } catch { /* ignore */ }
     setLoading(false);
+    setLoaded(true);
   }, [currentServerIP, authToken]);
 
-  useEffect(() => { load(''); }, [load]);
-
   useEffect(() => {
-    const t = setTimeout(() => load(search), 300);
+    const t = setTimeout(() => load(search), search ? 300 : 0);
     return () => clearTimeout(t);
   }, [search, load]);
 
-  const handleJoin = async (g: ExploreGuild) => {
+  const handleJoin = async (e: React.MouseEvent, g: ExploreGuild) => {
+    e.stopPropagation();
     setJoining(g.id);
     try {
       const joined = await joinGuild(g.invite_code);
@@ -50,66 +68,301 @@ export const ExploreServers: React.FC = () => {
     setJoining(null);
   };
 
+  const isRu = tr('explore_title') === 'Исследовать Ионик';
+
   return (
-    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'var(--bg-primary)' }}>
-      <div style={{ padding: '24px 32px 16px', borderBottom: '1px solid var(--border-color)' }}>
-        <h2 style={{ margin: '0 0 4px', fontSize: 20, fontWeight: 700, color: 'var(--text-primary)' }}>{tr('explore_title')}</h2>
-        <p style={{ margin: '0 0 16px', fontSize: 13, color: 'var(--text-secondary)' }}>{tr('explore_subtitle')}</p>
-        <div style={{ position: 'relative' }}>
-          <Search size={15} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-tertiary)' }} />
-          <input
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            placeholder={tr('explore_search_placeholder')}
-            style={{ width: '100%', padding: '8px 12px 8px 32px', borderRadius: 8, border: '1px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: 14, outline: 'none', boxSizing: 'border-box' }}
-          />
+    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'var(--bg-primary)', ...style }}>
+      <style>{`
+        @keyframes spin { to { transform: rotate(360deg) } }
+        @keyframes float1 { 0%,100% { transform: translateY(0) rotate(0deg); } 50% { transform: translateY(-12px) rotate(5deg); } }
+        @keyframes float2 { 0%,100% { transform: translateY(0) rotate(0deg); } 50% { transform: translateY(-8px) rotate(-3deg); } }
+        @keyframes gradientShift { 0% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } 100% { background-position: 0% 50%; } }
+      `}</style>
+
+      <div style={{ flex: 1, overflow: 'auto' }}>
+        {/* Hero banner */}
+        <div style={{
+          position: 'relative', padding: '48px 24px 40px', overflow: 'hidden',
+          background: 'linear-gradient(135deg, #1a1147 0%, #0d1b3e 30%, #0a2540 60%, #0d1f2d 100%)',
+          backgroundSize: '200% 200%',
+          animation: 'gradientShift 12s ease infinite',
+        }}>
+          {/* Decorative circles */}
+          <div style={{ position: 'absolute', top: -30, right: -30, width: 180, height: 180, borderRadius: '50%', background: 'rgba(88,101,242,0.08)', animation: 'float1 6s ease-in-out infinite' }} />
+          <div style={{ position: 'absolute', bottom: -40, left: '20%', width: 120, height: 120, borderRadius: '50%', background: 'rgba(235,69,158,0.06)', animation: 'float2 8s ease-in-out infinite' }} />
+          <div style={{ position: 'absolute', top: 20, left: '60%', width: 60, height: 60, borderRadius: '50%', background: 'rgba(87,242,135,0.05)', animation: 'float1 7s ease-in-out infinite' }} />
+
+          <div style={{ position: 'relative', zIndex: 1, maxWidth: 600 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+              <div style={{
+                width: 40, height: 40, borderRadius: 12,
+                background: 'linear-gradient(135deg, #5865f2, #7c3aed)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                boxShadow: '0 4px 16px rgba(88,101,242,0.3)',
+              }}>
+                <Compass size={22} color="#fff" />
+              </div>
+              <h1 style={{ margin: 0, fontSize: 26, fontWeight: 800, color: '#fff', letterSpacing: '-0.5px' }}>
+                {tr('explore_title')}
+              </h1>
+            </div>
+            <p style={{ margin: '0 0 24px', fontSize: 14, color: 'rgba(255,255,255,0.6)', lineHeight: 1.5 }}>
+              {tr('explore_subtitle')}
+            </p>
+            <div style={{ position: 'relative', maxWidth: 420 }}>
+              <Search size={16} style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', color: 'rgba(255,255,255,0.7)', zIndex: 1 }} />
+              <input
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                onFocus={() => setSearchFocused(true)}
+                onBlur={() => setSearchFocused(false)}
+                placeholder={tr('explore_search_placeholder')}
+                style={{
+                  width: '100%', padding: '11px 16px 11px 40px', borderRadius: 12,
+                  border: `1.5px solid ${searchFocused ? 'rgba(88,101,242,0.6)' : 'rgba(255,255,255,0.1)'}`,
+                  background: 'rgba(0,0,0,0.3)', backdropFilter: 'blur(10px)',
+                  color: '#fff', fontSize: 14, outline: 'none', boxSizing: 'border-box',
+                  transition: 'border-color 0.2s, box-shadow 0.2s',
+                  boxShadow: searchFocused ? '0 0 0 3px rgba(88,101,242,0.15)' : 'none',
+                }}
+              />
+            </div>
+          </div>
         </div>
-      </div>
-      <div style={{ flex: 1, overflow: 'auto', padding: '16px 32px' }}>
-        {loading && results.length === 0 ? (
-          <p style={{ color: 'var(--text-secondary)', textAlign: 'center', marginTop: 40 }}>{tr('explore_loading')}</p>
-        ) : results.length === 0 ? (
-          <p style={{ color: 'var(--text-secondary)', textAlign: 'center', marginTop: 40 }}>{tr('explore_empty')}</p>
-        ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 12 }}>
-            {results.map(g => (
-              <div key={g.id} style={{ borderRadius: 10, border: '1px solid var(--border-color)', background: 'var(--bg-secondary)', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-                {g.banner ? (
-                  <div style={{ height: 80, background: `url(${g.banner.startsWith('http') ? g.banner : currentServerIP + g.banner}) center/cover` }} />
-                ) : (
-                  <div style={{ height: 80, background: 'linear-gradient(135deg, var(--accent-primary) 0%, var(--bg-tertiary) 100%)' }} />
-                )}
-                <div style={{ padding: '12px 14px', flex: 1, display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    {g.icon ? (
-                      <img src={g.icon.startsWith('http') ? g.icon : currentServerIP + g.icon} alt="" style={{ width: 36, height: 36, borderRadius: 12, objectFit: 'cover' }} />
-                    ) : (
-                      <div style={{ width: 36, height: 36, borderRadius: 12, background: 'var(--accent-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 700, fontSize: 16 }}>
-                        {g.name[0]?.toUpperCase()}
+
+        {/* Categories */}
+        <div style={{ padding: '20px 24px 8px' }}>
+          <h3 style={{ margin: '0 0 14px', fontSize: 13, fontWeight: 700, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+            {isRu ? 'Категории' : 'Categories'}
+          </h3>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))', gap: 8 }}>
+            {CATEGORIES.map((cat, i) => {
+              const Icon = cat.icon;
+              const isHov = hoveredCat === i;
+              return (
+                <div
+                  key={i}
+                  onMouseEnter={() => setHoveredCat(i)}
+                  onMouseLeave={() => setHoveredCat(null)}
+                  onClick={() => setSearch(prev => prev === '#' + cat.tag ? '' : '#' + cat.tag)}
+                  style={{
+                    display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6,
+                    padding: '14px 8px', borderRadius: 10, cursor: 'pointer',
+                    background: search === '#' + cat.tag ? cat.bg : isHov ? cat.bg : 'var(--bg-secondary)',
+                    border: `1px solid ${search === '#' + cat.tag ? cat.color : isHov ? cat.color + '40' : 'var(--border-color)'}`,
+                    transition: 'all 0.2s',
+                    transform: isHov ? 'translateY(-2px)' : 'none',
+                  }}
+                >
+                  <Icon size={22} style={{ color: cat.color, transition: 'transform 0.2s', transform: isHov ? 'scale(1.15)' : 'none' }} />
+                  <span style={{ fontSize: 11, fontWeight: 600, color: isHov ? cat.color : 'var(--text-secondary)', transition: 'color 0.2s', textAlign: 'center' }}>
+                    {isRu ? cat.label : cat.labelEn}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Divider */}
+        <div style={{ margin: '16px 24px 0', borderTop: '1px solid var(--border-color)' }} />
+
+        {/* Servers section */}
+        <div style={{ padding: '16px 24px 32px' }}>
+          <h3 style={{ margin: '0 0 14px', fontSize: 13, fontWeight: 700, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+            {search
+              ? (isRu ? `Результаты: "${search}"` : `Results: "${search}"`)
+              : (isRu ? 'Популярные серверы' : 'Popular servers')}
+          </h3>
+
+          {!loaded || loading ? (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', paddingTop: 40, gap: 12 }}>
+              <div style={{
+                width: 36, height: 36, borderRadius: '50%',
+                border: '3px solid var(--border-color)', borderTopColor: 'var(--accent-primary)',
+                animation: 'spin 0.8s linear infinite',
+              }} />
+              <p style={{ color: 'var(--text-tertiary)', fontSize: 13 }}>{tr('explore_loading')}</p>
+            </div>
+          ) : results.length === 0 ? (
+            <div style={{
+              display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10,
+              background: 'var(--bg-secondary)', borderRadius: 12,
+              padding: '40px 20px',
+              border: '1px dashed var(--border-color)',
+            }}>
+              <Globe size={40} style={{ color: 'var(--text-tertiary)', opacity: 0.4 }} />
+              <p style={{ color: 'var(--text-secondary)', fontSize: 14, fontWeight: 500, margin: 0 }}>{tr('explore_empty')}</p>
+              <p style={{ color: 'var(--text-tertiary)', fontSize: 12, margin: 0, textAlign: 'center' }}>
+                {search
+                  ? (isRu ? 'Попробуйте другой запрос' : 'Try a different search')
+                  : (isRu ? 'Серверы с включённой видимостью появятся здесь' : 'Discoverable servers will appear here')}
+              </p>
+            </div>
+          ) : (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 14 }}>
+              {results.map(g => {
+                const isHovered = hoveredCard === g.id;
+                const hue = Math.abs(g.name.charCodeAt(0) * 47 + (g.name.charCodeAt(1) || 0) * 13) % 360;
+                return (
+                  <div
+                    key={g.id}
+                    onMouseEnter={() => setHoveredCard(g.id)}
+                    onMouseLeave={() => setHoveredCard(null)}
+                    style={{
+                      borderRadius: 12, overflow: 'hidden', display: 'flex', flexDirection: 'column',
+                      background: 'var(--bg-secondary)',
+                      border: '1px solid var(--border-color)',
+                      cursor: 'pointer',
+                      transition: 'transform 0.2s, box-shadow 0.2s, border-color 0.2s',
+                      transform: isHovered ? 'translateY(-3px)' : 'none',
+                      boxShadow: isHovered ? '0 8px 24px rgba(0,0,0,0.25)' : '0 1px 4px rgba(0,0,0,0.08)',
+                      borderColor: isHovered ? `hsl(${hue}, 50%, 50%)` : 'var(--border-color)',
+                    }}
+                  >
+                    {/* Banner */}
+                    <div style={{ position: 'relative', height: 90, overflow: 'hidden' }}>
+                      {g.banner ? (
+                        <div style={{
+                          height: '100%', width: '100%',
+                          background: `url(${g.banner.startsWith('http') ? g.banner : currentServerIP + g.banner}) center/cover`,
+                          transition: 'transform 0.3s',
+                          transform: isHovered ? 'scale(1.05)' : 'scale(1)',
+                        }} />
+                      ) : (
+                        <div style={{
+                          height: '100%', width: '100%',
+                          background: `linear-gradient(135deg, hsl(${hue}, 55%, 40%) 0%, hsl(${(hue + 40) % 360}, 45%, 30%) 100%)`,
+                        }} />
+                      )}
+                      <div style={{
+                        position: 'absolute', bottom: 0, left: 0, right: 0, height: 40,
+                        background: 'linear-gradient(transparent, rgba(0,0,0,0.35))',
+                      }} />
+                    </div>
+
+                    {/* Icon */}
+                    <div style={{ padding: '0 14px', marginTop: -22, position: 'relative', zIndex: 1 }}>
+                      {g.icon ? (
+                        <img
+                          src={g.icon.startsWith('http') ? g.icon : currentServerIP + g.icon}
+                          alt="" style={{
+                            width: 44, height: 44, borderRadius: 13, objectFit: 'cover',
+                            border: '3px solid var(--bg-secondary)',
+                            boxShadow: '0 2px 6px rgba(0,0,0,0.2)',
+                          }}
+                        />
+                      ) : (
+                        <div style={{
+                          width: 44, height: 44, borderRadius: 13,
+                          background: `linear-gradient(135deg, hsl(${hue}, 55%, 50%), hsl(${(hue + 60) % 360}, 45%, 40%))`,
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          color: '#fff', fontWeight: 800, fontSize: 18,
+                          border: '3px solid var(--bg-secondary)',
+                          boxShadow: '0 2px 6px rgba(0,0,0,0.2)',
+                        }}>
+                          {g.name[0]?.toUpperCase()}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Info */}
+                    <div style={{ padding: '8px 14px 14px', flex: 1, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      <div style={{
+                        fontWeight: 700, fontSize: 15, color: 'var(--text-primary)',
+                        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                      }}>
+                        {g.name}
                       </div>
-                    )}
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{g.name}</div>
                       <div style={{ fontSize: 11, color: 'var(--text-tertiary)', display: 'flex', alignItems: 'center', gap: 4 }}>
-                        <Users size={11} /> {g.member_count}
+                        <div style={{ width: 7, height: 7, borderRadius: '50%', background: '#3ba55d', flexShrink: 0 }} />
+                        <Users size={11} />
+                        <span>{g.member_count} {isRu ? (g.member_count === 1 ? 'участник' : g.member_count < 5 ? 'участника' : 'участников') : (g.member_count === 1 ? 'member' : 'members')}</span>
                       </div>
+
+                      {g.description ? (
+                        <p style={{
+                          margin: 0, fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.45,
+                          overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
+                        }}>
+                          {g.description}
+                        </p>
+                      ) : (
+                        <p style={{ margin: 0, fontSize: 12, color: 'var(--text-tertiary)', fontStyle: 'italic' }}>
+                          {isRu ? 'Нет описания' : 'No description'}
+                        </p>
+                      )}
+
+                      {g.tags && g.tags.length > 0 && (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                          {g.tags.slice(0, 4).map((t, i) => (
+                            <span key={i} onClick={e => { e.stopPropagation(); setSearch('#' + t); }} style={{
+                              padding: '2px 8px', borderRadius: 10, fontSize: 10, fontWeight: 500,
+                              background: search === '#' + t ? `hsla(${hue + i * 40}, 40%, 50%, 0.3)` : `hsla(${hue + i * 40}, 40%, 50%, 0.15)`,
+                              color: `hsl(${hue + i * 40}, 50%, 65%)`,
+                              border: `1px solid hsla(${hue + i * 40}, 40%, 50%, 0.2)`,
+                              cursor: 'pointer', transition: 'background 0.15s',
+                            }}>
+                              {t}
+                            </span>
+                          ))}
+                          {g.tags.length > 4 && (
+                            <span style={{ padding: '2px 6px', fontSize: 10, color: 'var(--text-tertiary)' }}>
+                              +{g.tags.length - 4}
+                            </span>
+                          )}
+                        </div>
+                      )}
+
+                      <button
+                        onClick={e => handleJoin(e, g)}
+                        disabled={joining === g.id}
+                        onMouseEnter={() => setHoveredJoin(g.id)}
+                        onMouseLeave={() => setHoveredJoin(null)}
+                        style={{
+                          marginTop: 'auto', padding: '7px 0', borderRadius: 8, border: 'none',
+                          background: hoveredJoin === g.id ? '#4752c4' : 'var(--accent-primary)',
+                          color: '#fff', fontWeight: 600, fontSize: 12, cursor: 'pointer',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
+                          opacity: joining === g.id ? 0.6 : 1,
+                          transition: 'background 0.15s, transform 0.1s',
+                          transform: hoveredJoin === g.id ? 'scale(1.02)' : 'none',
+                        }}
+                      >
+                        {joining === g.id ? (
+                          <>
+                            <div style={{
+                              width: 13, height: 13, borderRadius: '50%',
+                              border: '2px solid rgba(255,255,255,0.3)', borderTopColor: '#fff',
+                              animation: 'spin 0.6s linear infinite',
+                            }} />
+                            {isRu ? 'Подключение...' : 'Joining...'}
+                          </>
+                        ) : (
+                          <>
+                            {tr('explore_join')} <ArrowRight size={13} />
+                          </>
+                        )}
+                      </button>
                     </div>
                   </div>
-                  {g.description && (
-                    <p style={{ margin: 0, fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.4, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>{g.description}</p>
-                  )}
-                  <button
-                    onClick={() => handleJoin(g)}
-                    disabled={joining === g.id}
-                    style={{ marginTop: 'auto', padding: '6px 0', borderRadius: 6, border: 'none', background: 'var(--accent-primary)', color: '#fff', fontWeight: 600, fontSize: 13, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, opacity: joining === g.id ? 0.6 : 1 }}
-                  >
-                    <LogIn size={14} /> {tr('explore_join')}
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div style={{
+          padding: '20px 24px 24px', textAlign: 'center',
+          borderTop: '1px solid var(--border-color)',
+          color: 'var(--text-tertiary)', fontSize: 12,
+        }}>
+          <Compass size={16} style={{ verticalAlign: 'middle', marginRight: 6, opacity: 0.5 }} />
+          {isRu
+            ? 'Сделайте свой сервер видимым в настройках, чтобы он появился здесь'
+            : 'Make your server discoverable in settings to appear here'}
+        </div>
       </div>
     </div>
   );

@@ -8,7 +8,7 @@ from channels.generic.websocket import AsyncWebsocketConsumer
 from channels.db import database_sync_to_async
 from .models import (
     Conversation, Message, Attachment, ScheduledMessage,
-    GuildMembership, GuildMessage, GuildAttachment, GuildScheduledMessage,
+    Guild, GuildMembership, GuildMessage, GuildAttachment, GuildScheduledMessage,
 )
 from .encryption import encrypt_text
 from ionik_auth.models import User, BlockedUser
@@ -535,6 +535,16 @@ class GuildChannelConsumer(AsyncWebsocketConsumer):
         except GuildMembership.DoesNotExist:
             return False
 
+    @database_sync_to_async
+    def is_personal_channel_restricted(self):
+        try:
+            guild = Guild.objects.get(id=self.guild_id)
+            if not guild.is_personal_channel:
+                return False
+            return str(guild.owner_id) != self.user_data['id']
+        except Guild.DoesNotExist:
+            return False
+
     async def receive(self, text_data):
         data = ujson.loads(text_data)
         content = data.get('message', '').strip()
@@ -549,6 +559,10 @@ class GuildChannelConsumer(AsyncWebsocketConsumer):
 
         if await self.is_muted():
             await self.send(text_data=ujson.dumps({'type': 'error', 'message': 'You are muted'}))
+            return
+
+        if await self.is_personal_channel_restricted():
+            await self.send(text_data=ujson.dumps({'type': 'error', 'message': 'Only the channel owner can post'}))
             return
 
         msg_id = str(uuid.uuid4())
@@ -762,6 +776,9 @@ class GuildChannelConsumer(AsyncWebsocketConsumer):
 
     async def message_pinned(self, event):
         await self.send(text_data=ujson.dumps({'type': 'message_pinned', 'id': event['id'], 'is_pinned': event['is_pinned']}))
+
+    async def reaction_update(self, event):
+        await self.send(text_data=ujson.dumps({'type': 'reaction_update', 'message_id': event['message_id'], 'reactions': event['reactions']}))
 
     # ── Guild-level events (received via guild_group) ──
 

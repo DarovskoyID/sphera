@@ -149,7 +149,7 @@ interface AppContextType extends AppState {
   clearGuildKickNotification: () => void;
   // Guild methods
   loadGuilds: () => Promise<void>;
-  updateGuild: (guildId: string, data: { name?: string; description?: string; tag?: string; icon?: File | null; banner?: File | null; removeIcon?: boolean; removeBanner?: boolean; boost_level?: number; verification_level?: string; default_notifications?: string; explicit_content_filter?: string; require_2fa?: boolean }) => Promise<void>;
+  updateGuild: (guildId: string, data: { name?: string; description?: string; tag?: string; tags?: string; icon?: File | null; banner?: File | null; removeIcon?: boolean; removeBanner?: boolean; boost_level?: number; verification_level?: string; default_notifications?: string; explicit_content_filter?: string; require_2fa?: boolean }) => Promise<void>;
   loadGuildEmojis: (guildId: string) => Promise<GuildEmoji[]>;
   uploadGuildEmoji: (guildId: string, name: string, file: File) => Promise<GuildEmoji | null>;
   deleteGuildEmoji: (guildId: string, emojiId: string) => Promise<void>;
@@ -170,6 +170,8 @@ interface AppContextType extends AppState {
   revokeGuildInvite: (guildId: string, inviteId: string) => Promise<void>;
   loadGuildAuditLog: (guildId: string) => Promise<GuildAuditLogEntry[]>;
   createGuild: (name: string, description?: string) => Promise<Guild | null>;
+  createPersonalChannel: (name: string, description?: string) => Promise<Guild | null>;
+  toggleReaction: (guildId: string, messageId: string, emoji: string) => Promise<void>;
   joinGuild: (inviteCode: string) => Promise<Guild | null>;
   leaveGuild: (guildId: string) => Promise<void>;
   deleteGuild: (guildId: string) => Promise<void>;
@@ -1320,6 +1322,8 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
         setState(prev => ({ ...prev, guildMessages: prev.guildMessages.filter(m => m.id !== data.id) }));
       } else if (data.type === 'message_pinned') {
         setState(prev => ({ ...prev, guildMessages: prev.guildMessages.map(m => m.id === data.id ? { ...m, is_pinned: data.is_pinned } : m) }));
+      } else if (data.type === 'reaction_update') {
+        setState(prev => ({ ...prev, guildMessages: prev.guildMessages.map(m => m.id === data.message_id ? { ...m, reactions: data.reactions } : m) }));
       } else if (data.type === 'guild_deleted') {
         setState(prev => ({
           ...prev,
@@ -1609,6 +1613,31 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     } catch (e) { reportError(e); return null; }
   }, [state.authToken, state.currentServerIP, apiPost]);
 
+  const createPersonalChannel = useCallback(async (name: string, description = ''): Promise<Guild | null> => {
+    try {
+      const guild: Guild = await apiPost('/api/guilds/', state.authToken, state.currentServerIP, { name, description, is_personal_channel: true });
+      setState(prev => ({ ...prev, guilds: [...prev.guilds, guild] }));
+      return guild;
+    } catch (e) { reportError(e); return null; }
+  }, [state.authToken, state.currentServerIP, apiPost]);
+
+  const toggleReaction = useCallback(async (guildId: string, messageId: string, emoji: string): Promise<void> => {
+    try {
+      const res = await fetch(`${state.currentServerIP}/api/guilds/${guildId}/messages/${messageId}/reactions/`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${state.authToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ emoji }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setState(prev => ({
+          ...prev,
+          guildMessages: prev.guildMessages.map(m => m.id === messageId ? { ...m, reactions: data.reactions } : m),
+        }));
+      }
+    } catch (e) { reportError(e); }
+  }, [state.authToken, state.currentServerIP]);
+
   const joinGuild = useCallback(async (inviteCode: string): Promise<Guild | null> => {
     try {
       const guild: Guild = await apiPost('/api/guilds/join/', state.authToken, state.currentServerIP, { invite_code: inviteCode });
@@ -1654,7 +1683,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     if (guildPresenceWs.current) { guildPresenceWs.current.close(); guildPresenceWs.current = null; }
   }, [state.authToken, state.currentServerIP]);
 
-  const updateGuild = useCallback(async (guildId: string, data: { name?: string; description?: string; tag?: string; icon?: File | null; banner?: File | null; removeIcon?: boolean; removeBanner?: boolean; boost_level?: number; verification_level?: string; default_notifications?: string; explicit_content_filter?: string; require_2fa?: boolean; is_discoverable?: boolean }) => {
+  const updateGuild = useCallback(async (guildId: string, data: { name?: string; description?: string; tag?: string; tags?: string; icon?: File | null; banner?: File | null; removeIcon?: boolean; removeBanner?: boolean; boost_level?: number; verification_level?: string; default_notifications?: string; explicit_content_filter?: string; require_2fa?: boolean; is_discoverable?: boolean }) => {
     const form = new FormData();
     if (data.name !== undefined) form.append('name', data.name);
     if (data.description !== undefined) form.append('description', data.description);
@@ -1669,6 +1698,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     if (data.explicit_content_filter !== undefined) form.append('explicit_content_filter', data.explicit_content_filter);
     if (data.require_2fa !== undefined) form.append('require_2fa', data.require_2fa ? 'true' : 'false');
     if (data.is_discoverable !== undefined) form.append('is_discoverable', data.is_discoverable ? 'true' : 'false');
+    if (data.tags !== undefined) form.append('tags', data.tags);
     try {
       const res = await fetch(`${state.currentServerIP}/api/guilds/${guildId}/`, {
         method: 'PATCH',
@@ -1938,15 +1968,20 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       if (guildChannelWs.current) { guildChannelWs.current.close(); guildChannelWs.current = null; }
       // Connect guild-level presence WS so member/channel events arrive even without a channel open
       _connectGuildPresenceWs(guild, prev.authToken, prev.currentServerIP);
+      // For personal channels, auto-select the first text channel
+      const autoChannel = guild.is_personal_channel ? guild.channels.find(c => c.type === 'text') || null : null;
+      if (autoChannel) {
+        _connectGuildWs(guild, autoChannel, prev.authToken, prev.currentServerIP);
+      }
       return {
         ...prev,
         currentGuild: guild,
-        currentGuildChannel: null,
+        currentGuildChannel: autoChannel,
         guildMessages: [],
         currentView: 'server',
         currentServer: String(guild.id),
         voiceChannelParticipants: {},
-        mobileActivePanel: 'guild-channels' as MobilePanel,
+        mobileActivePanel: guild.is_personal_channel ? 'guild-chat' as MobilePanel : 'guild-channels' as MobilePanel,
       };
     });
   }, [_connectGuildWs, _connectGuildPresenceWs]);
@@ -2391,6 +2426,8 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       revokeGuildInvite,
       loadGuildAuditLog,
       createGuild,
+      createPersonalChannel,
+      toggleReaction,
       joinGuild,
       leaveGuild,
       deleteGuild,
