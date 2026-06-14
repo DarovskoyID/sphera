@@ -177,8 +177,10 @@ interface AppContextType extends AppState {
   setMemberRole: (guildId: string, userId: string, role: 'admin' | 'member') => Promise<void>;
   createChannel: (guildId: string, name: string, type?: 'text' | 'voice', categoryId?: string) => Promise<void>;
   deleteChannel: (guildId: string, channelId: string) => Promise<void>;
+  updateChannel: (guildId: string, channelId: string, data: { user_limit?: number; name?: string }) => Promise<void>;
   createCategory: (guildId: string, name: string) => Promise<void>;
   deleteCategory: (guildId: string, categoryId: string) => Promise<void>;
+  toggleGuildNotifications: (guildId: string) => Promise<void>;
   selectGuild: (guild: Guild) => void;
   selectGuildChannel: (channel: GuildChannel) => void;
   sendGuildMessage: (text: string, replyToId?: string, attachmentIds?: string[]) => void;
@@ -1372,6 +1374,11 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
           if (!prev.currentGuild || prev.currentGuild.id !== guild.id) return prev;
           return { ...prev, currentGuild: { ...prev.currentGuild, channels: prev.currentGuild.channels.filter(c => c.id !== data.channel_id) } };
         });
+      } else if (data.type === 'channel_updated') {
+        setState(prev => {
+          if (!prev.currentGuild || prev.currentGuild.id !== guild.id) return prev;
+          return { ...prev, currentGuild: { ...prev.currentGuild, channels: prev.currentGuild.channels.map(c => c.id === data.channel.id ? data.channel : c) } };
+        });
       } else if (data.type === 'category_created') {
         setState(prev => {
           if (!prev.currentGuild || prev.currentGuild.id !== guild.id) return prev;
@@ -1509,6 +1516,11 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
         setState(prev => {
           if (!prev.currentGuild || prev.currentGuild.id !== guild.id) return prev;
           return { ...prev, currentGuild: { ...prev.currentGuild, channels: prev.currentGuild.channels.filter(c => c.id !== data.channel_id) } };
+        });
+      } else if (data.type === 'channel_updated') {
+        setState(prev => {
+          if (!prev.currentGuild || prev.currentGuild.id !== guild.id) return prev;
+          return { ...prev, currentGuild: { ...prev.currentGuild, channels: prev.currentGuild.channels.map(c => c.id === data.channel.id ? data.channel : c) } };
         });
       } else if (data.type === 'category_created') {
         setState(prev => {
@@ -1839,7 +1851,12 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
   }, [state.authToken, state.currentServerIP, apiPost]);
 
   const createChannel = useCallback(async (guildId: string, name: string, type: 'text' | 'voice' = 'text', categoryId?: string) => {
-    await apiPost(`/api/guilds/${guildId}/channels/`, state.authToken, state.currentServerIP, { name, type, category_id: categoryId || undefined });
+    const ch = await apiPost(`/api/guilds/${guildId}/channels/`, state.authToken, state.currentServerIP, { name, type, category_id: categoryId || undefined });
+    setState(prev => {
+      if (!prev.currentGuild || prev.currentGuild.id !== guildId) return prev;
+      if (prev.currentGuild.channels.some(c => c.id === ch.id)) return prev;
+      return { ...prev, currentGuild: { ...prev.currentGuild, channels: [...prev.currentGuild.channels, ch] } };
+    });
   }, [state.authToken, state.currentServerIP, apiPost]);
 
   const deleteChannel = useCallback(async (guildId: string, channelId: string) => {
@@ -1848,14 +1865,44 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     });
   }, [state.authToken, state.currentServerIP]);
 
+  const updateChannel = useCallback(async (guildId: string, channelId: string, data: { user_limit?: number; name?: string }) => {
+    await fetch(`${state.currentServerIP}/api/guilds/${guildId}/channels/${channelId}/`, {
+      method: 'PATCH',
+      headers: { Authorization: `Bearer ${state.authToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+  }, [state.authToken, state.currentServerIP]);
+
   const createCategory = useCallback(async (guildId: string, name: string) => {
-    await apiPost(`/api/guilds/${guildId}/categories/`, state.authToken, state.currentServerIP, { name });
+    const cat = await apiPost(`/api/guilds/${guildId}/categories/`, state.authToken, state.currentServerIP, { name });
+    setState(prev => {
+      if (!prev.currentGuild || prev.currentGuild.id !== guildId) return prev;
+      if (prev.currentGuild.categories.some(c => c.id === cat.id)) return prev;
+      return { ...prev, currentGuild: { ...prev.currentGuild, categories: [...prev.currentGuild.categories, cat] } };
+    });
   }, [state.authToken, state.currentServerIP, apiPost]);
 
   const deleteCategory = useCallback(async (guildId: string, categoryId: string) => {
     await fetch(`${state.currentServerIP}/api/guilds/${guildId}/categories/${categoryId}/`, {
       method: 'DELETE', headers: { Authorization: `Bearer ${state.authToken}` },
     });
+  }, [state.authToken, state.currentServerIP]);
+
+  const toggleGuildNotifications = useCallback(async (guildId: string) => {
+    const res = await fetch(`${state.currentServerIP}/api/guilds/${guildId}/notifications/`, {
+      method: 'POST', headers: { Authorization: `Bearer ${state.authToken}` },
+    });
+    if (res.ok) {
+      const { notifications_muted } = await res.json();
+      setState(prev => {
+        const updGuilds = prev.guilds.map(g => g.id === guildId ? { ...g, my_notifications_muted: notifications_muted } : g);
+        return {
+          ...prev,
+          guilds: updGuilds,
+          currentGuild: prev.currentGuild?.id === guildId ? { ...prev.currentGuild, my_notifications_muted: notifications_muted } : prev.currentGuild,
+        };
+      });
+    }
   }, [state.authToken, state.currentServerIP]);
 
   const selectGuild = useCallback((guild: Guild) => {
@@ -2311,8 +2358,10 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       setMemberRole,
       createChannel,
       deleteChannel,
+      updateChannel,
       createCategory,
       deleteCategory,
+      toggleGuildNotifications,
       selectGuild,
       selectGuildChannel,
       sendGuildMessage,

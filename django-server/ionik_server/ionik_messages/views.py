@@ -454,6 +454,7 @@ def _guild_data(guild, user):
             'topic': ch.topic,
             'position': ch.position,
             'category_id': str(ch.category_id) if ch.category_id else None,
+            'user_limit': ch.user_limit,
         })
     categories = []
     for cat in guild.categories.all():
@@ -478,6 +479,7 @@ def _guild_data(guild, user):
         'require_2fa': guild.require_2fa,
         'my_role': membership.role if membership else '',
         'my_muted_until': membership.muted_until.isoformat() if membership and membership.muted_until and membership.muted_until > timezone.now() else None,
+        'my_notifications_muted': membership.notifications_muted if membership else False,
         'members': members,
         'channels': channels,
         'categories': categories,
@@ -721,6 +723,18 @@ def guild_set_role(request, guild_id, user_id):
     return Response({'role': new_role})
 
 
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def guild_toggle_notifications(request, guild_id):
+    try:
+        membership = GuildMembership.objects.get(guild_id=guild_id, user=request.user)
+    except GuildMembership.DoesNotExist:
+        return Response({'error': 'not found'}, status=status.HTTP_404_NOT_FOUND)
+    membership.notifications_muted = not membership.notifications_muted
+    membership.save(update_fields=['notifications_muted'])
+    return Response({'notifications_muted': membership.notifications_muted})
+
+
 @api_view(['GET', 'POST'])
 @permission_classes([IsAuthenticated])
 def guild_channel_list_create(request, guild_id):
@@ -731,7 +745,7 @@ def guild_channel_list_create(request, guild_id):
         return Response({'error': 'not found'}, status=status.HTTP_404_NOT_FOUND)
 
     if request.method == 'GET':
-        channels = [{'id': str(ch.id), 'name': ch.name, 'type': ch.channel_type, 'topic': ch.topic, 'position': ch.position}
+        channels = [{'id': str(ch.id), 'name': ch.name, 'type': ch.channel_type, 'topic': ch.topic, 'position': ch.position, 'user_limit': ch.user_limit}
                     for ch in guild.channels.all()]
         return Response(channels)
 
@@ -754,7 +768,7 @@ def guild_channel_list_create(request, guild_id):
         position=guild.channels.count(),
         category=category,
     )
-    ch_data = {'id': str(ch.id), 'name': ch.name, 'type': ch.channel_type, 'topic': ch.topic, 'position': ch.position, 'category_id': str(ch.category_id) if ch.category_id else None}
+    ch_data = {'id': str(ch.id), 'name': ch.name, 'type': ch.channel_type, 'topic': ch.topic, 'position': ch.position, 'category_id': str(ch.category_id) if ch.category_id else None, 'user_limit': ch.user_limit}
     channel_layer = get_channel_layer()
     async_to_sync(channel_layer.group_send)(
         f'guild_{guild_id}',
@@ -763,9 +777,9 @@ def guild_channel_list_create(request, guild_id):
     return Response(ch_data, status=status.HTTP_201_CREATED)
 
 
-@api_view(['DELETE'])
+@api_view(['PATCH', 'DELETE'])
 @permission_classes([IsAuthenticated])
-def guild_channel_delete(request, guild_id, channel_id):
+def guild_channel_detail(request, guild_id, channel_id):
     try:
         guild = Guild.objects.get(id=guild_id)
         membership = GuildMembership.objects.get(guild=guild, user=request.user)
@@ -774,13 +788,28 @@ def guild_channel_delete(request, guild_id, channel_id):
         return Response({'error': 'not found'}, status=status.HTTP_404_NOT_FOUND)
     if membership.role not in ('owner', 'admin'):
         return Response({'error': 'forbidden'}, status=status.HTTP_403_FORBIDDEN)
-    ch.delete()
+
+    if request.method == 'DELETE':
+        ch.delete()
+        channel_layer = get_channel_layer()
+        async_to_sync(channel_layer.group_send)(
+            f'guild_{guild_id}',
+            {'type': 'channel_deleted', 'channel_id': str(channel_id)},
+        )
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    if 'user_limit' in request.data:
+        ch.user_limit = max(0, min(99, int(request.data['user_limit'])))
+    if 'name' in request.data:
+        ch.name = request.data['name'].strip() or ch.name
+    ch.save()
+    ch_data = {'id': str(ch.id), 'name': ch.name, 'type': ch.channel_type, 'topic': ch.topic, 'position': ch.position, 'category_id': str(ch.category_id) if ch.category_id else None, 'user_limit': ch.user_limit}
     channel_layer = get_channel_layer()
     async_to_sync(channel_layer.group_send)(
         f'guild_{guild_id}',
-        {'type': 'channel_deleted', 'channel_id': str(channel_id)},
+        {'type': 'channel_updated', 'channel': ch_data},
     )
-    return Response(status=status.HTTP_204_NO_CONTENT)
+    return Response(ch_data)
 
 
 @api_view(['POST'])

@@ -105,6 +105,7 @@ export interface GuildChannel {
   topic: string;
   position: number;
   category_id?: string | null;
+  user_limit?: number;
 }
 
 export interface Guild {
@@ -123,6 +124,7 @@ export interface Guild {
   require_2fa: boolean;
   my_role: GuildMemberRole;
   my_muted_until: string | null;
+  my_notifications_muted: boolean;
   members: GuildMember[];
   channels: GuildChannel[];
   categories: GuildCategory[];

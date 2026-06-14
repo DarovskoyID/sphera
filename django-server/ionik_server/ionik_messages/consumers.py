@@ -784,6 +784,9 @@ class GuildChannelConsumer(AsyncWebsocketConsumer):
     async def channel_deleted(self, event):
         await self.send(text_data=ujson.dumps({'type': 'channel_deleted', 'channel_id': event['channel_id']}))
 
+    async def channel_updated(self, event):
+        await self.send(text_data=ujson.dumps({'type': 'channel_updated', 'channel': event['channel']}))
+
     async def category_created(self, event):
         await self.send(text_data=ujson.dumps({'type': 'category_created', 'category': event['category']}))
 
@@ -928,6 +931,9 @@ class GuildPresenceConsumer(AsyncWebsocketConsumer):
 
     async def channel_deleted(self, event):
         await self.send(text_data=ujson.dumps({'type': 'channel_deleted', 'channel_id': event['channel_id']}))
+
+    async def channel_updated(self, event):
+        await self.send(text_data=ujson.dumps({'type': 'channel_updated', 'channel': event['channel']}))
 
     async def category_created(self, event):
         await self.send(text_data=ujson.dumps({'type': 'category_created', 'category': event['category']}))

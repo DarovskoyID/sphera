@@ -138,6 +138,7 @@ class GuildMembership(models.Model):
     nickname = models.CharField(max_length=50, blank=True)
     joined_at = models.DateTimeField(auto_now_add=True)
     muted_until = models.DateTimeField(null=True, blank=True)
+    notifications_muted = models.BooleanField(default=False)
 
     class Meta:
         unique_together = ('guild', 'user')
@@ -169,6 +170,7 @@ class GuildChannel(models.Model):
     channel_type = models.CharField(max_length=10, choices=CHANNEL_TYPE_CHOICES, default='text')
     topic = models.CharField(max_length=1024, blank=True)
     position = models.PositiveIntegerField(default=0)
+    user_limit = models.PositiveIntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
