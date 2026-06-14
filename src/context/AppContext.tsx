@@ -1251,7 +1251,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
         }
         if (data.type === 'offer' && data.from) {
           setState(prev => {
-            if (prev.isCallActive) return prev;
+            if (prev.isCallActive || prev.currentVoiceChannel) return prev;
             if ((window as any).AndroidBridge) {
               const callerFriend = prev.friends.find((f: any) => String(f.id) === String(data.from));
               const callerName = callerFriend?.nickname || callerFriend?.username || String(data.from);
@@ -1370,9 +1370,20 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
           return { ...prev, currentGuild: { ...prev.currentGuild, channels: [...prev.currentGuild.channels, data.channel] } };
         });
       } else if (data.type === 'channel_deleted') {
+        if (voiceWs.current && state.currentVoiceChannel?.id === data.channel_id) {
+          voiceWs.current.close();
+          voiceWs.current = null;
+        }
         setState(prev => {
           if (!prev.currentGuild || prev.currentGuild.id !== guild.id) return prev;
-          return { ...prev, currentGuild: { ...prev.currentGuild, channels: prev.currentGuild.channels.filter(c => c.id !== data.channel_id) } };
+          return {
+            ...prev,
+            currentGuild: { ...prev.currentGuild, channels: prev.currentGuild.channels.filter(c => c.id !== data.channel_id) },
+            currentGuildChannel: prev.currentGuildChannel?.id === data.channel_id ? null : prev.currentGuildChannel,
+            currentVoiceChannel: prev.currentVoiceChannel?.id === data.channel_id ? null : prev.currentVoiceChannel,
+            voiceParticipants: prev.currentVoiceChannel?.id === data.channel_id ? [] : prev.voiceParticipants,
+            guildMessages: prev.currentGuildChannel?.id === data.channel_id ? [] : prev.guildMessages,
+          };
         });
       } else if (data.type === 'channel_updated') {
         setState(prev => {
@@ -1513,9 +1524,20 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
           return { ...prev, currentGuild: { ...prev.currentGuild, channels: [...prev.currentGuild.channels, data.channel] } };
         });
       } else if (data.type === 'channel_deleted') {
+        if (voiceWs.current && state.currentVoiceChannel?.id === data.channel_id) {
+          voiceWs.current.close();
+          voiceWs.current = null;
+        }
         setState(prev => {
           if (!prev.currentGuild || prev.currentGuild.id !== guild.id) return prev;
-          return { ...prev, currentGuild: { ...prev.currentGuild, channels: prev.currentGuild.channels.filter(c => c.id !== data.channel_id) } };
+          return {
+            ...prev,
+            currentGuild: { ...prev.currentGuild, channels: prev.currentGuild.channels.filter(c => c.id !== data.channel_id) },
+            currentGuildChannel: prev.currentGuildChannel?.id === data.channel_id ? null : prev.currentGuildChannel,
+            currentVoiceChannel: prev.currentVoiceChannel?.id === data.channel_id ? null : prev.currentVoiceChannel,
+            voiceParticipants: prev.currentVoiceChannel?.id === data.channel_id ? [] : prev.voiceParticipants,
+            guildMessages: prev.currentGuildChannel?.id === data.channel_id ? [] : prev.guildMessages,
+          };
         });
       } else if (data.type === 'channel_updated') {
         setState(prev => {
@@ -2037,7 +2059,14 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       voiceWs.current.close();
       voiceWs.current = null;
     }
-    setState(prev => ({ ...prev, currentVoiceChannel: channel, voiceParticipants: [] }));
+    setState(prev => ({
+      ...prev,
+      currentVoiceChannel: channel,
+      voiceParticipants: [],
+      isCallActive: false,
+      callStatus: 'inactive' as const,
+      callTargetId: null,
+    }));
 
     const wsUrl = state.currentServerIP.replace(/^http/, 'ws');
     const guildId = state.currentGuild?.id;
@@ -2199,7 +2228,17 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
   };
   const toggleMobileSidebar = () => setState(prev => ({ ...prev, isMobileSidebarOpen: !prev.isMobileSidebarOpen }));
   const setMobileActivePanel = (panel: MobilePanel) => setState(prev => ({ ...prev, mobileActivePanel: panel }));
-  const setCallActive = (active: boolean) => setState(prev => ({ ...prev, isCallActive: active }));
+  const setCallActive = (active: boolean) => {
+    if (active && voiceWs.current) {
+      voiceWs.current.close();
+      voiceWs.current = null;
+    }
+    setState(prev => ({
+      ...prev,
+      isCallActive: active,
+      ...(active ? { currentVoiceChannel: null, voiceParticipants: [] } : {}),
+    }));
+  };
   const setDemonstrationActive = (v: boolean) => setState(prev => ({ ...prev, isDemonstrationActive: v }));
   const setVideoActive = (v: boolean) => setState(prev => ({ ...prev, isVideoActive: v }));
   const setMicActive = (v: boolean) => setState(prev => ({ ...prev, isMicActive: v }));
