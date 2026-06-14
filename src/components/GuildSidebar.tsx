@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
-import { Hash, Volume2, Plus, Trash2, LogOut, Copy, Users, ChevronDown, ChevronRight, Crown, Shield, UserPlus, Ban, User, MicOff, ShieldOff, Settings, HeadphoneOff } from 'lucide-react';
+import { Hash, Volume2, Plus, Trash2, LogOut, Copy, Users, ChevronDown, ChevronRight, Crown, Shield, UserPlus, Ban, User, MicOff, ShieldOff, Settings, Headphones } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { useTranslation } from '../i18n/useTranslation';
 import { ProfileModal, type ProfileUser } from './ProfileModal';
@@ -228,7 +228,7 @@ function VoiceParticipantRow({ participant, myRole, guildId, members, guildRoles
           {participant.nickname || participant.username}
         </span>
         {participant.muted && <MicOff size={12} style={{ color: '#ed4245', flexShrink: 0 }} />}
-        {participant.deafened && <HeadphoneOff size={12} style={{ color: '#ed4245', flexShrink: 0 }} />}
+        {participant.deafened && <span style={{ position: 'relative', display: 'inline-flex', flexShrink: 0 }}><Headphones size={12} style={{ color: '#ed4245' }} /><span style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><svg width="12" height="12" viewBox="0 0 24 24"><line x1="4" y1="4" x2="20" y2="20" stroke="#ed4245" strokeWidth="2.5" strokeLinecap="round" /></svg></span></span>}
       </div>
 
       {menuPos && (

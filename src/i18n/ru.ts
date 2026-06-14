@@ -422,7 +422,6 @@ export const ru: Translations = {
   call_voice: 'Голосовой звонок',
   call_video: 'Видеозвонок',
   call_in_call: 'В звонке',
-  call_video_off: 'Видео выключено',
   call_your_screen: 'Ваш экран',
   call_remote_screen: '{name} — экран',
   call_you: 'Вы',
