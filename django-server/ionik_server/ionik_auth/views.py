@@ -426,6 +426,7 @@ def block_user(request):
         )
 
     _push_block_event(str(user_id), 'blocked', str(request.user.id))
+    _log_block_in_guilds(request.user, target, 'member_block')
 
     return Response(
         BlockedUserSerializer(
@@ -448,8 +449,28 @@ def unblock_user(request, user_id):
         )
 
     _push_block_event(str(user_id), 'unblocked', str(request.user.id))
+    _log_block_in_guilds(request.user, User.objects.filter(id=user_id).first(), 'member_unblock')
 
     return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+def _log_block_in_guilds(actor, target, action):
+    if not target:
+        return
+    from ionik_messages.models import GuildMembership, GuildAuditLog
+    shared_guilds = GuildMembership.objects.filter(
+        user=actor
+    ).values_list('guild_id', flat=True)
+    target_guilds = GuildMembership.objects.filter(
+        user=target, guild_id__in=shared_guilds
+    ).select_related('guild')
+    for m in target_guilds:
+        GuildAuditLog.objects.create(
+            guild=m.guild, action=action,
+            actor_id=str(actor.id), actor_username=actor.username,
+            target_id=str(target.id), target_username=target.username,
+            details={},
+        )
 
 
 def _push_block_event(target_user_id: str, event_type: str, by_user_id: str):

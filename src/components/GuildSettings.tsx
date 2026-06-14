@@ -973,6 +973,7 @@ const ACTION_LABEL_KEYS: Record<string, string> = {
   invite_create: 'gs_log_invite_created', invite_revoke: 'gs_log_invite_revoked',
   channel_create: 'gs_log_channel_created', channel_delete: 'gs_log_channel_deleted',
   category_create: 'gs_log_category_created', category_delete: 'gs_log_category_deleted',
+  member_block: 'gs_log_member_blocked', member_unblock: 'gs_log_member_unblocked',
 };
 
 function LogsSection() {
@@ -1013,7 +1014,9 @@ function LogsSection() {
                   </p>
                   <p style={{ margin: 0, fontSize: 12, color: 'var(--text-secondary)' }}>
                     {tr('gs_by')} <strong>{lg.actor.username}</strong>
-                    {Object.keys(lg.details).length > 0 && <span style={{ color: 'var(--text-tertiary)', marginLeft: 6 }}>{JSON.stringify(lg.details)}</span>}
+                    {Object.keys(lg.details).length > 0 && <span style={{ color: 'var(--text-tertiary)', marginLeft: 6 }}>
+                      {Object.entries(lg.details).map(([k, v]) => `${tr(('gs_detail_' + k) as any) || k}: ${v}`).join(', ')}
+                    </span>}
                   </p>
                 </div>
                 <span style={{ fontSize: 11, color: 'var(--text-tertiary)', flexShrink: 0, whiteSpace: 'nowrap' }}>{new Date(lg.created_at).toLocaleString()}</span>
