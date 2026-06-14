@@ -114,6 +114,7 @@ export interface Guild {
   explicit_content_filter: string;
   require_2fa: boolean;
   my_role: GuildMemberRole;
+  my_muted_until: string | null;
   members: GuildMember[];
   channels: GuildChannel[];
 }

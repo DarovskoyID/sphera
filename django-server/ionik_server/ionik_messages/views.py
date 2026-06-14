@@ -468,6 +468,7 @@ def _guild_data(guild, user):
         'explicit_content_filter': guild.explicit_content_filter,
         'require_2fa': guild.require_2fa,
         'my_role': membership.role if membership else '',
+        'my_muted_until': membership.muted_until.isoformat() if membership and membership.muted_until and membership.muted_until > timezone.now() else None,
         'members': members,
         'channels': channels,
     }

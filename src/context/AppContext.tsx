@@ -1685,17 +1685,33 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     });
   }, [state.authToken, state.currentServerIP]);
 
+  const updateMemberCustomRoles = useCallback((guildId: string, userId: string, updater: (roles: string[]) => string[]) => {
+    setState(prev => {
+      const mapMembers = (members: typeof prev.currentGuild!.members) =>
+        members.map(m => String(m.id) === String(userId) ? { ...m, custom_roles: updater(m.custom_roles ?? []) } : m);
+      return {
+        ...prev,
+        guilds: prev.guilds.map(g => g.id === guildId ? { ...g, members: mapMembers(g.members) } : g),
+        currentGuild: prev.currentGuild && prev.currentGuild.id === guildId
+          ? { ...prev.currentGuild, members: mapMembers(prev.currentGuild.members) }
+          : prev.currentGuild,
+      };
+    });
+  }, []);
+
   const assignMemberRole = useCallback(async (guildId: string, userId: string, roleId: string) => {
     await fetch(`${state.currentServerIP}/api/guilds/${guildId}/members/${userId}/roles/${roleId}/`, {
       method: 'POST', headers: { Authorization: `Bearer ${state.authToken}` },
     });
-  }, [state.authToken, state.currentServerIP]);
+    updateMemberCustomRoles(guildId, userId, roles => roles.includes(roleId) ? roles : [...roles, roleId]);
+  }, [state.authToken, state.currentServerIP, updateMemberCustomRoles]);
 
   const removeMemberRole = useCallback(async (guildId: string, userId: string, roleId: string) => {
     await fetch(`${state.currentServerIP}/api/guilds/${guildId}/members/${userId}/roles/${roleId}/`, {
       method: 'DELETE', headers: { Authorization: `Bearer ${state.authToken}` },
     });
-  }, [state.authToken, state.currentServerIP]);
+    updateMemberCustomRoles(guildId, userId, roles => roles.filter(r => r !== roleId));
+  }, [state.authToken, state.currentServerIP, updateMemberCustomRoles]);
 
   const loadGuildInvites = useCallback(async (guildId: string): Promise<GuildInviteData[]> => {
     try { return await apiGet(`/api/guilds/${guildId}/invites/`, state.authToken, state.currentServerIP); }

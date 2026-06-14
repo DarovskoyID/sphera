@@ -370,6 +370,9 @@ export const GuildChatMain: React.FC = () => {
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [mentionIdx, setMentionIdx] = useState(0);
 
+  const mutedUntil = currentGuild?.my_muted_until ? new Date(currentGuild.my_muted_until) : null;
+  const isMuted = mutedUntil ? mutedUntil.getTime() > Date.now() : false;
+
   const bottomRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const prevLenRef = useRef(0);
@@ -771,19 +774,21 @@ export const GuildChatMain: React.FC = () => {
       <div className="message-input-area" style={{ flexDirection: 'column', gap: 0, alignItems: 'stretch' }}>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', width: '100%', position: 'relative' }}>
           <input ref={fileInputRef} type="file" multiple style={{ display: 'none' }} onChange={handleFileSelect} />
-          <button className="icon-btn" title={tr('guild_add_attachment')} onClick={() => fileInputRef.current?.click()} disabled={uploading || pendingFiles.length >= MAX_FILES}>
+          <button className="icon-btn" title={tr('guild_add_attachment')} onClick={() => fileInputRef.current?.click()} disabled={uploading || pendingFiles.length >= MAX_FILES || isMuted}>
             <Plus size={20} />
           </button>
           <textarea
             className="message-input"
-            placeholder={`${tr('guild_send_placeholder')}${currentGuildChannel.name}`}
+            placeholder={isMuted
+              ? `${tr('guild_muted_until')} ${mutedUntil!.toLocaleString()}`
+              : `${tr('guild_send_placeholder')}${currentGuildChannel.name}`}
             value={input}
             onChange={handleInputChange}
             onKeyDown={handleKey}
             rows={1}
             maxLength={5000}
-            disabled={uploading}
-            style={{ flex: 1 }}
+            disabled={uploading || isMuted}
+            style={{ flex: 1, opacity: isMuted ? 0.5 : 1 }}
           />
           <button
             ref={pickerButtonRef}
@@ -821,7 +826,7 @@ export const GuildChatMain: React.FC = () => {
           <button
             className="send-btn"
             onClick={handleSend}
-            disabled={uploading || !canSend}
+            disabled={uploading || !canSend || isMuted}
           >
             {uploading
               ? <div style={{ width: 18, height: 18, border: '2px solid currentColor', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} />

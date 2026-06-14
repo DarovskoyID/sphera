@@ -3,7 +3,7 @@ import {
   X, Upload, Trash2, Plus, Edit2, Crown, Shield, Volume2, Smile,
   Users, Link, Lock, AlertTriangle, FileText, Copy, Play, Pause,
   Check, ChevronRight, Zap, Image, Music, Settings, Globe, Bell,
-  Eye, Key, RefreshCw, Hash,
+  Eye, Key, RefreshCw, Hash, Ban,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { useTranslation } from '../i18n/useTranslation';
@@ -464,7 +464,7 @@ function SoundsSection() {
 
 // ── Members ───────────────────────────────────────────────────────────────────
 function MembersSection() {
-  const { currentGuild, kickMember, setMemberRole, loadGuildRoles, assignMemberRole, removeMemberRole } = useApp();
+  const { currentGuild, kickMember, setMemberRole, loadGuildRoles, assignMemberRole, removeMemberRole, blockedContacts, unblockUser } = useApp();
   const tr = useTranslation();
   const [roles, setRoles] = useState<GuildRole[]>([]);
   const [search, setSearch] = useState('');
@@ -569,6 +569,32 @@ function MembersSection() {
           );
         })}
       </div>
+
+      {blockedContacts.length > 0 && (
+        <div style={{ marginTop: 28 }}>
+          <h3 style={{ margin: '0 0 4px', fontSize: 16, fontWeight: 700, color: '#ef4444' }}>
+            <Ban size={14} style={{ display: 'inline', marginRight: 6 }} />
+            {tr('gs_blocked_users')} — {blockedContacts.length}
+          </h3>
+          <p style={sectionSubtitle}>{tr('gs_blocked_users_desc')}</p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            {blockedContacts.map(u => (
+              <div key={u.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 8, background: 'var(--bg-tertiary)', border: '1px solid var(--border-color)' }}>
+                {u.avatar
+                  ? <img src={u.avatar} alt="" style={{ width: 32, height: 32, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />
+                  : <div style={{ width: 32, height: 32, borderRadius: '50%', background: '#ef4444', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, color: '#fff', fontWeight: 700, flexShrink: 0 }}>{(u.nickname || u.username)[0]?.toUpperCase()}</div>}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <span style={{ fontSize: 14, fontWeight: 500, color: 'var(--text-primary)' }}>{u.nickname || u.username}</span>
+                  {u.nickname && <span style={{ fontSize: 12, color: 'var(--text-tertiary)', marginLeft: 6 }}>@{u.username}</span>}
+                </div>
+                <button onClick={() => unblockUser(u.id)} style={{ padding: '6px 12px', background: '#3ba55c', color: '#fff', border: 'none', borderRadius: 6, fontSize: 12, cursor: 'pointer', fontWeight: 600 }}>
+                  {tr('gs_unblock')}
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
