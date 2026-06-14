@@ -1516,11 +1516,12 @@ def guild_message_comments(request, guild_id, message_id):
 def guild_comment_delete(request, guild_id, comment_id):
     try:
         guild = Guild.objects.get(id=guild_id)
-        membership = GuildMembership.objects.get(guild=guild, user=request.user)
+        GuildMembership.objects.get(guild=guild, user=request.user)
         comment = GuildPostComment.objects.get(id=comment_id, message__channel__guild=guild)
     except (Guild.DoesNotExist, GuildMembership.DoesNotExist, GuildPostComment.DoesNotExist):
         return Response({'error': 'not found'}, status=status.HTTP_404_NOT_FOUND)
-    if comment.author != request.user and membership.role not in ('owner', 'admin'):
+    # Only the comment's own author may delete it — not even the channel owner.
+    if comment.author != request.user:
         return Response({'error': 'forbidden'}, status=status.HTTP_403_FORBIDDEN)
     comment.delete()
     return Response(status=status.HTTP_204_NO_CONTENT)

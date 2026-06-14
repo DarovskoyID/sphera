@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { Send, Plus, X, FileText, Camera, Mic, Circle, Music, Square, ChevronLeft, ChevronRight, Image as ImageIcon, Eye, MessageCircle, Trash2, Settings } from 'lucide-react';
+import { Send, Plus, X, FileText, Camera, Mic, Circle, Music, Square, ChevronLeft, ChevronRight, Image as ImageIcon, Eye, MessageCircle, Trash2, Settings, MoreVertical, Bell, BellOff, LogOut, SmilePlus } from 'lucide-react';
+import { EmojiPicker } from './EmojiPicker';
 import { useApp } from '../context/AppContext';
 import { MessageText } from './EmojiPicker';
 import { VoiceMessagePlayer, VideoCirclePlayer } from './ChatMain';
@@ -265,8 +266,6 @@ function CommentsModal({ guild, messageId, serverIP, onClose }: { guild: Guild; 
   const [sending, setSending] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
 
-  const isOwner = currentUser && guild.owner_id === currentUser.id;
-
   const refresh = useCallback(async () => {
     const c = await loadPostComments(guild.id, messageId);
     setComments(c);
@@ -311,7 +310,7 @@ function CommentsModal({ guild, messageId, serverIP, onClose }: { guild: Guild; 
             <div style={{ textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13, padding: '30px 10px' }}>Пока нет комментариев</div>
           ) : comments.map(c => {
             const av = c.author.avatar ? (c.author.avatar.startsWith('http') ? c.author.avatar : serverIP + c.author.avatar) : '';
-            const canDelete = isOwner || (currentUser && c.author.id === currentUser.id);
+            const canDelete = currentUser && c.author.id === currentUser.id;
             return (
               <div key={c.id} style={{ display: 'flex', gap: 10 }}>
                 {av ? <img src={av} alt="" style={{ width: 32, height: 32, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />
@@ -353,7 +352,9 @@ function CommentsModal({ guild, messageId, serverIP, onClose }: { guild: Guild; 
 function PostCard({ msg, guild, serverIP }: { msg: import('../types').GuildMessage; guild: Guild; serverIP: string }) {
   const { toggleReaction, registerMessageView, customEmojis } = useApp();
   const [showReactions, setShowReactions] = useState(false);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [showComments, setShowComments] = useState(false);
+  const emojiBtnRef = useRef<HTMLButtonElement>(null);
   const reactions = msg.reactions || [];
   const isOptimistic = msg.id.startsWith('optimistic-');
 
@@ -446,7 +447,7 @@ function PostCard({ msg, guild, serverIP }: { msg: import('../types').GuildMessa
         </button>
         {showReactions && (
           <div style={{
-            display: 'flex', gap: 4, padding: '4px 8px', background: 'var(--bg-primary)',
+            display: 'flex', alignItems: 'center', gap: 4, padding: '4px 8px', background: 'var(--bg-primary)',
             borderRadius: 20, border: '1px solid var(--border-color)', boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
           }}>
             {QUICK_REACTIONS.map(e => (
@@ -457,7 +458,22 @@ function PostCard({ msg, guild, serverIP }: { msg: import('../types').GuildMessa
                 {e}
               </button>
             ))}
+            <button
+              ref={emojiBtnRef}
+              onClick={() => { setShowReactions(false); setShowEmojiPicker(true); }}
+              title="Все эмодзи"
+              style={{ background: 'var(--bg-tertiary)', border: 'none', cursor: 'pointer', borderRadius: '50%', width: 28, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-secondary)', marginLeft: 2 }}
+            >
+              <SmilePlus size={16} />
+            </button>
           </div>
+        )}
+        {showEmojiPicker && (
+          <EmojiPicker
+            anchorRef={emojiBtnRef}
+            onSelect={(e) => { handleReaction(e); setShowEmojiPicker(false); }}
+            onClose={() => setShowEmojiPicker(false)}
+          />
         )}
         {/* View counter */}
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 4, color: 'var(--text-tertiary)', fontSize: 12, fontWeight: 600 }}>
@@ -579,12 +595,13 @@ function ChannelSettingsModal({ guild, serverIP, onClose }: { guild: Guild; serv
 }
 
 export const PersonalChannelFeed: React.FC<{ style?: React.CSSProperties }> = ({ style }) => {
-  const { currentGuild, currentGuildChannel, guildMessages, currentServerIP, authToken, currentUser, sendGuildMessage, updateGuild } = useApp();
+  const { currentGuild, currentGuildChannel, guildMessages, currentServerIP, authToken, currentUser, sendGuildMessage, updateGuild, leaveGuild, toggleGuildNotifications } = useApp();
 
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const [files, setFiles] = useState<File[]>([]);
   const [showSettings, setShowSettings] = useState(false);
+  const [showMemberMenu, setShowMemberMenu] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const avatarInputRef = useRef<HTMLInputElement>(null);
@@ -743,10 +760,45 @@ export const PersonalChannelFeed: React.FC<{ style?: React.CSSProperties }> = ({
           <div style={{ fontWeight: 700, fontSize: 16, color: 'var(--text-primary)' }}>{currentGuild.name}</div>
           {currentGuild.description && <div style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>{currentGuild.description}</div>}
         </div>
-        {isOwner && (
+        {isOwner ? (
           <button onClick={() => setShowSettings(true)} title="Настройки канала" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', padding: 8, borderRadius: 8, display: 'flex' }}>
             <Settings size={20} />
           </button>
+        ) : (
+          <div style={{ position: 'relative' }}>
+            <button onClick={() => setShowMemberMenu(v => !v)} title="Меню" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', padding: 8, borderRadius: 8, display: 'flex' }}>
+              <MoreVertical size={20} />
+            </button>
+            {showMemberMenu && (
+              <>
+                <div onClick={() => setShowMemberMenu(false)} style={{ position: 'fixed', inset: 0, zIndex: 50 }} />
+                <div style={{
+                  position: 'absolute', top: '100%', right: 0, marginTop: 4, zIndex: 51, minWidth: 220,
+                  background: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: 10,
+                  boxShadow: '0 8px 24px rgba(0,0,0,0.3)', overflow: 'hidden', padding: 4,
+                }}>
+                  <button
+                    onClick={() => { toggleGuildNotifications(currentGuild.id); setShowMemberMenu(false); }}
+                    style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-primary)', fontSize: 14, borderRadius: 6, textAlign: 'left' }}
+                    onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg-tertiary)')}
+                    onMouseLeave={e => (e.currentTarget.style.background = 'none')}
+                  >
+                    {currentGuild.my_notifications_muted ? <Bell size={16} /> : <BellOff size={16} />}
+                    {currentGuild.my_notifications_muted ? 'Включить уведомления' : 'Отключить уведомления'}
+                  </button>
+                  <button
+                    onClick={() => { if (confirm('Отключиться от канала?')) leaveGuild(currentGuild.id); setShowMemberMenu(false); }}
+                    style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', background: 'none', border: 'none', cursor: 'pointer', color: '#ed4245', fontSize: 14, borderRadius: 6, textAlign: 'left' }}
+                    onMouseEnter={e => (e.currentTarget.style.background = 'rgba(237,66,69,0.1)')}
+                    onMouseLeave={e => (e.currentTarget.style.background = 'none')}
+                  >
+                    <LogOut size={16} />
+                    Покинуть канал
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
         )}
       </div>
 
