@@ -618,6 +618,8 @@ export const ru: Translations = {
   gs_log_category_deleted: 'Категория удалена',
   gs_log_member_blocked: 'Участник заблокирован',
   gs_log_member_unblocked: 'Участник разблокирован',
+  gs_discoverable: 'Отображать в глобальном поиске',
+  gs_discoverable_desc: 'Сервер будет виден в разделе «Исследовать Ионик»',
   gs_detail_name: 'Название',
   gs_detail_type: 'Тип',
   gs_detail_role: 'Роль',

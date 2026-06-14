@@ -122,6 +122,7 @@ export interface Guild {
   default_notifications: string;
   explicit_content_filter: string;
   require_2fa: boolean;
+  is_discoverable: boolean;
   my_role: GuildMemberRole;
   my_muted_until: string | null;
   my_notifications_muted: boolean;

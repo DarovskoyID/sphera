@@ -918,14 +918,16 @@ function SecuritySection() {
   const { currentGuild, updateGuild } = useApp();
   const tr = useTranslation();
   const [require2fa, setRequire2fa] = useState(currentGuild?.require_2fa ?? false);
+  const [discoverable, setDiscoverable] = useState(currentGuild?.is_discoverable ?? true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   if (!currentGuild) return null;
   const isOwner = currentGuild.my_role === 'owner';
+  const isAdmin = isOwner || currentGuild.my_role === 'admin';
 
   const handleSave = async () => {
     setSaving(true);
-    await updateGuild(currentGuild.id, { require_2fa: require2fa });
+    await updateGuild(currentGuild.id, { require_2fa: require2fa, is_discoverable: discoverable });
     setSaving(false); setSaved(true); setTimeout(() => setSaved(false), 2000);
   };
 
@@ -953,9 +955,28 @@ function SecuritySection() {
         </div>
       </div>
 
+      <div style={{ padding: 16, background: 'var(--bg-tertiary)', borderRadius: 10, border: '1px solid var(--border-color)', marginBottom: 24 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div>
+            <p style={{ margin: '0 0 4px', fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>{tr('gs_discoverable')}</p>
+            <p style={{ margin: 0, fontSize: 12, color: 'var(--text-secondary)' }}>{tr('gs_discoverable_desc')}</p>
+          </div>
+          <label style={{ position: 'relative', display: 'inline-block', width: 44, height: 24, flexShrink: 0 }}>
+            <input type="checkbox" checked={discoverable} onChange={e => isAdmin && setDiscoverable(e.target.checked)} style={{ opacity: 0, width: 0, height: 0 }} disabled={!isAdmin} />
+            <span style={{
+              position: 'absolute', cursor: isAdmin ? 'pointer' : 'not-allowed', inset: 0, borderRadius: 12,
+              background: discoverable ? 'var(--accent-primary)' : 'var(--bg-secondary)',
+              border: '1px solid var(--border-color)', transition: '0.2s',
+            }}>
+              <span style={{ position: 'absolute', content: '', height: 18, width: 18, left: discoverable ? 22 : 2, bottom: 2, background: '#fff', borderRadius: '50%', transition: '0.2s' }} />
+            </span>
+          </label>
+        </div>
+      </div>
+
       {!isOwner && <p style={{ fontSize: 13, color: 'var(--text-tertiary)', marginBottom: 16 }}>{tr('gs_owner_only_security')}</p>}
 
-      <button disabled={saving || !isOwner} onClick={handleSave} style={saveBtn(saving || !isOwner)}>
+      <button disabled={saving || !isAdmin} onClick={handleSave} style={saveBtn(saving || !isAdmin)}>
         {saved ? <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Check size={14} /> {tr('gs_saved')}</span> : saving ? tr('gs_saving') : tr('gs_save_changes')}
       </button>
     </div>

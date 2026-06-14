@@ -477,6 +477,7 @@ def _guild_data(guild, user):
         'default_notifications': guild.default_notifications,
         'explicit_content_filter': guild.explicit_content_filter,
         'require_2fa': guild.require_2fa,
+        'is_discoverable': guild.is_discoverable,
         'my_role': membership.role if membership else '',
         'my_muted_until': membership.muted_until.isoformat() if membership and membership.muted_until and membership.muted_until > timezone.now() else None,
         'my_notifications_muted': membership.notifications_muted if membership else False,
@@ -553,6 +554,8 @@ def guild_detail(request, guild_id):
             guild.boost_level = int(request.data['boost_level'])
         if 'require_2fa' in request.data and membership.role == 'owner':
             guild.require_2fa = request.data['require_2fa'] in (True, 'true', '1')
+        if 'is_discoverable' in request.data:
+            guild.is_discoverable = request.data['is_discoverable'] in (True, 'true', '1')
         if 'icon' in request.FILES:
             if guild.icon:
                 guild.icon.delete(save=False)

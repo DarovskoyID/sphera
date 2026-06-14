@@ -1654,7 +1654,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     if (guildPresenceWs.current) { guildPresenceWs.current.close(); guildPresenceWs.current = null; }
   }, [state.authToken, state.currentServerIP]);
 
-  const updateGuild = useCallback(async (guildId: string, data: { name?: string; description?: string; tag?: string; icon?: File | null; banner?: File | null; removeIcon?: boolean; removeBanner?: boolean; boost_level?: number; verification_level?: string; default_notifications?: string; explicit_content_filter?: string; require_2fa?: boolean }) => {
+  const updateGuild = useCallback(async (guildId: string, data: { name?: string; description?: string; tag?: string; icon?: File | null; banner?: File | null; removeIcon?: boolean; removeBanner?: boolean; boost_level?: number; verification_level?: string; default_notifications?: string; explicit_content_filter?: string; require_2fa?: boolean; is_discoverable?: boolean }) => {
     const form = new FormData();
     if (data.name !== undefined) form.append('name', data.name);
     if (data.description !== undefined) form.append('description', data.description);
@@ -1668,6 +1668,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     if (data.default_notifications !== undefined) form.append('default_notifications', data.default_notifications);
     if (data.explicit_content_filter !== undefined) form.append('explicit_content_filter', data.explicit_content_filter);
     if (data.require_2fa !== undefined) form.append('require_2fa', data.require_2fa ? 'true' : 'false');
+    if (data.is_discoverable !== undefined) form.append('is_discoverable', data.is_discoverable ? 'true' : 'false');
     try {
       const res = await fetch(`${state.currentServerIP}/api/guilds/${guildId}/`, {
         method: 'PATCH',

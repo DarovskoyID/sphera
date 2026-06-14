@@ -22,6 +22,7 @@ export const ExploreServers: React.FC = () => {
   const [joining, setJoining] = useState<string | null>(null);
 
   const load = useCallback(async (q: string) => {
+    if (!authToken) return;
     setLoading(true);
     try {
       const res = await fetch(`${currentServerIP}/api/guilds/explore/?q=${encodeURIComponent(q)}`, {

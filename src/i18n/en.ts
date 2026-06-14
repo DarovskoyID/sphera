@@ -646,6 +646,8 @@ export const en = {
   gs_log_category_deleted: 'Category Deleted',
   gs_log_member_blocked: 'Member Blocked',
   gs_log_member_unblocked: 'Member Unblocked',
+  gs_discoverable: 'Show in global search',
+  gs_discoverable_desc: 'Server will be visible in Explore Ionik',
   gs_detail_name: 'Name',
   gs_detail_type: 'Type',
   gs_detail_role: 'Role',
