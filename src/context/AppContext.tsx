@@ -1743,7 +1743,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
 
   const updateMemberCustomRoles = useCallback((guildId: string, userId: string, updater: (roles: string[]) => string[]) => {
     setState(prev => {
-      const mapMembers = (members: typeof prev.currentGuild!.members) =>
+      const mapMembers = (members: Guild['members']) =>
         members.map(m => String(m.id) === String(userId) ? { ...m, custom_roles: updater(m.custom_roles ?? []) } : m);
       return {
         ...prev,

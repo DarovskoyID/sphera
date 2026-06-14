@@ -39,17 +39,21 @@ function MemberContextMenu({
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
-    const { width, height } = el.getBoundingClientRect();
+    const { width } = el.getBoundingClientRect();
     const vw = window.innerWidth;
-    const vh = window.innerHeight - 68; // 60px mobile nav + 8px margin
+    const vh = window.innerHeight;
     setAdjustedPos({
       x: Math.min(Math.max(pos.x, 8), vw - width - 8),
-      y: Math.min(Math.max(pos.y, 8), vh - height),
+      y: Math.min(Math.max(pos.y, 8), vh - 40),
     });
   }, [pos.x, pos.y]);
 
+  const spaceBelow = window.innerHeight - adjustedPos.y - 8;
+  const menuY = spaceBelow < 300 ? Math.max(8, adjustedPos.y - (300 - spaceBelow)) : adjustedPos.y;
+  const menuMaxH = `calc(100vh - ${menuY}px - 8px)`;
+
   return (
-    <div ref={ref} className="context-menu" style={{ position: 'fixed', left: adjustedPos.x, top: adjustedPos.y, minWidth: 190, zIndex: 9999 }}>
+    <div ref={ref} style={{ position: 'fixed', left: adjustedPos.x, top: menuY, minWidth: 190, maxWidth: 250, zIndex: 9999, maxHeight: menuMaxH, overflowY: 'auto', overflowX: 'hidden', background: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: 8, boxShadow: '0 10px 40px rgba(0,0,0,0.3)', padding: 4 }}>
       <button className="context-menu-item" onClick={() => { onOpenProfile(); onClose(); }}>
         <User size={13} /> {tr('guild_view_profile')}
       </button>
@@ -68,32 +72,36 @@ function MemberContextMenu({
           <Shield size={13} /> {tr('guild_remove_admin')}
         </button>
       )}
-      {(myRole === 'owner' || myRole === 'admin') && member.role !== 'owner' && guildRoles.length > 0 && (
+      {(myRole === 'owner' || myRole === 'admin') && guildRoles.length > 0 && (
         <>
           <div style={{ borderTop: '1px solid var(--border-color)', margin: '4px 0' }} />
           <button className="context-menu-item" onClick={() => setShowRoles(v => !v)} style={{ justifyContent: 'space-between' }}>
             <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Shield size={13} /> {tr('guild_roles') || 'Roles'}</span>
             <ChevronRight size={12} style={{ transform: showRoles ? 'rotate(90deg)' : 'none', transition: '0.15s' }} />
           </button>
-          {showRoles && guildRoles.map(role => {
-            const has = member.custom_roles?.includes(role.id);
-            return (
-              <button
-                key={role.id}
-                className="context-menu-item"
-                style={{ paddingLeft: 24, gap: 6 }}
-                onClick={async () => {
-                  if (has) await removeMemberRole(guildId, member.id, role.id);
-                  else await assignMemberRole(guildId, member.id, role.id);
-                  onClose();
-                }}
-              >
-                <span style={{ width: 10, height: 10, borderRadius: '50%', background: role.color, flexShrink: 0, border: '1px solid rgba(255,255,255,0.15)' }} />
-                <span style={{ flex: 1 }}>{role.name}</span>
-                {has && <span style={{ color: 'var(--accent-primary)', fontWeight: 700, fontSize: 14 }}>✓</span>}
-              </button>
-            );
-          })}
+          {showRoles && (
+            <div style={{ maxHeight: 180, overflowY: 'auto' }}>
+              {guildRoles.map(role => {
+                const has = member.custom_roles?.includes(role.id);
+                return (
+                  <button
+                    key={role.id}
+                    className="context-menu-item"
+                    style={{ paddingLeft: 24, gap: 6, overflow: 'hidden' }}
+                    onClick={async () => {
+                      if (has) await removeMemberRole(guildId, member.id, role.id);
+                      else await assignMemberRole(guildId, member.id, role.id);
+                      onClose();
+                    }}
+                  >
+                    <span style={{ width: 10, height: 10, borderRadius: '50%', background: role.color, flexShrink: 0, border: '1px solid rgba(255,255,255,0.15)' }} />
+                    <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{role.name}</span>
+                    {has && <span style={{ color: 'var(--accent-primary)', fontWeight: 700, fontSize: 14 }}>✓</span>}
+                  </button>
+                );
+              })}
+            </div>
+          )}
           <div style={{ borderTop: '1px solid var(--border-color)', margin: '4px 0' }} />
         </>
       )}
@@ -126,6 +134,8 @@ function MemberContextMenu({
 function MemberRow({ member, myRole, guildId, guildRoles }: { member: GuildMember; myRole: string; guildId: string; guildRoles: GuildRole[] }) {
   const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null);
   const [showProfile, setShowProfile] = useState(false);
+  const [roleTooltip, setRoleTooltip] = useState<{ x: number; y: number } | null>(null);
+  const dotsRef = useRef<HTMLSpanElement>(null);
 
   const statusColor: Record<string, string> = {
     online: '#3ba55c', idle: '#faa81a', dnd: '#ed4245', offline: '#747f8d',
@@ -157,15 +167,57 @@ function MemberRow({ member, myRole, guildId, guildRoles }: { member: GuildMembe
           )}
           <span className="status-dot" style={{ background: statusColor[member.status] ?? '#747f8d' }} />
         </div>
-        <div style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 4 }}>
+        <div style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 4, overflow: 'hidden' }}>
           <span className="member-name">{member.nickname || member.username}</span>
           {member.role === 'owner' && <Crown size={11} style={{ color: '#faa81a', flexShrink: 0 }} />}
           {member.role === 'admin' && <Shield size={11} style={{ color: '#5865f2', flexShrink: 0 }} />}
-          {member.custom_roles?.length > 0 && guildRoles.filter(r => member.custom_roles.includes(r.id)).map(r => (
-            <span key={r.id} style={{ fontSize: 9, padding: '1px 5px', borderRadius: 8, background: r.color + '33', color: r.color, fontWeight: 600, flexShrink: 0, lineHeight: '14px', whiteSpace: 'nowrap' }}>{r.name}</span>
-          ))}
+          {(() => {
+            const matched = member.custom_roles?.length > 0 ? guildRoles.filter(r => member.custom_roles.includes(r.id)) : [];
+            if (matched.length === 0) return null;
+            const first = matched[0];
+            const rest = matched.length - 1;
+            return (
+              <>
+                <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 8, background: first.color + '33', color: first.color, fontWeight: 600, flexShrink: 0, lineHeight: '14px', whiteSpace: 'nowrap', maxWidth: 60, overflow: 'hidden', textOverflow: 'ellipsis' }}>{first.name}</span>
+                {rest > 0 && (
+                  <span
+                    ref={dotsRef}
+                    style={{ fontSize: 9, padding: '1px 5px', borderRadius: 8, background: 'var(--bg-tertiary)', color: 'var(--text-secondary)', fontWeight: 600, flexShrink: 0, cursor: 'default' }}
+                    onMouseEnter={() => {
+                      const rect = dotsRef.current?.getBoundingClientRect();
+                      if (rect) setRoleTooltip({ x: rect.left + rect.width / 2, y: rect.top });
+                    }}
+                    onMouseLeave={() => setRoleTooltip(null)}
+                  >
+                    +{rest}
+                  </span>
+                )}
+              </>
+            );
+          })()}
         </div>
       </div>
+
+      {roleTooltip && (() => {
+        const matched = guildRoles.filter(r => member.custom_roles?.includes(r.id));
+        return (
+          <div style={{
+            position: 'fixed', left: roleTooltip.x, top: roleTooltip.y,
+            transform: 'translate(-50%, calc(-100% - 8px))',
+            background: 'var(--bg-primary)', border: '1px solid var(--border-color)',
+            borderRadius: 8, padding: '6px 8px', display: 'flex', flexDirection: 'column',
+            gap: 3, zIndex: 9999, boxShadow: '0 4px 16px rgba(0,0,0,0.4)',
+            pointerEvents: 'none',
+          }}>
+            {matched.map(r => (
+              <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ width: 8, height: 8, borderRadius: '50%', background: r.color, flexShrink: 0 }} />
+                <span style={{ fontSize: 11, color: r.color, fontWeight: 600, whiteSpace: 'nowrap' }}>{r.name}</span>
+              </div>
+            ))}
+          </div>
+        );
+      })()}
 
       {menuPos && (
         <MemberContextMenu
