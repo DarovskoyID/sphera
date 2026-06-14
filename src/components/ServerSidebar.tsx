@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
-import { Settings, Home, Plus, LogIn, X } from 'lucide-react';
+import { Settings, Home, Plus, LogIn, X, Compass } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { useTranslation } from '../i18n/useTranslation';
 import type { Guild } from '../types';
@@ -162,6 +162,14 @@ export const ServerSidebar: React.FC = () => {
           </button>
 
           <div className="server-divider" />
+
+          <button
+            className={`server-icon ${currentServer === 'explore' ? 'active' : ''}`}
+            onClick={() => setCurrentServer('explore')}
+            title={tr('nav_explore')}
+          >
+            <Compass size={20} />
+          </button>
 
           {/* Scrollable guild list */}
           <div className="server-guild-scroll">

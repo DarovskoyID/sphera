@@ -10,6 +10,7 @@ import { AuthScreen } from './components/AuthScreen';
 import { IncomingCallModal } from './components/IncomingCallModal';
 import { CallWindow } from './components/CallWindow';
 import { GuildVoiceRoom } from './components/GuildVoiceRoom';
+import { ExploreServers } from './components/ExploreServers';
 import { Volume2, PhoneOff } from 'lucide-react';
 
 function useMobile() {
@@ -173,11 +174,15 @@ function AppContent() {
 
   const inChat = isCallActive && currentView === 'home' && !!currentChat;
   const inGuild = currentView === 'server' && !!currentGuild;
+  const { currentServer } = useApp();
+  const inExplore = currentServer === 'explore';
 
   return (
     <div className={`app-container mobile-panel-${mobileActivePanel}${currentVoiceChannel ? ' voice-connected' : ''}`}>
       <ServerSidebar />
-      {inGuild ? (
+      {inExplore ? (
+        <ExploreServers />
+      ) : inGuild ? (
         <>
           <GuildSidebar />
           <GuildChatMain />

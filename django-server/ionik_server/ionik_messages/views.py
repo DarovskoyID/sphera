@@ -1,7 +1,7 @@
 import uuid
 from datetime import timedelta
 from django.core.files.base import ContentFile
-from django.db.models import Q
+from django.db.models import Q, Count
 from django.http import HttpResponse
 from django.utils import timezone
 from rest_framework.decorators import api_view, permission_classes
@@ -504,6 +504,31 @@ def guild_list_create(request):
     GuildChannel.objects.create(guild=guild, name='general', channel_type='text', position=0)
     GuildChannel.objects.create(guild=guild, name='General', channel_type='voice', position=1)
     return Response(_guild_data(guild, request.user), status=status.HTTP_201_CREATED)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def guild_explore(request):
+    search = request.query_params.get('q', '').strip()
+    my_guild_ids = set(GuildMembership.objects.filter(user=request.user).values_list('guild_id', flat=True))
+    qs = Guild.objects.filter(is_discoverable=True).exclude(id__in=my_guild_ids).annotate(
+        member_count=Count('memberships')
+    ).order_by('-member_count')
+    if search:
+        qs = qs.filter(Q(name__icontains=search) | Q(description__icontains=search) | Q(tag__icontains=search))
+    guilds = qs[:50]
+    result = []
+    for g in guilds:
+        result.append({
+            'id': str(g.id),
+            'name': g.name,
+            'description': g.description,
+            'icon': g.icon.url if g.icon else '',
+            'banner': g.banner.url if g.banner else '',
+            'member_count': g.member_count,
+            'invite_code': g.invite_code,
+        })
+    return Response(result)
 
 
 @api_view(['GET', 'PATCH', 'DELETE'])

@@ -2198,11 +2198,11 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
   const setCurrentView = (view: ViewType) => setState(prev => ({ ...prev, currentView: view }));
 
   const setCurrentServer = (serverId: string) => {
-    const isLeavingServer = serverId === 'home' || serverId === 'settings';
+    const isLeavingServer = serverId === 'home' || serverId === 'settings' || serverId === 'explore';
     setState(prev => ({
       ...prev,
       currentServer: serverId,
-      currentView: serverId === 'home' ? 'home' : serverId === 'settings' ? 'settings' : 'server',
+      currentView: serverId === 'home' ? 'home' : serverId === 'settings' ? 'settings' : serverId === 'explore' ? 'home' : 'server',
       currentChat: serverId === 'home' ? '' : prev.currentChat,
       isMobileSidebarOpen: false,
       mobileActivePanel: 'chat-list' as MobilePanel,

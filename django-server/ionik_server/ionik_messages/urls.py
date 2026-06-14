@@ -18,6 +18,7 @@ urlpatterns = [
 
     # Guilds (servers)
     path('guilds/', views.guild_list_create),
+    path('guilds/explore/', views.guild_explore),
     path('guilds/join/', views.guild_join),
     path('guilds/<uuid:guild_id>/', views.guild_detail),
     path('guilds/<uuid:guild_id>/leave/', views.guild_leave),

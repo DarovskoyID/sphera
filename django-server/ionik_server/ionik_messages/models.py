@@ -118,6 +118,7 @@ class Guild(models.Model):
     default_notifications = models.CharField(max_length=20, default='all')
     explicit_content_filter = models.CharField(max_length=30, default='disabled')
     require_2fa = models.BooleanField(default=False)
+    is_discoverable = models.BooleanField(default=True)
 
     def save(self, *args, **kwargs):
         if not self.invite_code:
