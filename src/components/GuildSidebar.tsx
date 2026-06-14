@@ -324,7 +324,6 @@ export const GuildSidebar: React.FC = () => {
   const tr = useTranslation();
 
   const [channelMenu, setChannelMenu] = useState<{ id: string; x: number; y: number; type: 'text' | 'voice'; user_limit: number } | null>(null);
-  const [editingUserLimit, setEditingUserLimit] = useState(false);
   const [userLimitValue, setUserLimitValue] = useState('');
   const [addingChannel, setAddingChannel] = useState<'text' | 'voice' | null>(null);
   const [addingChannelCategoryId, setAddingChannelCategoryId] = useState<string | null>(null);
@@ -382,7 +381,7 @@ export const GuildSidebar: React.FC = () => {
       const t = e.target as Node;
       if (areaMenu && areaMenuRef.current && !areaMenuRef.current.contains(t)) setAreaMenu(null);
       if (categoryMenu && categoryMenuRef.current && !categoryMenuRef.current.contains(t)) setCategoryMenu(null);
-      if (channelMenu && channelMenuRef.current && !channelMenuRef.current.contains(t)) { setChannelMenu(null); setEditingUserLimit(false); }
+      if (channelMenu && channelMenuRef.current && !channelMenuRef.current.contains(t)) setChannelMenu(null);
       if ((addingChannel || addingCategory) && !(t instanceof HTMLInputElement)) {
         setAddingChannel(null);
         setAddingChannelCategoryId(null);
@@ -480,7 +479,7 @@ export const GuildSidebar: React.FC = () => {
           const uncatVoice = currentGuild.channels.filter(c => c.type === 'voice' && !c.category_id);
           return (
             <>
-              {uncatText.length > 0 && (
+              {(uncatText.length > 0 || (addingChannel === 'text' && !addingChannelCategoryId)) && (
                 <div className="channel-category">
                   <div className="channel-category-header" onContextMenu={e => {
                     if (!isAdmin) return; e.preventDefault(); e.stopPropagation();
@@ -508,7 +507,7 @@ export const GuildSidebar: React.FC = () => {
                   ))}
                 </div>
               )}
-              {uncatVoice.length > 0 && (
+              {(uncatVoice.length > 0 || (addingChannel === 'voice' && !addingChannelCategoryId)) && (
                 <div className="channel-category">
                   <div className="channel-category-header" onContextMenu={e => {
                     if (!isAdmin) return; e.preventDefault(); e.stopPropagation();
@@ -533,7 +532,12 @@ export const GuildSidebar: React.FC = () => {
                     return (
                       <div key={ch.id} style={{ display: 'flex', flexDirection: 'column' }}>
                         <div className={`channel-item ${isActive ? 'active' : ''}`} style={{ cursor: 'pointer', position: 'relative' }}
-                          onClick={() => isActive ? leaveVoiceChannel() : joinVoiceChannel(ch)}
+                          onClick={() => {
+                            if (isActive) return leaveVoiceChannel();
+                            const limit = ch.user_limit ?? 0;
+                            if (limit > 0 && (mergedPresence[ch.id] ?? []).length >= limit) return;
+                            joinVoiceChannel(ch);
+                          }}
                           onContextMenu={e => { e.preventDefault(); e.stopPropagation(); setChannelMenu({ id: ch.id, x: e.clientX, y: e.clientY, type: ch.type, user_limit: ch.user_limit ?? 0 }); }}>
                           <Volume2 size={15} className="channel-icon" style={{ color: isActive ? 'var(--accent-primary, #5865f2)' : undefined }} />
                           <span style={{ flex: 1 }}>{ch.name}</span>
@@ -593,7 +597,12 @@ export const GuildSidebar: React.FC = () => {
                 return (
                   <div key={ch.id} style={{ display: 'flex', flexDirection: 'column' }}>
                     <div className={`channel-item ${isActive ? 'active' : ''}`} style={{ cursor: 'pointer', position: 'relative' }}
-                      onClick={() => isActive ? leaveVoiceChannel() : joinVoiceChannel(ch)}
+                      onClick={() => {
+                            if (isActive) return leaveVoiceChannel();
+                            const limit = ch.user_limit ?? 0;
+                            if (limit > 0 && (mergedPresence[ch.id] ?? []).length >= limit) return;
+                            joinVoiceChannel(ch);
+                          }}
                       onContextMenu={e => { e.preventDefault(); e.stopPropagation(); setChannelMenu({ id: ch.id, x: e.clientX, y: e.clientY, type: ch.type, user_limit: ch.user_limit ?? 0 }); }}>
                       <Volume2 size={15} className="channel-icon" style={{ color: isActive ? 'var(--accent-primary, #5865f2)' : undefined }} />
                       <span style={{ flex: 1 }}>{ch.name}</span>
@@ -667,32 +676,23 @@ export const GuildSidebar: React.FC = () => {
       {channelMenu && isAdmin && (
         <div ref={channelMenuRef} style={{ position: 'fixed', left: channelMenu.x, top: channelMenu.y, zIndex: 9999, background: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: 8, boxShadow: '0 10px 40px rgba(0,0,0,0.3)', padding: 4, minWidth: 180 }}>
           {channelMenu.type === 'voice' && (
-            editingUserLimit ? (
-              <div style={{ padding: '4px 8px', display: 'flex', alignItems: 'center', gap: 6 }}>
-                <Users size={13} />
-                <input
-                  type="number" min={0} max={99} autoFocus
-                  value={userLimitValue}
-                  onChange={e => setUserLimitValue(e.target.value)}
-                  onKeyDown={e => {
-                    if (e.key === 'Enter') {
-                      const val = Math.max(0, Math.min(99, parseInt(userLimitValue) || 0));
-                      updateChannel(currentGuild!.id, channelMenu.id, { user_limit: val });
-                      setEditingUserLimit(false);
-                      setChannelMenu(null);
-                    }
-                    if (e.key === 'Escape') { setEditingUserLimit(false); }
-                  }}
-                  placeholder="0"
-                  style={{ width: 50, padding: '2px 6px', borderRadius: 4, border: '1px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: 13 }}
-                />
-                <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>0 = ∞</span>
-              </div>
-            ) : (
-              <button className="context-menu-item" onClick={() => { setEditingUserLimit(true); setUserLimitValue(String(channelMenu.user_limit)); }}>
-                <Users size={13} /> {tr('guild_set_user_limit')}{channelMenu.user_limit > 0 ? ` (${channelMenu.user_limit})` : ''}
-              </button>
-            )
+            <div style={{ padding: '4px 8px', display: 'flex', alignItems: 'center', gap: 6 }}>
+              <Users size={13} />
+              <span style={{ fontSize: 12 }}>{tr('guild_set_user_limit')}</span>
+              <input
+                type="number" min={0} max={99} autoFocus
+                value={userLimitValue || String(channelMenu.user_limit)}
+                onChange={e => {
+                  const val = Math.max(0, Math.min(99, parseInt(e.target.value) || 0));
+                  setUserLimitValue(String(val));
+                  updateChannel(currentGuild!.id, channelMenu.id, { user_limit: val });
+                }}
+                onKeyDown={e => { if (e.key === 'Escape') setChannelMenu(null); }}
+                placeholder="0"
+                style={{ width: 45, padding: '2px 6px', borderRadius: 4, border: '1px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: 13, textAlign: 'center' }}
+              />
+              <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>0 = ∞</span>
+            </div>
           )}
           <button className="context-menu-item danger" onClick={() => { deleteChannel(currentGuild!.id, channelMenu.id); setChannelMenu(null); }}>
             <Trash2 size={13} /> {tr('guild_delete_channel')}

@@ -774,6 +774,7 @@ def guild_channel_list_create(request, guild_id):
         f'guild_{guild_id}',
         {'type': 'channel_created', 'channel': ch_data},
     )
+    _log(guild, request.user, 'channel_create', details={'name': ch.name, 'type': ch.channel_type})
     return Response(ch_data, status=status.HTTP_201_CREATED)
 
 
@@ -790,12 +791,14 @@ def guild_channel_detail(request, guild_id, channel_id):
         return Response({'error': 'forbidden'}, status=status.HTTP_403_FORBIDDEN)
 
     if request.method == 'DELETE':
+        ch_name = ch.name
         ch.delete()
         channel_layer = get_channel_layer()
         async_to_sync(channel_layer.group_send)(
             f'guild_{guild_id}',
             {'type': 'channel_deleted', 'channel_id': str(channel_id)},
         )
+        _log(guild, request.user, 'channel_delete', details={'name': ch_name})
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     if 'user_limit' in request.data:
@@ -832,6 +835,7 @@ def guild_category_create(request, guild_id):
         f'guild_{guild_id}',
         {'type': 'category_created', 'category': cat_data},
     )
+    _log(guild, request.user, 'category_create', details={'name': name})
     return Response(cat_data, status=status.HTTP_201_CREATED)
 
 
@@ -846,6 +850,7 @@ def guild_category_delete(request, guild_id, category_id):
         return Response({'error': 'not found'}, status=status.HTTP_404_NOT_FOUND)
     if membership.role not in ('owner', 'admin'):
         return Response({'error': 'forbidden'}, status=status.HTTP_403_FORBIDDEN)
+    cat_name = cat.name
     cat.channels.update(category=None)
     cat.delete()
     channel_layer = get_channel_layer()
@@ -853,6 +858,7 @@ def guild_category_delete(request, guild_id, category_id):
         f'guild_{guild_id}',
         {'type': 'category_deleted', 'category_id': str(category_id)},
     )
+    _log(guild, request.user, 'category_delete', details={'name': cat_name})
     return Response(status=status.HTTP_204_NO_CONTENT)
 
 

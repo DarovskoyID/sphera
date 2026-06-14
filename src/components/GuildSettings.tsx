@@ -971,6 +971,8 @@ const ACTION_LABEL_KEYS: Record<string, string> = {
   sound_create: 'gs_log_sound_added', sound_delete: 'gs_log_sound_deleted',
   role_create: 'gs_log_role_created', role_update: 'gs_log_role_updated', role_delete: 'gs_log_role_deleted',
   invite_create: 'gs_log_invite_created', invite_revoke: 'gs_log_invite_revoked',
+  channel_create: 'gs_log_channel_created', channel_delete: 'gs_log_channel_deleted',
+  category_create: 'gs_log_category_created', category_delete: 'gs_log_category_deleted',
 };
 
 function LogsSection() {

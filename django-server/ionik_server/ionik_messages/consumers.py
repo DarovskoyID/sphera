@@ -997,6 +997,13 @@ class GuildVoiceConsumer(AsyncWebsocketConsumer):
         self.user_info = await self.get_user_info(user.id)
         self.user_id = str(user.id)
 
+        user_limit = await self._get_user_limit()
+        if user_limit and user_limit > 0:
+            current_count = len([k for k in _voice_channels.get(self.channel_id, {}) if k != '_guild_id'])
+            if current_count >= user_limit:
+                await self.close()
+                return
+
         await self.channel_layer.group_add(self.room_group, self.channel_name)
         await self.accept()
 
@@ -1130,6 +1137,14 @@ class GuildVoiceConsumer(AsyncWebsocketConsumer):
         return GuildMembership.objects.filter(
             guild_id=self.guild_id, user_id=user_id
         ).exists()
+
+    @database_sync_to_async
+    def _get_user_limit(self):
+        from .models import GuildChannel
+        try:
+            return GuildChannel.objects.get(id=self.channel_id).user_limit
+        except GuildChannel.DoesNotExist:
+            return 0
 
     @database_sync_to_async
     def get_user_info(self, user_id):
