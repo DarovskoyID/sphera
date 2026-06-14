@@ -137,6 +137,7 @@ class GuildMembership(models.Model):
     role = models.CharField(max_length=10, choices=ROLE_CHOICES, default='member')
     nickname = models.CharField(max_length=50, blank=True)
     joined_at = models.DateTimeField(auto_now_add=True)
+    muted_until = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         unique_together = ('guild', 'user')

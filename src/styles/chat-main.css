@@ -303,6 +303,7 @@
   color: var(--text-primary);
   font-size: 15px;
   transition: background-color var(--transition-fast);
+  resize: none;
 }
 
 .message-input:focus {

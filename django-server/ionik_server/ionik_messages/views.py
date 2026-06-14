@@ -660,6 +660,29 @@ def guild_kick(request, guild_id, user_id):
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
+def guild_mute_member(request, guild_id, user_id):
+    from datetime import timedelta
+    try:
+        guild = Guild.objects.get(id=guild_id)
+        my_membership = GuildMembership.objects.get(guild=guild, user=request.user)
+        target_membership = GuildMembership.objects.get(guild=guild, user_id=user_id)
+    except (Guild.DoesNotExist, GuildMembership.DoesNotExist):
+        return Response({'error': 'not found'}, status=status.HTTP_404_NOT_FOUND)
+    if my_membership.role not in ('owner', 'admin'):
+        return Response({'error': 'forbidden'}, status=status.HTTP_403_FORBIDDEN)
+    if target_membership.role == 'owner':
+        return Response({'error': 'cannot mute the owner'}, status=status.HTTP_403_FORBIDDEN)
+    if my_membership.role == 'admin' and target_membership.role == 'admin':
+        return Response({'error': 'admins cannot mute other admins'}, status=status.HTTP_403_FORBIDDEN)
+    minutes = int(request.data.get('duration_minutes', 5))
+    from django.utils import timezone
+    target_membership.muted_until = timezone.now() + timedelta(minutes=minutes)
+    target_membership.save(update_fields=['muted_until'])
+    return Response({'muted_until': target_membership.muted_until.isoformat()})
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
 def guild_set_role(request, guild_id, user_id):
     try:
         guild = Guild.objects.get(id=guild_id)

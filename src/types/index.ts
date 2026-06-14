@@ -207,6 +207,7 @@ export interface VoiceParticipant {
   nickname: string;
   avatar: string;
   muted: boolean;
+  deafened: boolean;
 }
 
 export interface AppState {

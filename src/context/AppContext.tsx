@@ -1895,13 +1895,14 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     ws.onmessage = (event) => {
       const data = JSON.parse(event.data);
       if (data.type === 'voice_participants') {
-        setState(prev => ({ ...prev, voiceParticipants: data.participants }));
+        setState(prev => ({ ...prev, voiceParticipants: (data.participants || []).map((p: any) => ({ ...p, deafened: p.deafened ?? false })) }));
       } else if (data.type === 'voice_user_joined') {
+        const user = { ...data.user, deafened: data.user.deafened ?? false };
         setState(prev => ({
           ...prev,
-          voiceParticipants: prev.voiceParticipants.some(p => p.id === data.user.id)
+          voiceParticipants: prev.voiceParticipants.some(p => p.id === user.id)
             ? prev.voiceParticipants
-            : [...prev.voiceParticipants, data.user],
+            : [...prev.voiceParticipants, user],
         }));
       } else if (data.type === 'voice_user_left') {
         setState(prev => ({
@@ -1913,6 +1914,13 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
           ...prev,
           voiceParticipants: prev.voiceParticipants.map(p =>
             p.id === data.user_id ? { ...p, muted: data.muted } : p
+          ),
+        }));
+      } else if (data.type === 'voice_deafen_changed') {
+        setState(prev => ({
+          ...prev,
+          voiceParticipants: prev.voiceParticipants.map(p =>
+            p.id === data.user_id ? { ...p, deafened: data.deafened } : p
           ),
         }));
       } else if (data.type === 'signal') {
@@ -2042,7 +2050,12 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
   const setDemonstrationActive = (v: boolean) => setState(prev => ({ ...prev, isDemonstrationActive: v }));
   const setVideoActive = (v: boolean) => setState(prev => ({ ...prev, isVideoActive: v }));
   const setMicActive = (v: boolean) => setState(prev => ({ ...prev, isMicActive: v }));
-  const setHeadphonesActive = (v: boolean) => setState(prev => ({ ...prev, isHeadphonesActive: v }));
+  const setHeadphonesActive = (v: boolean) => {
+    setState(prev => ({ ...prev, isHeadphonesActive: v }));
+    if (voiceWs.current?.readyState === WebSocket.OPEN) {
+      voiceWs.current.send(JSON.stringify({ type: 'voice_deafen', deafened: !v }));
+    }
+  };
   const setSpeakersActive = useCallback((v: Array<string>) => setState(prev => ({ ...prev, SpeakersActive: v })), []);
   const setCallStatus = (s: 'active' | 'ringing' | 'connection' | 'inactive') => setState(prev => ({ ...prev, callStatus: s }));
   const setCurrentServerIP = (ip: string) => setState(prev => ({ ...prev, currentServerIP: ip }));

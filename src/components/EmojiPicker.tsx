@@ -448,7 +448,7 @@ const STICKER_IMG_RE = /^https?:\/\/.+\.(png|jpg|jpeg|gif|webp)(\?.*)?$/i;
 const DATA_URL_RE = /^data:image\/(png|jpeg|gif|webp);base64,/;
 
 /** Renders message text with :custom_emoji: shortcodes replaced by images, GIF URLs as inline images, and single emoji as stickers */
-export const MessageText: React.FC<{ text: string; customEmojis: CustomEmoji[] }> = ({ text, customEmojis }) => {
+export const MessageText: React.FC<{ text: string; customEmojis: CustomEmoji[]; members?: { username: string; nickname: string }[] }> = ({ text, customEmojis, members }) => {
   if (!text) return null;
 
   const trimmed = text.trim();
@@ -507,15 +507,44 @@ export const MessageText: React.FC<{ text: string; customEmojis: CustomEmoji[] }
     );
   }
 
+  const mentionStyle: React.CSSProperties = { background: 'rgba(88,101,242,0.3)', color: '#7289da', borderRadius: 3, padding: '0 2px', fontWeight: 600 };
+
+  const renderMentions = (str: string, keyBase: number = 0): React.ReactNode[] => {
+    if (!members?.length && !str.includes('@everyone') && !str.includes('@role:')) return [str];
+    const mentionRe = /@(everyone|role:[^\s]+|[^\s@]+)/g;
+    const out: React.ReactNode[] = [];
+    let prev = 0;
+    let mm: RegExpExecArray | null;
+    while ((mm = mentionRe.exec(str)) !== null) {
+      if (mm.index > prev) out.push(str.slice(prev, mm.index));
+      const raw = mm[1];
+      if (raw === 'everyone') {
+        out.push(<span key={`m${keyBase}-${mm.index}`} style={mentionStyle}>@everyone</span>);
+      } else if (raw.startsWith('role:')) {
+        out.push(<span key={`m${keyBase}-${mm.index}`} style={mentionStyle}>@{raw.slice(5)}</span>);
+      } else {
+        const member = members?.find(u => u.username === raw);
+        if (member) {
+          out.push(<span key={`m${keyBase}-${mm.index}`} style={mentionStyle}>@{member.nickname || member.username}</span>);
+        } else {
+          out.push(mm[0]);
+        }
+      }
+      prev = mm.index + mm[0].length;
+    }
+    if (prev < str.length) out.push(str.slice(prev));
+    return out;
+  };
+
   if (customEmojis.length === 0 || !text.includes(':')) {
-    return <span>{text}</span>;
+    return <span>{renderMentions(text)}</span>;
   }
   const parts: React.ReactNode[] = [];
   const regex = /:([a-z0-9_]+):/g;
   let last = 0;
   let m: RegExpExecArray | null;
   while ((m = regex.exec(text)) !== null) {
-    if (m.index > last) parts.push(text.slice(last, m.index));
+    if (m.index > last) parts.push(...renderMentions(text.slice(last, m.index), m.index));
     const found = customEmojis.find(e => e.name === m![1]);
     if (found) {
       parts.push(
@@ -532,6 +561,6 @@ export const MessageText: React.FC<{ text: string; customEmojis: CustomEmoji[] }
     }
     last = m.index + m[0].length;
   }
-  if (last < text.length) parts.push(text.slice(last));
+  if (last < text.length) parts.push(...renderMentions(text.slice(last), last));
   return <span>{parts}</span>;
 };

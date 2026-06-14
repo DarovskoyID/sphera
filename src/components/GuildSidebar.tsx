@@ -1,15 +1,15 @@
 import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
-import { Hash, Volume2, Plus, Trash2, LogOut, Copy, Users, ChevronDown, ChevronRight, Crown, Shield, UserPlus, Ban, User, MicOff, ShieldOff, Settings } from 'lucide-react';
+import { Hash, Volume2, Plus, Trash2, LogOut, Copy, Users, ChevronDown, ChevronRight, Crown, Shield, UserPlus, Ban, User, MicOff, ShieldOff, Settings, HeadphoneOff } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { useTranslation } from '../i18n/useTranslation';
 import { ProfileModal, type ProfileUser } from './ProfileModal';
 import { UserProfile } from './ChatSidebar';
 import { GuildSettingsModal } from './GuildSettings';
-import type { GuildMember } from '../types';
+import type { GuildMember, GuildRole } from '../types';
 
 // ── Member context menu ──────────────────────────────────────────────────────
 function MemberContextMenu({
-  member, myRole, guildId, pos, onClose, onOpenProfile,
+  member, myRole, guildId, pos, onClose, onOpenProfile, guildRoles,
 }: {
   member: GuildMember;
   myRole: string;
@@ -17,10 +17,12 @@ function MemberContextMenu({
   pos: { x: number; y: number };
   onClose: () => void;
   onOpenProfile: () => void;
+  guildRoles: GuildRole[];
 }) {
-  const { kickMember, setMemberRole, blockUser, sendFriendRequest, friends, userIDonServer } = useApp();
+  const { kickMember, setMemberRole, blockUser, sendFriendRequest, friends, userIDonServer, assignMemberRole, removeMemberRole } = useApp();
   const tr = useTranslation();
   const ref = useRef<HTMLDivElement>(null);
+  const [showRoles, setShowRoles] = useState(false);
   const isFriend = friends.some(f => String(f.id) === member.id);
   const isSelf = member.id === userIDonServer;
   const canManage = (myRole === 'owner' || myRole === 'admin') && !isSelf && member.role !== 'owner';
@@ -66,6 +68,35 @@ function MemberContextMenu({
           <Shield size={13} /> {tr('guild_remove_admin')}
         </button>
       )}
+      {canManage && guildRoles.length > 0 && (
+        <>
+          <div style={{ borderTop: '1px solid var(--border-color)', margin: '4px 0' }} />
+          <button className="context-menu-item" onClick={() => setShowRoles(v => !v)} style={{ justifyContent: 'space-between' }}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Shield size={13} /> {tr('guild_roles') || 'Roles'}</span>
+            <ChevronRight size={12} style={{ transform: showRoles ? 'rotate(90deg)' : 'none', transition: '0.15s' }} />
+          </button>
+          {showRoles && guildRoles.map(role => {
+            const has = member.custom_roles?.includes(role.id);
+            return (
+              <button
+                key={role.id}
+                className="context-menu-item"
+                style={{ paddingLeft: 24, gap: 6 }}
+                onClick={async () => {
+                  if (has) await removeMemberRole(guildId, member.id, role.id);
+                  else await assignMemberRole(guildId, member.id, role.id);
+                  onClose();
+                }}
+              >
+                <span style={{ width: 10, height: 10, borderRadius: '50%', background: role.color, flexShrink: 0, border: '1px solid rgba(255,255,255,0.15)' }} />
+                <span style={{ flex: 1 }}>{role.name}</span>
+                {has && <span style={{ color: 'var(--accent-primary)', fontWeight: 700, fontSize: 14 }}>✓</span>}
+              </button>
+            );
+          })}
+          <div style={{ borderTop: '1px solid var(--border-color)', margin: '4px 0' }} />
+        </>
+      )}
       {!isSelf && canManage && member.role !== 'owner' && !(myRole === 'admin' && member.role === 'admin') && (
         <button className="context-menu-item danger" onClick={() => { kickMember(guildId, member.id); onClose(); }}>
           <Trash2 size={13} /> {tr('guild_kick')}
@@ -81,7 +112,7 @@ function MemberContextMenu({
 }
 
 // ── Member row ───────────────────────────────────────────────────────────────
-function MemberRow({ member, myRole, guildId }: { member: GuildMember; myRole: string; guildId: string }) {
+function MemberRow({ member, myRole, guildId, guildRoles }: { member: GuildMember; myRole: string; guildId: string; guildRoles: GuildRole[] }) {
   const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null);
   const [showProfile, setShowProfile] = useState(false);
 
@@ -119,6 +150,9 @@ function MemberRow({ member, myRole, guildId }: { member: GuildMember; myRole: s
           <span className="member-name">{member.nickname || member.username}</span>
           {member.role === 'owner' && <Crown size={11} style={{ color: '#faa81a', flexShrink: 0 }} />}
           {member.role === 'admin' && <Shield size={11} style={{ color: '#5865f2', flexShrink: 0 }} />}
+          {member.custom_roles?.length > 0 && guildRoles.filter(r => member.custom_roles.includes(r.id)).map(r => (
+            <span key={r.id} style={{ fontSize: 9, padding: '1px 5px', borderRadius: 8, background: r.color + '33', color: r.color, fontWeight: 600, flexShrink: 0, lineHeight: '14px', whiteSpace: 'nowrap' }}>{r.name}</span>
+          ))}
         </div>
       </div>
 
@@ -128,6 +162,7 @@ function MemberRow({ member, myRole, guildId }: { member: GuildMember; myRole: s
           pos={menuPos}
           onClose={() => setMenuPos(null)}
           onOpenProfile={() => setShowProfile(true)}
+          guildRoles={guildRoles}
         />
       )}
 
@@ -139,11 +174,12 @@ function MemberRow({ member, myRole, guildId }: { member: GuildMember; myRole: s
 }
 
 // ── Voice participant row ────────────────────────────────────────────────────
-function VoiceParticipantRow({ participant, myRole, guildId, members }: {
-  participant: { id: string; username: string; nickname: string; avatar: string; muted: boolean };
+function VoiceParticipantRow({ participant, myRole, guildId, members, guildRoles }: {
+  participant: { id: string; username: string; nickname: string; avatar: string; muted: boolean; deafened: boolean };
   myRole: string;
   guildId: string;
   members: GuildMember[];
+  guildRoles: GuildRole[];
 }) {
   const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null);
   const [showProfile, setShowProfile] = useState(false);
@@ -157,6 +193,7 @@ function VoiceParticipantRow({ participant, myRole, guildId, members }: {
     avatar: participant.avatar,
     status: 'online',
     role: 'member',
+    custom_roles: [],
   };
 
   const profileUser: ProfileUser = {
@@ -191,6 +228,7 @@ function VoiceParticipantRow({ participant, myRole, guildId, members }: {
           {participant.nickname || participant.username}
         </span>
         {participant.muted && <MicOff size={12} style={{ color: '#ed4245', flexShrink: 0 }} />}
+        {participant.deafened && <HeadphoneOff size={12} style={{ color: '#ed4245', flexShrink: 0 }} />}
       </div>
 
       {menuPos && (
@@ -199,6 +237,7 @@ function VoiceParticipantRow({ participant, myRole, guildId, members }: {
           pos={menuPos}
           onClose={() => setMenuPos(null)}
           onOpenProfile={() => setShowProfile(true)}
+          guildRoles={guildRoles}
         />
       )}
 
@@ -217,7 +256,7 @@ export const GuildSidebar: React.FC = () => {
     joinVoiceChannel, leaveVoiceChannel, currentVoiceChannel,
     voiceChannelParticipants, voiceParticipants, currentServerIP, authToken,
     blockedContacts, unblockUser,
-    setMobileActivePanel,
+    setMobileActivePanel, loadGuildRoles,
   } = useApp();
   const tr = useTranslation();
 
@@ -251,6 +290,12 @@ export const GuildSidebar: React.FC = () => {
     const interval = setInterval(fetchPresence, 3000);
     return () => clearInterval(interval);
   }, [currentGuild?.id, authToken, currentServerIP]);
+
+  const [guildRoles, setGuildRoles] = useState<GuildRole[]>([]);
+  useEffect(() => {
+    if (!currentGuild) return;
+    loadGuildRoles(currentGuild.id).then(setGuildRoles);
+  }, [currentGuild?.id, loadGuildRoles]);
 
   // Merge WS-realtime updates into local presence (WS updates take priority)
   const mergedPresence: VoicePresenceMap = {
@@ -428,6 +473,7 @@ export const GuildSidebar: React.FC = () => {
                         myRole={myRole}
                         guildId={currentGuild.id}
                         members={currentGuild.members}
+                        guildRoles={guildRoles}
                       />
                     ))}
                   </div>
@@ -448,13 +494,13 @@ export const GuildSidebar: React.FC = () => {
           {online.length > 0 && (
             <>
               <div className="members-group-label">{tr('guild_online')} — {online.length}</div>
-              {online.map(m => <MemberRow key={m.id} member={m} myRole={myRole} guildId={currentGuild.id} />)}
+              {online.map(m => <MemberRow key={m.id} member={m} myRole={myRole} guildId={currentGuild.id} guildRoles={guildRoles} />)}
             </>
           )}
           {offline.length > 0 && (
             <>
               <div className="members-group-label">{tr('guild_offline')} — {offline.length}</div>
-              {offline.map(m => <MemberRow key={m.id} member={m} myRole={myRole} guildId={currentGuild.id} />)}
+              {offline.map(m => <MemberRow key={m.id} member={m} myRole={myRole} guildId={currentGuild.id} guildRoles={guildRoles} />)}
             </>
           )}
         </div>

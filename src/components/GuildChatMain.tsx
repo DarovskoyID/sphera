@@ -1,11 +1,12 @@
-import React, { useEffect, useRef, useState, useCallback, useLayoutEffect } from 'react';
-import { Hash, Send, Pin, Trash2, CornerUpLeft, Plus, MoreHorizontal, X, Download, FileText, FileImage, FileVideo, FileAudio, File, ChevronLeft, Reply, Copy, Flag, Clock } from 'lucide-react';
+import React, { useEffect, useRef, useState, useCallback, useLayoutEffect, useMemo } from 'react';
+import { Hash, Send, Pin, Trash2, CornerUpLeft, Plus, MoreHorizontal, X, Download, FileText, FileImage, FileVideo, FileAudio, File, ChevronLeft, Reply, Copy, Flag, Clock, Ban, UserX, VolumeX, User } from 'lucide-react';
 import { useApp, reportError } from '../context/AppContext';
 import { useTranslation } from '../i18n/useTranslation';
 import { MessageText } from './EmojiPicker';
 import { UnifiedPicker } from './StickerGifPicker';
+import { ProfileModal, type ProfileUser } from './ProfileModal';
 import ConfirmModal from './ConfirmModal';
-import type { GuildMessage } from '../types';
+import type { GuildMessage, GuildMember, GuildRole } from '../types';
 
 const MAX_FILES = 10;
 
@@ -135,15 +136,25 @@ type GuildCtxMenu = { x: number; y: number; msg: GuildMessage };
 const GuildMessageContextMenu: React.FC<{
   menu: GuildCtxMenu;
   isOwn: boolean;
-  canPin: boolean;
+  myRole: string;
+  authorRole: string;
   onClose: () => void;
   onReply: (msg: GuildMessage) => void;
   onDelete: (id: string) => void;
   onPin: (id: string) => void;
   onCopy: (text: string) => void;
-}> = ({ menu, isOwn, canPin, onClose, onReply, onDelete, onPin, onCopy }) => {
+  onProfile: (msg: GuildMessage) => void;
+  onKick: (userId: string) => void;
+  onBlock: (userId: string) => void;
+  onMute: (userId: string) => void;
+}> = ({ menu, isOwn, myRole, authorRole, onClose, onReply, onDelete, onPin, onCopy, onProfile, onKick, onBlock, onMute }) => {
   const tr = useTranslation();
   const ref = useRef<HTMLDivElement>(null);
+
+  const isAdmin = myRole === 'owner' || myRole === 'admin';
+  const canManageAuthor = isAdmin && !isOwn && authorRole !== 'owner' && !(myRole === 'admin' && authorRole === 'admin');
+  const canPin = isAdmin;
+  const canDelete = isOwn || isAdmin;
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -198,23 +209,32 @@ const GuildMessageContextMenu: React.FC<{
     </button>
   );
 
+  const sep = <div style={{ height: 1, background: 'var(--border-color)', margin: '4px 0' }} />;
+
   return (
     <div ref={ref} style={style}>
+      {item(<User size={15} />, tr('guild_view_profile'), () => onProfile(menu.msg))}
       {item(<Reply size={15} />, tr('chat_reply'), () => onReply(menu.msg))}
       {item(<Copy size={15} />, tr('chat_copy_text'), () => onCopy(menu.msg.content))}
       {canPin && item(<Pin size={15} />, menu.msg.is_pinned ? tr('chat_unpin_msg') : tr('chat_pin'), () => onPin(menu.msg.id))}
-      {isOwn && item(<Trash2 size={15} />, tr('chat_delete'), () => onDelete(menu.msg.id), true)}
+      {canDelete && item(<Trash2 size={15} />, tr('chat_delete'), () => onDelete(menu.msg.id), true)}
+      {canManageAuthor && sep}
+      {canManageAuthor && item(<VolumeX size={15} />, tr('guild_mute_member'), () => onMute(menu.msg.author.id), true)}
+      {canManageAuthor && item(<UserX size={15} />, tr('guild_kick'), () => onKick(menu.msg.author.id), true)}
+      {canManageAuthor && item(<Ban size={15} />, tr('guild_block'), () => onBlock(menu.msg.author.id), true)}
     </div>
   );
 };
 
-const GuildMessageRow = React.memo(({ msg, isOwn, isFirstInGroup, onContextMenu, onReply, customEmojis, highlight }: {
+const GuildMessageRow = React.memo(({ msg, isOwn, isFirstInGroup, onContextMenu, onReply, onProfileClick, customEmojis, members, highlight }: {
   msg: GuildMessage;
   isOwn: boolean;
   isFirstInGroup: boolean;
   onContextMenu: (e: React.MouseEvent, msg: GuildMessage) => void;
   onReply: (msg: GuildMessage) => void;
+  onProfileClick: (author: GuildMessage['author']) => void;
   customEmojis: any[];
+  members: GuildMember[];
   highlight?: boolean;
 }) => {
   const tr = useTranslation();
@@ -243,7 +263,7 @@ const GuildMessageRow = React.memo(({ msg, isOwn, isFirstInGroup, onContextMenu,
           <Pin size={12} />
         </div>
       )}
-      <div className="message-avatar-slot">
+      <div className="message-avatar-slot" onClick={() => onProfileClick(msg.author)} style={{ cursor: 'pointer' }}>
         {isFirstInGroup
           ? (msg.author.avatar && !avatarError
               ? <img src={msg.author.avatar} alt={displayName} style={{ width: 36, height: 36, borderRadius: '50%', objectFit: 'cover' }} onError={() => setAvatarError(true)} />
@@ -259,7 +279,7 @@ const GuildMessageRow = React.memo(({ msg, isOwn, isFirstInGroup, onContextMenu,
           {msg.content && (
             <div className="message-text" style={{ position: 'relative' }}>
               {isFirstInGroup && (
-                <div className="message-author-bubble">{displayName}</div>
+                <div className="message-author-bubble" onClick={() => onProfileClick(msg.author)} style={{ cursor: 'pointer' }}>{displayName}</div>
               )}
               {msg.reply_to && (
                 <div className="message-reply-preview">
@@ -267,13 +287,13 @@ const GuildMessageRow = React.memo(({ msg, isOwn, isFirstInGroup, onContextMenu,
                     {msg.reply_to.author.nickname || msg.reply_to.author.username}
                   </span>
                   <span className="message-reply-text">
-                    <MessageText text={msg.reply_to.content} customEmojis={customEmojis} />
+                    <MessageText text={msg.reply_to.content} customEmojis={customEmojis} members={members} />
                   </span>
                 </div>
               )}
               <div className="message-line">
                 <span className="message-body">
-                  <MessageText text={msg.content} customEmojis={customEmojis} />
+                  <MessageText text={msg.content} customEmojis={customEmojis} members={members} />
                 </span>
                 <span className="message-timestamp">{time}</span>
               </div>
@@ -317,6 +337,7 @@ export const GuildChatMain: React.FC = () => {
     sendGuildMessage, scheduleGuildMessage, loadOlderGuildMessages,
     userIDonServer, currentServerIP, authToken,
     setMobileActivePanel, deleteGuildMessage, pinGuildMessage, customEmojis,
+    kickMember, blockUser, loadGuildRoles,
   } = useApp();
   const tr = useTranslation();
 
@@ -342,6 +363,12 @@ export const GuildChatMain: React.FC = () => {
   const [ctxMenu, setCtxMenu] = useState<GuildCtxMenu | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [highlightId, setHighlightId] = useState<string | null>(null);
+  const [profileUser, setProfileUser] = useState<ProfileUser | null>(null);
+  const [muteTarget, setMuteTarget] = useState<string | null>(null);
+  const [muteMinutes, setMuteMinutes] = useState(5);
+  const [guildRoles, setGuildRoles] = useState<GuildRole[]>([]);
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null);
+  const [mentionIdx, setMentionIdx] = useState(0);
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
@@ -363,6 +390,69 @@ export const GuildChatMain: React.FC = () => {
     setScheduledItems([]);
     setTimeout(() => bottomRef.current?.scrollIntoView(), 50);
   }, [currentGuildChannel?.id]);
+
+  useEffect(() => {
+    if (!currentGuild) return;
+    loadGuildRoles(currentGuild.id).then(r => setGuildRoles(r || [])).catch(() => {});
+  }, [currentGuild?.id]);
+
+  const members = currentGuild?.members ?? [];
+
+  const mentionSuggestions = useMemo(() => {
+    if (mentionQuery === null) return [];
+    const q = mentionQuery.toLowerCase();
+    const results: { label: string; insert: string; type: 'user' | 'role' | 'all' }[] = [];
+    if ('everyone'.startsWith(q)) results.push({ label: '@everyone', insert: '@everyone', type: 'all' });
+    for (const m of members) {
+      const name = m.nickname || m.username;
+      if (name.toLowerCase().startsWith(q) || m.username.toLowerCase().startsWith(q))
+        results.push({ label: `@${name}`, insert: `@${m.username}`, type: 'user' });
+    }
+    for (const r of guildRoles) {
+      if (r.name.toLowerCase().startsWith(q))
+        results.push({ label: `@${r.name}`, insert: `@role:${r.name}`, type: 'role' });
+    }
+    return results.slice(0, 8);
+  }, [mentionQuery, members, guildRoles]);
+
+  const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const val = e.target.value;
+    setInput(val);
+    const cursor = e.target.selectionStart ?? val.length;
+    const before = val.slice(0, cursor);
+    const match = before.match(/@(\w*)$/);
+    if (match) { setMentionQuery(match[1]); setMentionIdx(0); }
+    else setMentionQuery(null);
+  }, []);
+
+  const insertMention = useCallback((insert: string) => {
+    setInput(prev => {
+      const match = prev.match(/(.*?)@\w*$/s);
+      return match ? match[1] + insert + ' ' : prev + insert + ' ';
+    });
+    setMentionQuery(null);
+  }, []);
+
+  const openProfile = useCallback((author: GuildMessage['author']) => {
+    setProfileUser({
+      id: author.id,
+      username: author.username,
+      nickname: author.nickname,
+      avatar: author.avatar,
+      status: members.find(m => String(m.id) === String(author.id))?.status ?? 'offline',
+    });
+  }, [members]);
+
+  const handleKick = useCallback((userId: string) => {
+    if (!currentGuild) return;
+    kickMember(currentGuild.id, userId);
+  }, [currentGuild, kickMember]);
+
+  const handleBlock = useCallback((userId: string) => {
+    if (!currentGuild) return;
+    kickMember(currentGuild.id, userId);
+    blockUser(userId);
+  }, [currentGuild, kickMember, blockUser]);
 
   const handleScroll = useCallback(async () => {
     if (!listRef.current || loadingOlder || !hasMore) return;
@@ -447,6 +537,12 @@ export const GuildChatMain: React.FC = () => {
   }, [input, pendingFiles, replyTo, uploadFiles, scheduleGuildMessage, clearFiles]);
 
   const handleKey = (e: React.KeyboardEvent) => {
+    if (mentionQuery !== null && mentionSuggestions.length > 0) {
+      if (e.key === 'ArrowDown') { e.preventDefault(); setMentionIdx(i => Math.min(i + 1, mentionSuggestions.length - 1)); return; }
+      if (e.key === 'ArrowUp') { e.preventDefault(); setMentionIdx(i => Math.max(i - 1, 0)); return; }
+      if (e.key === 'Tab' || e.key === 'Enter') { e.preventDefault(); insertMention(mentionSuggestions[mentionIdx].insert); return; }
+      if (e.key === 'Escape') { e.preventDefault(); setMentionQuery(null); return; }
+    }
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
   };
 
@@ -480,6 +576,8 @@ export const GuildChatMain: React.FC = () => {
 
   return (
     <div className="guild-chat-main">
+      {/* Profile modal */}
+      {profileUser && <ProfileModal user={profileUser} onClose={() => setProfileUser(null)} />}
       {/* Delete confirm */}
       {deleteConfirmId && (
         <ConfirmModal
@@ -491,19 +589,60 @@ export const GuildChatMain: React.FC = () => {
           onCancel={() => setDeleteConfirmId(null)}
         />
       )}
-      {/* Context menu */}
-      {ctxMenu && (
-        <GuildMessageContextMenu
-          menu={ctxMenu}
-          isOwn={String(ctxMenu.msg.author.id) === String(userIDonServer)}
-          canPin={canPin}
-          onClose={closeCtx}
-          onReply={msg => { setReplyTo(msg); closeCtx(); }}
-          onDelete={id => { closeCtx(); setDeleteConfirmId(id); }}
-          onPin={id => pinGuildMessage(id)}
-          onCopy={text => navigator.clipboard.writeText(text).catch(() => {})}
-        />
+      {/* Mute modal */}
+      {muteTarget && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9500 }}>
+          <div style={{ background: 'var(--bg-secondary)', borderRadius: 12, padding: 24, minWidth: 300, border: '1px solid var(--border-color)' }}>
+            <h3 style={{ margin: '0 0 12px', fontSize: 16, fontWeight: 700 }}>{tr('guild_mute_member')}</h3>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
+              {[5, 15, 30, 60, 1440].map(m => (
+                <button key={m} onClick={() => setMuteMinutes(m)} style={{
+                  padding: '6px 14px', borderRadius: 8, border: '1px solid var(--border-color)',
+                  background: muteMinutes === m ? 'var(--accent-primary)' : 'var(--bg-tertiary)',
+                  color: muteMinutes === m ? '#fff' : 'var(--text-primary)', cursor: 'pointer', fontSize: 13,
+                }}>
+                  {m < 60 ? `${m} ${tr('guild_mute_min')}` : m === 60 ? `1 ${tr('guild_mute_hour')}` : `24 ${tr('guild_mute_hour')}`}
+                </button>
+              ))}
+            </div>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button onClick={() => setMuteTarget(null)} style={{ padding: '8px 16px', background: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 8, cursor: 'pointer', color: 'var(--text-primary)', fontSize: 14 }}>{tr('cancel')}</button>
+              <button onClick={async () => {
+                if (!currentGuild) return;
+                try {
+                  await fetch(`${currentServerIP}/api/guilds/${currentGuild.id}/members/${muteTarget}/mute/`, {
+                    method: 'POST',
+                    headers: { Authorization: `Bearer ${authToken}`, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ duration_minutes: muteMinutes }),
+                  });
+                } catch {}
+                setMuteTarget(null);
+              }} style={{ padding: '8px 16px', background: '#ed4245', border: 'none', borderRadius: 8, cursor: 'pointer', color: '#fff', fontSize: 14, fontWeight: 600 }}>{tr('guild_mute_confirm')}</button>
+            </div>
+          </div>
+        </div>
       )}
+      {/* Context menu */}
+      {ctxMenu && (() => {
+        const authorMember = members.find(m => String(m.id) === String(ctxMenu.msg.author.id));
+        return (
+          <GuildMessageContextMenu
+            menu={ctxMenu}
+            isOwn={String(ctxMenu.msg.author.id) === String(userIDonServer)}
+            myRole={myRole}
+            authorRole={authorMember?.role ?? 'member'}
+            onClose={closeCtx}
+            onReply={msg => { setReplyTo(msg); closeCtx(); }}
+            onDelete={id => { closeCtx(); setDeleteConfirmId(id); }}
+            onPin={id => pinGuildMessage(id)}
+            onCopy={text => navigator.clipboard.writeText(text).catch(() => {})}
+            onProfile={msg => openProfile(msg.author)}
+            onKick={handleKick}
+            onBlock={handleBlock}
+            onMute={userId => { closeCtx(); setMuteTarget(userId); }}
+          />
+        );
+      })()}
       {/* Header */}
       <div className="chat-header">
         <button
@@ -544,7 +683,9 @@ export const GuildChatMain: React.FC = () => {
                   isFirstInGroup={isFirstInGroup}
                   onContextMenu={openCtx}
                   onReply={setReplyTo}
+                  onProfileClick={openProfile}
                   customEmojis={customEmojis}
+                  members={members}
                   highlight={highlightId === msg.id}
                 />
               </React.Fragment>
@@ -603,6 +744,29 @@ export const GuildChatMain: React.FC = () => {
         </div>
       )}
 
+      {/* Mention autocomplete */}
+      {mentionQuery !== null && mentionSuggestions.length > 0 && (
+        <div style={{ margin: '0 12px', padding: '4px 0', background: 'var(--bg-secondary)', borderRadius: 8, border: '1px solid var(--border-color)', maxHeight: 200, overflowY: 'auto', flexShrink: 0 }}>
+          {mentionSuggestions.map((s, i) => (
+            <button
+              key={s.insert}
+              onClick={() => insertMention(s.insert)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '8px 12px',
+                background: i === mentionIdx ? 'var(--accent-primary)' : 'none', border: 'none', cursor: 'pointer',
+                color: i === mentionIdx ? '#fff' : 'var(--text-primary)', fontSize: 14, textAlign: 'left',
+              }}
+              onMouseEnter={() => setMentionIdx(i)}
+            >
+              <span style={{ fontSize: 12, opacity: 0.6, minWidth: 50 }}>
+                {s.type === 'all' ? '📢' : s.type === 'role' ? '🏷️' : '👤'}
+              </span>
+              {s.label}
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* Input */}
       <div className="message-input-area" style={{ flexDirection: 'column', gap: 0, alignItems: 'stretch' }}>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', width: '100%', position: 'relative' }}>
@@ -614,7 +778,7 @@ export const GuildChatMain: React.FC = () => {
             className="message-input"
             placeholder={`${tr('guild_send_placeholder')}${currentGuildChannel.name}`}
             value={input}
-            onChange={e => setInput(e.target.value)}
+            onChange={handleInputChange}
             onKeyDown={handleKey}
             rows={1}
             maxLength={5000}

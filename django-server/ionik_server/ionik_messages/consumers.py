@@ -526,6 +526,15 @@ class GuildChannelConsumer(AsyncWebsocketConsumer):
         await self.channel_layer.group_discard(self.room_group, self.channel_name)
         await self.channel_layer.group_discard(self.guild_group, self.channel_name)
 
+    @database_sync_to_async
+    def is_muted(self):
+        from django.utils import timezone
+        try:
+            membership = GuildMembership.objects.get(guild_id=self.guild_id, user_id=self.user_data['id'])
+            return membership.muted_until and membership.muted_until > timezone.now()
+        except GuildMembership.DoesNotExist:
+            return False
+
     async def receive(self, text_data):
         data = ujson.loads(text_data)
         content = data.get('message', '').strip()
@@ -536,6 +545,10 @@ class GuildChannelConsumer(AsyncWebsocketConsumer):
             attachment_ids = [attachment_ids]
 
         if not content and not attachment_ids:
+            return
+
+        if await self.is_muted():
+            await self.send(text_data=ujson.dumps({'type': 'error', 'message': 'You are muted'}))
             return
 
         msg_id = str(uuid.uuid4())
@@ -1008,6 +1021,15 @@ class GuildVoiceConsumer(AsyncWebsocketConsumer):
                 {'type': 'voice_mute_changed', 'user_id': self.user_id, 'muted': muted},
             )
 
+        elif msg_type == 'voice_deafen':
+            deafened = bool(data.get('deafened', False))
+            if self.channel_id in _voice_channels and self.user_id in _voice_channels[self.channel_id]:
+                _voice_channels[self.channel_id][self.user_id]['deafened'] = deafened
+            await self.channel_layer.group_send(
+                self.room_group,
+                {'type': 'voice_deafen_changed', 'user_id': self.user_id, 'deafened': deafened},
+            )
+
         elif msg_type == 'signal':
             target_id = str(data.get('to', ''))
             await self.channel_layer.group_send(
@@ -1039,6 +1061,13 @@ class GuildVoiceConsumer(AsyncWebsocketConsumer):
             'type': 'voice_mute_changed',
             'user_id': event['user_id'],
             'muted': event['muted'],
+        }))
+
+    async def voice_deafen_changed(self, event):
+        await self.send(text_data=ujson.dumps({
+            'type': 'voice_deafen_changed',
+            'user_id': event['user_id'],
+            'deafened': event['deafened'],
         }))
 
     async def voice_signal(self, event):
