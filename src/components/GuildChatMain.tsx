@@ -1,9 +1,10 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { Hash, Send, Pin, Trash2, CornerUpLeft, Plus, MoreHorizontal, X, Download, FileText, FileImage, FileVideo, FileAudio, File, ChevronLeft } from 'lucide-react';
+import React, { useEffect, useRef, useState, useCallback, useLayoutEffect } from 'react';
+import { Hash, Send, Pin, Trash2, CornerUpLeft, Plus, MoreHorizontal, X, Download, FileText, FileImage, FileVideo, FileAudio, File, ChevronLeft, Reply, Copy, Flag, Clock } from 'lucide-react';
 import { useApp, reportError } from '../context/AppContext';
 import { useTranslation } from '../i18n/useTranslation';
 import { MessageText } from './EmojiPicker';
 import { UnifiedPicker } from './StickerGifPicker';
+import ConfirmModal from './ConfirmModal';
 import type { GuildMessage } from '../types';
 
 const MAX_FILES = 10;
@@ -114,100 +115,208 @@ function AttachmentView({ att }: { att: { id: string; filename: string; content_
   );
 }
 
-function MessageBubble({
-  msg, prevMsg, myId, myRole, onReply,
-}: {
-  msg: GuildMessage;
-  prevMsg: GuildMessage | undefined;
-  myId: string;
-  myRole: string;
+const MSG_HEIGHT = 60;
+
+function shouldShowDateSeparator(current: GuildMessage, prev?: GuildMessage): boolean {
+  if (!prev) return true;
+  const d1 = new Date(prev.created_at);
+  const d2 = new Date(current.created_at);
+  return d1.getFullYear() !== d2.getFullYear() || d1.getMonth() !== d2.getMonth() || d1.getDate() !== d2.getDate();
+}
+
+const DateSeparator: React.FC<{ label: string }> = ({ label }) => (
+  <div className="date-separator">
+    <span className="date-separator-label">{label}</span>
+  </div>
+);
+
+type GuildCtxMenu = { x: number; y: number; msg: GuildMessage };
+
+const GuildMessageContextMenu: React.FC<{
+  menu: GuildCtxMenu;
+  isOwn: boolean;
+  canPin: boolean;
+  onClose: () => void;
   onReply: (msg: GuildMessage) => void;
-}) {
-  const { deleteGuildMessage, pinGuildMessage, customEmojis } = useApp();
+  onDelete: (id: string) => void;
+  onPin: (id: string) => void;
+  onCopy: (text: string) => void;
+}> = ({ menu, isOwn, canPin, onClose, onReply, onDelete, onPin, onCopy }) => {
   const tr = useTranslation();
-  const [hover, setHover] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
 
-  const sameAuthor = prevMsg && prevMsg.author.id === msg.author.id &&
-    new Date(msg.created_at).getTime() - new Date(prevMsg.created_at).getTime() < 5 * 60 * 1000;
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [onClose]);
 
-  const canDelete = msg.author.id === myId || myRole === 'owner' || myRole === 'admin';
-  const canPin = myRole === 'owner' || myRole === 'admin';
+  const [adjustedPos, setAdjustedPos] = useState({ x: menu.x, y: menu.y });
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const { width, height } = el.getBoundingClientRect();
+    const vw = window.innerWidth;
+    const vh = window.innerHeight - 68;
+    setAdjustedPos({
+      x: Math.min(Math.max(menu.x, 8), vw - width - 8),
+      y: Math.min(Math.max(menu.y, 8), vh - height),
+    });
+  }, [menu.x, menu.y]);
+
+  const style: React.CSSProperties = {
+    position: 'fixed',
+    top: adjustedPos.y,
+    left: adjustedPos.x,
+    zIndex: 9000,
+    background: 'var(--bg-primary, #1a1a2e)',
+    border: '1px solid var(--border-color, #333)',
+    borderRadius: 10,
+    boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+    minWidth: 180,
+    overflow: 'hidden',
+    padding: '4px 0',
+  };
+
+  const item = (icon: React.ReactNode, label: string, onClick: () => void, danger = false) => (
+    <button
+      key={label}
+      onClick={() => { onClick(); onClose(); }}
+      style={{
+        display: 'flex', alignItems: 'center', gap: 10,
+        width: '100%', padding: '9px 14px', background: 'none',
+        border: 'none', cursor: 'pointer', fontSize: 14,
+        color: danger ? '#ff4444' : 'var(--text-primary, #fff)',
+        textAlign: 'left',
+      }}
+      onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg-secondary, #222)')}
+      onMouseLeave={e => (e.currentTarget.style.background = 'none')}
+    >
+      {icon}{label}
+    </button>
+  );
+
+  return (
+    <div ref={ref} style={style}>
+      {item(<Reply size={15} />, tr('chat_reply'), () => onReply(menu.msg))}
+      {item(<Copy size={15} />, tr('chat_copy_text'), () => onCopy(menu.msg.content))}
+      {canPin && item(<Pin size={15} />, menu.msg.is_pinned ? tr('chat_unpin_msg') : tr('chat_pin'), () => onPin(menu.msg.id))}
+      {isOwn && item(<Trash2 size={15} />, tr('chat_delete'), () => onDelete(menu.msg.id), true)}
+    </div>
+  );
+};
+
+const GuildMessageRow = React.memo(({ msg, isOwn, isFirstInGroup, onContextMenu, onReply, customEmojis, highlight }: {
+  msg: GuildMessage;
+  isOwn: boolean;
+  isFirstInGroup: boolean;
+  onContextMenu: (e: React.MouseEvent, msg: GuildMessage) => void;
+  onReply: (msg: GuildMessage) => void;
+  customEmojis: any[];
+  highlight?: boolean;
+}) => {
+  const tr = useTranslation();
+  const displayName = msg.author.nickname || msg.author.username;
+  const time = new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const [hovered, setHovered] = useState(false);
+  const [avatarError, setAvatarError] = useState(false);
 
   return (
     <div
-      className="guild-message"
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
+      data-msg-id={msg.id}
+      className={`message-item ${isOwn ? 'own' : ''} ${isFirstInGroup ? '' : 'compact'}`}
+      style={{
+        minHeight: isFirstInGroup ? MSG_HEIGHT : undefined, position: 'relative',
+        background: highlight
+          ? 'rgba(0,112,243,0.18)'
+          : msg.is_pinned ? 'rgba(0,112,243,0.08)' : undefined,
+        transition: 'background 0.3s ease',
+      }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      onContextMenu={e => { e.preventDefault(); onContextMenu(e, msg); }}
     >
-      <div className="guild-message-aside">
-        {!sameAuthor ? (
-          msg.author.avatar ? (
-            <img src={msg.author.avatar} alt="" className="guild-message-avatar" />
-          ) : (
-            <div className="guild-message-avatar guild-message-avatar-placeholder">
-              {(msg.author.nickname || msg.author.username)[0].toUpperCase()}
-            </div>
-          )
-        ) : (
-          hover ? <span className="guild-message-time-hover">{formatTime(msg.created_at)}</span> : null
-        )}
-      </div>
-
-      <div className="guild-message-body">
-        {!sameAuthor && (
-          <div className="guild-message-header">
-            <span className="guild-message-author">{msg.author.nickname || msg.author.username}</span>
-            <span className="guild-message-ts">{formatTime(msg.created_at)}</span>
-            {msg.is_pinned && <Pin size={11} style={{ color: 'var(--accent-primary)' }} />}
-          </div>
-        )}
-
-        {msg.reply_to && (
-          <div className="guild-reply-preview">
-            <CornerUpLeft size={12} />
-            <span className="reply-author">{msg.reply_to.author.nickname || msg.reply_to.author.username}</span>
-            <span className="reply-content">{msg.reply_to.content.slice(0, 80)}</span>
-          </div>
-        )}
-
-        {msg.content && (
-          <div className="guild-message-text">
-            <MessageText text={msg.content} customEmojis={customEmojis} />
-          </div>
-        )}
-
-        {msg.attachments?.map(att => (
-          <AttachmentView key={att.id} att={att} />
-        ))}
-      </div>
-
-      {hover && (
-        <div className="guild-message-actions">
-          <button className="msg-action-btn" onClick={() => onReply(msg)} title={tr('chat_reply')}>
-            <CornerUpLeft size={14} />
-          </button>
-          {canPin && (
-            <button className="msg-action-btn" onClick={() => pinGuildMessage(msg.id)} title={msg.is_pinned ? tr('chat_unpin_msg') : tr('chat_pin')}>
-              <Pin size={14} />
-            </button>
-          )}
-          {canDelete && (
-            <button className="msg-action-btn danger" onClick={() => deleteGuildMessage(msg.id)} title={tr('chat_delete')}>
-              <Trash2 size={14} />
-            </button>
-          )}
+      {msg.is_pinned && (
+        <div style={{ position: 'absolute', top: 4, ...(isOwn ? { left: 4 } : { right: 4 }), color: 'var(--accent-primary)', opacity: 0.7, zIndex: 1 }}>
+          <Pin size={12} />
         </div>
       )}
+      <div className="message-avatar-slot">
+        {isFirstInGroup
+          ? (msg.author.avatar && !avatarError
+              ? <img src={msg.author.avatar} alt={displayName} style={{ width: 36, height: 36, borderRadius: '50%', objectFit: 'cover' }} onError={() => setAvatarError(true)} />
+              : <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'var(--accent-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 700, fontSize: 14 }}>
+                  {displayName[0].toUpperCase()}
+                </div>
+            )
+          : null
+        }
+      </div>
+      <div className="message-content" style={{ flex: 1, minWidth: 0 }}>
+        <div className="message-bubble">
+          {msg.content && (
+            <div className="message-text" style={{ position: 'relative' }}>
+              {isFirstInGroup && (
+                <div className="message-author-bubble">{displayName}</div>
+              )}
+              {msg.reply_to && (
+                <div className="message-reply-preview">
+                  <span className="message-reply-author">
+                    {msg.reply_to.author.nickname || msg.reply_to.author.username}
+                  </span>
+                  <span className="message-reply-text">
+                    <MessageText text={msg.reply_to.content} customEmojis={customEmojis} />
+                  </span>
+                </div>
+              )}
+              <div className="message-line">
+                <span className="message-body">
+                  <MessageText text={msg.content} customEmojis={customEmojis} />
+                </span>
+                <span className="message-timestamp">{time}</span>
+              </div>
+              {hovered && (
+                <div style={{ position: 'absolute', top: -8, ...(isOwn ? { left: -8 } : { right: -8 }), display: 'flex', gap: 4, zIndex: 2 }}>
+                  <button
+                    onClick={() => onReply(msg)}
+                    style={{ background: 'var(--bg-secondary)', border: 'none', borderRadius: 6, padding: '3px 6px', cursor: 'pointer', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center' }}
+                    title={tr('chat_reply')}
+                  >
+                    <Reply size={14} />
+                  </button>
+                  <button
+                    onClick={e => onContextMenu(e, msg)}
+                    style={{ background: 'var(--bg-secondary)', border: 'none', borderRadius: 6, padding: '3px 6px', cursor: 'pointer', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center' }}
+                    title={tr('chat_more')}
+                  >
+                    <MoreHorizontal size={14} />
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+          {msg.attachments?.map(att => (
+            <AttachmentView key={att.id} att={att} />
+          ))}
+          {!msg.content && (msg.attachments?.length ?? 0) > 0 && (
+            <span className="message-timestamp message-timestamp-standalone">
+              {time}
+            </span>
+          )}
+        </div>
+      </div>
     </div>
   );
-}
+});
 
 export const GuildChatMain: React.FC = () => {
   const {
     currentGuild, currentGuildChannel, guildMessages,
     sendGuildMessage, scheduleGuildMessage, loadOlderGuildMessages,
     userIDonServer, currentServerIP, authToken,
-    setMobileActivePanel,
+    setMobileActivePanel, deleteGuildMessage, pinGuildMessage, customEmojis,
   } = useApp();
   const tr = useTranslation();
 
@@ -230,6 +339,9 @@ export const GuildChatMain: React.FC = () => {
   const [showPicker, setShowPicker] = useState(false);
   const [scheduledItems, setScheduledItems] = useState<ScheduledItem[]>([]);
   const [limitWarning, setLimitWarning] = useState(false);
+  const [ctxMenu, setCtxMenu] = useState<GuildCtxMenu | null>(null);
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [highlightId, setHighlightId] = useState<string | null>(null);
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
@@ -355,24 +467,43 @@ export const GuildChatMain: React.FC = () => {
     );
   }
 
-  type Row =
-    | { kind: 'date'; date: string; key: string }
-    | { kind: 'msg'; msg: GuildMessage; prevMsg: GuildMessage | undefined };
+  const myRole = currentGuild.my_role;
+  const canPin = myRole === 'owner' || myRole === 'admin';
 
-  const rows: Row[] = [];
-  let lastDate = '';
-  for (let i = 0; i < guildMessages.length; i++) {
-    const msg = guildMessages[i];
-    const d = formatDate(msg.created_at);
-    if (d !== lastDate) {
-      rows.push({ kind: 'date', date: d, key: `date-${d}-${i}` });
-      lastDate = d;
-    }
-    rows.push({ kind: 'msg', msg, prevMsg: i > 0 ? guildMessages[i - 1] : undefined });
-  }
+  const openCtx = useCallback((e: React.MouseEvent, msg: GuildMessage) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setCtxMenu({ x: e.clientX, y: e.clientY, msg });
+  }, []);
+
+  const closeCtx = useCallback(() => setCtxMenu(null), []);
 
   return (
     <div className="guild-chat-main">
+      {/* Delete confirm */}
+      {deleteConfirmId && (
+        <ConfirmModal
+          title={tr('delete_message_title')}
+          message={tr('delete_message_confirm')}
+          confirmLabel={tr('delete_message_button')}
+          cancelLabel={tr('cancel')}
+          onConfirm={() => { deleteGuildMessage(deleteConfirmId); setDeleteConfirmId(null); }}
+          onCancel={() => setDeleteConfirmId(null)}
+        />
+      )}
+      {/* Context menu */}
+      {ctxMenu && (
+        <GuildMessageContextMenu
+          menu={ctxMenu}
+          isOwn={String(ctxMenu.msg.author.id) === String(userIDonServer)}
+          canPin={canPin}
+          onClose={closeCtx}
+          onReply={msg => { setReplyTo(msg); closeCtx(); }}
+          onDelete={id => { closeCtx(); setDeleteConfirmId(id); }}
+          onPin={id => pinGuildMessage(id)}
+          onCopy={text => navigator.clipboard.writeText(text).catch(() => {})}
+        />
+      )}
       {/* Header */}
       <div className="chat-header">
         <button
@@ -390,28 +521,36 @@ export const GuildChatMain: React.FC = () => {
       </div>
 
       {/* Messages */}
-      <div className="guild-messages-list" ref={listRef} onScroll={handleScroll}>
-        {loadingOlder && <div className="loading-older">{tr('guild_loading_older')}</div>}
-        {!hasMore && guildMessages.length > 0 && (
-          <div className="channel-start">
-            <Hash size={32} style={{ opacity: 0.3 }} />
-            <p>{tr('guild_beginning')} <strong>#{currentGuildChannel.name}</strong></p>
-          </div>
-        )}
-        {rows.map(row =>
-          row.kind === 'date' ? (
-            <div key={row.key} className="date-divider"><span>{row.date}</span></div>
-          ) : (
-            <MessageBubble
-              key={row.msg.id}
-              msg={row.msg}
-              prevMsg={row.prevMsg}
-              myId={userIDonServer}
-              myRole={currentGuild.my_role}
-              onReply={setReplyTo}
-            />
-          )
-        )}
+      <div className="messages-container" ref={listRef} onScroll={handleScroll}>
+        <div className="messages-list">
+          {loadingOlder && <div className="loading-older">{tr('guild_loading_older')}</div>}
+          {!hasMore && guildMessages.length > 0 && (
+            <div className="channel-start">
+              <Hash size={32} style={{ opacity: 0.3 }} />
+              <p>{tr('guild_beginning')} <strong>#{currentGuildChannel.name}</strong></p>
+            </div>
+          )}
+          {guildMessages.map((msg, i) => {
+            const prev = guildMessages[i - 1];
+            const showDate = shouldShowDateSeparator(msg, prev);
+            const dateSep = showDate ? <DateSeparator key={`date-${msg.id || i}`} label={formatDate(msg.created_at)} /> : null;
+            const isFirstInGroup = showDate || !prev || String(prev.author.id) !== String(msg.author.id);
+            return (
+              <React.Fragment key={msg.id || `tmp-${i}`}>
+                {dateSep}
+                <GuildMessageRow
+                  msg={msg}
+                  isOwn={String(msg.author.id) === String(userIDonServer)}
+                  isFirstInGroup={isFirstInGroup}
+                  onContextMenu={openCtx}
+                  onReply={setReplyTo}
+                  customEmojis={customEmojis}
+                  highlight={highlightId === msg.id}
+                />
+              </React.Fragment>
+            );
+          })}
+        </div>
         <div ref={bottomRef} />
       </div>
 
