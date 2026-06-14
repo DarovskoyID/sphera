@@ -452,6 +452,14 @@ export const GuildChatMain: React.FC = () => {
 
   const canSend = input.trim().length > 0 || pendingFiles.length > 0;
 
+  const openCtx = useCallback((e: React.MouseEvent, msg: GuildMessage) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setCtxMenu({ x: e.clientX, y: e.clientY, msg });
+  }, []);
+
+  const closeCtx = useCallback(() => setCtxMenu(null), []);
+
   if (!currentGuild) return null;
 
   if (!currentGuildChannel) {
@@ -469,14 +477,6 @@ export const GuildChatMain: React.FC = () => {
 
   const myRole = currentGuild.my_role;
   const canPin = myRole === 'owner' || myRole === 'admin';
-
-  const openCtx = useCallback((e: React.MouseEvent, msg: GuildMessage) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setCtxMenu({ x: e.clientX, y: e.clientY, msg });
-  }, []);
-
-  const closeCtx = useCallback(() => setCtxMenu(null), []);
 
   return (
     <div className="guild-chat-main">

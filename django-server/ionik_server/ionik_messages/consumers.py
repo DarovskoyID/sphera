@@ -356,9 +356,12 @@ class ChatConsumer(AsyncWebsocketConsumer):
 
     @database_sync_to_async
     def push_fcm_to_users(self, user_ids, data):
-        from ionik_server.fcm import send_to_user
-        for uid in user_ids:
-            send_to_user(uid, data)
+        try:
+            from ionik_server.fcm import send_to_user
+            for uid in user_ids:
+                send_to_user(uid, data)
+        except Exception:
+            pass
 
     @database_sync_to_async
     def mark_delivered(self, user_id):
@@ -648,9 +651,12 @@ class GuildChannelConsumer(AsyncWebsocketConsumer):
 
     @database_sync_to_async
     def push_fcm_to_users(self, user_ids, data):
-        from ionik_server.fcm import send_to_user
-        for uid in user_ids:
-            send_to_user(uid, data)
+        try:
+            from ionik_server.fcm import send_to_user
+            for uid in user_ids:
+                send_to_user(uid, data)
+        except Exception:
+            pass
 
     @database_sync_to_async
     def get_guild_member_ids_except_self(self):
