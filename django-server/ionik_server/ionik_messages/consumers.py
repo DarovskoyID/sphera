@@ -724,6 +724,8 @@ class GuildChannelConsumer(AsyncWebsocketConsumer):
             GuildAttachment.objects.filter(
                 id__in=sched.attachment_ids
             ).update(message=real_msg)
+        from .search_index import index_message
+        index_message(real_msg)
 
         sched.is_sent = True
         sched.save(update_fields=['is_sent'])
@@ -865,6 +867,8 @@ class GuildChannelConsumer(AsyncWebsocketConsumer):
         msg = GuildMessage.objects.create(**kwargs)
         if attachment_ids:
             GuildAttachment.objects.filter(id__in=attachment_ids).update(message=msg)
+        from .search_index import index_message
+        index_message(msg)
         return str(msg.id)
 
     @database_sync_to_async

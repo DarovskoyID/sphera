@@ -100,6 +100,9 @@ def _process_guild_message(data: dict):
     if attachment_ids:
         GuildAttachment.objects.filter(id__in=attachment_ids).update(message=msg)
 
+    from .search_index import index_message
+    index_message(msg)
+
 
 def _process_notification(data: dict):
     try:

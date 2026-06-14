@@ -26,11 +26,21 @@ const CATEGORIES = [
   { icon: Sparkles, label: 'Другое', labelEn: 'Other', tag: 'other', color: '#a78bfa', bg: 'rgba(167,139,250,0.12)' },
 ];
 
+interface MessageResult {
+  id: string;
+  content: string;
+  created_at: string;
+  channel: { id: string; name: string };
+  guild: { id: string; name: string; icon: string; is_personal_channel: boolean; is_member: boolean; invite_code: string };
+  author: { username: string; nickname: string };
+}
+
 export const ExploreServers: React.FC<{ style?: React.CSSProperties }> = ({ style }) => {
-  const { currentServerIP, authToken, joinGuild, selectGuild } = useApp();
+  const { currentServerIP, authToken, joinGuild, selectGuild, guilds } = useApp();
   const tr = useTranslation();
   const [search, setSearch] = useState('');
   const [results, setResults] = useState<ExploreGuild[]>([]);
+  const [msgResults, setMsgResults] = useState<MessageResult[]>([]);
   const [loading, setLoading] = useState(true);
   const [joining, setJoining] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
@@ -52,10 +62,30 @@ export const ExploreServers: React.FC<{ style?: React.CSSProperties }> = ({ styl
     setLoaded(true);
   }, [currentServerIP, authToken]);
 
+  const loadMessages = useCallback(async (q: string) => {
+    if (!authToken || !q.trim()) { setMsgResults([]); return; }
+    try {
+      const res = await fetch(`${currentServerIP}/api/search/messages/?q=${encodeURIComponent(q)}`, {
+        headers: { Authorization: `Bearer ${authToken}` },
+      });
+      if (res.ok) setMsgResults(await res.json());
+    } catch { /* ignore */ }
+  }, [currentServerIP, authToken]);
+
   useEffect(() => {
-    const t = setTimeout(() => load(search), search ? 300 : 0);
+    const t = setTimeout(() => { load(search); loadMessages(search); }, search ? 300 : 0);
     return () => clearTimeout(t);
-  }, [search, load]);
+  }, [search, load, loadMessages]);
+
+  const openMessageResult = useCallback(async (m: MessageResult) => {
+    if (m.guild.is_member) {
+      const g = guilds.find(x => String(x.id) === String(m.guild.id));
+      if (g) selectGuild(g);
+    } else {
+      const joined = await joinGuild(m.guild.invite_code);
+      if (joined) selectGuild(joined);
+    }
+  }, [guilds, selectGuild, joinGuild]);
 
   const handleJoin = async (e: React.MouseEvent, g: ExploreGuild) => {
     e.stopPropagation();
@@ -166,6 +196,51 @@ export const ExploreServers: React.FC<{ style?: React.CSSProperties }> = ({ styl
 
         {/* Divider */}
         <div style={{ margin: '16px 24px 0', borderTop: '1px solid var(--border-color)' }} />
+
+        {/* Messages & posts section (only while searching) */}
+        {search && msgResults.length > 0 && (
+          <div style={{ padding: '16px 24px 0' }}>
+            <h3 style={{ margin: '0 0 14px', fontSize: 13, fontWeight: 700, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+              {isRu ? 'Посты и сообщения' : 'Posts & messages'}
+            </h3>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {msgResults.map(m => {
+                const icon = m.guild.icon ? (m.guild.icon.startsWith('http') ? m.guild.icon : currentServerIP + m.guild.icon) : '';
+                return (
+                  <div
+                    key={m.id}
+                    onClick={() => openMessageResult(m)}
+                    style={{
+                      display: 'flex', gap: 12, padding: '10px 12px', borderRadius: 10, cursor: 'pointer',
+                      background: 'var(--bg-secondary)', border: '1px solid var(--border-color)',
+                      transition: 'border-color 0.15s, transform 0.1s',
+                    }}
+                    onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--accent-primary)'; }}
+                    onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border-color)'; }}
+                  >
+                    {icon ? (
+                      <img src={icon} alt="" style={{ width: 38, height: 38, borderRadius: m.guild.is_personal_channel ? 10 : '50%', objectFit: 'cover', flexShrink: 0 }} />
+                    ) : (
+                      <div style={{ width: 38, height: 38, borderRadius: m.guild.is_personal_channel ? 10 : '50%', flexShrink: 0, background: 'var(--accent-primary)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700 }}>
+                        {m.guild.name[0]?.toUpperCase()}
+                      </div>
+                    )}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>
+                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.guild.name}</span>
+                        <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--text-tertiary)' }}>#{m.channel.name}</span>
+                        {m.guild.is_personal_channel && <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 8, background: 'rgba(88,101,242,0.15)', color: 'var(--accent-primary)', fontWeight: 600 }}>{isRu ? 'канал' : 'channel'}</span>}
+                      </div>
+                      <div style={{ fontSize: 13, color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: 2 }}>
+                        {m.content || (isRu ? '[вложение]' : '[attachment]')}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* Servers section */}
         <div style={{ padding: '16px 24px 32px' }}>

@@ -635,6 +635,72 @@ def guild_explore(request):
     return Response(drop_mine(result))
 
 
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def search_messages_view(request):
+    """Full-text search across channel posts and server messages.
+
+    Returns messages from guilds the user is a member of, plus posts in publicly
+    discoverable channels — so authors' #hashtags surface both the post and channel.
+    """
+    from .search_index import search_messages
+
+    query = request.query_params.get('q', '').strip()[:80]
+    if not query:
+        return Response([])
+
+    hits = search_messages(query, limit=120)
+    if not hits:
+        return Response([])
+
+    # Only ~120 hits — resolve visibility against this small guild set, not the whole DB.
+    hit_guild_ids = {h[1] for h in hits}
+    member_ids = set(
+        str(g) for g in GuildMembership.objects.filter(
+            user=request.user, guild_id__in=hit_guild_ids
+        ).values_list('guild_id', flat=True)
+    )
+    discoverable_ids = set(
+        str(g) for g in Guild.objects.filter(
+            id__in=hit_guild_ids, is_discoverable=True
+        ).values_list('id', flat=True)
+    )
+    visible = member_ids | discoverable_ids
+
+    ordered_ids = [h[0] for h in hits if h[1] in visible][:30]
+    if not ordered_ids:
+        return Response([])
+
+    msgs = {
+        str(m.id): m for m in GuildMessage.objects
+        .filter(id__in=ordered_ids)
+        .select_related('author', 'channel', 'channel__guild')
+    }
+
+    result = []
+    for mid in ordered_ids:
+        m = msgs.get(mid)
+        if not m:
+            continue
+        g = m.channel.guild
+        result.append({
+            'id': str(m.id),
+            'content': (m.content or '')[:200],
+            'created_at': m.created_at.isoformat(),
+            'channel': {'id': str(m.channel_id), 'name': m.channel.name},
+            'guild': {
+                'id': str(g.id),
+                'name': g.name,
+                'icon': g.icon.url if g.icon else '',
+                'is_personal_channel': g.is_personal_channel,
+                'is_member': str(g.id) in member_ids,
+                'invite_code': g.invite_code,
+            },
+            'author': {'username': m.author.username, 'nickname': m.author.nickname or ''},
+        })
+    return Response(result)
+
+
 @api_view(['GET', 'PATCH', 'DELETE'])
 @permission_classes([IsAuthenticated])
 def guild_detail(request, guild_id):
@@ -1088,6 +1154,8 @@ def guild_message_delete(request, guild_id, message_id):
         return Response({'error': 'forbidden'}, status=status.HTTP_403_FORBIDDEN)
     channel_id = msg.channel_id
     msg.delete()
+    from .search_index import unindex_message
+    unindex_message(message_id)
     channel_layer = get_channel_layer()
     async_to_sync(channel_layer.group_send)(
         f'guild_channel_{channel_id}',
@@ -1530,13 +1598,20 @@ def guild_message_reaction(request, guild_id, message_id):
     except (Guild.DoesNotExist, GuildMembership.DoesNotExist, GuildMessage.DoesNotExist):
         return Response({'error': 'not found'}, status=status.HTTP_404_NOT_FOUND)
 
-    reaction, created = GuildMessageReaction.objects.get_or_create(
-        message=msg, user=request.user, emoji=emoji
-    )
-    if not created:
-        reaction.delete()
+    existing = GuildMessageReaction.objects.filter(message=msg, user=request.user)
+    same = existing.filter(emoji=emoji).first()
+    if same:
+        # Toggling off an existing reaction is always allowed.
+        same.delete()
         added = False
     else:
+        # Adding a new reaction — cap each user at 3 distinct reactions per message.
+        if existing.count() >= 3:
+            return Response(
+                {'error': 'reaction limit reached', 'detail': 'Можно поставить не более 3 реакций'},
+                status=status.HTTP_409_CONFLICT,
+            )
+        GuildMessageReaction.objects.create(message=msg, user=request.user, emoji=emoji)
         added = True
 
     reactions = _aggregate_reactions(msg.reactions.all(), request.user)

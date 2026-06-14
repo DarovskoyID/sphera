@@ -35,6 +35,7 @@ urlpatterns = [
     path('guilds/<uuid:guild_id>/messages/<uuid:message_id>/pin/', views.guild_message_pin),
     path('guilds/<uuid:guild_id>/messages/<uuid:message_id>/reactions/', views.guild_message_reaction),
     path('guilds/<uuid:guild_id>/messages/<uuid:message_id>/view/', views.guild_message_view),
+    path('search/messages/', views.search_messages_view),
     path('guilds/<uuid:guild_id>/messages/<uuid:message_id>/comments/', views.guild_message_comments),
     path('guilds/<uuid:guild_id>/comments/<uuid:comment_id>/', views.guild_comment_delete),
     path('guilds/<uuid:guild_id>/channels/<uuid:channel_id>/upload/', views.guild_upload_attachment),

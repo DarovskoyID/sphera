@@ -1639,6 +1639,8 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
           guildMessages: prev.guildMessages.map(m => m.id === messageId ? { ...m, reactions: data.reactions } : m),
         }));
       }
+      // 409 (reaction limit) is silently ignored — the add button is already hidden
+      // once the user has 3 reactions, so this only guards a desynced UI.
     } catch (e) { reportError(e); }
   }, [state.authToken, state.currentServerIP]);
 

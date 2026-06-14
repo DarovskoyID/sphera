@@ -18,6 +18,29 @@ function formatDate(iso: string) {
   return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: d.getFullYear() !== now.getFullYear() ? 'numeric' : undefined });
 }
 
+function useIsMobile() {
+  const [mobile, setMobile] = useState(() => typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches);
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 768px)');
+    const handler = (e: MediaQueryListEvent) => setMobile(e.matches);
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  }, []);
+  return mobile;
+}
+
+function extractHashtags(text?: string): string[] {
+  if (!text) return [];
+  const out: string[] = [];
+  const re = /#(\w{1,32})/gu;
+  let m;
+  while ((m = re.exec(text))) {
+    const t = m[1].toLowerCase();
+    if (!out.includes(t)) out.push(t);
+  }
+  return out.slice(0, 20);
+}
+
 function isAudioAttachment(att: { content_type: string; filename: string }) {
   return att.content_type.startsWith('audio/') || (att.filename.startsWith('voice_') && att.filename.endsWith('.webm'));
 }
@@ -365,6 +388,9 @@ function PostCard({ msg, guild, serverIP }: { msg: import('../types').GuildMessa
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [msg.id]);
 
+  const myReactionCount = reactions.filter(r => r.me).length;
+  const canAddReaction = myReactionCount < 3;
+
   const handleReaction = (emoji: string) => {
     toggleReaction(guild.id, msg.id, emoji);
     setShowReactions(false);
@@ -416,6 +442,19 @@ function PostCard({ msg, guild, serverIP }: { msg: import('../types').GuildMessa
         </div>
       ) : null}
 
+      {/* Hashtags written by the author — searchable */}
+      {(() => {
+        const tags = extractHashtags(msg.content);
+        if (!tags.length) return null;
+        return (
+          <div style={{ padding: '8px 20px 0', display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+            {tags.map(t => (
+              <span key={t} style={{ fontSize: 12, fontWeight: 600, padding: '2px 9px', borderRadius: 12, background: 'rgba(88,101,242,0.12)', color: 'var(--accent-primary)' }}>#{t}</span>
+            ))}
+          </div>
+        );
+      })()}
+
       {/* Attachments */}
       {msg.attachments && msg.attachments.length > 0 && (() => {
         const images = msg.attachments.filter(a => a.content_type.startsWith('image/'));
@@ -447,17 +486,19 @@ function PostCard({ msg, guild, serverIP }: { msg: import('../types').GuildMessa
             <span style={{ fontSize: 12, fontWeight: 600, color: r.me ? 'var(--accent-primary)' : 'var(--text-secondary)' }}>{r.count}</span>
           </button>
         ))}
-        <button
-          onClick={() => setShowReactions(!showReactions)}
-          style={{
-            width: 32, height: 28, borderRadius: 14, border: '1px solid var(--border-color)',
-            background: 'var(--bg-tertiary)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
-            color: 'var(--text-secondary)', fontSize: 14, transition: 'background 0.15s',
-          }}
-        >
-          +
-        </button>
-        {showReactions && (
+        {canAddReaction && (
+          <button
+            onClick={() => setShowReactions(!showReactions)}
+            style={{
+              width: 32, height: 28, borderRadius: 14, border: '1px solid var(--border-color)',
+              background: 'var(--bg-tertiary)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              color: 'var(--text-secondary)', fontSize: 14, transition: 'background 0.15s',
+            }}
+          >
+            +
+          </button>
+        )}
+        {canAddReaction && showReactions && (
           <div style={{
             display: 'flex', alignItems: 'center', gap: 4, padding: '4px 8px', background: 'var(--bg-primary)',
             borderRadius: 20, border: '1px solid var(--border-color)', boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
@@ -703,6 +744,7 @@ export const PersonalChannelFeed: React.FC<{ style?: React.CSSProperties }> = ({
   const liveVideoRef = useRef<HTMLVideoElement | null>(null);
 
   const isOwner = currentGuild && currentUser && currentGuild.owner_id === currentUser.id;
+  const isMobile = useIsMobile();
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -807,7 +849,7 @@ export const PersonalChannelFeed: React.FC<{ style?: React.CSSProperties }> = ({
   const fmtDur = (s: number) => `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, '0')}`;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'var(--bg-primary)', height: '100%', minHeight: 0, ...style }}>
+    <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'var(--bg-primary)', height: isMobile ? 'calc(100% - 60px)' : '100%', minHeight: 0, ...style }}>
       <style>{`@keyframes spin { to { transform: rotate(360deg) } } @keyframes recpulse { 0%,100%{opacity:1} 50%{opacity:0.3} }`}</style>
 
       {/* Header */}
