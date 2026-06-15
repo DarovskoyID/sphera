@@ -56,7 +56,12 @@ export const ExploreServers: React.FC<{ style?: React.CSSProperties }> = ({ styl
       const res = await fetch(`${currentServerIP}/api/guilds/explore/?q=${encodeURIComponent(q)}`, {
         headers: { Authorization: `Bearer ${authToken}` },
       });
-      if (res.ok) setResults(await res.json());
+      if (res.ok) {
+        const data: ExploreGuild[] = await res.json();
+        // Sort by popularity (member count, descending)
+        data.sort((a, b) => b.member_count - a.member_count);
+        setResults(data);
+      }
     } catch { /* ignore */ }
     setLoading(false);
     setLoaded(true);
@@ -228,8 +233,10 @@ export const ExploreServers: React.FC<{ style?: React.CSSProperties }> = ({ styl
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>
                         <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.guild.name}</span>
-                        <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--text-tertiary)' }}>#{m.channel.name}</span>
-                        {m.guild.is_personal_channel && <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 8, background: 'rgba(88,101,242,0.15)', color: 'var(--accent-primary)', fontWeight: 600 }}>{isRu ? 'канал' : 'channel'}</span>}
+                        {!m.guild.is_personal_channel && <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--text-tertiary)' }}>#{m.channel.name}</span>}
+                        {m.guild.is_personal_channel
+                          ? <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 8, background: 'rgba(88,101,242,0.15)', color: 'var(--accent-primary)', fontWeight: 600 }}>{isRu ? 'канал' : 'channel'}</span>
+                          : <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 8, background: 'rgba(59,165,93,0.15)', color: '#3ba55d', fontWeight: 600 }}>{isRu ? 'сервер' : 'server'}</span>}
                       </div>
                       <div style={{ fontSize: 13, color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: 2 }}>
                         {m.content || (isRu ? '[вложение]' : '[attachment]')}

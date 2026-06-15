@@ -587,8 +587,8 @@ function ChannelSettingsModal({ guild, serverIP, onClose }: { guild: Guild; serv
   const photoInputRef = useRef<HTMLInputElement>(null);
   const channelAvatar = guild.icon ? (guild.icon.startsWith('http') ? guild.icon : serverIP + guild.icon) : '';
 
-  const addTag = () => {
-    const t = tagInput.trim().replace(/^#/, '').slice(0, 24);
+  const addTag = (value?: string) => {
+    const t = (value ?? tagInput).trim().replace(/^#/, '').replace(/\s+/g, '').slice(0, 24);
     if (t && !tags.includes(t) && tags.length < 10) setTags(prev => [...prev, t]);
     setTagInput('');
   };
@@ -676,10 +676,15 @@ function ChannelSettingsModal({ guild, serverIP, onClose }: { guild: Guild; serv
             {tags.length < 10 && (
               <input
                 value={tagInput}
-                onChange={e => setTagInput(e.target.value)}
+                onChange={e => {
+                  const v = e.target.value;
+                  // Commit the tag as soon as the user types a space (or comma)
+                  if (/[\s,]/.test(v)) addTag(v);
+                  else setTagInput(v);
+                }}
                 onKeyDown={e => { if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); addTag(); } }}
-                onBlur={addTag}
-                placeholder="Добавить тег и нажать Enter"
+                onBlur={() => addTag()}
+                placeholder="Добавить тег (пробел или Enter)"
                 maxLength={24}
                 style={{ width: '100%', boxSizing: 'border-box', padding: '8px 12px', borderRadius: 8, border: '1px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: 13, outline: 'none' }}
               />
@@ -722,8 +727,16 @@ function ChannelSettingsModal({ guild, serverIP, onClose }: { guild: Guild; serv
   );
 }
 
+// In-session draft store (kept locally on the client, never sent to the server).
+// Text drafts also persist to localStorage; File objects can't be serialized so
+// they live in this module-level map for the lifetime of the page.
+const draftFiles = new Map<string, File[]>();
+const draftTextKey = (channelId: string) => `ionik_draft_text_${channelId}`;
+
 export const PersonalChannelFeed: React.FC<{ style?: React.CSSProperties }> = ({ style }) => {
   const { currentGuild, currentGuildChannel, guildMessages, currentServerIP, authToken, currentUser, sendGuildMessage, updateGuild, leaveGuild, toggleGuildNotifications } = useApp();
+
+  const channelId = currentGuildChannel?.id ? String(currentGuildChannel.id) : '';
 
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
@@ -733,6 +746,37 @@ export const PersonalChannelFeed: React.FC<{ style?: React.CSSProperties }> = ({
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const avatarInputRef = useRef<HTMLInputElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Grow the composer with its content up to a max height, then scroll.
+  const autoResize = useCallback(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = Math.min(el.scrollHeight, 120) + 'px';
+  }, []);
+
+  // Restore the locally-saved draft (text + files) whenever the channel changes.
+  useEffect(() => {
+    if (!channelId) { setInput(''); setFiles([]); return; }
+    setInput(localStorage.getItem(draftTextKey(channelId)) || '');
+    setFiles(draftFiles.get(channelId) || []);
+  }, [channelId]);
+
+  // Persist the text draft locally as the user types.
+  useEffect(() => {
+    if (!channelId) return;
+    if (input) localStorage.setItem(draftTextKey(channelId), input);
+    else localStorage.removeItem(draftTextKey(channelId));
+    autoResize();
+  }, [input, channelId, autoResize]);
+
+  // Keep file drafts in the in-session store.
+  useEffect(() => {
+    if (!channelId) return;
+    if (files.length) draftFiles.set(channelId, files);
+    else draftFiles.delete(channelId);
+  }, [files, channelId]);
 
   // Recording state
   const [recording, setRecording] = useState<null | 'voice' | 'video'>(null);
@@ -1015,6 +1059,7 @@ export const PersonalChannelFeed: React.FC<{ style?: React.CSSProperties }> = ({
               e.target.value = '';
             }} />
             <textarea
+              ref={textareaRef}
               value={input}
               onChange={e => setInput(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
@@ -1023,7 +1068,7 @@ export const PersonalChannelFeed: React.FC<{ style?: React.CSSProperties }> = ({
                 flex: 1, resize: 'none', padding: '10px 14px', borderRadius: 12,
                 border: '1px solid var(--border-color)', background: 'var(--bg-primary)',
                 color: 'var(--text-primary)', fontSize: 14, outline: 'none',
-                minHeight: 40, maxHeight: 120,
+                minHeight: 40, maxHeight: 120, overflowY: 'auto',
                 fontFamily: 'inherit',
               }}
               rows={1}

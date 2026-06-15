@@ -82,6 +82,11 @@ services:
       GF_USERS_ALLOW_SIGN_UP: 'false'
       GF_SERVER_ROOT_URL: "%(protocol)s://%(domain)s:%(http_port)s/grafana/"
       GF_SERVER_SERVE_FROM_SUB_PATH: 'true'
+      # снижаем потребление памяти: меньше фоновых процессов и аналитики
+      GF_ANALYTICS_REPORTING_ENABLED: 'false'
+      GF_ANALYTICS_CHECK_FOR_UPDATES: 'false'
+      GF_NEWS_NEWS_FEED_ENABLED: 'false'
+      GF_LIVE_MAX_CONNECTIONS: '0'
     volumes:
       - grafana_data:/var/lib/grafana
       - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
@@ -89,6 +94,8 @@ services:
     depends_on:
       - prometheus
     restart: unless-stopped
+    mem_limit: 256m
+    mem_reservation: 128m
 
   ws-gateway:
     build:

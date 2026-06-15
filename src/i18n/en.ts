@@ -323,7 +323,7 @@ export const en = {
   nav_explore: 'Explore',
   explore_title: 'Explore Ionik',
   explore_subtitle: 'Find communities you are interested in',
-  explore_search_placeholder: 'Search servers...',
+  explore_search_placeholder: 'Explore...',
   explore_loading: 'Loading...',
   explore_empty: 'No servers found',
   explore_join: 'Join',

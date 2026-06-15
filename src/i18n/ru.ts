@@ -297,7 +297,7 @@ export const ru: Translations = {
   nav_explore: 'Исследовать',
   explore_title: 'Исследовать Ионик',
   explore_subtitle: 'Найдите сообщества по интересам',
-  explore_search_placeholder: 'Поиск серверов...',
+  explore_search_placeholder: 'Исследовать...',
   explore_loading: 'Загрузка...',
   explore_empty: 'Серверы не найдены',
   explore_join: 'Присоединиться',
