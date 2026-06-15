@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef, createContext, useContext } from 'react';
 import { Shield, Monitor, Smartphone, Tablet, Trash2, UserX, Camera, Upload, Play, Square, RotateCcw, Server } from 'lucide-react';
 import { ServerSelector } from './ServerSelector';
+import { MessageText } from './EmojiPicker';
 import { useApp, reportError } from '../context/AppContext';
 import { useTranslation } from '../i18n/useTranslation';
 import { languages, type LangCode } from '../i18n';
@@ -169,6 +170,7 @@ export const Settings: React.FC = () => {
           {currentSettingsPage === 'view' && <AppearanceSettings />}
           {currentSettingsPage === 'voiceAndVideo' && <VoiceVideoSettings />}
           {currentSettingsPage === 'chat' && <ChatSettings />}
+          {currentSettingsPage === 'formatting' && <FormattingSettings />}
           {currentSettingsPage === 'language' && <LanguageSettings />}
           {currentSettingsPage === 'streamer' && <StreamerSettings />}
           {currentSettingsPage === 'more' && <MoreSettings />}
@@ -791,6 +793,63 @@ const ChatSettings: React.FC = () => {
       {spacingErr && <div style={statusMsg('err')}>{spacingErr}</div>}
     </div>
   </section>
+  );
+};
+
+// ==================== Formatting hints (read-only reference) ====================
+
+const FormattingSettings: React.FC = () => {
+  const tr = useTranslation();
+  const { customEmojis } = useApp();
+  const isRu = tr('settings_formatting') === 'Подсказки';
+
+  const rows: { syntax: string; example: string }[] = [
+    { syntax: '**текст**', example: '**Глава 1**' },
+    { syntax: '*текст*', example: '*курсив*' },
+    { syntax: '__текст__', example: '__подчёркнутый__' },
+    { syntax: '~~текст~~', example: '~~зачёркнутый~~' },
+    { syntax: '`код`', example: '`const x = 1`' },
+    { syntax: '```\\nблок кода\\n```', example: '```\nfunction hi() {\n  return 42;\n}\n```' },
+    { syntax: '# Заголовок', example: '# Большой текст' },
+    { syntax: '> цитата', example: '> Это цитата' },
+    { syntax: '- пункт', example: '- Первый\n- Второй\n- Третий' },
+    { syntax: '||спойлер||', example: '||скрытый текст||' },
+  ];
+  const labels: Record<string, string> = {
+    '**текст**': isRu ? 'Жирный' : 'Bold',
+    '*текст*': isRu ? 'Курсив' : 'Italic',
+    '__текст__': isRu ? 'Подчёркнутый' : 'Underline',
+    '~~текст~~': isRu ? 'Зачёркнутый' : 'Strikethrough',
+    '`код`': isRu ? 'Код в строке' : 'Inline code',
+    '```\\nблок кода\\n```': isRu ? 'Блок кода (с кнопкой «Копировать»)' : 'Code block (with copy button)',
+    '# Заголовок': isRu ? 'Крупный текст' : 'Large text',
+    '> цитата': isRu ? 'Цитата' : 'Quote',
+    '- пункт': isRu ? 'Маркированный список' : 'Bulleted list',
+    '||спойлер||': isRu ? 'Скрытый текст (спойлер)' : 'Spoiler',
+  };
+
+  return (
+    <section>
+      <h1>{isRu ? 'Подсказки по оформлению' : 'Formatting'}</h1>
+      <p style={{ color: 'var(--text-secondary)', fontSize: 14, marginTop: -4 }}>
+        {isRu
+          ? 'Используйте специальные символы, чтобы оформить текст в личных сообщениях, серверах и постах. Эти правила нельзя изменить — это просто справка.'
+          : 'Use these special characters to format your text in DMs, servers and posts. These rules are fixed — this is just a reference.'}
+      </p>
+      <div style={{ ...card, marginTop: 16, padding: 0, overflow: 'hidden' }}>
+        {rows.map((r, i) => (
+          <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, padding: '12px 16px', borderTop: i ? '1px solid var(--border-color)' : 'none', alignItems: 'center' }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{labels[r.syntax]}</div>
+            <code style={{ fontSize: 12, fontFamily: 'monospace', color: 'var(--text-secondary)', background: 'var(--bg-tertiary, rgba(0,0,0,0.25))', padding: '4px 8px', borderRadius: 6, whiteSpace: 'pre-wrap' }}>
+              {r.syntax.replace(/\\n/g, '\n')}
+            </code>
+            <div style={{ fontSize: 14, color: 'var(--text-primary)', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+              <MessageText text={r.example} customEmojis={customEmojis} />
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
   );
 };
 

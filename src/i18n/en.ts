@@ -125,6 +125,7 @@ export const en = {
   settings_special: 'Special',
   settings_voice_video: 'Voice & Video',
   settings_chat: 'Chat',
+  settings_formatting: 'Formatting',
   settings_binds: 'Key binds',
   settings_language: 'Language',
   settings_export_import: 'Export & Import',

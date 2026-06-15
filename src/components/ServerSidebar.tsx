@@ -153,8 +153,6 @@ function GuildIcon({ guild, active, onClick, serverIP }: { guild: Guild; active:
       >
         {iconUrl ? (
           <img src={iconUrl} alt={guild.name} style={{ width: 36, height: 36, borderRadius: isChannel ? 12 : '50%', objectFit: 'cover' }} />
-        ) : isChannel ? (
-          <Rss size={18} />
         ) : (
           <span style={{ fontSize: 13, fontWeight: 700, letterSpacing: 0.5 }}>{initials}</span>
         )}

@@ -1030,6 +1030,7 @@ export const ChatSidebar: React.FC = () => {
           <div className={`settings-item ${currentSettingsPage === 'special' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('special')}>{tr('settings_special')}</div>
           <div className={`settings-item ${currentSettingsPage === 'voiceAndVideo' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('voiceAndVideo')}>{tr('settings_voice_video')}</div>
           <div className={`settings-item ${currentSettingsPage === 'chat' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('chat')}>{tr('settings_chat')}</div>
+          <div className={`settings-item ${currentSettingsPage === 'formatting' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('formatting')}>{tr('settings_formatting')}</div>
           <div className={`settings-item ${currentSettingsPage === 'binds' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('binds')}>{tr('settings_binds')}</div>
           <div className={`settings-item ${currentSettingsPage === 'language' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('language')}>{tr('settings_language')}</div>
           <div className={`settings-item ${currentSettingsPage === 'exportImport' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('exportImport')}>{tr('settings_export_import')}</div>

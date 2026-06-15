@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { Send, Plus, X, FileText, Camera, Mic, Circle, Music, Square, ChevronLeft, ChevronRight, Image as ImageIcon, Eye, MessageCircle, Trash2, Settings, MoreVertical, Bell, BellOff, LogOut, SmilePlus } from 'lucide-react';
+import { Send, Plus, X, FileText, Camera, Mic, Circle, Music, Square, ChevronLeft, ChevronRight, Image as ImageIcon, Eye, MessageCircle, Trash2, Settings, MoreVertical, Bell, BellOff, LogOut, SmilePlus, Smile } from 'lucide-react';
 import { EmojiPicker } from './EmojiPicker';
+import { UnifiedPicker } from './StickerGifPicker';
 import { useApp } from '../context/AppContext';
 import { MessageText } from './EmojiPicker';
 import { VoiceMessagePlayer, VideoCirclePlayer } from './ChatMain';
@@ -734,7 +735,7 @@ const draftFiles = new Map<string, File[]>();
 const draftTextKey = (channelId: string) => `ionik_draft_text_${channelId}`;
 
 export const PersonalChannelFeed: React.FC<{ style?: React.CSSProperties }> = ({ style }) => {
-  const { currentGuild, currentGuildChannel, guildMessages, currentServerIP, authToken, currentUser, sendGuildMessage, updateGuild, leaveGuild, toggleGuildNotifications } = useApp();
+  const { currentGuild, currentGuildChannel, guildMessages, currentServerIP, authToken, currentUser, customEmojis, sendGuildMessage, scheduleGuildMessage, updateGuild, leaveGuild, toggleGuildNotifications } = useApp();
 
   const channelId = currentGuildChannel?.id ? String(currentGuildChannel.id) : '';
 
@@ -747,6 +748,10 @@ export const PersonalChannelFeed: React.FC<{ style?: React.CSSProperties }> = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const avatarInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [showPicker, setShowPicker] = useState(false);
+  const pickerButtonRef = useRef<HTMLButtonElement>(null);
+  const stickerSendGuard = useRef(false);
+  const [scheduledNote, setScheduledNote] = useState<string | null>(null);
 
   // Grow the composer with its content up to a max height, then scroll.
   const autoResize = useCallback(() => {
@@ -862,29 +867,63 @@ export const PersonalChannelFeed: React.FC<{ style?: React.CSSProperties }> = ({
     await updateGuild(currentGuild.id, { icon: f });
   };
 
+  const uploadFiles = async (list: File[]): Promise<string[]> => {
+    if (!currentGuild || !currentGuildChannel) return [];
+    const ids: string[] = [];
+    for (const f of list) {
+      const form = new FormData();
+      form.append('file', f, f.name);
+      const res = await fetch(
+        `${currentServerIP}/api/guilds/${currentGuild.id}/channels/${currentGuildChannel.id}/upload/`,
+        { method: 'POST', headers: { Authorization: `Bearer ${authToken}` }, body: form }
+      );
+      if (res.ok) { const d = await res.json(); ids.push(d.id); }
+    }
+    return ids;
+  };
+
   const handleSend = async () => {
     if (!input.trim() && files.length === 0) return;
     if (!currentGuild || !currentGuildChannel) return;
     setSending(true);
-
     try {
-      let attachmentIds: string[] = [];
-      for (const f of files) {
-        const form = new FormData();
-        form.append('file', f, f.name);
-        const res = await fetch(
-          `${currentServerIP}/api/guilds/${currentGuild.id}/channels/${currentGuildChannel.id}/upload/`,
-          { method: 'POST', headers: { Authorization: `Bearer ${authToken}` }, body: form }
-        );
-        if (res.ok) { const d = await res.json(); attachmentIds.push(d.id); }
-      }
-
+      const attachmentIds = await uploadFiles(files);
       sendGuildMessage(input.trim(), undefined, attachmentIds.length ? attachmentIds : undefined);
       setInput('');
       setFiles([]);
     } finally {
       setSending(false);
     }
+  };
+
+  // Schedule the current draft to post after a delay (handled server-side).
+  const handleDelayedSend = async (delayMs: number) => {
+    if (!input.trim() && files.length === 0) return;
+    if (!currentGuild || !currentGuildChannel) return;
+    setShowPicker(false);
+    setSending(true);
+    try {
+      const attachmentIds = await uploadFiles(files);
+      const result = await scheduleGuildMessage(input.trim(), Math.round(delayMs / 1000), undefined, attachmentIds.length ? attachmentIds : undefined);
+      if (result) {
+        setInput('');
+        setFiles([]);
+        const when = new Date(result.send_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        setScheduledNote(`Пост запланирован на ${when}`);
+        setTimeout(() => setScheduledNote(null), 4000);
+      }
+    } finally {
+      setSending(false);
+    }
+  };
+
+  // Send a sticker/GIF as its own post immediately.
+  const sendStickerPost = (url: string) => {
+    if (stickerSendGuard.current) return;
+    stickerSendGuard.current = true;
+    sendGuildMessage(url, undefined, undefined);
+    setShowPicker(false);
+    setTimeout(() => { stickerSendGuard.current = false; }, 500);
   };
 
   if (!currentGuild || !currentGuildChannel) return null;
@@ -1036,7 +1075,12 @@ export const PersonalChannelFeed: React.FC<{ style?: React.CSSProperties }> = ({
               ))}
             </div>
           )}
-          <div style={{ display: 'flex', gap: 6, alignItems: 'flex-end' }}>
+          {scheduledNote && (
+            <div style={{ margin: '0 0 8px', padding: '6px 12px', borderRadius: 8, background: 'rgba(59,165,93,0.12)', color: '#3ba55d', fontSize: 13, fontWeight: 600 }}>
+              {scheduledNote}
+            </div>
+          )}
+          <div style={{ display: 'flex', gap: 6, alignItems: 'flex-end', position: 'relative' }}>
             <button onClick={() => fileInputRef.current?.click()} disabled={!!recording} title="Прикрепить файл"
               style={{ background: 'none', border: 'none', cursor: recording ? 'default' : 'pointer', color: 'var(--text-secondary)', padding: 8, opacity: recording ? 0.4 : 1 }}>
               <Plus size={20} />
@@ -1073,6 +1117,25 @@ export const PersonalChannelFeed: React.FC<{ style?: React.CSSProperties }> = ({
               }}
               rows={1}
             />
+            <button
+              ref={pickerButtonRef}
+              onClick={() => setShowPicker(v => !v)}
+              disabled={!!recording}
+              title="Эмодзи, стикеры, отложенная отправка"
+              style={{ background: 'none', border: 'none', cursor: recording ? 'default' : 'pointer', color: showPicker ? 'var(--accent-primary)' : 'var(--text-secondary)', padding: 8, opacity: recording ? 0.4 : 1 }}>
+              <Smile size={20} />
+            </button>
+            {showPicker && (
+              <UnifiedPicker
+                anchorRef={pickerButtonRef}
+                onSelectEmoji={emoji => setInput(prev => prev + emoji)}
+                onSelectGif={url => sendStickerPost(url)}
+                onSelectSticker={url => sendStickerPost(url)}
+                onDelayedSend={ms => handleDelayedSend(ms)}
+                canSchedule={!!input.trim() || files.length > 0}
+                onClose={() => setShowPicker(false)}
+              />
+            )}
             <button
               onClick={handleSend}
               disabled={sending || (!input.trim() && files.length === 0)}

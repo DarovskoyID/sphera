@@ -117,6 +117,7 @@ export const ru: Translations = {
   settings_special: 'Спецвозможности',
   settings_voice_video: 'Голос и видео',
   settings_chat: 'Чат',
+  settings_formatting: 'Подсказки',
   settings_binds: 'Горячие клавиши',
   settings_language: 'Язык',
   settings_export_import: 'Экспорт и импорт',

@@ -507,60 +507,195 @@ export const MessageText: React.FC<{ text: string; customEmojis: CustomEmoji[]; 
     );
   }
 
-  const mentionStyle: React.CSSProperties = { background: 'rgba(88,101,242,0.3)', color: '#7289da', borderRadius: 3, padding: '0 2px', fontWeight: 600 };
+  return <span>{renderRichText(text, customEmojis, members)}</span>;
+};
 
-  const renderMentions = (str: string, keyBase: number = 0): React.ReactNode[] => {
-    if (!members?.length && !str.includes('@everyone') && !str.includes('@role:')) return [str];
+// ─────────────────────────────────────────────────────────────────────────────
+// Rich-text formatting
+//
+// Lightweight markdown-like renderer shared by every place users write text
+// (DMs, server channels, channel posts). Supported syntax (see the "Подсказки"
+// tab in Settings):
+//   **жирный**   *курсив*   __подчёркнутый__   ~~зачёркнутый~~
+//   `код`        ```блок кода```   # Большой текст
+//   > цитата     - пункт списка     ||спойлер||
+// Leaf text still runs through mention + custom-emoji rendering.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const mentionStyle: React.CSSProperties = { background: 'rgba(88,101,242,0.3)', color: '#7289da', borderRadius: 3, padding: '0 2px', fontWeight: 600 };
+const inlineCodeStyle: React.CSSProperties = { background: 'var(--bg-tertiary, rgba(0,0,0,0.3))', borderRadius: 4, padding: '1px 5px', fontFamily: 'monospace', fontSize: '0.9em' };
+
+const Spoiler: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [revealed, setRevealed] = useState(false);
+  return (
+    <span
+      onClick={e => { e.stopPropagation(); setRevealed(true); }}
+      title={revealed ? undefined : 'Нажмите, чтобы показать'}
+      style={{
+        background: revealed ? 'rgba(128,128,128,0.18)' : 'var(--text-primary)',
+        color: revealed ? 'inherit' : 'transparent',
+        borderRadius: 4, padding: '0 3px', cursor: revealed ? 'inherit' : 'pointer',
+        transition: 'background 0.15s, color 0.15s', userSelect: revealed ? 'auto' : 'none',
+      }}
+    >
+      {children}
+    </span>
+  );
+};
+
+const CodeBlock: React.FC<{ code: string }> = ({ code }) => {
+  const [copied, setCopied] = useState(false);
+  const copy = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    navigator.clipboard?.writeText(code).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); });
+  };
+  return (
+    <div style={{ position: 'relative', background: '#1e1f22', border: '1px solid var(--border-color, rgba(255,255,255,0.08))', borderRadius: 8, margin: '6px 0', overflow: 'hidden' }}>
+      <button
+        onClick={copy}
+        style={{
+          position: 'absolute', top: 6, right: 6, fontSize: 11, padding: '3px 8px', borderRadius: 6,
+          border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(255,255,255,0.06)',
+          color: copied ? '#3ba55d' : 'rgba(255,255,255,0.7)', cursor: 'pointer', fontWeight: 600,
+        }}
+      >
+        {copied ? 'Скопировано' : 'Копировать'}
+      </button>
+      <pre style={{ margin: 0, padding: '12px 14px', overflowX: 'auto', fontFamily: 'monospace', fontSize: 13, lineHeight: 1.5, color: '#e3e5e8', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+        {code}
+      </pre>
+    </div>
+  );
+};
+
+// Render plain leaf text: custom emojis + mentions.
+function renderLeaf(str: string, customEmojis: CustomEmoji[], members: { username: string; nickname: string }[] | undefined, keyBase: string): React.ReactNode[] {
+  const renderMentions = (s: string, kb: string): React.ReactNode[] => {
+    if (!members?.length && !s.includes('@everyone') && !s.includes('@role:')) return [s];
     const mentionRe = /@(everyone|role:[^\s]+|[^\s@]+)/g;
     const out: React.ReactNode[] = [];
     let prev = 0;
     let mm: RegExpExecArray | null;
-    while ((mm = mentionRe.exec(str)) !== null) {
-      if (mm.index > prev) out.push(str.slice(prev, mm.index));
+    while ((mm = mentionRe.exec(s)) !== null) {
+      if (mm.index > prev) out.push(s.slice(prev, mm.index));
       const raw = mm[1];
       if (raw === 'everyone') {
-        out.push(<span key={`m${keyBase}-${mm.index}`} style={mentionStyle}>@everyone</span>);
+        out.push(<span key={`${kb}-m${mm.index}`} style={mentionStyle}>@everyone</span>);
       } else if (raw.startsWith('role:')) {
-        out.push(<span key={`m${keyBase}-${mm.index}`} style={mentionStyle}>@{raw.slice(5)}</span>);
+        out.push(<span key={`${kb}-m${mm.index}`} style={mentionStyle}>@{raw.slice(5)}</span>);
       } else {
         const member = members?.find(u => u.username === raw);
-        if (member) {
-          out.push(<span key={`m${keyBase}-${mm.index}`} style={mentionStyle}>@{member.nickname || member.username}</span>);
-        } else {
-          out.push(mm[0]);
-        }
+        if (member) out.push(<span key={`${kb}-m${mm.index}`} style={mentionStyle}>@{member.nickname || member.username}</span>);
+        else out.push(mm[0]);
       }
       prev = mm.index + mm[0].length;
     }
-    if (prev < str.length) out.push(str.slice(prev));
+    if (prev < s.length) out.push(s.slice(prev));
     return out;
   };
 
-  if (customEmojis.length === 0 || !text.includes(':')) {
-    return <span>{renderMentions(text)}</span>;
-  }
+  if (customEmojis.length === 0 || !str.includes(':')) return renderMentions(str, keyBase);
+
   const parts: React.ReactNode[] = [];
   const regex = /:([a-z0-9_]+):/g;
   let last = 0;
   let m: RegExpExecArray | null;
-  while ((m = regex.exec(text)) !== null) {
-    if (m.index > last) parts.push(...renderMentions(text.slice(last, m.index), m.index));
+  while ((m = regex.exec(str)) !== null) {
+    if (m.index > last) parts.push(...renderMentions(str.slice(last, m.index), `${keyBase}-${m.index}`));
     const found = customEmojis.find(e => e.name === m![1]);
     if (found) {
-      parts.push(
-        <img
-          key={m.index}
-          src={found.image_url}
-          alt={`:${found.name}:`}
-          title={`:${found.name}:`}
-          style={{ width: 20, height: 20, objectFit: 'contain', verticalAlign: 'middle', display: 'inline' }}
-        />
-      );
+      parts.push(<img key={`${keyBase}-e${m.index}`} src={found.image_url} alt={`:${found.name}:`} title={`:${found.name}:`} style={{ width: 20, height: 20, objectFit: 'contain', verticalAlign: 'middle', display: 'inline' }} />);
     } else {
       parts.push(m[0]);
     }
     last = m.index + m[0].length;
   }
-  if (last < text.length) parts.push(...renderMentions(text.slice(last), last));
-  return <span>{parts}</span>;
-};
+  if (last < str.length) parts.push(...renderMentions(str.slice(last), `${keyBase}-end`));
+  return parts;
+}
+
+interface InlineRule { re: RegExp; render: (inner: string, key: string, parse: (s: string, kb: string) => React.ReactNode[]) => React.ReactNode; literal?: boolean; }
+const INLINE_RULES: InlineRule[] = [
+  { re: /`([^`]+)`/, literal: true, render: (inner, key) => <code key={key} style={inlineCodeStyle}>{inner}</code> },
+  { re: /\*\*([\s\S]+?)\*\*/, render: (inner, key, parse) => <strong key={key}>{parse(inner, key)}</strong> },
+  { re: /__([\s\S]+?)__/, render: (inner, key, parse) => <u key={key}>{parse(inner, key)}</u> },
+  { re: /~~([\s\S]+?)~~/, render: (inner, key, parse) => <s key={key}>{parse(inner, key)}</s> },
+  { re: /\|\|([\s\S]+?)\|\|/, render: (inner, key, parse) => <Spoiler key={key}>{parse(inner, key)}</Spoiler> },
+  { re: /\*([\s\S]+?)\*/, render: (inner, key, parse) => <em key={key}>{parse(inner, key)}</em> },
+];
+
+function parseInline(str: string, customEmojis: CustomEmoji[], members: { username: string; nickname: string }[] | undefined, keyBase: string): React.ReactNode[] {
+  if (!str) return [];
+  // Find the earliest-matching inline rule.
+  let best: { rule: InlineRule; match: RegExpExecArray } | null = null;
+  for (const rule of INLINE_RULES) {
+    const re = new RegExp(rule.re.source, rule.re.flags.includes('g') ? rule.re.flags : rule.re.flags + 'g');
+    re.lastIndex = 0;
+    const match = re.exec(str);
+    if (match && (!best || match.index < best.match.index)) best = { rule, match };
+  }
+  if (!best) return renderLeaf(str, customEmojis, members, keyBase);
+
+  const { rule, match } = best;
+  const out: React.ReactNode[] = [];
+  if (match.index > 0) out.push(...renderLeaf(str.slice(0, match.index), customEmojis, members, `${keyBase}-pre`));
+  const key = `${keyBase}-f${match.index}`;
+  const recur = (s: string, kb: string) => parseInline(s, customEmojis, members, kb);
+  out.push(rule.literal ? rule.render(match[1], key, recur) : rule.render(match[1], key, recur));
+  const rest = str.slice(match.index + match[0].length);
+  if (rest) out.push(...parseInline(rest, customEmojis, members, `${keyBase}-rest`));
+  return out;
+}
+
+export function renderRichText(text: string, customEmojis: CustomEmoji[], members?: { username: string; nickname: string }[]): React.ReactNode {
+  const lines = text.split('\n');
+  const blocks: React.ReactNode[] = [];
+  let i = 0;
+  const inline = (s: string, kb: string) => parseInline(s, customEmojis, members, kb);
+  while (i < lines.length) {
+    const line = lines[i];
+    // Code fence
+    if (line.trim().startsWith('```')) {
+      const codeLines: string[] = [];
+      let j = i + 1;
+      while (j < lines.length && !lines[j].trim().startsWith('```')) { codeLines.push(lines[j]); j++; }
+      blocks.push(<CodeBlock key={`b${i}`} code={codeLines.join('\n')} />);
+      i = j + 1;
+      continue;
+    }
+    // Heading (bigger text)
+    if (/^#\s+/.test(line)) {
+      blocks.push(<div key={`b${i}`} style={{ fontSize: '1.4em', fontWeight: 700, lineHeight: 1.3, margin: '2px 0' }}>{inline(line.replace(/^#\s+/, ''), `b${i}`)}</div>);
+      i++;
+      continue;
+    }
+    // Quote (group consecutive)
+    if (/^>\s?/.test(line)) {
+      const q: string[] = [];
+      while (i < lines.length && /^>\s?/.test(lines[i])) { q.push(lines[i].replace(/^>\s?/, '')); i++; }
+      blocks.push(
+        <blockquote key={`b${i}`} style={{ margin: '3px 0', padding: '2px 0 2px 10px', borderLeft: '3px solid var(--accent-primary)', color: 'var(--text-secondary)' }}>
+          {q.map((l, k) => <div key={k}>{inline(l, `b${i}-${k}`)}</div>)}
+        </blockquote>
+      );
+      continue;
+    }
+    // Bullet list (group consecutive)
+    if (/^[-*]\s+/.test(line)) {
+      const items: string[] = [];
+      while (i < lines.length && /^[-*]\s+/.test(lines[i])) { items.push(lines[i].replace(/^[-*]\s+/, '')); i++; }
+      blocks.push(
+        <ul key={`b${i}`} style={{ margin: '3px 0', paddingLeft: 22 }}>
+          {items.map((l, k) => <li key={k}>{inline(l, `b${i}-${k}`)}</li>)}
+        </ul>
+      );
+      continue;
+    }
+    // Normal text (group consecutive non-special lines, preserve newlines)
+    const norm: string[] = [];
+    const isSpecial = (l: string) => l.trim().startsWith('```') || /^#\s+/.test(l) || /^>\s?/.test(l) || /^[-*]\s+/.test(l);
+    while (i < lines.length && !isSpecial(lines[i])) { norm.push(lines[i]); i++; }
+    blocks.push(<React.Fragment key={`b${i}`}>{inline(norm.join('\n'), `b${i}`)}</React.Fragment>);
+  }
+  return blocks;
+}

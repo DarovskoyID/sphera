@@ -616,7 +616,10 @@ def guild_explore(request):
     else:
         terms = [t for t in search.split() if t][:5]
         ids = _fts_search_ids(terms)
-        if ids is not None:
+        # Use FTS only when it actually returns hits. An empty result (common for
+        # Cyrillic prefix matches the FTS tokenizer can't handle) must fall through
+        # to the LIKE search rather than yielding "no servers found".
+        if ids:
             # FTS5 path — order the matched ids by popularity.
             qs = base.filter(id__in=ids)
             guilds = list(qs[:50])
