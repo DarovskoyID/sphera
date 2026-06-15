@@ -2,8 +2,10 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Send, Plus, X, FileText, Camera, Mic, Circle, Music, Square, ChevronLeft, ChevronRight, Image as ImageIcon, Eye, MessageCircle, Trash2, Settings, MoreVertical, Bell, BellOff, LogOut, SmilePlus, Smile } from 'lucide-react';
 import { EmojiPicker } from './EmojiPicker';
 import { UnifiedPicker } from './StickerGifPicker';
-import { useApp } from '../context/AppContext';
+import { useApp, reportError } from '../context/AppContext';
 import { MessageText } from './EmojiPicker';
+import { getDraftText, setDraftText, getDraftFiles, setDraftFiles, clearDraft } from '../utils/drafts';
+import { pickRecorderFormat, mediaUnsupportedReason, describeMediaError } from '../utils/recording';
 import { VoiceMessagePlayer, VideoCirclePlayer } from './ChatMain';
 import type { Guild } from '../types';
 
@@ -728,16 +730,10 @@ function ChannelSettingsModal({ guild, serverIP, onClose }: { guild: Guild; serv
   );
 }
 
-// In-session draft store (kept locally on the client, never sent to the server).
-// Text drafts also persist to localStorage; File objects can't be serialized so
-// they live in this module-level map for the lifetime of the page.
-const draftFiles = new Map<string, File[]>();
-const draftTextKey = (channelId: string) => `ionik_draft_text_${channelId}`;
-
 export const PersonalChannelFeed: React.FC<{ style?: React.CSSProperties }> = ({ style }) => {
   const { currentGuild, currentGuildChannel, guildMessages, currentServerIP, authToken, currentUser, customEmojis, sendGuildMessage, scheduleGuildMessage, updateGuild, leaveGuild, toggleGuildNotifications } = useApp();
 
-  const channelId = currentGuildChannel?.id ? String(currentGuildChannel.id) : '';
+  const channelId = currentGuildChannel?.id ? `ch_${currentGuildChannel.id}` : '';
 
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
@@ -752,6 +748,7 @@ export const PersonalChannelFeed: React.FC<{ style?: React.CSSProperties }> = ({
   const pickerButtonRef = useRef<HTMLButtonElement>(null);
   const stickerSendGuard = useRef(false);
   const [scheduledNote, setScheduledNote] = useState<string | null>(null);
+  const [recordError, setRecordError] = useState<string | null>(null);
 
   // Grow the composer with its content up to a max height, then scroll.
   const autoResize = useCallback(() => {
@@ -759,29 +756,35 @@ export const PersonalChannelFeed: React.FC<{ style?: React.CSSProperties }> = ({
     if (!el) return;
     el.style.height = 'auto';
     el.style.height = Math.min(el.scrollHeight, 120) + 'px';
+    // Show the scrollbar only once the content exceeds the max height.
+    el.style.overflowY = el.scrollHeight > 120 ? 'auto' : 'hidden';
   }, []);
 
   // Restore the locally-saved draft (text + files) whenever the channel changes.
+  // Saving is done imperatively (see persistInput/persistFiles) rather than in an
+  // effect, so the stale composer state isn't written into the wrong channel on
+  // switch, and the draft isn't cleared by effects re-running on (re)mount.
   useEffect(() => {
     if (!channelId) { setInput(''); setFiles([]); return; }
-    setInput(localStorage.getItem(draftTextKey(channelId)) || '');
-    setFiles(draftFiles.get(channelId) || []);
+    setInput(getDraftText(channelId));
+    setFiles(getDraftFiles(channelId));
   }, [channelId]);
 
-  // Persist the text draft locally as the user types.
-  useEffect(() => {
-    if (!channelId) return;
-    if (input) localStorage.setItem(draftTextKey(channelId), input);
-    else localStorage.removeItem(draftTextKey(channelId));
-    autoResize();
-  }, [input, channelId, autoResize]);
+  // Keep the textarea height in sync with restored / typed text.
+  useEffect(() => { autoResize(); }, [input, autoResize]);
 
-  // Keep file drafts in the in-session store.
-  useEffect(() => {
-    if (!channelId) return;
-    if (files.length) draftFiles.set(channelId, files);
-    else draftFiles.delete(channelId);
-  }, [files, channelId]);
+  const persistInput = useCallback((v: string) => {
+    setInput(v);
+    setDraftText(channelId, v);
+  }, [channelId]);
+
+  const persistFiles = useCallback((updater: File[] | ((prev: File[]) => File[])) => {
+    setFiles(prev => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      setDraftFiles(channelId, next);
+      return next;
+    });
+  }, [channelId]);
 
   // Recording state
   const [recording, setRecording] = useState<null | 'voice' | 'video'>(null);
@@ -807,23 +810,24 @@ export const PersonalChannelFeed: React.FC<{ style?: React.CSSProperties }> = ({
   }, []);
 
   const startRecording = useCallback(async (mode: 'voice' | 'video') => {
+    const unsupported = mediaUnsupportedReason();
+    if (unsupported) { setRecordError(unsupported); setTimeout(() => setRecordError(null), 6000); return; }
     try {
       const constraints = mode === 'video'
         ? { audio: true, video: { width: 320, height: 320, facingMode: 'user' } }
         : { audio: true };
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
       streamRef.current = stream;
-      const mimeType = mode === 'video'
-        ? (MediaRecorder.isTypeSupported('video/webm;codecs=vp9,opus') ? 'video/webm;codecs=vp9,opus' : 'video/webm')
-        : (MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : 'audio/webm');
-      const recorder = new MediaRecorder(stream, { mimeType });
+      const { mimeType, ext } = pickRecorderFormat(mode);
+      const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+      const actualType = recorder.mimeType || mimeType || '';
       chunksRef.current = [];
       recorder.ondataavailable = e => { if (e.data.size > 0) chunksRef.current.push(e.data); };
       recorder.onstop = () => {
-        const blob = new Blob(chunksRef.current, { type: mimeType });
-        const name = mode === 'video' ? `video_${Date.now()}.webm` : `voice_${Date.now()}.webm`;
-        const file = new File([blob], name, { type: mimeType });
-        setFiles(prev => [...prev, file]);
+        const blob = new Blob(chunksRef.current, { type: actualType });
+        const name = mode === 'video' ? `video_${Date.now()}.${ext}` : `voice_${Date.now()}.${ext}`;
+        const file = new File([blob], name, { type: actualType });
+        persistFiles(prev => [...prev, file]);
         stopStream();
       };
       recorderRef.current = recorder;
@@ -834,7 +838,7 @@ export const PersonalChannelFeed: React.FC<{ style?: React.CSSProperties }> = ({
       if (mode === 'video') {
         setTimeout(() => { if (liveVideoRef.current) liveVideoRef.current.srcObject = stream; }, 50);
       }
-    } catch { stopStream(); }
+    } catch (e) { reportError(e); setRecordError(describeMediaError(e)); setTimeout(() => setRecordError(null), 6000); stopStream(); }
   }, [stopStream]);
 
   const stopRecording = useCallback(() => {
@@ -891,6 +895,7 @@ export const PersonalChannelFeed: React.FC<{ style?: React.CSSProperties }> = ({
       sendGuildMessage(input.trim(), undefined, attachmentIds.length ? attachmentIds : undefined);
       setInput('');
       setFiles([]);
+      clearDraft(channelId);
     } finally {
       setSending(false);
     }
@@ -908,6 +913,7 @@ export const PersonalChannelFeed: React.FC<{ style?: React.CSSProperties }> = ({
       if (result) {
         setInput('');
         setFiles([]);
+        clearDraft(channelId);
         const when = new Date(result.send_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
         setScheduledNote(`Пост запланирован на ${when}`);
         setTimeout(() => setScheduledNote(null), 4000);
@@ -1066,7 +1072,7 @@ export const PersonalChannelFeed: React.FC<{ style?: React.CSSProperties }> = ({
                       <span style={{ maxWidth: 72, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name.startsWith('voice_') ? 'Голосовое' : f.name}</span>
                     </div>
                   )}
-                  <button onClick={() => setFiles(prev => prev.filter((_, idx) => idx !== i))} style={{
+                  <button onClick={() => persistFiles(prev => prev.filter((_, idx) => idx !== i))} style={{
                     position: 'absolute', top: 2, right: 2, width: 18, height: 18, borderRadius: '50%',
                     background: 'rgba(0,0,0,0.6)', border: 'none', cursor: 'pointer', color: '#fff',
                     display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0,
@@ -1080,55 +1086,56 @@ export const PersonalChannelFeed: React.FC<{ style?: React.CSSProperties }> = ({
               {scheduledNote}
             </div>
           )}
-          <div style={{ display: 'flex', gap: 6, alignItems: 'flex-end', position: 'relative' }}>
-            <button onClick={() => fileInputRef.current?.click()} disabled={!!recording} title="Прикрепить файл"
-              style={{ background: 'none', border: 'none', cursor: recording ? 'default' : 'pointer', color: 'var(--text-secondary)', padding: 8, opacity: recording ? 0.4 : 1 }}>
-              <Plus size={20} />
-            </button>
-            <button onClick={() => recording === 'voice' ? stopRecording() : startRecording('voice')} disabled={recording === 'video'} title="Голосовое сообщение"
-              style={{ background: 'none', border: 'none', cursor: 'pointer', color: recording === 'voice' ? '#ed4245' : 'var(--text-secondary)', padding: 8, opacity: recording === 'video' ? 0.4 : 1 }}>
-              <Mic size={20} />
-            </button>
-            <button onClick={() => recording === 'video' ? stopRecording() : startRecording('video')} disabled={recording === 'voice'} title="Видео-кружочек"
-              style={{ background: 'none', border: 'none', cursor: 'pointer', color: recording === 'video' ? '#ed4245' : 'var(--text-secondary)', padding: 8, opacity: recording === 'voice' ? 0.4 : 1 }}>
-              <Circle size={20} />
-            </button>
-            <input ref={fileInputRef} type="file" multiple hidden accept="image/*,video/*,audio/*" onChange={e => {
-              if (e.target.files) {
-                const allowed = Array.from(e.target.files).filter(f =>
-                  f.type.startsWith('image/') || f.type.startsWith('video/') || f.type.startsWith('audio/')
-                );
-                if (allowed.length) setFiles(prev => [...prev, ...allowed]);
-              }
-              e.target.value = '';
-            }} />
-            <textarea
-              ref={textareaRef}
-              value={input}
-              onChange={e => setInput(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
-              placeholder="Напишите пост..."
-              style={{
-                flex: 1, resize: 'none', padding: '10px 14px', borderRadius: 12,
-                border: '1px solid var(--border-color)', background: 'var(--bg-primary)',
-                color: 'var(--text-primary)', fontSize: 14, outline: 'none',
-                minHeight: 40, maxHeight: 120, overflowY: 'auto',
-                fontFamily: 'inherit',
-              }}
-              rows={1}
-            />
-            <button
-              ref={pickerButtonRef}
-              onClick={() => setShowPicker(v => !v)}
-              disabled={!!recording}
-              title="Эмодзи, стикеры, отложенная отправка"
-              style={{ background: 'none', border: 'none', cursor: recording ? 'default' : 'pointer', color: showPicker ? 'var(--accent-primary)' : 'var(--text-secondary)', padding: 8, opacity: recording ? 0.4 : 1 }}>
-              <Smile size={20} />
-            </button>
+          {recordError && (
+            <div style={{ margin: '0 0 8px', padding: '8px 12px', borderRadius: 8, background: 'rgba(237,66,69,0.12)', color: '#ed4245', fontSize: 13, fontWeight: 500, lineHeight: 1.4 }}>
+              {recordError}
+            </div>
+          )}
+          <input ref={fileInputRef} type="file" multiple hidden accept="image/*,video/*,audio/*" onChange={e => {
+            if (e.target.files) {
+              const allowed = Array.from(e.target.files).filter(f =>
+                f.type.startsWith('image/') || f.type.startsWith('video/') || f.type.startsWith('audio/')
+              );
+              if (allowed.length) persistFiles(prev => [...prev, ...allowed]);
+            }
+            e.target.value = '';
+          }} />
+          <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', position: 'relative' }}>
+            {/* Single rounded input bar holding the textarea + inline action icons */}
+            <div className="composer-bar">
+              <button className="composer-icon-btn" onClick={() => fileInputRef.current?.click()} disabled={!!recording} title="Прикрепить файл">
+                <Plus size={20} />
+              </button>
+              <textarea
+                ref={textareaRef}
+                className="composer-input"
+                value={input}
+                onChange={e => persistInput(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
+                placeholder="Напишите пост..."
+                rows={1}
+              />
+              <button className="composer-icon-btn" onClick={() => recording === 'voice' ? stopRecording() : startRecording('voice')} disabled={recording === 'video'} title="Голосовое сообщение"
+                style={recording === 'voice' ? { color: '#ed4245' } : undefined}>
+                <Mic size={19} />
+              </button>
+              <button className="composer-icon-btn" onClick={() => recording === 'video' ? stopRecording() : startRecording('video')} disabled={recording === 'voice'} title="Видео-кружочек"
+                style={recording === 'video' ? { color: '#ed4245' } : undefined}>
+                <Circle size={19} />
+              </button>
+              <button
+                ref={pickerButtonRef}
+                className={`composer-icon-btn ${showPicker ? 'active' : ''}`}
+                onClick={() => setShowPicker(v => !v)}
+                disabled={!!recording}
+                title="Эмодзи, стикеры, отложенная отправка">
+                <Smile size={19} />
+              </button>
+            </div>
             {showPicker && (
               <UnifiedPicker
                 anchorRef={pickerButtonRef}
-                onSelectEmoji={emoji => setInput(prev => prev + emoji)}
+                onSelectEmoji={emoji => persistInput(input + emoji)}
                 onSelectGif={url => sendStickerPost(url)}
                 onSelectSticker={url => sendStickerPost(url)}
                 onDelayedSend={ms => handleDelayedSend(ms)}
@@ -1137,15 +1144,10 @@ export const PersonalChannelFeed: React.FC<{ style?: React.CSSProperties }> = ({
               />
             )}
             <button
+              className="composer-send-btn"
               onClick={handleSend}
               disabled={sending || (!input.trim() && files.length === 0)}
-              style={{
-                background: 'var(--accent-primary)', border: 'none', borderRadius: 10,
-                padding: '10px 16px', cursor: 'pointer', color: '#fff',
-                display: 'flex', alignItems: 'center', gap: 6,
-                opacity: sending || (!input.trim() && files.length === 0) ? 0.5 : 1,
-                fontWeight: 600, fontSize: 13,
-              }}
+              title="Опубликовать"
             >
               <Send size={16} /> Пост
             </button>

@@ -543,6 +543,38 @@ const Spoiler: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   );
 };
 
+// Lightweight, language-agnostic syntax highlighter. Tokenizes comments,
+// strings, numbers, keywords and punctuation — good enough for a chat code block.
+const CODE_KEYWORDS = new Set([
+  'function', 'return', 'const', 'let', 'var', 'if', 'else', 'for', 'while', 'do', 'switch', 'case', 'break',
+  'continue', 'new', 'class', 'extends', 'super', 'this', 'import', 'export', 'from', 'default', 'async', 'await',
+  'try', 'catch', 'finally', 'throw', 'typeof', 'instanceof', 'in', 'of', 'null', 'undefined', 'true', 'false',
+  'def', 'elif', 'lambda', 'pass', 'with', 'as', 'not', 'and', 'or', 'None', 'True', 'False', 'self', 'print',
+  'public', 'private', 'protected', 'static', 'void', 'int', 'float', 'double', 'string', 'bool', 'char',
+]);
+const CODE_TOKEN_RE = /(\/\/[^\n]*|#[^\n]*|\/\*[\s\S]*?\*\/)|("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`)|(\b\d+(?:\.\d+)?\b)|([A-Za-z_$][\w$]*)|([{}()[\];,.:]+)/g;
+
+function highlightCode(code: string): React.ReactNode[] {
+  const out: React.ReactNode[] = [];
+  let last = 0;
+  let m: RegExpExecArray | null;
+  let key = 0;
+  CODE_TOKEN_RE.lastIndex = 0;
+  while ((m = CODE_TOKEN_RE.exec(code)) !== null) {
+    if (m.index > last) out.push(code.slice(last, m.index));
+    let color: string | undefined;
+    if (m[1]) color = '#6a9955';          // comment
+    else if (m[2]) color = '#ce9178';      // string
+    else if (m[3]) color = '#b5cea8';      // number
+    else if (m[4]) color = CODE_KEYWORDS.has(m[4]) ? '#569cd6' : undefined; // keyword
+    else if (m[5]) color = '#808a99';      // punctuation
+    out.push(color ? <span key={key++} style={{ color }}>{m[0]}</span> : m[0]);
+    last = m.index + m[0].length;
+  }
+  if (last < code.length) out.push(code.slice(last));
+  return out;
+}
+
 const CodeBlock: React.FC<{ code: string }> = ({ code }) => {
   const [copied, setCopied] = useState(false);
   const copy = (e: React.MouseEvent) => {
@@ -550,19 +582,22 @@ const CodeBlock: React.FC<{ code: string }> = ({ code }) => {
     navigator.clipboard?.writeText(code).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); });
   };
   return (
-    <div style={{ position: 'relative', background: '#1e1f22', border: '1px solid var(--border-color, rgba(255,255,255,0.08))', borderRadius: 8, margin: '6px 0', overflow: 'hidden' }}>
-      <button
-        onClick={copy}
-        style={{
-          position: 'absolute', top: 6, right: 6, fontSize: 11, padding: '3px 8px', borderRadius: 6,
-          border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(255,255,255,0.06)',
-          color: copied ? '#3ba55d' : 'rgba(255,255,255,0.7)', cursor: 'pointer', fontWeight: 600,
-        }}
-      >
-        {copied ? 'Скопировано' : 'Копировать'}
-      </button>
+    <div style={{ background: '#1e1f22', border: '1px solid var(--border-color, rgba(255,255,255,0.08))', borderRadius: 8, margin: '6px 0', overflow: 'hidden' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '5px 8px 5px 12px', background: 'rgba(0,0,0,0.25)', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+        <span style={{ fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.4)', letterSpacing: 0.4 }}>code</span>
+        <button
+          onClick={copy}
+          style={{
+            fontSize: 11, padding: '3px 8px', borderRadius: 6,
+            border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(255,255,255,0.06)',
+            color: copied ? '#3ba55d' : 'rgba(255,255,255,0.7)', cursor: 'pointer', fontWeight: 600, flexShrink: 0,
+          }}
+        >
+          {copied ? 'Скопировано' : 'Копировать'}
+        </button>
+      </div>
       <pre style={{ margin: 0, padding: '12px 14px', overflowX: 'auto', fontFamily: 'monospace', fontSize: 13, lineHeight: 1.5, color: '#e3e5e8', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-        {code}
+        {highlightCode(code)}
       </pre>
     </div>
   );
@@ -654,18 +689,19 @@ export function renderRichText(text: string, customEmojis: CustomEmoji[], member
   const inline = (s: string, kb: string) => parseInline(s, customEmojis, members, kb);
   while (i < lines.length) {
     const line = lines[i];
+    const start = i; // stable, unique per-block key (i mutates while consuming)
     // Code fence
     if (line.trim().startsWith('```')) {
       const codeLines: string[] = [];
       let j = i + 1;
       while (j < lines.length && !lines[j].trim().startsWith('```')) { codeLines.push(lines[j]); j++; }
-      blocks.push(<CodeBlock key={`b${i}`} code={codeLines.join('\n')} />);
+      blocks.push(<CodeBlock key={`b${start}`} code={codeLines.join('\n')} />);
       i = j + 1;
       continue;
     }
     // Heading (bigger text)
     if (/^#\s+/.test(line)) {
-      blocks.push(<div key={`b${i}`} style={{ fontSize: '1.4em', fontWeight: 700, lineHeight: 1.3, margin: '2px 0' }}>{inline(line.replace(/^#\s+/, ''), `b${i}`)}</div>);
+      blocks.push(<div key={`b${start}`} style={{ fontSize: '1.4em', fontWeight: 700, lineHeight: 1.3, margin: '2px 0' }}>{inline(line.replace(/^#\s+/, ''), `b${i}`)}</div>);
       i++;
       continue;
     }
@@ -674,8 +710,8 @@ export function renderRichText(text: string, customEmojis: CustomEmoji[], member
       const q: string[] = [];
       while (i < lines.length && /^>\s?/.test(lines[i])) { q.push(lines[i].replace(/^>\s?/, '')); i++; }
       blocks.push(
-        <blockquote key={`b${i}`} style={{ margin: '3px 0', padding: '2px 0 2px 10px', borderLeft: '3px solid var(--accent-primary)', color: 'var(--text-secondary)' }}>
-          {q.map((l, k) => <div key={k}>{inline(l, `b${i}-${k}`)}</div>)}
+        <blockquote key={`b${start}`} style={{ margin: '3px 0', padding: '2px 0 2px 10px', borderLeft: '3px solid var(--accent-primary)', color: 'var(--text-secondary)' }}>
+          {q.map((l, k) => <div key={k}>{inline(l, `b${start}-${k}`)}</div>)}
         </blockquote>
       );
       continue;
@@ -685,8 +721,8 @@ export function renderRichText(text: string, customEmojis: CustomEmoji[], member
       const items: string[] = [];
       while (i < lines.length && /^[-*]\s+/.test(lines[i])) { items.push(lines[i].replace(/^[-*]\s+/, '')); i++; }
       blocks.push(
-        <ul key={`b${i}`} style={{ margin: '3px 0', paddingLeft: 22 }}>
-          {items.map((l, k) => <li key={k}>{inline(l, `b${i}-${k}`)}</li>)}
+        <ul key={`b${start}`} style={{ margin: '3px 0', paddingLeft: 22 }}>
+          {items.map((l, k) => <li key={k}>{inline(l, `b${start}-${k}`)}</li>)}
         </ul>
       );
       continue;
@@ -695,7 +731,7 @@ export function renderRichText(text: string, customEmojis: CustomEmoji[], member
     const norm: string[] = [];
     const isSpecial = (l: string) => l.trim().startsWith('```') || /^#\s+/.test(l) || /^>\s?/.test(l) || /^[-*]\s+/.test(l);
     while (i < lines.length && !isSpecial(lines[i])) { norm.push(lines[i]); i++; }
-    blocks.push(<React.Fragment key={`b${i}`}>{inline(norm.join('\n'), `b${i}`)}</React.Fragment>);
+    blocks.push(<React.Fragment key={`b${start}`}>{inline(norm.join('\n'), `b${start}`)}</React.Fragment>);
   }
   return blocks;
 }

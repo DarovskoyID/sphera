@@ -6,6 +6,7 @@ import { MessageText } from './EmojiPicker';
 import { UnifiedPicker } from './StickerGifPicker';
 import { ProfileModal, type ProfileUser } from './ProfileModal';
 import ConfirmModal from './ConfirmModal';
+import { getDraftText, setDraftText, getDraftFiles, setDraftFiles } from '../utils/drafts';
 import type { GuildMessage, GuildMember, GuildRole } from '../types';
 
 const MAX_FILES = 10;
@@ -384,6 +385,24 @@ export const GuildChatMain: React.FC = () => {
   const pickerButtonRef = useRef<HTMLButtonElement>(null);
   const stickerSendGuard = useRef(false);
 
+  // Local draft (text + files) per channel — survives switching channels.
+  const draftScope = currentGuildChannel?.id ? `gc_${currentGuildChannel.id}` : '';
+  useEffect(() => {
+    if (!draftScope) { setInput(''); setPendingFiles([]); return; }
+    setInput(getDraftText(draftScope));
+    setPendingFiles(getDraftFiles(draftScope).map(f => ({ file: f, preview: f.type.startsWith('image/') ? URL.createObjectURL(f) : undefined })));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draftScope]);
+  // Saved imperatively (not in an effect) so the draft isn't clobbered on (re)mount / scope switch.
+  const persistInput = useCallback((v: string) => { setInput(v); setDraftText(draftScope, v); }, [draftScope]);
+  const persistPendingFiles = useCallback((updater: PendingFile[] | ((prev: PendingFile[]) => PendingFile[])) => {
+    setPendingFiles(prev => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      setDraftFiles(draftScope, next.map(p => p.file));
+      return next;
+    });
+  }, [draftScope]);
+
   useEffect(() => {
     if (guildMessages.length > prevLenRef.current) {
       bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -424,21 +443,21 @@ export const GuildChatMain: React.FC = () => {
 
   const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const val = e.target.value;
-    setInput(val);
+    persistInput(val);
     const cursor = e.target.selectionStart ?? val.length;
     const before = val.slice(0, cursor);
     const match = before.match(/@(\w*)$/);
     if (match) { setMentionQuery(match[1]); setMentionIdx(0); }
     else setMentionQuery(null);
-  }, []);
+  }, [persistInput]);
 
   const insertMention = useCallback((insert: string) => {
-    setInput(prev => {
-      const match = prev.match(/(.*?)@\w*$/s);
-      return match ? match[1] + insert + ' ' : prev + insert + ' ';
-    });
+    persistInput((() => {
+      const match = input.match(/(.*?)@\w*$/s);
+      return match ? match[1] + insert + ' ' : input + insert + ' ';
+    })());
     setMentionQuery(null);
-  }, []);
+  }, [persistInput, input]);
 
   const openProfile = useCallback((author: GuildMessage['author']) => {
     setProfileUser({
@@ -475,26 +494,26 @@ export const GuildChatMain: React.FC = () => {
     const selected = Array.from(e.target.files || []);
     e.target.value = '';
     if (!selected.length) return;
-    setPendingFiles(prev => {
+    persistPendingFiles(prev => {
       const available = MAX_FILES - prev.length;
       if (available <= 0) { setLimitWarning(true); setTimeout(() => setLimitWarning(false), 3000); return prev; }
       const allowed = selected.slice(0, available);
       if (selected.length > available) { setLimitWarning(true); setTimeout(() => setLimitWarning(false), 3000); }
       return [...prev, ...allowed.map(f => ({ file: f, preview: f.type.startsWith('image/') ? URL.createObjectURL(f) : undefined }))];
     });
-  }, []);
+  }, [persistPendingFiles]);
 
   const removeFile = useCallback((i: number) => {
-    setPendingFiles(prev => {
+    persistPendingFiles(prev => {
       const entry = prev[i];
       if (entry?.preview) URL.revokeObjectURL(entry.preview);
       return prev.filter((_, idx) => idx !== i);
     });
-  }, []);
+  }, [persistPendingFiles]);
 
   const clearFiles = useCallback(() => {
-    setPendingFiles(prev => { prev.forEach(f => { if (f.preview) URL.revokeObjectURL(f.preview); }); return []; });
-  }, []);
+    persistPendingFiles(prev => { prev.forEach(f => { if (f.preview) URL.revokeObjectURL(f.preview); }); return []; });
+  }, [persistPendingFiles]);
 
   const uploadFiles = useCallback(async (files: PendingFile[]): Promise<string[]> => {
     if (!currentGuild || !currentGuildChannel || files.length === 0) return [];
@@ -522,12 +541,12 @@ export const GuildChatMain: React.FC = () => {
     const text = input;
     const files = pendingFiles;
     const replyId = replyTo?.id;
-    setInput('');
+    persistInput('');
     clearFiles();
     setReplyTo(null);
     const attachmentIds = await uploadFiles(files);
     sendGuildMessage(text, replyId, attachmentIds.length ? attachmentIds : undefined);
-  }, [input, pendingFiles, replyTo, uploadFiles, sendGuildMessage, clearFiles]);
+  }, [input, pendingFiles, replyTo, uploadFiles, sendGuildMessage, clearFiles, persistInput]);
 
   const handleDelayedSend = useCallback(async (delayMs: number) => {
     if (!input.trim() && pendingFiles.length === 0) return;
@@ -535,13 +554,13 @@ export const GuildChatMain: React.FC = () => {
     const text = input;
     const files = [...pendingFiles];
     const replyId = replyTo?.id;
-    setInput('');
+    persistInput('');
     clearFiles();
     setReplyTo(null);
     const attachmentIds = await uploadFiles(files);
     const result = await scheduleGuildMessage(text, Math.round(delayMs / 1000), replyId, attachmentIds.length ? attachmentIds : undefined);
     if (result) setScheduledItems(prev => [...prev, { id: result.id, send_at: result.send_at, content: text }]);
-  }, [input, pendingFiles, replyTo, uploadFiles, scheduleGuildMessage, clearFiles]);
+  }, [input, pendingFiles, replyTo, uploadFiles, scheduleGuildMessage, clearFiles, persistInput]);
 
   const handleKey = (e: React.KeyboardEvent) => {
     if (mentionQuery !== null && mentionSuggestions.length > 0) {
@@ -784,36 +803,37 @@ export const GuildChatMain: React.FC = () => {
 
       {/* Input */}
       <div className="message-input-area" style={{ flexDirection: 'column', gap: 0, alignItems: 'stretch' }}>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center', width: '100%', position: 'relative' }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', width: '100%', position: 'relative' }}>
           <input ref={fileInputRef} type="file" multiple style={{ display: 'none' }} onChange={handleFileSelect} />
-          <button className="icon-btn" title={tr('guild_add_attachment')} onClick={() => fileInputRef.current?.click()} disabled={uploading || pendingFiles.length >= MAX_FILES || isMuted}>
-            <Plus size={20} />
-          </button>
-          <textarea
-            className="message-input"
-            placeholder={isMuted
-              ? `${tr('guild_muted_until')} ${mutedUntil!.toLocaleString()}`
-              : `${tr('guild_send_placeholder')}${currentGuildChannel.name}`}
-            value={input}
-            onChange={handleInputChange}
-            onKeyDown={handleKey}
-            rows={1}
-            maxLength={5000}
-            disabled={uploading || isMuted}
-            style={{ flex: 1, opacity: isMuted ? 0.5 : 1 }}
-          />
-          <button
-            ref={pickerButtonRef}
-            className="icon-btn"
-            title={tr('chat_emoji')}
-            onClick={() => setShowPicker(v => !v)}
-          >
-            <MoreHorizontal size={20} />
-          </button>
+          <div className="composer-bar" style={{ opacity: isMuted ? 0.6 : 1 }}>
+            <button className="composer-icon-btn" title={tr('guild_add_attachment')} onClick={() => fileInputRef.current?.click()} disabled={uploading || pendingFiles.length >= MAX_FILES || isMuted}>
+              <Plus size={20} />
+            </button>
+            <textarea
+              className="composer-input"
+              placeholder={isMuted
+                ? `${tr('guild_muted_until')} ${mutedUntil!.toLocaleString()}`
+                : `${tr('guild_send_placeholder')}${currentGuildChannel.name}`}
+              value={input}
+              onChange={handleInputChange}
+              onKeyDown={handleKey}
+              rows={1}
+              maxLength={5000}
+              disabled={uploading || isMuted}
+            />
+            <button
+              ref={pickerButtonRef}
+              className={`composer-icon-btn ${showPicker ? 'active' : ''}`}
+              title={tr('chat_emoji')}
+              onClick={() => setShowPicker(v => !v)}
+            >
+              <MoreHorizontal size={20} />
+            </button>
+          </div>
           {showPicker && (
             <UnifiedPicker
               anchorRef={pickerButtonRef}
-              onSelectEmoji={emoji => setInput(prev => prev + emoji)}
+              onSelectEmoji={emoji => persistInput(input + emoji)}
               onSelectGif={url => {
                 if (stickerSendGuard.current) return;
                 stickerSendGuard.current = true;
@@ -836,13 +856,14 @@ export const GuildChatMain: React.FC = () => {
             />
           )}
           <button
-            className="send-btn"
+            className="composer-send-circle"
+            title={tr('chat_send')}
             onClick={handleSend}
             disabled={uploading || !canSend || isMuted}
           >
             {uploading
               ? <div style={{ width: 18, height: 18, border: '2px solid currentColor', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} />
-              : <Send size={18} />
+              : <Send size={20} />
             }
           </button>
         </div>

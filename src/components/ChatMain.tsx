@@ -9,6 +9,8 @@ import { MessageText } from './EmojiPicker';
 import { UnifiedPicker } from './StickerGifPicker';
 import type { CustomEmoji } from '../types';
 import ConfirmModal from './ConfirmModal';
+import { getDraftText, setDraftText, getDraftFiles, setDraftFiles } from '../utils/drafts';
+import { pickRecorderFormat, mediaUnsupportedReason, describeMediaError } from '../utils/recording';
 
 export const ChatMain: React.FC = () => {
   const { currentView, currentChat, currentSettingsPage, setMobileActivePanel } = useApp();
@@ -623,6 +625,7 @@ export const VideoCirclePlayer: React.FC<{ url: string }> = ({ url }) => {
   const rafRef = useRef(0);
   const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isDown = useRef(false);
+  const lastTouchRef = useRef(0);
 
   useEffect(() => {
     let revoked = false;
@@ -661,7 +664,11 @@ export const VideoCirclePlayer: React.FC<{ url: string }> = ({ url }) => {
     const v = videoRef.current;
     if (!v) return;
     if (playing) { v.pause(); setPlaying(false); cancelAnimationFrame(rafRef.current); }
-    else { v.play(); setPlaying(true); rafRef.current = requestAnimationFrame(tick); }
+    else {
+      const p = v.play();
+      if (p && typeof p.then === 'function') p.then(() => { setPlaying(true); rafRef.current = requestAnimationFrame(tick); }).catch(() => { setPlaying(false); });
+      else { setPlaying(true); rafRef.current = requestAnimationFrame(tick); }
+    }
   }, [playing, tick]);
 
   const seekFromEvent = useCallback((clientX: number, clientY: number) => {
@@ -679,6 +686,11 @@ export const VideoCirclePlayer: React.FC<{ url: string }> = ({ url }) => {
   }, []);
 
   const onDown = useCallback((e: React.MouseEvent | React.TouchEvent) => {
+    const isTouch = 'touches' in e;
+    // Ignore the synthetic mouse events the browser fires right after a touch —
+    // otherwise onDown/onUp run twice and toggle() plays then instantly pauses.
+    if (isTouch) lastTouchRef.current = Date.now();
+    else if (Date.now() - lastTouchRef.current < 700) return;
     isDown.current = true;
     const el = containerRef.current;
     if (!el) return;
@@ -793,6 +805,7 @@ export const VideoCirclePlayer: React.FC<{ url: string }> = ({ url }) => {
       style={{
         position: 'relative', width: size, height: size, marginTop: 6,
         cursor: 'pointer', userSelect: 'none',
+        WebkitTapHighlightColor: 'transparent', WebkitTouchCallout: 'none', outline: 'none',
       }}
       onMouseDown={e => { e.preventDefault(); onDown(e); }}
       onTouchStart={e => { onDown(e); }}
@@ -807,7 +820,8 @@ export const VideoCirclePlayer: React.FC<{ url: string }> = ({ url }) => {
         style={{
           width: size, height: size,
           borderRadius: '50%', objectFit: 'cover', background: '#000',
-          display: 'block',
+          display: 'block', pointerEvents: 'none',
+          WebkitTapHighlightColor: 'transparent', outline: 'none',
         }}
       />
       <canvas
@@ -1419,8 +1433,28 @@ const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: (
   const pickerButtonRef = useRef<HTMLButtonElement>(null);
   const stickerSendGuard = useRef(false);
 
+  // Local draft (text + files) per conversation — survives switching chats.
+  // Restored in an effect; saved imperatively via the persist* helpers so the
+  // draft isn't clobbered by effects re-running on (re)mount / scope switch.
+  const draftScope = chatConversationId ? `dm_${chatConversationId}` : '';
+  useEffect(() => {
+    if (!draftScope) { setMessage(''); setPendingFiles([]); return; }
+    setMessage(getDraftText(draftScope));
+    setPendingFiles(getDraftFiles(draftScope).map(f => ({ file: f, preview: f.type.startsWith('image/') ? URL.createObjectURL(f) : undefined })));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draftScope]);
+  const persistMessage = useCallback((v: string) => { setMessage(v); setDraftText(draftScope, v); }, [draftScope]);
+  const persistPendingFiles = useCallback((updater: PendingFile[] | ((prev: PendingFile[]) => PendingFile[])) => {
+    setPendingFiles(prev => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      setDraftFiles(draftScope, next.map(p => p.file));
+      return next;
+    });
+  }, [draftScope]);
+
   const [recordMode, setRecordMode] = useState<RecordMode>('voice');
   const [recordState, setRecordState] = useState<RecordState>('idle');
+  const [recordError, setRecordError] = useState<string | null>(null);
   const [recordedBlob, setRecordedBlob] = useState<Blob | null>(null);
   const [recordedUrl, setRecordedUrl] = useState<string | null>(null);
   const [recordDuration, setRecordDuration] = useState(0);
@@ -1429,8 +1463,6 @@ const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: (
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const recordTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const pressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const isPressHold = useRef(false);
   const audioPreviewRef = useRef<HTMLAudioElement | null>(null);
   const videoPreviewRef = useRef<HTMLVideoElement | null>(null);
 
@@ -1441,7 +1473,6 @@ const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: (
 
   const cleanupRecording = useCallback(() => {
     if (recordTimerRef.current) { clearInterval(recordTimerRef.current); recordTimerRef.current = null; }
-    if (pressTimerRef.current) { clearTimeout(pressTimerRef.current); pressTimerRef.current = null; }
     if (mediaRecorderRef.current?.state !== 'inactive') {
       try { mediaRecorderRef.current?.stop(); } catch {}
     }
@@ -1451,20 +1482,21 @@ const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: (
   }, [stopMediaStream]);
 
   const startRecording = useCallback(async (mode: RecordMode) => {
+    const unsupported = mediaUnsupportedReason();
+    if (unsupported) { setRecordError(unsupported); setTimeout(() => setRecordError(null), 6000); return; }
     try {
       const constraints = mode === 'video'
         ? { audio: true, video: { width: 240, height: 240, facingMode: 'user' } }
         : { audio: true };
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
       mediaStreamRef.current = stream;
-      const mimeType = mode === 'video'
-        ? (MediaRecorder.isTypeSupported('video/webm;codecs=vp9,opus') ? 'video/webm;codecs=vp9,opus' : 'video/webm')
-        : (MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : 'audio/webm');
-      const recorder = new MediaRecorder(stream, { mimeType });
+      const { mimeType } = pickRecorderFormat(mode === 'video' ? 'video' : 'voice');
+      const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+      const actualType = recorder.mimeType || mimeType || '';
       chunksRef.current = [];
       recorder.ondataavailable = e => { if (e.data.size > 0) chunksRef.current.push(e.data); };
       recorder.onstop = () => {
-        const blob = new Blob(chunksRef.current, { type: mimeType });
+        const blob = new Blob(chunksRef.current, { type: actualType });
         const url = URL.createObjectURL(blob);
         setRecordedBlob(blob);
         setRecordedUrl(url);
@@ -1476,7 +1508,10 @@ const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: (
       setRecordState('recording');
       setRecordDuration(0);
       recordTimerRef.current = setInterval(() => setRecordDuration(d => d + 1), 1000);
-    } catch {
+    } catch (e) {
+      reportError(e);
+      setRecordError(describeMediaError(e));
+      setTimeout(() => setRecordError(null), 6000);
       stopMediaStream();
     }
   }, [stopMediaStream]);
@@ -1487,6 +1522,14 @@ const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: (
       mediaRecorderRef.current.stop();
     }
   }, []);
+
+  // Tap-to-start / tap-to-stop (mobile-friendly; replaces press-and-hold).
+  const toggleRecord = useCallback((mode: RecordMode) => {
+    if (recordState === 'recording') { stopRecording(); return; }
+    if (recordState === 'preview') return;
+    setRecordMode(mode);
+    startRecording(mode);
+  }, [recordState, stopRecording, startRecording]);
 
   const discardRecording = useCallback(() => {
     cleanupRecording();
@@ -1499,24 +1542,6 @@ const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: (
   }, [cleanupRecording, recordedUrl]);
 
   const liveVideoRef = useRef<HTMLVideoElement | null>(null);
-
-  const handleRecordButtonDown = useCallback(() => {
-    isPressHold.current = false;
-    pressTimerRef.current = setTimeout(() => {
-      isPressHold.current = true;
-      startRecording(recordMode);
-    }, 300);
-  }, [recordMode, startRecording]);
-
-  const handleRecordButtonUp = useCallback(() => {
-    if (pressTimerRef.current) { clearTimeout(pressTimerRef.current); pressTimerRef.current = null; }
-    if (isPressHold.current && recordState === 'recording') {
-      stopRecording();
-    } else if (!isPressHold.current) {
-      setRecordMode(prev => prev === 'voice' ? 'video' : 'voice');
-    }
-    isPressHold.current = false;
-  }, [recordState, stopRecording]);
 
   useEffect(() => {
     if (recordState === 'recording' && recordMode === 'video' && liveVideoRef.current && mediaStreamRef.current) {
@@ -1548,7 +1573,7 @@ const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: (
     e.target.value = '';
     if (!selected.length) return;
 
-    setPendingFiles(prev => {
+    persistPendingFiles(prev => {
       const available = MAX_FILES - prev.length;
       if (available <= 0) {
         setLimitWarning(true);
@@ -1566,22 +1591,22 @@ const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: (
       }));
       return [...prev, ...newEntries];
     });
-  }, []);
+  }, [persistPendingFiles]);
 
   const removeFile = useCallback((index: number) => {
-    setPendingFiles(prev => {
+    persistPendingFiles(prev => {
       const entry = prev[index];
       if (entry?.preview) URL.revokeObjectURL(entry.preview);
       return prev.filter((_, i) => i !== index);
     });
-  }, []);
+  }, [persistPendingFiles]);
 
   const clearFiles = useCallback(() => {
-    setPendingFiles(prev => {
+    persistPendingFiles(prev => {
       prev.forEach(f => { if (f.preview) URL.revokeObjectURL(f.preview); });
       return [];
     });
-  }, []);
+  }, [persistPendingFiles]);
 
   const uploadFiles = useCallback(async (files: PendingFile[]): Promise<string[]> => {
     if (!chatConversationId || files.length === 0) return [];
@@ -1616,11 +1641,11 @@ const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: (
     const text = message;
     const files = pendingFiles;
     const replyId = replyTo?.id;
-    setMessage('');
+    persistMessage('');
     clearFiles();
     onCancelReply();
     await doSend(text, files, replyId);
-  }, [message, pendingFiles, replyTo, doSend, clearFiles, onCancelReply]);
+  }, [message, pendingFiles, replyTo, doSend, clearFiles, onCancelReply, persistMessage]);
 
   const handleDelayedSend = useCallback(async (delayMs: number) => {
     if (!message.trim() && pendingFiles.length === 0) return;
@@ -1629,7 +1654,7 @@ const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: (
     const text = message;
     const files = [...pendingFiles];
     const replyId = replyTo?.id;
-    setMessage('');
+    persistMessage('');
     clearFiles();
     onCancelReply();
 
@@ -1641,7 +1666,7 @@ const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: (
     );
     if (!result) return;
     onScheduled({ id: result.id, send_at: result.send_at, content: text });
-  }, [message, pendingFiles, replyTo, chatConversationId, uploadFiles, scheduleMessage, clearFiles, onCancelReply, onScheduled]);
+  }, [message, pendingFiles, replyTo, chatConversationId, uploadFiles, scheduleMessage, clearFiles, onCancelReply, onScheduled, persistMessage]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
@@ -1651,7 +1676,8 @@ const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: (
     if (!recordedBlob || !chatConversationId) return;
     setUploading(true);
     try {
-      const fileName = recordMode === 'video' ? `video_${Date.now()}.webm` : `voice_${Date.now()}.webm`;
+      const ext = recordedBlob.type.includes('mp4') ? (recordMode === 'video' ? 'mp4' : 'm4a') : recordedBlob.type.includes('aac') ? 'aac' : 'webm';
+      const fileName = recordMode === 'video' ? `video_${Date.now()}.${ext}` : `voice_${Date.now()}.${ext}`;
       const form = new FormData();
       form.append('file', recordedBlob, fileName);
       const res = await fetch(
@@ -1667,14 +1693,6 @@ const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: (
     finally { setUploading(false); }
     discardRecording();
   }, [recordedBlob, chatConversationId, currentServerIP, authToken, sendChatMessage, replyTo, onCancelReply, discardRecording, recordMode]);
-
-  useEffect(() => {
-    const onGlobalUp = () => {
-      if (isPressHold.current || pressTimerRef.current) handleRecordButtonUp();
-    };
-    window.addEventListener('mouseup', onGlobalUp);
-    return () => window.removeEventListener('mouseup', onGlobalUp);
-  }, [handleRecordButtonUp]);
 
   const cleanupRef = useRef(cleanupRecording);
   cleanupRef.current = cleanupRecording;
@@ -1791,45 +1809,73 @@ const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: (
         </div>
       )}
 
+      {recordError && (
+        <div style={{ margin: '0 8px 8px', padding: '8px 12px', borderRadius: 10, background: 'rgba(237,66,69,0.12)', color: '#ed4245', fontSize: 13, fontWeight: 500, lineHeight: 1.4 }}>
+          {recordError}
+        </div>
+      )}
+
       {/* Input row */}
-      <div style={{ display: 'flex', gap : 8, alignItems: 'center', width: '100%', position: 'relative' }}>
+      <div style={{ display: 'flex', gap : 8, alignItems: 'flex-end', width: '100%', position: 'relative' }}>
         <input ref={fileInputRef} type="file" multiple style={{ display: 'none' }} onChange={handleFileSelect} />
-        <button className="icon-btn glass-btn" title={tr('chat_attachment')} onClick={() => fileInputRef.current?.click()} disabled={uploading || pendingFiles.length >= MAX_FILES}>
-          <Plus size={20} />
-        </button>
-        <div className="message-input-wrapper" style={{ position: 'relative', flex: 1 }}>
+        <div className="composer-bar">
+          <button className="composer-icon-btn" title={tr('chat_attachment')} onClick={() => fileInputRef.current?.click()} disabled={uploading || pendingFiles.length >= MAX_FILES}>
+            <Plus size={20} />
+          </button>
           <input
             type="text"
-            className="message-input"
+            className="composer-input"
             placeholder={tr('chat_type_message')}
             value={message}
             maxLength={5000}
-            onChange={e => setMessage(e.target.value)}
+            onChange={e => persistMessage(e.target.value)}
             onKeyDown={handleKeyDown}
             disabled={uploading || recordState !== 'idle'}
           />
           {message.length > 4000 && (
             <span style={{
-              position: 'absolute', right: 8, bottom: '50%', transform: 'translateY(50%)',
+              alignSelf: 'center', flexShrink: 0,
               fontSize: 11, color: message.length >= 4900 ? '#ff4444' : 'var(--text-secondary)',
               pointerEvents: 'none', userSelect: 'none',
             }}>
               {message.length}/5000
             </span>
           )}
+          {!hasText && pendingFiles.length === 0 && recordState !== 'preview' && (
+            <>
+              <button
+                className="composer-icon-btn"
+                title={tr('chat_voice_message')}
+                onClick={() => toggleRecord('voice')}
+                disabled={uploading || (recordState === 'recording' && recordMode === 'video')}
+                style={recordState === 'recording' && recordMode === 'voice' ? { color: '#ed4245' } : undefined}
+              >
+                {recordState === 'recording' && recordMode === 'voice' ? <Square size={18} /> : <Mic size={20} />}
+              </button>
+              <button
+                className="composer-icon-btn"
+                title={tr('chat_video_circle')}
+                onClick={() => toggleRecord('video')}
+                disabled={uploading || (recordState === 'recording' && recordMode === 'voice')}
+                style={recordState === 'recording' && recordMode === 'video' ? { color: '#ed4245' } : undefined}
+              >
+                {recordState === 'recording' && recordMode === 'video' ? <Square size={18} /> : <Circle size={20} />}
+              </button>
+            </>
+          )}
+          <button
+            ref={pickerButtonRef}
+            className={`composer-icon-btn ${showPicker ? 'active' : ''}`}
+            title={tr('chat_emoji')}
+            onClick={() => setShowPicker(v => !v)}
+          >
+            <MoreHorizontal size={20} />
+          </button>
         </div>
-        <button
-          ref={pickerButtonRef}
-          className="icon-btn glass-btn"
-          title={tr('chat_emoji')}
-          onClick={() => setShowPicker(v => !v)}
-        >
-          <MoreHorizontal size={20} />
-        </button>
         {showPicker && (
           <UnifiedPicker
             anchorRef={pickerButtonRef}
-            onSelectEmoji={emoji => setMessage(prev => prev + emoji)}
+            onSelectEmoji={emoji => persistMessage(message + emoji)}
             onSelectGif={url => {
               if (stickerSendGuard.current) return;
               stickerSendGuard.current = true;
@@ -1852,9 +1898,9 @@ const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: (
           />
         )}
 
-        {hasText || pendingFiles.length > 0 ? (
+        {(hasText || pendingFiles.length > 0) && (
           <button
-            className="icon-btn glass-btn send-btn"
+            className="composer-send-circle"
             onClick={handleSend}
             title={tr('chat_send')}
             disabled={uploading || !canSend}
@@ -1864,19 +1910,7 @@ const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: (
               : <Send size={20} />
             }
           </button>
-        ) : recordState !== 'preview' ? (
-          <button
-            className="icon-btn glass-btn send-btn"
-            title={recordMode === 'voice' ? tr('chat_voice_message') : tr('chat_video_circle')}
-            onMouseDown={handleRecordButtonDown}
-            onTouchStart={handleRecordButtonDown}
-            onTouchEnd={e => { e.preventDefault(); handleRecordButtonUp(); }}
-            disabled={uploading}
-            style={recordState === 'recording' ? { color: '#ff4444' } : undefined}
-          >
-            {recordMode === 'voice' ? <Mic size={20} /> : <Circle size={20} />}
-          </button>
-        ) : null}
+        )}
       </div>
     </div>
   );

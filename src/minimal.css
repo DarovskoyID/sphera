@@ -321,8 +321,8 @@ body {
   padding: 10px 14px;
 }
 .message-input,
-.message-input-container input,
-.message-input-container textarea {
+.message-input-container input:not(.composer-input),
+.message-input-container textarea:not(.composer-input) {
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
   border-radius: 10px;
@@ -331,8 +331,8 @@ body {
   transition: border-color var(--transition-fast);
 }
 .message-input:focus,
-.message-input-container input:focus,
-.message-input-container textarea:focus {
+.message-input-container input:not(.composer-input):focus,
+.message-input-container textarea:not(.composer-input):focus {
   border-color: var(--accent-primary);
 }
 
@@ -356,6 +356,114 @@ body {
 .send-btn:hover {
   background: var(--hover-bg);
   color: var(--accent-hover);
+}
+
+/* ---------- Unified composer (rounded input bar) ---------- */
+.composer-bar {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 22px;
+  padding: 3px 6px;
+  transition: border-color var(--transition-fast);
+}
+.composer-bar:focus-within {
+  border-color: var(--accent-primary);
+}
+.composer-icon-btn {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-secondary);
+  padding: 7px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+.composer-icon-btn:hover:not(:disabled) {
+  background: var(--hover-bg);
+  color: var(--text-primary);
+}
+.composer-icon-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.composer-icon-btn.active {
+  color: var(--accent-primary);
+}
+/* Scoped under .composer-bar so it overrides the global input[type=text]/textarea border rules */
+.composer-bar .composer-input {
+  flex: 1;
+  min-width: 0;
+  resize: none;
+  border: none;
+  outline: none;
+  background: transparent;
+  border-radius: 0;
+  color: var(--text-primary);
+  font-size: 14px;
+  font-family: inherit;
+  line-height: 1.4;
+  padding: 8px 6px;
+  min-height: 34px;
+  max-height: 120px;
+  overflow-y: hidden;
+}
+.composer-bar .composer-input:focus {
+  border: none;
+  outline: none;
+}
+.composer-send-btn {
+  flex-shrink: 0;
+  height: 44px;
+  padding: 0 18px;
+  border: none;
+  border-radius: 22px;
+  background: var(--accent-primary);
+  color: #fff;
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: background var(--transition-fast), opacity var(--transition-fast);
+}
+.composer-send-btn:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+.composer-send-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+/* Circular icon-only send / record button (DMs, server channels) */
+.composer-send-circle {
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  border: none;
+  border-radius: 50%;
+  background: var(--accent-primary);
+  color: #fff;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background var(--transition-fast), opacity var(--transition-fast);
+}
+.composer-send-circle:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+.composer-send-circle:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 /* ---------- Avatars ---------- */
