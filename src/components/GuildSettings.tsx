@@ -2,11 +2,22 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   X, Upload, Trash2, Plus, Edit2, Crown, Shield, Volume2, Smile,
   Users, Link, Lock, AlertTriangle, FileText, Copy, Play, Pause,
-  Check, ChevronRight, Zap, Image, Music, Settings, Globe, Bell,
+  Check, ChevronRight, ChevronLeft, Zap, Image, Music, Settings, Globe, Bell,
   Eye, Key, RefreshCw, Hash, Ban,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { useTranslation } from '../i18n/useTranslation';
+
+function useIsMobile() {
+  const [mobile, setMobile] = useState(() => typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches);
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 768px)');
+    const handler = () => setMobile(mq.matches);
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  }, []);
+  return mobile;
+}
 import type { GuildRole, GuildEmoji, GuildSticker, GuildSound, GuildInviteData, GuildAuditLogEntry } from '../types/index';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -1154,6 +1165,10 @@ export function GuildSettingsModal({ onClose }: { onClose: () => void }) {
   const { currentGuild } = useApp();
   const tr = useTranslation();
   const [section, setSection] = useState<Section>('profile');
+  const isMobile = useIsMobile();
+  // On mobile we show the nav list OR the section content (not both side by side).
+  const [showContent, setShowContent] = useState(false);
+  const pickSection = (key: Section) => { setSection(key); if (isMobile) setShowContent(true); };
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
@@ -1213,14 +1228,20 @@ export function GuildSettingsModal({ onClose }: { onClose: () => void }) {
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9500 }}
-      onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
-      <div style={{ display: 'flex', width: '92vw', maxWidth: 880, height: '88vh', background: 'var(--bg-primary)', borderRadius: 14, overflow: 'hidden', border: '1px solid var(--border-color)' }}>
+      onClick={e => { if (!isMobile && e.target === e.currentTarget) onClose(); }}>
+      <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', width: isMobile ? '100%' : '92vw', maxWidth: isMobile ? 'none' : 880, height: isMobile ? '100%' : '88vh', background: 'var(--bg-primary)', borderRadius: isMobile ? 0 : 14, overflow: 'hidden', border: isMobile ? 'none' : '1px solid var(--border-color)' }}>
 
-        {/* Sidebar */}
-        <aside style={{ width: 220, flexShrink: 0, background: 'var(--bg-secondary)', borderRight: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-          <div style={{ padding: '16px 14px 8px', borderBottom: '1px solid var(--border-color)', flexShrink: 0 }}>
-            <p style={{ margin: 0, fontSize: 11, fontWeight: 700, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{tr('gs_server_settings')}</p>
-            <p style={{ margin: '2px 0 0', fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{currentGuild.name}</p>
+        {/* Sidebar — full width on mobile, hidden when a section is open */}
+        {(!isMobile || !showContent) && (
+        <aside style={{ width: isMobile ? '100%' : 220, flex: isMobile ? 1 : undefined, flexShrink: 0, minHeight: 0, background: 'var(--bg-secondary)', borderRight: isMobile ? 'none' : '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+          <div style={{ padding: '16px 14px 8px', borderBottom: '1px solid var(--border-color)', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+            <div style={{ minWidth: 0 }}>
+              <p style={{ margin: 0, fontSize: 11, fontWeight: 700, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{tr('gs_server_settings')}</p>
+              <p style={{ margin: '2px 0 0', fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{currentGuild.name}</p>
+            </div>
+            {isMobile && (
+              <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', padding: 4, flexShrink: 0 }}><X size={20} /></button>
+            )}
           </div>
           <div style={{ flex: 1, overflowY: 'auto', padding: '8px 8px 16px' }}>
             {categories.map(cat => {
@@ -1231,26 +1252,40 @@ export function GuildSettingsModal({ onClose }: { onClose: () => void }) {
                 <div key={cat.label} style={{ marginBottom: 8 }}>
                   <p style={{ margin: '8px 10px 4px', fontSize: 10, fontWeight: 700, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{cat.label}</p>
                   {visible.map(item => (
-                    <NavItem key={item.key} icon={item.icon} label={item.label} active={section === item.key}
+                    <NavItem key={item.key} icon={item.icon} label={item.label} active={!isMobile && section === item.key}
                       danger={item.danger} disabled={item.disabled}
-                      onClick={() => !item.disabled && setSection(item.key)} />
+                      onClick={() => !item.disabled && pickSection(item.key)} />
                   ))}
                   <div style={{ height: 1, background: 'var(--border-color)', margin: '6px 0' }} />
                 </div>
               );
             })}
           </div>
-          <div style={{ padding: '10px 8px', borderTop: '1px solid var(--border-color)', flexShrink: 0 }}>
-            <button onClick={onClose} style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', padding: '7px 10px', background: 'transparent', color: 'var(--text-secondary)', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 13 }}>
-              <X size={14} /> {tr('gs_close_settings')}
-            </button>
-          </div>
+          {!isMobile && (
+            <div style={{ padding: '10px 8px', borderTop: '1px solid var(--border-color)', flexShrink: 0 }}>
+              <button onClick={onClose} style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', padding: '7px 10px', background: 'transparent', color: 'var(--text-secondary)', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 13 }}>
+                <X size={14} /> {tr('gs_close_settings')}
+              </button>
+            </div>
+          )}
         </aside>
+        )}
 
         {/* Content */}
-        <main style={{ flex: 1, overflowY: 'auto', padding: '28px 32px' }}>
-          {renderSection()}
+        {(!isMobile || showContent) && (
+        <main style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: isMobile ? '0 0 24px' : '28px 32px', display: 'flex', flexDirection: 'column' }}>
+          {isMobile && (
+            <div style={{ position: 'sticky', top: 0, zIndex: 1, display: 'flex', alignItems: 'center', gap: 8, padding: '12px 14px', background: 'var(--bg-primary)', borderBottom: '1px solid var(--border-color)' }}>
+              <button onClick={() => setShowContent(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-primary)', padding: 4, display: 'flex', alignItems: 'center', gap: 4, fontSize: 14, fontWeight: 600 }}>
+                <ChevronLeft size={20} /> {nav.find(n => n.key === section)?.label}
+              </button>
+            </div>
+          )}
+          <div style={{ flex: 1, padding: isMobile ? '16px 16px 0' : 0 }}>
+            {renderSection()}
+          </div>
         </main>
+        )}
       </div>
     </div>
   );

@@ -1,5 +1,5 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { Send, Plus, X, FileText, Camera, Mic, Circle, Music, Square, ChevronLeft, ChevronRight, Image as ImageIcon, Eye, MessageCircle, Trash2, Settings, MoreVertical, Bell, BellOff, LogOut, SmilePlus, Smile } from 'lucide-react';
+import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
+import { Send, Plus, X, FileText, Camera, Mic, Circle, Music, Square, ChevronLeft, ChevronRight, Image as ImageIcon, Eye, MessageCircle, Trash2, Settings, MoreVertical, Bell, BellOff, LogOut, SmilePlus, Smile, Play, Pause } from 'lucide-react';
 import { EmojiPicker } from './EmojiPicker';
 import { UnifiedPicker } from './StickerGifPicker';
 import { useApp, reportError } from '../context/AppContext';
@@ -10,6 +10,66 @@ import { VoiceMessagePlayer, VideoCirclePlayer } from './ChatMain';
 import type { Guild } from '../types';
 
 const QUICK_REACTIONS = ['👍', '❤️', '🔥', '😂', '😮', '👏', '🎉'];
+
+// Thumbnail for a pending attachment in the composer. Images show a preview;
+// voice notes and video circles are playable so the author can review before posting.
+const PendingThumb: React.FC<{ file: File; onRemove: () => void }> = ({ file, onRemove }) => {
+  const url = useMemo(() => URL.createObjectURL(file), [file]);
+  useEffect(() => () => URL.revokeObjectURL(url), [url]);
+  const [playing, setPlaying] = useState(false);
+  const mediaRef = useRef<HTMLVideoElement | HTMLAudioElement | null>(null);
+
+  const isImage = file.type.startsWith('image/');
+  const isVideo = file.type.startsWith('video/');
+  const isVoice = file.name.startsWith('voice_') || (!isImage && !isVideo && file.type.startsWith('audio/'));
+
+  const toggle = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const m = mediaRef.current;
+    if (!m) return;
+    if (playing) m.pause();
+    else { const p = m.play(); if (p && typeof p.then === 'function') p.catch(() => {}); }
+  };
+
+  return (
+    <div style={{ position: 'relative', width: 80, height: 80, borderRadius: 8, overflow: 'hidden', background: 'var(--bg-tertiary)', border: '1px solid var(--border-color)' }}>
+      {isImage ? (
+        <img src={url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+      ) : isVideo ? (
+        <>
+          <video
+            ref={el => { mediaRef.current = el; }}
+            src={url}
+            playsInline
+            onClick={toggle}
+            onPlay={() => setPlaying(true)}
+            onPause={() => setPlaying(false)}
+            onEnded={() => setPlaying(false)}
+            style={{ width: '100%', height: '100%', objectFit: 'cover', cursor: 'pointer' }}
+          />
+          {!playing && (
+            <div onClick={toggle} style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.3)', cursor: 'pointer' }}>
+              <Play size={22} color="#fff" style={{ marginLeft: 2 }} />
+            </div>
+          )}
+        </>
+      ) : (
+        <>
+          <audio ref={el => { mediaRef.current = el; }} src={url} onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} onEnded={() => setPlaying(false)} />
+          <button onClick={toggle} style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', padding: 4 }}>
+            {playing ? <Pause size={22} color="var(--accent-primary)" /> : <Play size={22} style={{ marginLeft: 2 }} />}
+            <span style={{ maxWidth: 72, fontSize: 10, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{isVoice ? 'Голосовое' : file.name}</span>
+          </button>
+        </>
+      )}
+      <button onClick={e => { e.stopPropagation(); onRemove(); }} style={{
+        position: 'absolute', top: 2, right: 2, width: 18, height: 18, borderRadius: '50%',
+        background: 'rgba(0,0,0,0.6)', border: 'none', cursor: 'pointer', color: '#fff',
+        display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0,
+      }}><X size={10} /></button>
+    </div>
+  );
+};
 
 function formatDate(iso: string) {
   const d = new Date(iso);
@@ -1061,23 +1121,7 @@ export const PersonalChannelFeed: React.FC<{ style?: React.CSSProperties }> = ({
           {files.length > 0 && (
             <div style={{ display: 'flex', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
               {files.map((f, i) => (
-                <div key={i} style={{ position: 'relative', width: 80, height: 80, borderRadius: 8, overflow: 'hidden', background: 'var(--bg-tertiary)', border: '1px solid var(--border-color)' }}>
-                  {f.type.startsWith('image/') ? (
-                    <img src={URL.createObjectURL(f)} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                  ) : f.type.startsWith('video/') ? (
-                    <video src={URL.createObjectURL(f)} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                  ) : (
-                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: 4, fontSize: 10, color: 'var(--text-secondary)', textAlign: 'center', padding: 4 }}>
-                      <Music size={20} />
-                      <span style={{ maxWidth: 72, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name.startsWith('voice_') ? 'Голосовое' : f.name}</span>
-                    </div>
-                  )}
-                  <button onClick={() => persistFiles(prev => prev.filter((_, idx) => idx !== i))} style={{
-                    position: 'absolute', top: 2, right: 2, width: 18, height: 18, borderRadius: '50%',
-                    background: 'rgba(0,0,0,0.6)', border: 'none', cursor: 'pointer', color: '#fff',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0,
-                  }}><X size={10} /></button>
-                </div>
+                <PendingThumb key={i} file={f} onRemove={() => persistFiles(prev => prev.filter((_, idx) => idx !== i))} />
               ))}
             </div>
           )}

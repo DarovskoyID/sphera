@@ -574,7 +574,7 @@ def guild_explore(request):
         Guild.objects.filter(is_discoverable=True)
         .annotate(member_count=Count('memberships'))
         .order_by('-member_count')
-        .only('id', 'name', 'description', 'icon', 'banner', 'invite_code', 'tags', 'tag')
+        .only('id', 'name', 'description', 'icon', 'banner', 'invite_code', 'tags', 'tag', 'is_personal_channel')
     )
 
     def serialize(g):
@@ -587,6 +587,7 @@ def guild_explore(request):
             'member_count': g.member_count,
             'invite_code': g.invite_code,
             'tags': g.tags or [],
+            'is_personal_channel': g.is_personal_channel,
         }
 
     def drop_mine(rows):
@@ -668,7 +669,10 @@ def search_messages_view(request):
             id__in=hit_guild_ids, is_discoverable=True
         ).values_list('id', flat=True)
     )
-    visible = member_ids | discoverable_ids
+    # Global discovery search must only surface content from guilds/channels that
+    # opted into discovery. A channel that hid itself (is_discoverable=False) must
+    # not leak its posts here, even to members/followers.
+    visible = discoverable_ids
 
     ordered_ids = [h[0] for h in hits if h[1] in visible][:30]
     if not ordered_ids:
