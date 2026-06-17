@@ -8,6 +8,19 @@ import { useTranslation } from '../i18n/useTranslation';
 import ConfirmModal from './ConfirmModal';
 import type { ServerUser } from '../types';
 
+// ── Mobile detection ─────────────────────────────────────────────────────────
+
+function useIsMobile() {
+  const [mobile, setMobile] = useState(() => typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches);
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 768px)');
+    const handler = () => setMobile(mq.matches);
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  }, []);
+  return mobile;
+}
+
 // ── Types ────────────────────────────────────────────────────────────────────
 
 type FriendInfo = {
@@ -705,6 +718,7 @@ export const ChatSidebar: React.FC = () => {
     removeFriend,
   } = useApp();
   const tr = useTranslation();
+  const isMobile = useIsMobile();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [showAddFriend, setShowAddFriend] = useState(false);
@@ -1031,7 +1045,7 @@ export const ChatSidebar: React.FC = () => {
           <div className={`settings-item ${currentSettingsPage === 'voiceAndVideo' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('voiceAndVideo')}>{tr('settings_voice_video')}</div>
           <div className={`settings-item ${currentSettingsPage === 'chat' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('chat')}>{tr('settings_chat')}</div>
           <div className={`settings-item ${currentSettingsPage === 'formatting' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('formatting')}>{tr('settings_formatting')}</div>
-          <div className={`settings-item ${currentSettingsPage === 'binds' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('binds')}>{tr('settings_binds')}</div>
+          {!isMobile && <div className={`settings-item ${currentSettingsPage === 'binds' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('binds')}>{tr('settings_binds')}</div>}
           <div className={`settings-item ${currentSettingsPage === 'language' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('language')}>{tr('settings_language')}</div>
           <div className={`settings-item ${currentSettingsPage === 'exportImport' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('exportImport')}>{tr('settings_export_import')}</div>
           <div className={`settings-item ${currentSettingsPage === 'streamer' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('streamer')}>{tr('settings_streamer')}</div>

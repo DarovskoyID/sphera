@@ -1,11 +1,27 @@
 import React, { useState, useEffect, useCallback, useRef, createContext, useContext } from 'react';
-import { Shield, Monitor, Smartphone, Tablet, Trash2, UserX, Camera, Upload, Play, Square, RotateCcw, Server } from 'lucide-react';
+import { Shield, ShieldCheck, Monitor, Smartphone, Tablet, Trash2, UserX, Camera, Upload, Play, Square, RotateCcw, Server, CheckCircle2, Circle, Clock, Mic, Video, Volume2, Download } from 'lucide-react';
 import { ServerSelector } from './ServerSelector';
 import { MessageText } from './EmojiPicker';
 import { useApp, reportError } from '../context/AppContext';
 import { useTranslation } from '../i18n/useTranslation';
 import { languages, type LangCode } from '../i18n';
 import type { ServerUser } from '../types';
+import { saveNotifPrefs, ensureNotificationPermission } from '../utils/notifications';
+import { saveA11yPrefs } from '../utils/accessibility';
+import { saveDisplayPrefs } from '../utils/displayPrefs';
+
+// ==================== Mobile detection ====================
+
+function useIsMobile() {
+  const [mobile, setMobile] = useState(() => typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches);
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 768px)');
+    const handler = () => setMobile(mq.matches);
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  }, []);
+  return mobile;
+}
 
 // ==================== Settings context (loads/saves all prefs) ====================
 
@@ -27,6 +43,7 @@ interface SettingsData {
   theme: string;
   show_timestamps: boolean;
   show_avatars: boolean;
+  allow_scale: boolean;
   auto_input_sensitivity: boolean;
   echo_cancellation: boolean;
   noise_suppression: boolean;
@@ -43,6 +60,11 @@ interface SettingsData {
   hardware_acceleration: boolean;
   show_current_activity: boolean;
   show_game_status: boolean;
+  high_contrast: boolean;
+  screen_reader: boolean;
+  reduce_motion: boolean;
+  large_text: boolean;
+  keyboard_outlines: boolean;
   language: string;
 }
 
@@ -51,13 +73,15 @@ const defaultSettings: SettingsData = {
   safe_dm_filter: true, scan_messages_everyone: true, scan_messages_non_friends: false, scan_messages_off: false,
   enable_all_notifications: true, notify_direct_messages: true, notify_mentions: true,
   notify_all_server_messages: false, notify_friend_requests: true, sound_message: true, sound_incoming_call: true,
-  theme: 'dark', show_timestamps: true, show_avatars: true,
+  theme: 'dark', show_timestamps: true, show_avatars: true, allow_scale: false,
   auto_input_sensitivity: true, echo_cancellation: true, noise_suppression: true,
   chat_show_timestamps: true, chat_emoji_reactions: true, chat_compact_mode: false, chat_message_spacing: 4,
   data_app_improvements: true, data_personalization: true,
   streamer_mode: false, streamer_hide_info: false, streamer_disable_notifs: false,
   developer_mode: false, hardware_acceleration: false,
-  show_current_activity: true, show_game_status: true, language: 'en',
+  show_current_activity: true, show_game_status: true,
+  high_contrast: false, screen_reader: false, reduce_motion: false, large_text: false, keyboard_outlines: false,
+  language: 'en',
 };
 
 interface SettingsCtx {
@@ -156,6 +180,45 @@ export const Settings: React.FC = () => {
     document.documentElement.style.setProperty('--chat-message-gap', `${s.chat_message_spacing}px`);
   }, [s.chat_message_spacing]);
 
+  // Mirror notification prefs to localStorage so the WS handlers respect them live.
+  useEffect(() => {
+    saveNotifPrefs({
+      enable_all_notifications: s.enable_all_notifications,
+      notify_direct_messages: s.notify_direct_messages,
+      notify_mentions: s.notify_mentions,
+      notify_all_server_messages: s.notify_all_server_messages,
+      notify_friend_requests: s.notify_friend_requests,
+      sound_message: s.sound_message,
+      sound_incoming_call: s.sound_incoming_call,
+      streamer_disable_notifs: s.streamer_mode && s.streamer_disable_notifs,
+    });
+    if (s.enable_all_notifications) ensureNotificationPermission();
+  }, [s.enable_all_notifications, s.notify_direct_messages, s.notify_mentions,
+      s.notify_all_server_messages, s.notify_friend_requests, s.sound_message, s.sound_incoming_call,
+      s.streamer_mode, s.streamer_disable_notifs]);
+
+  // Apply chat display + streamer-mode preferences globally via root classes.
+  useEffect(() => {
+    saveDisplayPrefs({
+      chat_show_timestamps: s.chat_show_timestamps,
+      chat_emoji_reactions: s.chat_emoji_reactions,
+      chat_compact_mode: s.chat_compact_mode,
+      streamer_mode: s.streamer_mode,
+      streamer_hide_info: s.streamer_hide_info,
+    });
+  }, [s.chat_show_timestamps, s.chat_emoji_reactions, s.chat_compact_mode, s.streamer_mode, s.streamer_hide_info]);
+
+  // Mirror + apply accessibility prefs live.
+  useEffect(() => {
+    saveA11yPrefs({
+      high_contrast: s.high_contrast,
+      screen_reader: s.screen_reader,
+      reduce_motion: s.reduce_motion,
+      large_text: s.large_text,
+      keyboard_outlines: s.keyboard_outlines,
+    });
+  }, [s.high_contrast, s.screen_reader, s.reduce_motion, s.large_text, s.keyboard_outlines]);
+
   if (!currentSettingsPage || !loaded) return null;
 
   return (
@@ -195,11 +258,83 @@ export const Settings: React.FC = () => {
 
 // ==================== Profile Settings ====================
 
+const VerificationCard: React.FC<{ user: ServerUser | null; isRu: boolean }> = ({ user, isRu }) => {
+  const v = user?.verification;
+  const level = v?.level ?? user?.verification_level ?? 0;
+
+  const criteria = [
+    {
+      lvl: 1,
+      done: v?.has_email ?? false,
+      label: isRu ? 'Указана почта в профиле' : 'Email set in profile',
+    },
+    {
+      lvl: 2,
+      done: v?.has_phone ?? false,
+      label: isRu ? 'Добавлен номер телефона' : 'Phone number added',
+    },
+    {
+      lvl: 3,
+      done: v?.clean_3_months ?? false,
+      label: isRu
+        ? 'Нет жалоб 3 месяца и регистрация более 3 месяцев назад'
+        : 'No complaints for 3 months and registered over 3 months ago',
+    },
+    {
+      lvl: 4,
+      done: v?.clean_1_year ?? false,
+      label: isRu
+        ? 'Нет жалоб более года и регистрация более года назад'
+        : 'No complaints for over a year and registered over a year ago',
+    },
+  ];
+
+  return (
+    <div style={card}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
+        <ShieldCheck size={18} style={{ color: level > 0 ? 'var(--accent-primary)' : 'var(--text-secondary)' }} />
+        <h3 style={{ ...sectionH3, margin: 0 }}>{isRu ? 'Уровень доверия' : 'Trust level'}</h3>
+        <span style={{ marginLeft: 'auto', fontSize: 13, fontWeight: 700, color: 'var(--accent-primary)' }}>
+          {(isRu ? 'Уровень ' : 'Level ') + level} / 4
+        </span>
+      </div>
+      <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: '0 0 16px' }}>
+        {isRu
+          ? 'Уровень доверия повышается автоматически по мере выполнения условий.'
+          : 'Your trust level increases automatically as you meet the criteria below.'}
+      </p>
+
+      <div style={{ display: 'flex', gap: 6, marginBottom: 16 }}>
+        {[1, 2, 3, 4].map(n => (
+          <div key={n} style={{ flex: 1, height: 6, borderRadius: 3, background: n <= level ? 'var(--accent-primary)' : 'var(--bg-tertiary)' }} />
+        ))}
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {criteria.map(c => (
+          <div key={c.lvl} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            {c.done
+              ? <CheckCircle2 size={18} style={{ color: '#22c55e', flexShrink: 0 }} />
+              : <Circle size={18} style={{ color: 'var(--text-secondary)', opacity: 0.5, flexShrink: 0 }} />}
+            <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-secondary)', minWidth: 56 }}>
+              {(isRu ? 'Ур. ' : 'Lv. ') + c.lvl}
+            </span>
+            <span style={{ fontSize: 13, color: c.done ? 'var(--text-primary)' : 'var(--text-secondary)' }}>{c.label}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
 const ProfileSettings: React.FC = () => {
   const tr = useTranslation();
+  const isRu = tr('settings_formatting') === 'Подсказки';
   const { currentUser, currentServerIP, authToken, setCurrentUser } = useApp();
   const [nickname, setNickname] = useState(currentUser?.nickname || '');
   const [bio, setBio] = useState(currentUser?.bio || '');
+  const [email, setEmail] = useState(currentUser?.email || '');
+  const [phone, setPhone] = useState(currentUser?.phone || '');
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<{ text: string; type: 'ok' | 'err' } | null>(null);
   const [oldPw, setOldPw] = useState('');
@@ -208,7 +343,12 @@ const ProfileSettings: React.FC = () => {
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
 
-  useEffect(() => { setNickname(currentUser?.nickname || ''); setBio(currentUser?.bio || ''); }, [currentUser]);
+  useEffect(() => {
+    setNickname(currentUser?.nickname || '');
+    setBio(currentUser?.bio || '');
+    setEmail(currentUser?.email || '');
+    setPhone(currentUser?.phone || '');
+  }, [currentUser]);
 
   const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -219,6 +359,7 @@ const ProfileSettings: React.FC = () => {
     e.preventDefault(); setSaving(true); setMsg(null);
     try {
       const fd = new FormData(); fd.append('nickname', nickname); fd.append('bio', bio);
+      fd.append('email', email); fd.append('phone', phone);
       if (avatarFile) fd.append('avatar', avatarFile);
       const res = await fetch(`${currentServerIP}/api/auth/me/update/`, { method: 'PATCH', headers: { 'Authorization': `Bearer ${authToken}` }, body: fd });
       if (!res.ok) throw new Error('Failed');
@@ -266,10 +407,12 @@ const ProfileSettings: React.FC = () => {
           </div>
           <div style={{ marginTop: 12 }}>
             <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--text-primary)' }}>{currentUser?.nickname || currentUser?.username}</div>
-            <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>@{currentUser?.username}</div>
+            <div className="streamer-sensitive" style={{ fontSize: 13, color: 'var(--text-secondary)' }}>@{currentUser?.username}</div>
           </div>
         </div>
       </div>
+
+      <VerificationCard user={currentUser} isRu={isRu} />
 
       <form onSubmit={handleSave}>
         <div style={card}>
@@ -285,6 +428,14 @@ const ProfileSettings: React.FC = () => {
           <div style={{ marginBottom: 16 }}>
             <div style={fieldLabel}>{tr('sp_about')}</div>
             <textarea value={bio} onChange={e => setBio(e.target.value)} placeholder={tr('sp_about_placeholder')} rows={3} style={{ ...fieldInput, resize: 'vertical', fontFamily: 'inherit' }} />
+          </div>
+          <div className="streamer-sensitive" style={{ marginBottom: 16 }}>
+            <div style={fieldLabel}>{isRu ? 'Электронная почта' : 'Email'}</div>
+            <input type="email" style={fieldInput} value={email} onChange={e => setEmail(e.target.value)} placeholder={isRu ? 'you@example.com' : 'you@example.com'} />
+          </div>
+          <div className="streamer-sensitive" style={{ marginBottom: 16 }}>
+            <div style={fieldLabel}>{isRu ? 'Номер телефона' : 'Phone number'}</div>
+            <input type="tel" style={fieldInput} value={phone} onChange={e => setPhone(e.target.value)} placeholder="+1 555 123 4567" />
           </div>
           <button type="submit" style={{ ...btnPrimary, opacity: saving ? 0.6 : 1 }} disabled={saving}>{saving ? tr('sp_saving') : tr('sp_save')}</button>
           {msg && <div style={statusMsg(msg.type)}>{msg.text}</div>}
@@ -564,6 +715,7 @@ const DevicesSettings: React.FC = () => {
 
 const NotificationSettings: React.FC = () => {
   const tr = useTranslation();
+  const isMobile = useIsMobile();
   const [hasCustomRingtone, setHasCustomRingtone] = useState(!!localStorage.getItem('customRingtone'));
   const [customRingtoneName, setCustomRingtoneName] = useState(localStorage.getItem('customRingtoneName') || '');
   const [isPlaying, setIsPlaying] = useState(false);
@@ -622,9 +774,13 @@ const NotificationSettings: React.FC = () => {
   <section>
     <h1>{tr('sn_title')}</h1>
     <p>{tr('sn_desc')}</p>
-    <h3 style={sectionH3}>{tr('sn_desktop')}</h3>
-    <Check label={tr('sn_enable_all')} field="enable_all_notifications" />
-    <div style={divider} />
+    {!isMobile && (
+      <>
+        <h3 style={sectionH3}>{tr('sn_desktop')}</h3>
+        <Check label={tr('sn_enable_all')} field="enable_all_notifications" />
+        <div style={divider} />
+      </>
+    )}
     <h3 style={sectionH3}>{tr('sn_push')}</h3>
     <Check label={tr('sn_dm')} field="notify_direct_messages" />
     <Check label={tr('sn_mentions')} field="notify_mentions" />
@@ -681,6 +837,8 @@ const AppearanceSettings: React.FC = () => {
   const { s, setField } = useSettings();
   const { setAccentColor, theme, toggleTheme } = useApp();
   const [accent, setAccent] = useState(localStorage.getItem('accentColor') || '#0070F3');
+  const isMobile = useIsMobile();
+  const isRu = tr('settings_formatting') === 'Подсказки';
 
   const pick = (c: string) => { setAccent(c); setAccentColor(c); };
 
@@ -724,6 +882,18 @@ const AppearanceSettings: React.FC = () => {
       <h3 style={sectionH3}>{tr('sa_msg_display')}</h3>
       <Check label={tr('sa_timestamps')} field="show_timestamps" />
       <Check label={tr('sa_avatars')} field="show_avatars" />
+      {isMobile && (
+        <>
+          <div style={divider} />
+          <h3 style={sectionH3}>{isRu ? 'Мобильное' : 'Mobile'}</h3>
+          <Check label={isRu ? 'Разрешить масштабирование' : 'Allow zoom & scaling'} field="allow_scale" />
+          <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: '4px 0 0' }}>
+            {isRu
+              ? 'Позволяет масштабировать интерфейс в мобильном приложении. Масштабирование выполняется самим приложением (WebView).'
+              : 'Lets you pinch-to-zoom and scale the interface in the mobile app. Scaling is handled by the app shell (WebView).'}
+          </p>
+        </>
+      )}
     </section>
   );
 };
@@ -732,10 +902,223 @@ const AppearanceSettings: React.FC = () => {
 
 const VoiceVideoSettings: React.FC = () => {
   const tr = useTranslation();
+  const isRu = tr('settings_formatting') === 'Подсказки';
+  const isMobile = useIsMobile();
+
+  const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
+  const [micId, setMicId] = useState(localStorage.getItem('voiceMicId') || '');
+  const [spkId, setSpkId] = useState(localStorage.getItem('voiceSpeakerId') || '');
+  const [camId, setCamId] = useState(localStorage.getItem('voiceCameraId') || '');
+
+  // Mic test
+  const [micTesting, setMicTesting] = useState(false);
+  const [micLevel, setMicLevel] = useState(0);
+  const micStreamRef = useRef<MediaStream | null>(null);
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const rafRef = useRef<number | null>(null);
+
+  // Camera test
+  const [camTesting, setCamTesting] = useState(false);
+  const camStreamRef = useRef<MediaStream | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+
+  const [spkTesting, setSpkTesting] = useState(false);
+  const spkAudioRef = useRef<HTMLAudioElement | null>(null);
+
+  const refreshDevices = useCallback(async () => {
+    try {
+      const list = await navigator.mediaDevices.enumerateDevices();
+      setDevices(list);
+    } catch { /* ignore */ }
+  }, []);
+
+  useEffect(() => {
+    if (isMobile) return;
+    refreshDevices();
+    navigator.mediaDevices?.addEventListener?.('devicechange', refreshDevices);
+    return () => navigator.mediaDevices?.removeEventListener?.('devicechange', refreshDevices);
+  }, [isMobile, refreshDevices]);
+
+  const stopMicTest = useCallback(() => {
+    if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null; }
+    if (audioCtxRef.current) { audioCtxRef.current.close().catch(() => {}); audioCtxRef.current = null; }
+    micStreamRef.current?.getTracks().forEach(t => t.stop());
+    micStreamRef.current = null;
+    setMicLevel(0); setMicTesting(false);
+  }, []);
+
+  const stopCamTest = useCallback(() => {
+    camStreamRef.current?.getTracks().forEach(t => t.stop());
+    camStreamRef.current = null;
+    if (videoRef.current) videoRef.current.srcObject = null;
+    setCamTesting(false);
+  }, []);
+
+  const stopSpkTest = useCallback(() => {
+    if (spkAudioRef.current) { spkAudioRef.current.pause(); spkAudioRef.current.currentTime = 0; spkAudioRef.current = null; }
+    setSpkTesting(false);
+  }, []);
+
+  useEffect(() => () => { stopMicTest(); stopCamTest(); stopSpkTest(); }, [stopMicTest, stopCamTest, stopSpkTest]);
+
+  const startMicTest = useCallback(async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: micId ? { deviceId: { exact: micId } } : true,
+      });
+      micStreamRef.current = stream;
+      const Ctx = window.AudioContext || (window as any).webkitAudioContext;
+      const ctx = new Ctx();
+      audioCtxRef.current = ctx;
+      const src = ctx.createMediaStreamSource(stream);
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 512;
+      src.connect(analyser);
+      const buf = new Uint8Array(analyser.frequencyBinCount);
+      const tick = () => {
+        analyser.getByteTimeDomainData(buf);
+        let peak = 0;
+        for (let i = 0; i < buf.length; i++) peak = Math.max(peak, Math.abs(buf[i] - 128));
+        setMicLevel(Math.min(100, Math.round((peak / 128) * 140)));
+        rafRef.current = requestAnimationFrame(tick);
+      };
+      tick();
+      setMicTesting(true);
+      refreshDevices(); // labels become available after permission
+    } catch { /* permission denied */ }
+  }, [micId, refreshDevices]);
+
+  const startCamTest = useCallback(async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: camId ? { deviceId: { exact: camId } } : true,
+      });
+      camStreamRef.current = stream;
+      setCamTesting(true);
+      // assign after render so the <video> exists
+      setTimeout(() => { if (videoRef.current) { videoRef.current.srcObject = stream; videoRef.current.play().catch(() => {}); } }, 0);
+      refreshDevices();
+    } catch { /* permission denied */ }
+  }, [camId, refreshDevices]);
+
+  const startSpkTest = useCallback(async () => {
+    try {
+      const audio = new Audio('/rington.mp3');
+      audio.volume = 0.6;
+      if (spkId && (audio as any).setSinkId) {
+        try { await (audio as any).setSinkId(spkId); } catch { /* unsupported */ }
+      }
+      audio.onended = () => setSpkTesting(false);
+      spkAudioRef.current = audio;
+      await audio.play();
+      setSpkTesting(true);
+    } catch { /* ignore */ }
+  }, [spkId]);
+
+  const mics = devices.filter(d => d.kind === 'audioinput');
+  const spks = devices.filter(d => d.kind === 'audiooutput');
+  const cams = devices.filter(d => d.kind === 'videoinput');
+  const sinkSupported = typeof (HTMLAudioElement as any) !== 'undefined' && 'setSinkId' in HTMLAudioElement.prototype;
+
+  const defaultLabel = isRu ? 'По умолчанию' : 'Default';
+
+  const renderSelect = (
+    icon: React.ReactNode, label: string, value: string,
+    onChange: (v: string) => void, list: MediaDeviceInfo[], lsKey: string,
+  ) => (
+    <div style={{ marginBottom: 14 }}>
+      <div style={{ ...fieldLabel, display: 'flex', alignItems: 'center', gap: 6 }}>{icon}{label}</div>
+      <select
+        style={{ ...fieldInput, marginTop: 0, opacity: isMobile ? 0.6 : 1, cursor: isMobile ? 'not-allowed' : 'pointer' }}
+        value={isMobile ? '__default__' : value}
+        disabled={isMobile}
+        onChange={e => { onChange(e.target.value); localStorage.setItem(lsKey, e.target.value); }}
+      >
+        {isMobile ? (
+          <option value="__default__">{defaultLabel}</option>
+        ) : (
+          <>
+            <option value="">{defaultLabel}</option>
+            {list.map((d, i) => (
+              <option key={d.deviceId || i} value={d.deviceId}>
+                {d.label || `${label} ${i + 1}`}
+              </option>
+            ))}
+          </>
+        )}
+      </select>
+    </div>
+  );
+
   return (
   <section>
     <h1>{tr('sv_title')}</h1>
     <p>{tr('sv_desc')}</p>
+
+    {isMobile && (
+      <div style={{ ...card, fontSize: 13, color: 'var(--text-secondary)' }}>
+        {isRu
+          ? 'В мобильной версии используется устройство по умолчанию — выбор задаётся системой телефона.'
+          : 'On mobile the default device is used — selection is managed by your phone’s system.'}
+      </div>
+    )}
+
+    {/* Microphone */}
+    <div style={card}>
+      <h3 style={sectionH3}>{isRu ? 'Микрофон' : 'Microphone'}</h3>
+      {renderSelect(<Mic size={13} />, isRu ? 'Устройство ввода' : 'Input device', micId, setMicId, mics, 'voiceMicId')}
+      {!isMobile && (
+        <>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <button type="button" style={btnSecondary} onClick={micTesting ? stopMicTest : startMicTest}>
+              {micTesting ? (isRu ? 'Остановить' : 'Stop') : (isRu ? 'Проверить микрофон' : 'Test microphone')}
+            </button>
+            <div style={{ flex: 1, height: 10, background: 'var(--bg-tertiary)', borderRadius: 6, overflow: 'hidden' }}>
+              <div style={{ width: `${micLevel}%`, height: '100%', background: micLevel > 70 ? '#ef4444' : 'var(--accent-primary)', transition: 'width 0.06s linear' }} />
+            </div>
+          </div>
+          {micTesting && <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 8 }}>{isRu ? 'Говорите — полоса должна двигаться.' : 'Speak — the bar should move.'}</div>}
+        </>
+      )}
+    </div>
+
+    {/* Speaker */}
+    <div style={card}>
+      <h3 style={sectionH3}>{isRu ? 'Динамики' : 'Speakers'}</h3>
+      {renderSelect(<Volume2 size={13} />, isRu ? 'Устройство вывода' : 'Output device', spkId, setSpkId, spks, 'voiceSpeakerId')}
+      {!isMobile && (
+        <>
+          <button type="button" style={btnSecondary} onClick={spkTesting ? stopSpkTest : startSpkTest}>
+            <Play size={13} style={{ verticalAlign: 'middle', marginRight: 6 }} />
+            {spkTesting ? (isRu ? 'Остановить' : 'Stop') : (isRu ? 'Проверить динамик' : 'Test speaker')}
+          </button>
+          {!sinkSupported && (
+            <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 8 }}>
+              {isRu ? 'Выбор устройства вывода не поддерживается этим браузером — звук пойдёт на системное устройство.' : 'Output device selection isn’t supported by this browser — audio uses the system default.'}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+
+    {/* Camera */}
+    <div style={card}>
+      <h3 style={sectionH3}>{isRu ? 'Камера' : 'Camera'}</h3>
+      {renderSelect(<Video size={13} />, isRu ? 'Видеоустройство' : 'Video device', camId, setCamId, cams, 'voiceCameraId')}
+      {!isMobile && (
+        <>
+          <button type="button" style={btnSecondary} onClick={camTesting ? stopCamTest : startCamTest}>
+            {camTesting ? (isRu ? 'Остановить' : 'Stop') : (isRu ? 'Проверить камеру' : 'Test camera')}
+          </button>
+          {camTesting && (
+            <div style={{ marginTop: 12 }}>
+              <video ref={videoRef} autoPlay playsInline muted style={{ width: '100%', maxWidth: 360, borderRadius: 10, background: '#000', aspectRatio: '16 / 9', objectFit: 'cover' }} />
+            </div>
+          )}
+        </>
+      )}
+    </div>
+
     <h3 style={sectionH3}>{tr('sv_processing')}</h3>
     <Check label={tr('sv_auto_sensitivity')} field="auto_input_sensitivity" />
     <Check label={tr('sv_echo')} field="echo_cancellation" />
@@ -876,15 +1259,143 @@ const LanguageSettings: React.FC = () => {
 
 // ==================== Data & Privacy ====================
 
+interface DataExportState {
+  id: string;
+  status: 'pending' | 'ready' | 'failed';
+  item_count?: number;
+  download_url?: string;
+  error?: string;
+}
+
 const DataSettings: React.FC = () => {
   const tr = useTranslation();
+  const isRu = tr('settings_formatting') === 'Подсказки';
+  const { currentServerIP, authToken } = useApp();
+  const [exp, setExp] = useState<DataExportState | null>(null);
+  const [requesting, setRequesting] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+  const [err, setErr] = useState('');
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const stopPolling = useCallback(() => {
+    if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
+  }, []);
+
+  useEffect(() => () => stopPolling(), [stopPolling]);
+
+  const poll = useCallback(async (id: string) => {
+    try {
+      const res = await fetch(`${currentServerIP}/api/auth/data-export/${id}/`, {
+        headers: { 'Authorization': `Bearer ${authToken}` },
+      });
+      if (!res.ok) return;
+      const data: DataExportState = await res.json();
+      setExp(data);
+      if (data.status !== 'pending') stopPolling();
+    } catch { /* keep polling */ }
+  }, [currentServerIP, authToken, stopPolling]);
+
+  const startExport = async () => {
+    setErr(''); setRequesting(true); stopPolling();
+    try {
+      const res = await fetch(`${currentServerIP}/api/auth/data-export/`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${authToken}` },
+      });
+      if (!res.ok) throw new Error('Failed');
+      const data: DataExportState = await res.json();
+      setExp(data);
+      if (data.status === 'pending') {
+        pollRef.current = setInterval(() => poll(data.id), 4000);
+      }
+    } catch {
+      setErr(isRu ? 'Не удалось запустить экспорт' : 'Could not start export');
+    }
+    setRequesting(false);
+  };
+
+  const downloadFile = async () => {
+    if (!exp?.download_url) return;
+    setDownloading(true);
+    try {
+      const res = await fetch(exp.download_url, {
+        headers: { 'Authorization': `Bearer ${authToken}` },
+      });
+      if (!res.ok) throw new Error('Failed');
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'ionik-data-export.json';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      setErr(isRu ? 'Не удалось скачать файл' : 'Could not download file');
+    }
+    setDownloading(false);
+  };
+
+  const isBuilding = requesting || exp?.status === 'pending';
+
   return (
   <section>
     <h1>{tr('sdata_title')}</h1>
     <Check label={tr('sdata_improvements')} field="data_app_improvements" />
     <Check label={tr('sdata_personal')} field="data_personalization" />
     <div style={divider} />
-    <button type="button" style={btnSecondary}>{tr('sdata_download')}</button>
+
+    <h3 style={sectionH3}>{isRu ? 'Скачать мои данные' : 'Download my data'}</h3>
+    <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: '0 0 12px' }}>
+      {isRu
+        ? 'Соберём всё, что вы написали на платформе — личные сообщения, посты и сообщения на серверах, комментарии — в один JSON-файл. Сбор может занять несколько минут.'
+        : 'We will collect everything you have written on the platform — direct messages, server posts and messages, and comments — into a single JSON file. This may take a few minutes.'}
+    </p>
+
+    <button type="button" style={{ ...btnSecondary, opacity: isBuilding || requesting ? 0.6 : 1 }} onClick={startExport} disabled={isBuilding || requesting}>
+      {isBuilding
+        ? (isRu ? 'Собираем данные…' : 'Collecting data…')
+        : (isRu ? 'Выгрузить мои данные' : 'Export my data')}
+    </button>
+
+    {err && <div style={statusMsg('err')}>{err}</div>}
+
+    {isBuilding && (
+      <div style={{ ...card, marginTop: 16 }}>
+        <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 14 }}>
+          {isRu
+            ? 'Готовим ваш архив. Можно закрыть эту страницу и вернуться позже — кнопка скачивания появится здесь, когда всё будет готово.'
+            : 'Preparing your archive. You can leave this page and come back later — the download will appear here once it is ready.'}
+        </div>
+        <div className="data-export-skeleton-line" style={{ width: '90%' }} />
+        <div className="data-export-skeleton-line" style={{ width: '75%' }} />
+        <div className="data-export-skeleton-line" style={{ width: '82%' }} />
+        <div className="data-export-skeleton-line" style={{ width: '60%', marginBottom: 0 }} />
+      </div>
+    )}
+
+    {exp?.status === 'ready' && (
+      <div style={{ ...card, marginTop: 16, borderColor: '#22c55e44' }}>
+        <h3 style={{ ...sectionH3, color: '#22c55e' }}>{isRu ? 'Архив готов' : 'Your archive is ready'}</h3>
+        <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: '0 0 14px' }}>
+          {isRu
+            ? `Собрано записей: ${exp.item_count ?? 0}. Файл в формате JSON.`
+            : `Collected ${exp.item_count ?? 0} entries. The file is in JSON format.`}
+        </p>
+        <button type="button" style={{ ...btnPrimary, opacity: downloading ? 0.6 : 1 }} onClick={downloadFile} disabled={downloading}>
+          {downloading
+            ? (isRu ? 'Скачивание…' : 'Downloading…')
+            : (isRu ? 'Скачать JSON' : 'Download JSON')}
+        </button>
+      </div>
+    )}
+
+    {exp?.status === 'failed' && (
+      <div style={statusMsg('err')}>
+        {isRu ? 'Не удалось собрать данные. Попробуйте ещё раз.' : 'Failed to collect data. Please try again.'}
+      </div>
+    )}
   </section>
   );
 };
@@ -893,14 +1404,25 @@ const DataSettings: React.FC = () => {
 
 const StreamerSettings: React.FC = () => {
   const tr = useTranslation();
+  const { s } = useSettings();
+  const isRu = tr('settings_formatting') === 'Подсказки';
+  const help: React.CSSProperties = { fontSize: 12, color: 'var(--text-secondary)', margin: '0 0 14px 30px' };
   return (
   <section>
     <h1>{tr('sstr_title')}</h1>
     <Check label={tr('sstr_enable')} field="streamer_mode" />
+    <p style={help}>{isRu ? 'Скрывает чувствительные данные и приглушает уведомления, пока вы в эфире.' : 'Hides sensitive data and quiets notifications while you are live.'}</p>
     <div style={divider} />
     <h3 style={sectionH3}>{tr('sstr_privacy')}</h3>
     <Check label={tr('sstr_hide')} field="streamer_hide_info" />
+    <p style={help}>{isRu ? 'Размывает email, телефон и тег пользователя — наведите курсор, чтобы посмотреть.' : 'Blurs your email, phone and user tag — hover to reveal.'}</p>
     <Check label={tr('sstr_disable_notifs')} field="streamer_disable_notifs" />
+    <p style={help}>{isRu ? 'Отключает всплывающие уведомления и звуки сообщений.' : 'Suppresses notification pop-ups and message sounds.'}</p>
+    {!s.streamer_mode && (
+      <div style={{ ...card, marginTop: 8, fontSize: 13, color: 'var(--text-secondary)' }}>
+        {isRu ? 'Параметры приватности применяются только при включённом режиме стримера.' : 'Privacy options apply only while streamer mode is on.'}
+      </div>
+    )}
   </section>
   );
 };
@@ -922,11 +1444,19 @@ const MoreSettings: React.FC = () => {
 
 const PrivacyActivitySettings: React.FC = () => {
   const tr = useTranslation();
+  const isRu = tr('settings_formatting') === 'Подсказки';
   return (
   <section>
     <h1>{tr('sact_title')}</h1>
-    <Check label={tr('sact_current')} field="show_current_activity" />
-    <Check label={tr('sact_game')} field="show_game_status" />
+    <div style={{ ...card, marginTop: 16, display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', padding: '40px 24px', gap: 12 }}>
+      <Clock size={40} style={{ color: 'var(--text-secondary)', opacity: 0.6 }} />
+      <h3 style={{ ...sectionH3, margin: 0 }}>{isRu ? 'Скоро' : 'Coming soon'}</h3>
+      <p style={{ fontSize: 14, color: 'var(--text-secondary)', margin: 0, maxWidth: 360 }}>
+        {isRu
+          ? 'Управление приватностью активности появится в одном из следующих обновлений.'
+          : 'Activity privacy controls are on the way in an upcoming update.'}
+      </p>
+    </div>
   </section>
   );
 };
@@ -935,12 +1465,32 @@ const PrivacyActivitySettings: React.FC = () => {
 
 const SpecialSettings: React.FC = () => {
   const tr = useTranslation();
+  const isRu = tr('settings_formatting') === 'Подсказки';
+  const help: React.CSSProperties = { fontSize: 12, color: 'var(--text-secondary)', margin: '0 0 14px 30px' };
   return (
   <section>
     <h1>{tr('sacc_title')}</h1>
     <p>{tr('sacc_desc')}</p>
-    <label className="ui-checkbox"><input type="checkbox" /><span className="ui-checkbox-box"></span><span className="ui-checkbox-text">{tr('sacc_contrast')}</span></label>
-    <label className="ui-checkbox"><input type="checkbox" /><span className="ui-checkbox-box"></span><span className="ui-checkbox-text">{tr('sacc_reader')}</span></label>
+
+    <h3 style={sectionH3}>{isRu ? 'Зрение' : 'Vision'}</h3>
+    <Check label={tr('sacc_contrast')} field="high_contrast" />
+    <p style={help}>{isRu ? 'Усиливает контраст текста и границ для слабовидящих.' : 'Boosts text and border contrast for low vision.'}</p>
+    <Check label={isRu ? 'Крупный текст' : 'Larger text'} field="large_text" />
+    <p style={help}>{isRu ? 'Увеличивает размер шрифта во всём приложении.' : 'Increases the font size across the whole app.'}</p>
+
+    <div style={divider} />
+
+    <h3 style={sectionH3}>{isRu ? 'Движение и навигация' : 'Motion & navigation'}</h3>
+    <Check label={isRu ? 'Уменьшить анимацию' : 'Reduce motion'} field="reduce_motion" />
+    <p style={help}>{isRu ? 'Отключает анимации и плавную прокрутку (помогает при вестибулярных нарушениях).' : 'Disables animations and smooth scrolling (helps with vestibular disorders).'}</p>
+    <Check label={isRu ? 'Видимая обводка фокуса' : 'Visible focus outlines'} field="keyboard_outlines" />
+    <p style={help}>{isRu ? 'Подсвечивает активный элемент — удобно при навигации с клавиатуры и на сенсорных экранах.' : 'Highlights the focused element — useful for keyboard and touch navigation.'}</p>
+
+    <div style={divider} />
+
+    <h3 style={sectionH3}>{isRu ? 'Экранный диктор' : 'Screen reader'}</h3>
+    <Check label={tr('sacc_reader')} field="screen_reader" />
+    <p style={help}>{isRu ? 'Озвучивает новые сообщения и упоминания через программу экранного доступа.' : 'Announces new messages and mentions through your screen reader.'}</p>
   </section>
   );
 };
@@ -966,19 +1516,95 @@ const BindsSettings: React.FC = () => {
 
 // ==================== Export & Import ====================
 
+// localStorage keys worth carrying along with the backend settings.
+const LOCAL_PREF_KEYS = ['accentColor', 'notifPrefs', 'a11yPrefs', 'displayPrefs', 'messengerTheme', 'customRingtoneName', 'voiceMicId', 'voiceSpeakerId', 'voiceCameraId'];
+
 const ExportImportSettings: React.FC = () => {
   const tr = useTranslation();
+  const isRu = tr('settings_formatting') === 'Подсказки';
+  const { s } = useSettings();
+  const { currentServerIP, authToken } = useApp();
+  const fileRef = useRef<HTMLInputElement | null>(null);
+  const [msg, setMsg] = useState<{ text: string; type: 'ok' | 'err' } | null>(null);
+  const [importing, setImporting] = useState(false);
+
+  const handleExport = () => {
+    setMsg(null);
+    const local: Record<string, string> = {};
+    LOCAL_PREF_KEYS.forEach(k => { const v = localStorage.getItem(k); if (v !== null) local[k] = v; });
+    const bundle = {
+      app: 'ionik',
+      kind: 'settings-backup',
+      version: 1,
+      exported_at: new Date().toISOString(),
+      settings: s,
+      local_prefs: local,
+    };
+    const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `ionik-settings-${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+    setMsg({ text: isRu ? 'Настройки экспортированы' : 'Settings exported', type: 'ok' });
+  };
+
+  const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setMsg(null); setImporting(true);
+    try {
+      const text = await file.text();
+      const bundle = JSON.parse(text);
+      if (bundle?.kind !== 'settings-backup' || !bundle.settings) {
+        throw new Error('bad-file');
+      }
+      // Restore local prefs first so they apply on reload.
+      if (bundle.local_prefs && typeof bundle.local_prefs === 'object') {
+        Object.entries(bundle.local_prefs).forEach(([k, v]) => {
+          if (LOCAL_PREF_KEYS.includes(k) && typeof v === 'string') localStorage.setItem(k, v);
+        });
+      }
+      // Push settings to the backend.
+      const { language, ...rest } = bundle.settings;
+      const res = await fetch(`${currentServerIP}/api/auth/settings/update/`, {
+        method: 'PATCH',
+        headers: { 'Authorization': `Bearer ${authToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...rest, language }),
+      });
+      if (!res.ok) throw new Error('save-failed');
+      setMsg({ text: isRu ? 'Настройки импортированы. Перезагрузка…' : 'Settings imported. Reloading…', type: 'ok' });
+      setTimeout(() => window.location.reload(), 900);
+    } catch (err: any) {
+      setMsg({
+        text: err?.message === 'bad-file'
+          ? (isRu ? 'Неверный файл настроек' : 'Invalid settings file')
+          : (isRu ? 'Не удалось импортировать настройки' : 'Could not import settings'),
+        type: 'err',
+      });
+      setImporting(false);
+    }
+  };
+
   return (
   <section>
     <h1>{tr('sexp_title')}</h1>
     <p>{tr('sexp_desc')}</p>
     <h3 style={sectionH3}>{tr('sexp_export')}</h3>
     <p>{tr('sexp_export_desc')}</p>
-    <button type="button" style={btnSecondary}>{tr('sexp_export')}</button>
+    <button type="button" style={{ ...btnSecondary, display: 'inline-flex', alignItems: 'center', gap: 6 }} onClick={handleExport}>
+      <Download size={14} />{tr('sexp_export')}
+    </button>
     <div style={divider} />
     <h3 style={sectionH3}>{tr('sexp_import')}</h3>
     <p>{tr('sexp_import_desc')}</p>
-    <button type="button" style={btnSecondary}>{tr('sexp_import')}</button>
+    <button type="button" style={{ ...btnSecondary, display: 'inline-flex', alignItems: 'center', gap: 6, opacity: importing ? 0.6 : 1 }} onClick={() => fileRef.current?.click()} disabled={importing}>
+      <Upload size={14} />{importing ? (isRu ? 'Импорт…' : 'Importing…') : tr('sexp_import')}
+    </button>
+    <input ref={fileRef} type="file" accept="application/json,.json" onChange={handleImport} style={{ display: 'none' }} />
+    {msg && <div style={statusMsg(msg.type)}>{msg.text}</div>}
   </section>
   );
 };

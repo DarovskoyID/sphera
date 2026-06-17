@@ -1,6 +1,13 @@
+import json
+import threading
+
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
+from django.core.files.base import ContentFile
+from django.db import connection
 from django.db.models import Q
+from django.http import FileResponse, Http404
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.decorators import (
     api_view, permission_classes, parser_classes,
@@ -9,9 +16,9 @@ from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
-from .models import User, Friendship, BlockedUser, UserDevice, UserSettings, CustomEmoji, FcmToken
+from .models import User, Friendship, BlockedUser, UserDevice, UserSettings, CustomEmoji, FcmToken, DataExport
 from .serializers import (
-    RegisterSerializer, UserSerializer, FriendshipSerializer,
+    RegisterSerializer, UserSerializer, MeSerializer, FriendshipSerializer,
     ProfileUpdateSerializer, BlockedUserSerializer,
     UserDeviceSerializer, UserSettingsSerializer, CustomEmojiSerializer,
 )
@@ -79,7 +86,7 @@ def me(request):
     except Exception:
         pass
     return Response(
-        UserSerializer(request.user, context={'request': request}).data
+        MeSerializer(request.user, context={'request': request}).data
     )
 
 
@@ -94,7 +101,7 @@ def update_profile(request):
         serializer.save()
         user = request.user
         user.refresh_from_db()
-        response_data = UserSerializer(user, context={'request': request}).data
+        response_data = MeSerializer(user, context={'request': request}).data
 
         # Broadcast profile change to all connected signaling clients
         channel_layer = get_channel_layer()
@@ -609,3 +616,177 @@ def fcm_token(request):
         return Response({'ok': True})
     FcmToken.objects.filter(user=request.user, token=token).delete()
     return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+# ==================== Data Export ====================
+#
+# Collects everything the user has written on the platform (DMs, server
+# posts/messages and post comments) into one JSON file. The build runs in a
+# background thread because it can take a while for active accounts; the client
+# polls the status endpoint and downloads the file once it is ready.
+
+
+def _safe_content(obj):
+    """Decrypt a message/comment body, tolerating bad/legacy ciphertext."""
+    try:
+        return obj.content
+    except Exception:
+        return None
+
+
+def _build_data_export(export_id, user_id):
+    # Fresh DB connection for this thread.
+    connection.close()
+    from ionik_messages.models import Message, GuildMessage, GuildPostComment
+
+    try:
+        export = DataExport.objects.get(id=export_id)
+    except DataExport.DoesNotExist:
+        return
+
+    try:
+        user = User.objects.get(id=user_id)
+
+        direct_messages = []
+        for m in (Message.objects
+                  .filter(author_id=user_id)
+                  .select_related('conversation')
+                  .order_by('created_at')
+                  .iterator()):
+            direct_messages.append({
+                'id': str(m.id),
+                'conversation_id': str(m.conversation_id),
+                'content': _safe_content(m),
+                'reply_to': str(m.reply_to_id) if m.reply_to_id else None,
+                'is_pinned': m.is_pinned,
+                'created_at': m.created_at.isoformat(),
+            })
+
+        guild_messages = []
+        for m in (GuildMessage.objects
+                  .filter(author_id=user_id)
+                  .select_related('channel')
+                  .order_by('created_at')
+                  .iterator()):
+            guild_messages.append({
+                'id': str(m.id),
+                'channel_id': str(m.channel_id),
+                'channel_name': getattr(m.channel, 'name', ''),
+                'content': _safe_content(m),
+                'reply_to': str(m.reply_to_id) if m.reply_to_id else None,
+                'is_pinned': m.is_pinned,
+                'created_at': m.created_at.isoformat(),
+            })
+
+        post_comments = []
+        for c in (GuildPostComment.objects
+                  .filter(author_id=user_id)
+                  .order_by('created_at')
+                  .iterator()):
+            post_comments.append({
+                'id': str(c.id),
+                'post_id': str(c.message_id),
+                'content': _safe_content(c),
+                'created_at': c.created_at.isoformat(),
+            })
+
+        payload = {
+            'export_version': 1,
+            'generated_at': timezone.now().isoformat(),
+            'account': {
+                'id': str(user.id),
+                'username': user.username,
+                'nickname': user.nickname,
+                'email': user.email,
+                'date_joined': user.date_joined.isoformat() if user.date_joined else None,
+            },
+            'direct_messages': direct_messages,
+            'server_messages': guild_messages,
+            'post_comments': post_comments,
+            'counts': {
+                'direct_messages': len(direct_messages),
+                'server_messages': len(guild_messages),
+                'post_comments': len(post_comments),
+            },
+        }
+
+        total = len(direct_messages) + len(guild_messages) + len(post_comments)
+        data = json.dumps(payload, ensure_ascii=False, indent=2)
+        filename = f'ionik-data-export-{export_id}.json'
+        export.file.save(filename, ContentFile(data.encode('utf-8')), save=False)
+        export.item_count = total
+        export.status = 'ready'
+        export.completed_at = timezone.now()
+        export.save(update_fields=['file', 'item_count', 'status', 'completed_at'])
+    except Exception as exc:  # noqa: BLE001
+        export.status = 'failed'
+        export.error = str(exc)[:1000]
+        export.completed_at = timezone.now()
+        export.save(update_fields=['status', 'error', 'completed_at'])
+    finally:
+        connection.close()
+
+
+def _export_payload(export, request):
+    data = {
+        'id': str(export.id),
+        'status': export.status,
+        'item_count': export.item_count,
+        'created_at': export.created_at.isoformat(),
+        'completed_at': export.completed_at.isoformat() if export.completed_at else None,
+    }
+    if export.status == 'ready':
+        data['download_url'] = request.build_absolute_uri(
+            f'/api/auth/data-export/{export.id}/download/'
+        )
+    if export.status == 'failed':
+        data['error'] = export.error
+    return data
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def data_export_request(request):
+    # Reuse an in-progress export instead of stacking up duplicates.
+    existing = (DataExport.objects
+                .filter(user=request.user, status='pending')
+                .first())
+    if existing:
+        return Response(_export_payload(existing, request))
+
+    export = DataExport.objects.create(user=request.user, status='pending')
+    thread = threading.Thread(
+        target=_build_data_export,
+        args=(str(export.id), str(request.user.id)),
+        daemon=True,
+    )
+    thread.start()
+    return Response(_export_payload(export, request), status=status.HTTP_202_ACCEPTED)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def data_export_status(request, export_id):
+    try:
+        export = DataExport.objects.get(id=export_id, user=request.user)
+    except DataExport.DoesNotExist:
+        return Response({'error': 'not found'}, status=status.HTTP_404_NOT_FOUND)
+    return Response(_export_payload(export, request))
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def data_export_download(request, export_id):
+    try:
+        export = DataExport.objects.get(id=export_id, user=request.user)
+    except DataExport.DoesNotExist:
+        raise Http404
+    if export.status != 'ready' or not export.file:
+        return Response({'error': 'not ready'}, status=status.HTTP_409_CONFLICT)
+    response = FileResponse(
+        export.file.open('rb'),
+        as_attachment=True,
+        filename='ionik-data-export.json',
+        content_type='application/json',
+    )
+    return response

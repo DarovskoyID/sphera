@@ -7,6 +7,14 @@ export interface User {
   bio?: string;
 }
 
+export interface VerificationInfo {
+  level: number;
+  has_email: boolean;
+  has_phone: boolean;
+  clean_3_months: boolean;
+  clean_1_year: boolean;
+}
+
 export interface ServerUser {
   id: string;
   username: string;
@@ -14,6 +22,11 @@ export interface ServerUser {
   avatar: string;
   bio: string;
   status: 'online' | 'idle' | 'dnd' | 'offline';
+  email?: string;
+  phone?: string;
+  date_joined?: string;
+  verification_level?: number;
+  verification?: VerificationInfo;
 }
 
 export interface PendingRequest {

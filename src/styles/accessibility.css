@@ -1,0 +1,108 @@
+/* ============================================================================
+   Accessibility preferences
+   Toggled by classes on <html> (see src/utils/accessibility.ts).
+   Designed to work on both desktop and the mobile layout.
+   ========================================================================== */
+
+/* --- Larger text: scale the whole UI up for low-vision users --------------
+   Most of the app uses fixed px sizes in inline styles, so bumping the root
+   font-size alone has no visible effect. `zoom` scales the whole interface
+   (px included) and is supported across Chromium/WebKit and recent Firefox.
+
+   IMPORTANT: zoom is applied to <body>, NOT <html>. Zooming the root element
+   shifts how media queries are evaluated, which flips the responsive layout
+   into desktop mode (hiding mobile-only controls like the chat "back" button)
+   while the JS still thinks it's mobile. Zooming <body> keeps the viewport —
+   and therefore all breakpoints — intact. */
+html.a11y-large-text {
+  --a11y-zoom: 1.15;
+}
+@media (max-width: 768px) {
+  /* Slightly smaller bump on mobile so layouts don't overflow. */
+  html.a11y-large-text {
+    --a11y-zoom: 1.1;
+  }
+}
+html.a11y-large-text body {
+  zoom: var(--a11y-zoom);
+}
+/* Counter the zoom on the full-screen root so the layout still fits the
+   viewport exactly (size / zoom, then ×zoom = 100vw/100dvh) instead of
+   overflowing off the right/bottom edges. */
+html.a11y-large-text #root {
+  width: calc(100vw / var(--a11y-zoom));
+  height: calc(100dvh / var(--a11y-zoom));
+  overflow: hidden;
+}
+html.a11y-large-text .app-container {
+  width: 100%;
+  height: 100%;
+}
+
+/* --- Reduce motion: kill animations/transitions for vestibular comfort ---- */
+.a11y-reduce-motion *,
+.a11y-reduce-motion *::before,
+.a11y-reduce-motion *::after {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+  scroll-behavior: auto !important;
+}
+
+/* --- Always-visible focus outlines for keyboard / switch users ------------ */
+.a11y-focus-outlines button:focus,
+.a11y-focus-outlines a:focus,
+.a11y-focus-outlines textarea:focus,
+.a11y-focus-outlines select:focus,
+.a11y-focus-outlines input:not([type="checkbox"]):not([type="radio"]):focus,
+.a11y-focus-outlines [tabindex]:focus,
+.a11y-focus-outlines [tabindex]:focus-visible {
+  outline: 3px solid var(--accent-primary, #0070F3) !important;
+  outline-offset: 2px !important;
+  border-radius: 4px;
+}
+/* The native checkbox/radio is visually hidden and stretched over its whole
+   row — outline the custom box instead so the highlight lands correctly. */
+.a11y-focus-outlines .ui-checkbox input:focus ~ .ui-checkbox-box {
+  outline: 3px solid var(--accent-primary, #0070F3) !important;
+  outline-offset: 2px !important;
+}
+
+/* --- High contrast: stronger borders, pure text, removed subtle opacity ---
+   The a11y class lives on <html> while the theme class (`dark-theme`) lives on
+   <body>; light theme is simply the absence of `dark-theme`. We set the
+   contrast variables on <body> so every descendant inherits them. */
+html.a11y-high-contrast body.dark-theme {
+  --text-primary: #ffffff;
+  --text-secondary: #f0f0f0;
+  --border-color: #ffffff;
+}
+html.a11y-high-contrast body:not(.dark-theme) {
+  --text-primary: #000000;
+  --text-secondary: #111111;
+  --border-color: #000000;
+}
+/* Stronger borders on real controls — but NOT on checkboxes/radios, whose
+   native input is visually hidden (revealing/bordering it breaks the custom
+   checkbox UI). */
+.a11y-high-contrast button,
+.a11y-high-contrast textarea,
+.a11y-high-contrast select,
+.a11y-high-contrast input:not([type="checkbox"]):not([type="radio"]),
+.a11y-high-contrast [class*="card"] {
+  border: 2px solid var(--border-color) !important;
+}
+.a11y-high-contrast .ui-checkbox-box {
+  border: 2px solid var(--border-color) !important;
+}
+.a11y-high-contrast a {
+  text-decoration: underline !important;
+}
+
+/* Larger tap targets help motor-impairment + touch users alike. */
+@media (max-width: 768px) {
+  .a11y-focus-outlines button,
+  .a11y-large-text button {
+    min-height: 44px;
+  }
+}

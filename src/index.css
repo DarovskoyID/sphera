@@ -2,6 +2,10 @@
 @import url('/style.css');
 /* Minimal override layer — calm, neutral, mass-market messenger look */
 @import url('./minimal.css');
+/* Accessibility (high contrast, reduced motion, large text, focus outlines) */
+@import url('./styles/accessibility.css');
+/* Chat display preferences + streamer mode */
+@import url('./styles/chat-prefs.css');
 
 @keyframes spin {
   to { transform: rotate(360deg); }

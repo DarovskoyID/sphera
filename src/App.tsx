@@ -13,6 +13,12 @@ import { GuildVoiceRoom } from './components/GuildVoiceRoom';
 import { ExploreServers } from './components/ExploreServers';
 import { PersonalChannelFeed } from './components/PersonalChannelFeed';
 import { Volume2, PhoneOff } from 'lucide-react';
+import { applyA11y } from './utils/accessibility';
+import { applyDisplayPrefs } from './utils/displayPrefs';
+
+// Apply saved accessibility + display preferences as early as possible.
+applyA11y();
+applyDisplayPrefs();
 
 function useMobile() {
   const [isMobile, setIsMobile] = useState(() => window.matchMedia('(max-width: 768px)').matches);

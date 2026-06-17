@@ -39,6 +39,10 @@ urlpatterns = [
     # Settings
     path('settings/', views.user_settings_get),
     path('settings/update/', views.user_settings_update),
+    # Data export
+    path('data-export/', views.data_export_request),
+    path('data-export/<uuid:export_id>/', views.data_export_status),
+    path('data-export/<uuid:export_id>/download/', views.data_export_download),
     # Custom Emojis
     path('emojis/', views.emoji_list),
     path('emojis/create/', views.emoji_create),

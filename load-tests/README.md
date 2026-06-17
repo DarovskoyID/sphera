@@ -12,8 +12,10 @@
 | `medium` |        200 |        20 |      120 |   1 000 |              10 000 |           5 000 |             0 |
 | `high`   |      2 000 |       100 |      800 |  20 000 |             200 000 |         100 000 |             0 |
 
+Плюс `I` — активные WebRTC-звонки (в профилях `ACTIVE_CALLS=0`, длительность `CALL_DURATION`).
+
 Числа лежат в файлах `light.env`, `medium.env`, `high.env` — правьте под себя.
-`T` (отправка ЛС) по умолчанию `0`, т.к. требует **запущенного сервера** (см. ниже).
+`T` (отправка ЛС) и `I` (звонки) по умолчанию `0`, т.к. требуют **запущенного сервера** (см. ниже).
 
 ## Запуск
 
@@ -68,6 +70,36 @@ python ../django-server/ionik_server/manage.py seed_load \
 - **T отправленных ЛС** — в отличие от `G`, **реально отправляются через HTTP API** работающего
   сервера (логин JWT → создание диалога → `messages/send/`). Создают живую нагрузку на
   HTTP/WebSocket/Kafka и видны в статусе и Grafana. Требуют запущенного сервера.
+- **I активных звонков** — **настоящие WebRTC-звонки через TURN**: пары тестовых аккаунтов
+  подключаются к сигналингу, обмениваются offer/answer, поднимают `RTCPeerConnection` и гонят
+  реальный медиапоток (аудио, опц. видео) через coturn в течение `--call-duration`. Поднимают
+  метрику `active_dm_calls` и грузят TURN. Требуют запущенного сервера + coturn + пакетов.
+
+## Реальные WebRTC-звонки через TURN (I)
+
+Нужны зависимости (ставятся один раз):
+```bash
+pip install -r load-tests/requirements-loadtest.txt   # requests + websockets + aiortc(PyAV)
+```
+
+Запуск — 10 звонков на 5 минут (нужно ≥ 2·I тестовых аккаунтов):
+```bash
+python ../django-server/ionik_server/manage.py seed_load \
+  --accounts 0 --servers 0 --channels 0 --posts 0 --server-messages 0 --dm-messages 0 \
+  --active-calls 10 --call-duration 5m --base-url https://<домен>:8000
+```
+```powershell
+.\run.ps1 medium -ActiveCalls 10 -CallDuration 1h -BaseUrl https://127.0.0.1:8000
+.\run.ps1 medium -ActiveCalls 5  -CallDuration 5m -WithVideo   # со «видео»
+```
+
+- `--call-duration` — `300` / `300s` / `5m` / `1h` / `1h30m`.
+- `--with-video` — добавить видеодорожку (по умолчанию только аудио).
+- `--signaling-url` — WS сигналинга (по умолчанию `wss://<host>:<port>/ws/signaling/` из `--base-url`).
+  Метрика `active_dm_calls` обновляется только если сигналинг идёт через Django-консьюмер.
+- TURN по умолчанию берётся из `src/config/network.ts` (`ionikuser` / `ionikturn123`, порт 3478);
+  переопределяется `--turn-host/--turn-port/--turn-user/--turn-cred`.
+- На время звонков команда **блокируется** (держит звонки `--call-duration`), затем кладёт трубку.
 
 ## Реальная отправка ЛС (T) — живая нагрузка
 

@@ -1,0 +1,43 @@
+/* ============================================================================
+   Chat display preferences + Streamer mode
+   Toggled by classes on <html> (see src/utils/displayPrefs.ts).
+   ========================================================================== */
+
+/* --- Hide message timestamps --------------------------------------------- */
+.chat-hide-timestamps .message-timestamp {
+  display: none !important;
+}
+
+/* --- Hide emoji reactions on posts --------------------------------------- */
+.chat-hide-reactions .post-reactions {
+  display: none !important;
+}
+
+/* --- Compact mode: tighter rows, smaller avatars ------------------------- */
+.chat-compact .messages-list {
+  --chat-message-gap: 0px;
+}
+.chat-compact .message-item {
+  padding-top: 1px !important;
+  padding-bottom: 1px !important;
+}
+.chat-compact .message-bubble {
+  padding-top: 2px !important;
+  padding-bottom: 2px !important;
+}
+.chat-compact .message-avatar-slot img,
+.chat-compact .message-avatar-slot > div {
+  width: 24px !important;
+  height: 24px !important;
+}
+
+/* --- Streamer mode: blur sensitive info, reveal on hover ----------------- */
+.streamer-mode.streamer-hide-info .streamer-sensitive {
+  filter: blur(7px);
+  transition: filter 0.15s ease;
+  user-select: none;
+}
+.streamer-mode.streamer-hide-info .streamer-sensitive:hover,
+.streamer-mode.streamer-hide-info .streamer-sensitive:focus-within {
+  filter: none;
+}

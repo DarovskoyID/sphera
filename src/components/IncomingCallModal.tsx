@@ -2,6 +2,7 @@ import { useEffect, useRef, useCallback } from 'react';
 import { Phone, PhoneOff, Video } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { useTranslation } from '../i18n/useTranslation';
+import { callSoundEnabled } from '../utils/notifications';
 
 const getCustomRingtoneUrl = (): string | null => {
   const data = localStorage.getItem('customRingtone');
@@ -35,7 +36,7 @@ export const IncomingCallModal = () => {
   }, []);
 
   useEffect(() => {
-    if (!isCallActive && incomingOffer) {
+    if (!isCallActive && incomingOffer && callSoundEnabled()) {
       const src = getCustomRingtoneUrl() || DEFAULT_RINGTONE;
       const audio = new Audio(src);
       audio.loop = true;

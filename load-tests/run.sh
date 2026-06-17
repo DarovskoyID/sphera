@@ -67,7 +67,12 @@ if [ "$PROFILE" != "custom" ]; then
          --posts "$POSTS" --server-messages "$SERVER_MESSAGES" --dm-messages "$DM_MESSAGES")
   # T — реальная отправка ЛС через сервер (если задано в профиле)
   ARGS+=(--send-dm "${SEND_DM:-0}")
+  # I — реальные WebRTC-звонки через TURN (если задано в профиле)
+  ARGS+=(--active-calls "${ACTIVE_CALLS:-0}")
+  [ -n "${CALL_DURATION:-}" ] && ARGS+=(--call-duration "$CALL_DURATION")
   [ -n "${BASE_URL:-}" ] && ARGS+=(--base-url "$BASE_URL")
+  [ -n "${SIGNALING_URL:-}" ] && ARGS+=(--signaling-url "$SIGNALING_URL")
+  [ -n "${TURN_HOST:-}" ] && ARGS+=(--turn-host "$TURN_HOST")
 fi
 
 "$PY" "${ARGS[@]}"

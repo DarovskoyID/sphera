@@ -1,13 +1,66 @@
+from datetime import timedelta
+
+from django.utils import timezone
 from rest_framework import serializers
 from .models import User, Friendship, BlockedUser, UserDevice, UserSettings, CustomEmoji
 
 
+def compute_verification(user):
+    """Trust / verification level for a user.
+
+    Level 1 — email is set on the profile.
+    Level 2 — phone number is set.
+    Level 3 — no complaints in the last 3 months and registered > 3 months ago.
+    Level 4 — no complaints in the last year and registered > 1 year ago.
+
+    Levels are cumulative-by-best: the highest satisfied tier wins.
+    """
+    # Imported lazily to avoid a circular import with ionik_messages.
+    from ionik_messages.models import MessageReport
+
+    now = timezone.now()
+    has_email = bool(user.email)
+    has_phone = bool(getattr(user, 'phone', ''))
+    joined = user.date_joined
+    age_3m = joined <= now - timedelta(days=90)
+    age_1y = joined <= now - timedelta(days=365)
+
+    reports = MessageReport.objects.filter(message__author=user)
+    clean_3m = age_3m and not reports.filter(
+        created_at__gte=now - timedelta(days=90)).exists()
+    clean_1y = age_1y and not reports.filter(
+        created_at__gte=now - timedelta(days=365)).exists()
+
+    level = 0
+    if has_email:
+        level = max(level, 1)
+    if has_phone:
+        level = max(level, 2)
+    if clean_3m:
+        level = max(level, 3)
+    if clean_1y:
+        level = max(level, 4)
+
+    return {
+        'level': level,
+        'has_email': has_email,
+        'has_phone': has_phone,
+        'clean_3_months': clean_3m,
+        'clean_1_year': clean_1y,
+    }
+
+
 class UserSerializer(serializers.ModelSerializer):
     avatar = serializers.SerializerMethodField()
+    verification_level = serializers.SerializerMethodField()
+    verification = serializers.SerializerMethodField()
 
     class Meta:
         model = User
-        fields = ['id', 'username', 'nickname', 'avatar', 'bio', 'status']
+        fields = [
+            'id', 'username', 'nickname', 'avatar', 'bio', 'status',
+            'verification_level', 'verification',
+        ]
 
     def get_avatar(self, obj):
         if not obj.avatar:
@@ -17,15 +70,39 @@ class UserSerializer(serializers.ModelSerializer):
             return request.build_absolute_uri(obj.avatar.url)
         return obj.avatar.url
 
+    def _verification(self, obj):
+        cache = getattr(self, '_verif_cache', None)
+        if cache is None:
+            cache = {}
+            self._verif_cache = cache
+        if obj.id not in cache:
+            cache[obj.id] = compute_verification(obj)
+        return cache[obj.id]
+
+    def get_verification_level(self, obj):
+        return self._verification(obj)['level']
+
+    def get_verification(self, obj):
+        return self._verification(obj)
+
+
+class MeSerializer(UserSerializer):
+    """Like UserSerializer but exposes the owner's private fields."""
+
+    class Meta(UserSerializer.Meta):
+        fields = UserSerializer.Meta.fields + ['email', 'phone', 'date_joined']
+
 
 class ProfileUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ['nickname', 'bio', 'avatar']
+        fields = ['nickname', 'bio', 'avatar', 'email', 'phone']
         extra_kwargs = {
             'nickname': {'required': False},
             'bio': {'required': False},
             'avatar': {'required': False},
+            'email': {'required': False},
+            'phone': {'required': False},
         }
 
 

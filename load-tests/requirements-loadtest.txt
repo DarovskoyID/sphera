@@ -1,0 +1,7 @@
+# Зависимости только для нагрузочных сценариев seed_load.
+# requests — для --send-dm и логина в звонках.
+# aiortc + websockets — для реальных WebRTC-звонков через TURN (--active-calls).
+# aiortc тянет PyAV (ffmpeg), cffi и pyopenssl — установка может занять время.
+requests>=2.31
+websockets>=12.0
+aiortc>=1.6.0

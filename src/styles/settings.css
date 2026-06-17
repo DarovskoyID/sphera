@@ -568,3 +568,21 @@ input[type="range"] {
   font-size: 14px;
 }
 
+
+/* Data export skeleton */
+@keyframes ionik-skeleton-shimmer {
+  0% { background-position: -400px 0; }
+  100% { background-position: 400px 0; }
+}
+
+.data-export-skeleton-line {
+  height: 14px;
+  border-radius: 6px;
+  margin-bottom: 10px;
+  background: linear-gradient(90deg,
+    var(--bg-tertiary) 25%,
+    var(--border-color) 37%,
+    var(--bg-tertiary) 63%);
+  background-size: 400px 100%;
+  animation: ionik-skeleton-shimmer 1.4s ease-in-out infinite;
+}

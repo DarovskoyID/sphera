@@ -2,6 +2,9 @@ import React, { createContext, useContext, useState, useEffect, useRef, useCallb
 import type { AppState, ViewType, MobilePanel, ServerUser, PendingRequest, ChatMessage, Guild, GuildChannel, GuildMessage, GuildRole, GuildEmoji, GuildSticker, GuildSound, GuildInviteData, GuildAuditLogEntry } from '../types';
 import type { CustomEmoji } from '../types';
 import { loadSelectedServer, wsUrlFor } from '../config/network';
+import { saveNotifPrefs, getNotifPrefs, showDesktopNotification, playMessageSound, ensureNotificationPermission } from '../utils/notifications';
+import { saveA11yPrefs, announce as announceA11y, type A11yPrefs } from '../utils/accessibility';
+import { saveDisplayPrefs } from '../utils/displayPrefs';
 
 
 // ── Inject X-Ionik-Client header into every fetch ────────────────────────────
@@ -279,6 +282,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
   const [signalingPeers, setSignalingPeers] = useState<Array<{ id: string; name: string }>>([]);
   const onSignalingMessage = useRef<((msg: any) => void) | null>(null);
   const pendingStatusRef = useRef<Record<string, string>>({});
+  const selfRef = useRef<{ id: string; username: string; nickname: string }>({ id: '', username: '', nickname: '' });
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const showError = useCallback((message: string) => setErrorMessage(message), []);
   const clearError = useCallback(() => setErrorMessage(null), []);
@@ -398,9 +402,46 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
           })),
         }));
       } catch (e) { reportError(e); }
+      // Mirror notification + accessibility prefs locally so the WS handlers
+      // and the global a11y layer respect them without re-fetching.
+      try {
+        const cfg: any = await apiGet('/api/auth/settings/', state.authToken, state.currentServerIP);
+        saveNotifPrefs({
+          enable_all_notifications: cfg.enable_all_notifications,
+          notify_direct_messages: cfg.notify_direct_messages,
+          notify_mentions: cfg.notify_mentions,
+          notify_all_server_messages: cfg.notify_all_server_messages,
+          notify_friend_requests: cfg.notify_friend_requests,
+          sound_message: cfg.sound_message,
+          sound_incoming_call: cfg.sound_incoming_call,
+          streamer_disable_notifs: !!cfg.streamer_mode && !!cfg.streamer_disable_notifs,
+        });
+        saveDisplayPrefs({
+          chat_show_timestamps: cfg.chat_show_timestamps,
+          chat_emoji_reactions: cfg.chat_emoji_reactions,
+          chat_compact_mode: cfg.chat_compact_mode,
+          streamer_mode: cfg.streamer_mode,
+          streamer_hide_info: cfg.streamer_hide_info,
+        });
+        const a11y: Partial<A11yPrefs> = {};
+        (['high_contrast', 'screen_reader', 'reduce_motion', 'large_text', 'keyboard_outlines'] as const)
+          .forEach(k => { if (typeof cfg[k] === 'boolean') (a11y as any)[k] = cfg[k]; });
+        saveA11yPrefs(a11y);
+        if (getNotifPrefs().enable_all_notifications) ensureNotificationPermission();
+      } catch (e) { reportError(e); }
     };
     load();
   }, [state.authToken, state.currentServerIP]);
+
+  // Keep a ref of the logged-in user for use inside stable WS callbacks.
+  useEffect(() => {
+    const u = state.currentUser;
+    selfRef.current = {
+      id: u ? String(u.id) : '',
+      username: u?.username || '',
+      nickname: u?.nickname || '',
+    };
+  }, [state.currentUser]);
 
   // ==================== FCM token registration (Android push notifications) ====================
   useEffect(() => {
@@ -1141,6 +1182,9 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
           return;
         }
         if (data.type === 'friend-request') {
+          const fname = data.user?.nickname || data.user?.username || '';
+          showDesktopNotification('friend', 'Friend request', fname);
+          playMessageSound();
           setState(prev => {
             const already = prev.pendingRequests.some(r => r.id === data.user.id);
             return already ? prev : { ...prev, pendingRequests: [...prev.pendingRequests, data.user] };
@@ -1190,6 +1234,11 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
               data.sender_name || '',
               data.content || ''
             );
+          } else {
+            // Web desktop notification + sound, gated by user settings.
+            showDesktopNotification('dm', data.sender_name || 'New message', data.content || '');
+            playMessageSound();
+            announceA11y(`${data.sender_name || ''}: ${data.content || ''}`);
           }
           return;
         }
@@ -1449,6 +1498,25 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       } else {
         // Regular chat message — replace matching optimistic or append (skip exact duplicate)
         const msg: GuildMessage = data;
+        // Desktop notification / sound for server messages and mentions.
+        const self = selfRef.current;
+        const authorId = String(msg.author?.id ?? '');
+        if (authorId && authorId !== self.id) {
+          const text = msg.content || '';
+          const mentioned = !!(
+            (self.username && text.includes(`@${self.username}`)) ||
+            (self.nickname && text.includes(`@${self.nickname}`)) ||
+            text.includes('@everyone') || text.includes('@here')
+          );
+          const author = msg.author?.nickname || msg.author?.username || '';
+          if (mentioned) {
+            showDesktopNotification('mention', `${author} mentioned you`, text);
+            playMessageSound();
+            announceA11y(`${author} mentioned you: ${text}`);
+          } else {
+            showDesktopNotification('server', author, text);
+          }
+        }
         setState(prev => {
           if (prev.guildMessages.some(m => m.id === msg.id)) return prev;
           let optIdx = prev.guildMessages.findIndex(

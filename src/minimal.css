@@ -132,7 +132,28 @@ body {
 .server-guild-scroll {
   display: flex;
   flex-direction: column;
+  align-items: center;
   gap: 8px;
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  /* Hidden scrollbar — the list scrolls with wheel/trackpad/touch. */
+  scrollbar-width: none;
+  padding: 2px 0 6px;
+}
+.server-guild-scroll::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+/* Keep icons at full size so the list scrolls instead of squishing.
+   Only .server-guild-scroll itself is allowed to flex/scroll. */
+.server-icon,
+.server-list > .server-divider,
+.server-guild-scroll > div,
+.server-guild-scroll > .server-icon {
+  flex-shrink: 0;
 }
 .server-icon {
   width: 40px;
@@ -270,12 +291,46 @@ body {
   }
 
   /* Server-sidebar dock is horizontal on mobile — make the inner
-     guild-scroll a flex row so icons line up correctly. */
+     guild-scroll a flex row so icons line up correctly. The guild list
+     scrolls horizontally while Settings/Home/Explore stay pinned. */
+  .server-sidebar {
+    overflow: hidden;
+    /* Breathing room on the left/right edges of the dock. */
+    padding: 0 16px;
+    box-sizing: border-box;
+  }
+  .server-sidebar .server-list {
+    width: 100%;
+    height: 100%;
+    justify-content: flex-start;
+    align-items: center;
+  }
   .server-guild-scroll {
     display: flex;
     flex-direction: row;
     align-items: center;
     gap: var(--spacing-sm);
+    flex: 1 1 auto;
+    min-width: 0;
+    height: 100%;
+    width: auto;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+    padding: 0;
+  }
+  .server-guild-scroll::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+  }
+  /* Pinned icons must not shrink when the guild list overflows. */
+  .server-sidebar .server-list > .server-icon,
+  .server-sidebar .server-list > .server-divider {
+    flex-shrink: 0;
+  }
+  .server-guild-scroll .server-icon,
+  .server-guild-scroll > div {
+    flex-shrink: 0;
   }
 
   /* Guild panels — switch like DM panels (translateX), not stack */

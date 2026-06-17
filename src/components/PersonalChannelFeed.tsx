@@ -533,7 +533,7 @@ function PostCard({ msg, guild, serverIP }: { msg: import('../types').GuildMessa
       })()}
 
       {/* Reactions */}
-      <div style={{ padding: '8px 20px 14px', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+      <div className="post-reactions" style={{ padding: '8px 20px 14px', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
         {reactions.map(r => (
           <button
             key={r.emoji}

@@ -9,6 +9,7 @@ from django.db import models
 class User(AbstractUser):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     nickname = models.CharField(max_length=50, blank=True, default='')
+    phone = models.CharField(max_length=32, blank=True, default='')
     avatar = models.ImageField(upload_to='avatars/', blank=True, null=True)
     bio = models.CharField(max_length=200, blank=True, default='')
     status = models.CharField(
@@ -100,6 +101,8 @@ class UserSettings(models.Model):
     theme = models.CharField(max_length=10, default='dark')
     show_timestamps = models.BooleanField(default=True)
     show_avatars = models.BooleanField(default=True)
+    # Mobile (applied by the WebView shell)
+    allow_scale = models.BooleanField(default=False)
     # Voice & Video
     auto_input_sensitivity = models.BooleanField(default=True)
     echo_cancellation = models.BooleanField(default=True)
@@ -122,6 +125,12 @@ class UserSettings(models.Model):
     # Activity Privacy
     show_current_activity = models.BooleanField(default=True)
     show_game_status = models.BooleanField(default=True)
+    # Accessibility
+    high_contrast = models.BooleanField(default=False)
+    screen_reader = models.BooleanField(default=False)
+    reduce_motion = models.BooleanField(default=False)
+    large_text = models.BooleanField(default=False)
+    keyboard_outlines = models.BooleanField(default=False)
     # Language
     language = models.CharField(max_length=5, default='en')
 
@@ -164,6 +173,35 @@ class FcmToken(models.Model):
 
     def __str__(self):
         return f"{self.user} — {self.token[:20]}..."
+
+
+class DataExport(models.Model):
+    """A user-requested export of everything they have written on the platform.
+
+    Built asynchronously (it may take several minutes); the client polls the
+    status endpoint and downloads the JSON file once it is ready.
+    """
+    STATUS_CHOICES = [
+        ('pending', 'Pending'),
+        ('ready', 'Ready'),
+        ('failed', 'Failed'),
+    ]
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name='data_exports',
+    )
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='pending')
+    file = models.FileField(upload_to='data_exports/', blank=True, null=True)
+    item_count = models.PositiveIntegerField(default=0)
+    error = models.TextField(blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"DataExport({self.user} — {self.status})"
 
 
 def _emoji_upload_path(instance, filename):

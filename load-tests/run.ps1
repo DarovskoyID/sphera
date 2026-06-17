@@ -1,4 +1,4 @@
-<#
+﻿<#
   Запуск генератора тестовой нагрузки по профилю.
 
   Использование:
@@ -19,6 +19,8 @@ param(
     [int]$Accounts, [int]$Servers, [int]$Channels,
     [int]$Posts, [int]$ServerMessages, [int]$DmMessages,
     [int]$SendDm, [string]$BaseUrl,
+    [int]$ActiveCalls, [string]$CallDuration, [string]$SignalingUrl, [string]$TurnHost,
+    [switch]$WithVideo,
     [switch]$Purge
 )
 
@@ -58,11 +60,13 @@ if ($Purge) {
 }
 
 $cfg = @{}
+$callDur = $null
 if ($Profile -ne 'custom') {
     $envFile = Join-Path $here "$Profile.env"
     if (-not (Test-Path $envFile)) { throw "Профиль не найден: $envFile" }
     Get-Content $envFile | ForEach-Object {
-        if ($_ -match '^\s*([A-Z_]+)\s*=\s*(\d+)') { $cfg[$matches[1]] = [int]$matches[2] }
+        if ($_ -match '^\s*([A-Z_]+)\s*=\s*(\d+)\s*$') { $cfg[$matches[1]] = [int]$matches[2] }
+        elseif ($_ -match '^\s*CALL_DURATION\s*=\s*(\S+)') { $callDur = $matches[1] }
     }
 }
 
@@ -74,6 +78,8 @@ if ($PSBoundParameters.ContainsKey('Posts'))          { $cfg['POSTS'] = $Posts }
 if ($PSBoundParameters.ContainsKey('ServerMessages')) { $cfg['SERVER_MESSAGES'] = $ServerMessages }
 if ($PSBoundParameters.ContainsKey('DmMessages'))     { $cfg['DM_MESSAGES'] = $DmMessages }
 if ($PSBoundParameters.ContainsKey('SendDm'))         { $cfg['SEND_DM'] = $SendDm }
+if ($PSBoundParameters.ContainsKey('ActiveCalls'))    { $cfg['ACTIVE_CALLS'] = $ActiveCalls }
+if ($CallDuration)                                    { $callDur = $CallDuration }
 
 $args = @($manage, 'seed_load')
 if ($cfg.ContainsKey('ACCOUNTS'))        { $args += '--accounts';        $args += $cfg['ACCOUNTS'] }
@@ -83,7 +89,12 @@ if ($cfg.ContainsKey('POSTS'))           { $args += '--posts';           $args +
 if ($cfg.ContainsKey('SERVER_MESSAGES')) { $args += '--server-messages'; $args += $cfg['SERVER_MESSAGES'] }
 if ($cfg.ContainsKey('DM_MESSAGES'))     { $args += '--dm-messages';     $args += $cfg['DM_MESSAGES'] }
 if ($cfg.ContainsKey('SEND_DM'))         { $args += '--send-dm';         $args += $cfg['SEND_DM'] }
+if ($cfg.ContainsKey('ACTIVE_CALLS'))    { $args += '--active-calls';    $args += $cfg['ACTIVE_CALLS'] }
+if ($callDur)                            { $args += '--call-duration';   $args += $callDur }
 if ($BaseUrl)                            { $args += '--base-url';        $args += $BaseUrl }
+if ($SignalingUrl)                       { $args += '--signaling-url';   $args += $SignalingUrl }
+if ($TurnHost)                           { $args += '--turn-host';       $args += $TurnHost }
+if ($WithVideo)                          { $args += '--with-video' }
 
 Write-Host "Профиль: $Profile" -ForegroundColor Cyan
 & $py @args
