@@ -4,8 +4,24 @@ export const API_PROTOCOL = 'https';
 export const API_PORT = 8000;
 export const API_BASE_URL = `${API_PROTOCOL}://${APP_HOST}:${API_PORT}`;
 
+// WebSocket-трафик идёт не напрямую на Daphne, а на балансировщик нагрузки
+// (см. loadbalancer/), который слушает на отдельном порту и распределяет
+// соединения между нодами ws-gateway.
 export const WS_PORT = 8001;
 export const WS_BASE_URL = `wss://${APP_HOST}:${WS_PORT}`;
+
+// Преобразует базовый URL сервера API (https://host:8000) в адрес WebSocket
+// через балансировщик (wss://host:8001). Используется во всех WS-подключениях.
+export function wsUrlFor(serverIP: string): string {
+  try {
+    const u = new URL(serverIP);
+    const proto = u.protocol === 'https:' ? 'wss:' : 'ws:';
+    return `${proto}//${u.hostname}:${WS_PORT}`;
+  } catch {
+    // Фолбэк на случай нестандартного значения: меняем только схему.
+    return serverIP.replace(/^http/, 'ws');
+  }
+}
 
 export const TURN_HOST = APP_HOST;
 export const TURN_PORT = 3478;

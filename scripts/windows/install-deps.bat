@@ -69,14 +69,14 @@ del /f /q "%REQ_UTF8%" >nul 2>&1
 if not "%PIP_STATUS%"=="0" exit /b %PIP_STATUS%
 echo        Done.
 
-echo [3/4] Starting Docker services (Redis, Kafka) ...
+echo [3/4] Starting Docker services (Redis, Kafka, ws-gateway, load balancer) ...
 where docker >nul 2>&1
 if errorlevel 1 (
     echo [WARN] Docker not found. Install Docker Desktop to run Redis and Kafka.
     echo        Without Docker, the app will use InMemoryChannelLayer (unreliable).
 ) else (
     cd /d "%DJANGO_DIR%"
-    docker compose up -d redis kafka zookeeper kafka-init prometheus grafana
+    docker compose up -d --build redis kafka zookeeper kafka-init prometheus grafana ws-gateway loadbalancer
     echo        Done.
 )
 

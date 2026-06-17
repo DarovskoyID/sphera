@@ -19,10 +19,16 @@ DOMAIN="${IONIK_DOMAIN:-start-ionik.ru}"
 WEB_ROOT="${IONIK_WEB_ROOT:-/var/www/ionik}"
 NGINX_CONF="/etc/nginx/sites-available/$APP_NAME.conf"
 NGINX_ENABLED="/etc/nginx/sites-enabled/$APP_NAME.conf"
-DJANGO_BIND_HOST="${IONIK_DJANGO_BIND_HOST:-0.0.0.0}"
+DJANGO_BIND_HOST="${IONIK_DJANGO_BIND_HOST:-127.0.0.1}"
 DJANGO_PROXY_HOST="${IONIK_DJANGO_PROXY_HOST:-127.0.0.1}"
-DJANGO_PORT="${IONIK_DJANGO_PORT:-8001}"
+# Внутренний порт Daphne. 8001 отдан публичному WebSocket/балансировщику,
+# поэтому Daphne слушает на отдельном внутреннем порту.
+DJANGO_PORT="${IONIK_DJANGO_PORT:-8010}"
 API_PUBLIC_PORT="${IONIK_API_PUBLIC_PORT:-8000}"
+# Публичный WebSocket-порт: этот nginx терминирует TLS и проксирует на балансировщик
+WS_PUBLIC_PORT="${IONIK_WS_PUBLIC_PORT:-8001}"
+# Локальный порт балансировщика нагрузки (docker, см. loadbalancer/)
+LB_LOCAL_PORT="${IONIK_LB_LOCAL_PORT:-8081}"
 SSL_CERT="${IONIK_SSL_CERT:-/etc/letsencrypt/live/$DOMAIN/fullchain.pem}"
 SSL_KEY="${IONIK_SSL_KEY:-/etc/letsencrypt/live/$DOMAIN/privkey.pem}"
 COTURN_MIN_PORT="${IONIK_COTURN_MIN_PORT:-49152}"
@@ -83,8 +89,12 @@ while [ "$#" -gt 0 ]; do
             echo ""
             echo "API options:"
             echo "  --api-port PORT      Public nginx API port (default: 8000)"
-            echo "  --django-port PORT   Internal Daphne port (default: 8001)"
+            echo "  --django-port PORT   Internal Daphne port (default: 8010)"
             echo "  --django-bind HOST   Internal Daphne bind host (default: 127.0.0.1)"
+            echo ""
+            echo "WebSocket / load balancer:"
+            echo "  IONIK_WS_PUBLIC_PORT  Public WS port proxied to the load balancer (default: 8001)"
+            echo "  IONIK_LB_LOCAL_PORT   Local load balancer port from docker (default: 8081)"
             exit 0
             ;;
         *)
@@ -170,8 +180,9 @@ server {
         proxy_set_header X-Forwarded-Proto https;
     }
 
+    # WebSocket идёт через балансировщик нагрузки (loadbalancer/ -> ws-gateway)
     location /ws/ {
-        proxy_pass http://$DJANGO_PROXY_HOST:$DJANGO_PORT;
+        proxy_pass http://127.0.0.1:$LB_LOCAL_PORT;
         proxy_http_version 1.1;
         proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection "upgrade";
@@ -241,6 +252,32 @@ server {
         proxy_read_timeout 86400;
     }
 }
+
+# Публичный WebSocket-порт -> балансировщик нагрузки -> ноды ws-gateway
+server {
+    listen $WS_PUBLIC_PORT ssl http2;
+    listen [::]:$WS_PUBLIC_PORT ssl http2;
+    server_name $DOMAIN;
+
+    ssl_certificate $SSL_CERT;
+    ssl_certificate_key $SSL_KEY;
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_timeout 1d;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers off;
+
+    location / {
+        proxy_pass http://127.0.0.1:$LB_LOCAL_PORT;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_read_timeout 86400;
+    }
+}
 EOF
     else
         cat > "$tmp_conf" <<EOF
@@ -274,8 +311,9 @@ server {
         proxy_set_header X-Forwarded-Proto http;
     }
 
+    # WebSocket идёт через балансировщик нагрузки (loadbalancer/ -> ws-gateway)
     location /ws/ {
-        proxy_pass http://$DJANGO_PROXY_HOST:$DJANGO_PORT;
+        proxy_pass http://127.0.0.1:$LB_LOCAL_PORT;
         proxy_http_version 1.1;
         proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection "upgrade";
@@ -325,6 +363,25 @@ server {
 
     location / {
         proxy_pass http://$DJANGO_PROXY_HOST:$DJANGO_PORT;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto http;
+        proxy_read_timeout 86400;
+    }
+}
+
+# Публичный WebSocket-порт -> балансировщик нагрузки -> ноды ws-gateway
+server {
+    listen $WS_PUBLIC_PORT;
+    listen [::]:$WS_PUBLIC_PORT;
+    server_name _;
+
+    location / {
+        proxy_pass http://127.0.0.1:$LB_LOCAL_PORT;
         proxy_http_version 1.1;
         proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection "upgrade";
@@ -411,11 +468,14 @@ start_nginx() {
 }
 
 start_docker() {
-    log "Starting Docker services (Redis, Kafka)"
+    log "Starting Docker services (Redis, Kafka, ws-gateway, load balancer)"
     if command -v docker >/dev/null 2>&1; then
         cd "$DOCKER_DIR"
-        docker compose up -d redis kafka zookeeper kafka-init prometheus grafana
-        echo "      Redis and Kafka started."
+        docker compose up -d --build \
+            redis kafka zookeeper kafka-init prometheus grafana \
+            ws-gateway loadbalancer
+        echo "      Redis, Kafka, ws-gateway and load balancer started."
+        echo "      Load balancer: 127.0.0.1:$LB_LOCAL_PORT (edit ../loadbalancer/servers.conf to add nodes)."
     else
         echo "      WARNING: Docker not found. Messages may be lost under high load."
     fi
@@ -463,6 +523,8 @@ echo "=== All services started ==="
 echo "  Docker      : Redis :6379, Kafka :9092, Prometheus :9090, Grafana :3000"
 echo "  TURN server : 3478, 5349, relay UDP/TCP $COTURN_MIN_PORT-$COTURN_MAX_PORT"
 echo "  Django API  : http://$DJANGO_BIND_HOST:$DJANGO_PORT internal, public port $API_PUBLIC_PORT"
+echo "  WebSocket   : public port $WS_PUBLIC_PORT -> load balancer 127.0.0.1:$LB_LOCAL_PORT -> ws-gateway nodes"
+echo "  Load bal.   : nodes in loadbalancer/servers.conf (reload: docker compose exec loadbalancer nginx -s reload)"
 echo "  Kafka worker: processing messages"
 if [ "$MODE" = "ssl" ]; then
     echo "  Frontend    : https://$DOMAIN"

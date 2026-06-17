@@ -101,8 +101,10 @@ services:
     build:
       context: ../ws-gateway
       dockerfile: Dockerfile
-    ports:
-      - "8001:8001"
+    # Порт наружу не публикуем — доступ только через балансировщик.
+    # Для нескольких локальных нод: docker compose up -d --scale ws-gateway=3
+    expose:
+      - "8001"
     environment:
       REDIS_URL: redis://redis:6379
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
@@ -112,6 +114,23 @@ services:
     depends_on:
       - redis
       - kafka
+    restart: unless-stopped
+
+  loadbalancer:
+    build:
+      context: ../loadbalancer
+      dockerfile: Dockerfile
+    # Слушает только на localhost — TLS-терминация и публичный порт 8001
+    # делает внешний nginx (см. scripts/linux/start-common.sh), проксируя сюда.
+    ports:
+      - "127.0.0.1:8081:8001"
+    volumes:
+      # Конфиги монтируем снаружи — IP серверов можно менять без пересборки.
+      # После правки servers.conf: docker compose exec loadbalancer nginx -s reload
+      - ../loadbalancer/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ../loadbalancer/servers.conf:/etc/nginx/servers.conf:ro
+    depends_on:
+      - ws-gateway
     restart: unless-stopped
 
 volumes:

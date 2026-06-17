@@ -38,14 +38,14 @@ if not exist "%NGINX_DIR%\nginx.exe" (
 
 :: ─── 1. Docker services (Redis, Kafka) ───────────────────────────────────────
 
-echo [1/8] Starting Docker services (Redis, Kafka) ...
+echo [1/8] Starting Docker services (Redis, Kafka, ws-gateway, load balancer) ...
 where docker >nul 2>&1
 if errorlevel 1 (
     echo [WARN] Docker not found -- Redis/Kafka won't start.
     echo        Messages may be lost under high load.
 ) else (
     cd /d "%DOCKER_DIR%"
-    docker compose up -d redis kafka zookeeper kafka-init prometheus grafana
+    docker compose up -d --build redis kafka zookeeper kafka-init prometheus grafana ws-gateway loadbalancer
 )
 echo        Done.
 
@@ -148,6 +148,7 @@ echo      API (Django)   ^>  http://localhost:8000
 echo      Kafka worker   ^>  processing messages
 echo      Redis          ^>  localhost:6379
 echo      Kafka          ^>  localhost:9092
+echo      Load balancer  ^>  127.0.0.1:8081 (loadbalancer\servers.conf)
 echo      Prometheus     ^>  localhost:9090
 echo      Grafana        ^>  http://localhost:3000/grafana/
 echo      STUN/TURN      ^>  localhost:3478

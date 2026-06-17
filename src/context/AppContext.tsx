@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback, type ReactNode } from 'react';
 import type { AppState, ViewType, MobilePanel, ServerUser, PendingRequest, ChatMessage, Guild, GuildChannel, GuildMessage, GuildRole, GuildEmoji, GuildSticker, GuildSound, GuildInviteData, GuildAuditLogEntry } from '../types';
 import type { CustomEmoji } from '../types';
-import { loadSelectedServer } from '../config/network';
+import { loadSelectedServer, wsUrlFor } from '../config/network';
 
 
 // ── Inject X-Ionik-Client header into every fetch ────────────────────────────
@@ -645,7 +645,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
         if (last) chatLastMsgId.current = String(last.id);
 
         // Connect chat WebSocket (with auto-reconnect on unexpected close)
-        const wsUrl = state.currentServerIP.replace(/^http/, 'ws');
+        const wsUrl = wsUrlFor(state.currentServerIP);
         let isFirstConnect = true;
 
         const connectChatWs = () => {
@@ -1087,7 +1087,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
 
     const connect = () => {
       if (!alive) return;
-      const wsUrl = currentServerIP.replace(/^http/, 'ws');
+      const wsUrl = wsUrlFor(currentServerIP);
       const ws = new WebSocket(`${wsUrl}/ws/signaling/?token=${authToken}`);
       activeWs = ws;
 
@@ -1318,7 +1318,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       guildChannelWs.current.close();
       guildChannelWs.current = null;
     }
-    const wsUrl = serverIP.replace(/^http/, 'ws');
+    const wsUrl = wsUrlFor(serverIP);
     const ws = new WebSocket(`${wsUrl}/ws/guild/${guild.id}/channel/${channel.id}/?token=${token}`);
     ws.onopen = () => { guildChannelWs.current = ws; };
     ws.onmessage = (event) => {
@@ -1479,7 +1479,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
 
   const _connectGuildPresenceWs = useCallback((guild: Guild, token: string, serverIP: string) => {
     if (guildPresenceWs.current) { guildPresenceWs.current.close(); guildPresenceWs.current = null; }
-    const wsUrl = serverIP.replace(/^http/, 'ws');
+    const wsUrl = wsUrlFor(serverIP);
     const ws = new WebSocket(`${wsUrl}/ws/guild/${guild.id}/?token=${token}`);
     ws.onopen = () => { guildPresenceWs.current = ws; };
     ws.onmessage = (event) => {
@@ -2173,7 +2173,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       callTargetId: null,
     }));
 
-    const wsUrl = state.currentServerIP.replace(/^http/, 'ws');
+    const wsUrl = wsUrlFor(state.currentServerIP);
     const guildId = state.currentGuild?.id;
     if (!guildId) return;
     const ws = new WebSocket(`${wsUrl}/ws/guild/${guildId}/voice/${channel.id}/?token=${state.authToken}`);

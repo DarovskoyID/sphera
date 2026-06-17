@@ -13,11 +13,13 @@ echo "Project root: $PROJECT_ROOT"
 
 # ── 1. Docker services ─────────────────────────────────────────────────────
 echo ""
-echo "[1/5] Starting Docker services (Redis, Kafka) ..."
+echo "[1/5] Starting Docker services (Redis, Kafka, ws-gateway, load balancer) ..."
 if command -v docker &>/dev/null; then
     cd "$DOCKER_DIR"
-    docker compose up -d redis kafka zookeeper kafka-init prometheus grafana
-    echo "      Done."
+    docker compose up -d --build \
+        redis kafka zookeeper kafka-init prometheus grafana \
+        ws-gateway loadbalancer
+    echo "      Done. Load balancer on 127.0.0.1:8081 (edit ../loadbalancer/servers.conf to add nodes)."
 else
     echo "      WARNING: Docker not found. Messages may be lost under high load."
 fi
@@ -93,6 +95,7 @@ echo "      Vite PID: $VITE_PID  (log: /tmp/ionik-vite.log)"
 echo ""
 echo "=== All services started ==="
 echo "  Docker      : Redis :6379, Kafka :9092"
+echo "  Load bal.   : 127.0.0.1:8081 -> ws-gateway nodes (loadbalancer/servers.conf)"
 echo "  TURN server : localhost:3478"
 echo "  Django API  : http://localhost:8000"
 echo "  Kafka worker: processing messages"
