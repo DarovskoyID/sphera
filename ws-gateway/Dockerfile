@@ -1,6 +1,7 @@
 FROM rust:1-slim-bookworm AS builder
 
-RUN apt-get update && apt-get install -y cmake pkg-config libssl-dev && rm -rf /var/lib/apt/lists/*
+# build-essential (gcc/g++/make) нужен rdkafka-sys для сборки librdkafka из исходников
+RUN apt-get update && apt-get install -y build-essential cmake pkg-config libssl-dev && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 COPY Cargo.toml Cargo.lock* ./
