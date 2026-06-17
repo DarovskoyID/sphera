@@ -2,9 +2,10 @@ import React, { createContext, useContext, useState, useEffect, useRef, useCallb
 import type { AppState, ViewType, MobilePanel, ServerUser, PendingRequest, ChatMessage, Guild, GuildChannel, GuildMessage, GuildRole, GuildEmoji, GuildSticker, GuildSound, GuildInviteData, GuildAuditLogEntry } from '../types';
 import type { CustomEmoji } from '../types';
 import { loadSelectedServer, wsUrlFor } from '../config/network';
-import { saveNotifPrefs, getNotifPrefs, showDesktopNotification, playMessageSound, ensureNotificationPermission } from '../utils/notifications';
+import { saveNotifPrefs, getNotifPrefs, showDesktopNotification, showCallNotification, playMessageSound, ensureNotificationPermission } from '../utils/notifications';
 import { saveA11yPrefs, announce as announceA11y, type A11yPrefs } from '../utils/accessibility';
 import { saveDisplayPrefs } from '../utils/displayPrefs';
+import { setAllowScale } from '../utils/nativeBridge';
 
 
 // ── Inject X-Ionik-Client header into every fetch ────────────────────────────
@@ -423,6 +424,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
           streamer_mode: cfg.streamer_mode,
           streamer_hide_info: cfg.streamer_hide_info,
         });
+        setAllowScale(!!cfg.allow_scale);
         const a11y: Partial<A11yPrefs> = {};
         (['high_contrast', 'screen_reader', 'reduce_motion', 'large_text', 'keyboard_outlines'] as const)
           .forEach(k => { if (typeof cfg[k] === 'boolean') (a11y as any)[k] = cfg[k]; });
@@ -1308,10 +1310,12 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
         if (data.type === 'offer' && data.from) {
           setState(prev => {
             if (prev.isCallActive || prev.currentVoiceChannel) return prev;
+            const callerFriend = prev.friends.find((f: any) => String(f.id) === String(data.from));
+            const callerName = callerFriend?.nickname || callerFriend?.username || String(data.from);
             if ((window as any).AndroidBridge) {
-              const callerFriend = prev.friends.find((f: any) => String(f.id) === String(data.from));
-              const callerName = callerFriend?.nickname || callerFriend?.username || String(data.from);
               (window as any).AndroidBridge.showCallNotification(callerName, !!data.withVideo);
+            } else {
+              showCallNotification(callerName, !!data.withVideo);
             }
             return { ...prev, incomingOffer: data };
           });

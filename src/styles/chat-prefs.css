@@ -31,13 +31,30 @@
   height: 24px !important;
 }
 
-/* --- Streamer mode: blur sensitive info, reveal on hover ----------------- */
-.streamer-mode.streamer-hide-info .streamer-sensitive {
+/* --- Streamer mode: blur sensitive info + every nickname, reveal on hover -
+   Hides the streamer's own identity AND other people's names (DMs, the user
+   panel, message authors, member lists, chat headers) so nothing leaks on
+   stream. Hover over an item to read it privately. */
+.streamer-mode.streamer-hide-info .streamer-sensitive,
+.streamer-mode.streamer-hide-info .profile-name,
+.streamer-mode.streamer-hide-info .chat-name,
+.streamer-mode.streamer-hide-info .member-name,
+.streamer-mode.streamer-hide-info .message-author-bubble,
+.streamer-mode.streamer-hide-info .message-reply-author,
+.streamer-mode.streamer-hide-info .chat-header h3,
+.streamer-mode.streamer-hide-info .chat-header > div > p {
   filter: blur(7px);
   transition: filter 0.15s ease;
   user-select: none;
 }
 .streamer-mode.streamer-hide-info .streamer-sensitive:hover,
-.streamer-mode.streamer-hide-info .streamer-sensitive:focus-within {
+.streamer-mode.streamer-hide-info .streamer-sensitive:focus-within,
+.streamer-mode.streamer-hide-info .profile-name:hover,
+.streamer-mode.streamer-hide-info .chat-name:hover,
+.streamer-mode.streamer-hide-info .member-name:hover,
+.streamer-mode.streamer-hide-info .message-author-bubble:hover,
+.streamer-mode.streamer-hide-info .message-reply-author:hover,
+.streamer-mode.streamer-hide-info .chat-header h3:hover,
+.streamer-mode.streamer-hide-info .chat-header > div > p:hover {
   filter: none;
 }

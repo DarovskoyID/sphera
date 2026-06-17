@@ -1074,10 +1074,11 @@ const CallMessageRow: React.FC<{
   const typeText = info.video ? tr('call_msg_video') : tr('call_msg_voice');
 
   const isBad = info.status === 'missed' || info.status === 'declined' || info.status === 'no_answer';
-  const showCallback = isBad && (
-    (info.status === 'cancelled' && !isOwn) ||
-    (info.status !== 'cancelled' && isOwn)
-  );
+  // The "call back" button belongs to the person who did NOT start the call
+  // (the recipient who missed/declined it). The initiator (author / isOwn)
+  // never sees it.
+  const isUnconnected = isBad || info.status === 'cancelled';
+  const showCallback = isUnconnected && !isOwn;
   const accentColor = isBad ? '#ff4444' : '#44cc44';
 
   const Icon = info.status === 'missed' ? PhoneMissed

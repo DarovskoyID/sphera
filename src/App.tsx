@@ -15,10 +15,14 @@ import { PersonalChannelFeed } from './components/PersonalChannelFeed';
 import { Volume2, PhoneOff } from 'lucide-react';
 import { applyA11y } from './utils/accessibility';
 import { applyDisplayPrefs } from './utils/displayPrefs';
+import { getKeybindings, onKeybindingsUpdate, eventToCombo, comboMainKey, toggleDeafen, type ActionId } from './utils/keybindings';
+import { initNativeBridge } from './utils/nativeBridge';
 
 // Apply saved accessibility + display preferences as early as possible.
 applyA11y();
 applyDisplayPrefs();
+// Expose the WebView "allow scale" value to the native shell.
+initNativeBridge();
 
 function useMobile() {
   const [isMobile, setIsMobile] = useState(() => window.matchMedia('(max-width: 768px)').matches);
@@ -167,10 +171,77 @@ function ToastContainer() {
   );
 }
 
+function useKeybindings() {
+  const { isMicActive, setMicActive, toggleTheme, setCurrentServer } = useApp();
+  const ref = useRef({ isMicActive, setMicActive, toggleTheme, setCurrentServer });
+  ref.current = { isMicActive, setMicActive, toggleTheme, setCurrentServer };
+  const bindingsRef = useRef(getKeybindings());
+  const pttKeyRef = useRef<string | null>(null);
+
+  useEffect(() => onKeybindingsUpdate(() => { bindingsRef.current = getKeybindings(); }), []);
+
+  useEffect(() => {
+    const isEditable = (el: EventTarget | null) => {
+      const t = el as HTMLElement | null;
+      if (!t || !t.tagName) return false;
+      const tag = t.tagName;
+      return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || t.isContentEditable;
+    };
+    const run = (action: ActionId) => {
+      const a = ref.current;
+      switch (action) {
+        case 'toggle_mic': a.setMicActive(!a.isMicActive); break;
+        case 'toggle_deafen': toggleDeafen(); break;
+        case 'toggle_theme': a.toggleTheme(); break;
+        case 'open_settings': a.setCurrentServer('settings'); break;
+        case 'focus_search': {
+          const el = document.querySelector<HTMLInputElement>('.chat-sidebar input, input[type="search"]');
+          el?.focus();
+          break;
+        }
+      }
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (isEditable(e.target)) return;
+      const combo = eventToCombo(e);
+      if (!combo) return;
+      for (const b of bindingsRef.current) {
+        if (b.keys !== combo) continue;
+        e.preventDefault();
+        if (b.action === 'push_to_talk') {
+          if (!pttKeyRef.current) {
+            pttKeyRef.current = comboMainKey(b.keys);
+            ref.current.setMicActive(true);
+          }
+        } else {
+          run(b.action);
+        }
+        break;
+      }
+    };
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (!pttKeyRef.current) return;
+      const released = e.key === ' ' ? 'Space' : (e.key.length === 1 ? e.key.toUpperCase() : e.key);
+      const isMod = e.key === 'Control' || e.key === 'Shift' || e.key === 'Alt' || e.key === 'Meta';
+      if (released === pttKeyRef.current || isMod) {
+        pttKeyRef.current = null;
+        ref.current.setMicActive(false);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup', onKeyUp);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('keyup', onKeyUp);
+    };
+  }, []);
+}
+
 function AppContent() {
   const { authToken, isCallActive, currentView, currentChat, mobileActivePanel, currentGuild, currentVoiceChannel, leaveVoiceChannel } = useApp();
   const tr = useTranslation();
   const isMobile = useMobile();
+  useKeybindings();
 
   if (!authToken) {
     return <>

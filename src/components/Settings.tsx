@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef, createContext, useContext } from 'react';
-import { Shield, ShieldCheck, Monitor, Smartphone, Tablet, Trash2, UserX, Camera, Upload, Play, Square, RotateCcw, Server, CheckCircle2, Circle, Clock, Mic, Video, Volume2, Download } from 'lucide-react';
+import { Shield, ShieldCheck, Monitor, Smartphone, Tablet, Trash2, UserX, Camera, Upload, Play, Square, RotateCcw, Server, CheckCircle2, Circle, Clock, Mic, Video, Volume2, Download, Plus } from 'lucide-react';
 import { ServerSelector } from './ServerSelector';
 import { MessageText } from './EmojiPicker';
 import { useApp, reportError } from '../context/AppContext';
@@ -9,6 +9,11 @@ import type { ServerUser } from '../types';
 import { saveNotifPrefs, ensureNotificationPermission } from '../utils/notifications';
 import { saveA11yPrefs } from '../utils/accessibility';
 import { saveDisplayPrefs } from '../utils/displayPrefs';
+import { setAllowScale } from '../utils/nativeBridge';
+import {
+  getKeybindings, saveKeybindings, resetKeybindings, eventToCombo, comboDisplay,
+  actionLabel, ACTION_CATALOG, type KeyBinding, type ActionId,
+} from '../utils/keybindings';
 
 // ==================== Mobile detection ====================
 
@@ -208,6 +213,9 @@ export const Settings: React.FC = () => {
     });
   }, [s.chat_show_timestamps, s.chat_emoji_reactions, s.chat_compact_mode, s.streamer_mode, s.streamer_hide_info]);
 
+  // Expose the WebView "allow scale" preference to the native shell.
+  useEffect(() => { setAllowScale(s.allow_scale); }, [s.allow_scale]);
+
   // Mirror + apply accessibility prefs live.
   useEffect(() => {
     saveA11yPrefs({
@@ -330,6 +338,8 @@ const VerificationCard: React.FC<{ user: ServerUser | null; isRu: boolean }> = (
 const ProfileSettings: React.FC = () => {
   const tr = useTranslation();
   const isRu = tr('settings_formatting') === 'Подсказки';
+  const { s } = useSettings();
+  const streamerHide = s.streamer_mode && s.streamer_hide_info;
   const { currentUser, currentServerIP, authToken, setCurrentUser } = useApp();
   const [nickname, setNickname] = useState(currentUser?.nickname || '');
   const [bio, setBio] = useState(currentUser?.bio || '');
@@ -406,7 +416,9 @@ const ProfileSettings: React.FC = () => {
             </label>
           </div>
           <div style={{ marginTop: 12 }}>
-            <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--text-primary)' }}>{currentUser?.nickname || currentUser?.username}</div>
+            <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--text-primary)' }}>
+              {streamerHide ? (isRu ? '<стример>' : '<streamer>') : (currentUser?.nickname || currentUser?.username)}
+            </div>
             <div className="streamer-sensitive" style={{ fontSize: 13, color: 'var(--text-secondary)' }}>@{currentUser?.username}</div>
           </div>
         </div>
@@ -417,11 +429,11 @@ const ProfileSettings: React.FC = () => {
       <form onSubmit={handleSave}>
         <div style={card}>
           <h3 style={sectionH3}>{tr('sp_profile_info')}</h3>
-          <div style={{ marginBottom: 16 }}>
+          <div className="streamer-sensitive" style={{ marginBottom: 16 }}>
             <div style={fieldLabel}>{tr('sp_display_name')}</div>
             <input style={fieldInput} value={nickname} onChange={e => setNickname(e.target.value)} placeholder="Display name" />
           </div>
-          <div style={{ marginBottom: 16 }}>
+          <div className="streamer-sensitive" style={{ marginBottom: 16 }}>
             <div style={fieldLabel}>{tr('sp_username')}</div>
             <input style={{ ...fieldInput, opacity: 0.6 }} value={currentUser?.username || ''} disabled />
           </div>
@@ -1499,16 +1511,94 @@ const SpecialSettings: React.FC = () => {
 
 const BindsSettings: React.FC = () => {
   const tr = useTranslation();
+  const isRu = tr('settings_formatting') === 'Подсказки';
+  const [binds, setBinds] = useState<KeyBinding[]>(() => getKeybindings());
+  const [recordingId, setRecordingId] = useState<string | null>(null);
+  const [newAction, setNewAction] = useState<ActionId>('toggle_theme');
+
+  const persist = (list: KeyBinding[]) => { setBinds(list); saveKeybindings(list); };
+
+  // Capture the next key combo while recording.
+  useEffect(() => {
+    if (!recordingId) return;
+    const handler = (e: KeyboardEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.key === 'Escape') { setRecordingId(null); return; }
+      const combo = eventToCombo(e);
+      if (!combo) return; // still only modifiers held
+      setBinds(prev => {
+        const next = prev.map(b => b.id === recordingId ? { ...b, keys: combo } : b);
+        saveKeybindings(next);
+        return next;
+      });
+      setRecordingId(null);
+    };
+    window.addEventListener('keydown', handler, true);
+    return () => window.removeEventListener('keydown', handler, true);
+  }, [recordingId]);
+
+  const addBind = () => {
+    const id = 'b' + Date.now();
+    persist([...binds, { id, action: newAction, keys: '' }]);
+    setRecordingId(id);
+  };
+  const removeBind = (id: string) => persist(binds.filter(b => b.id !== id));
+  const resetAll = () => setBinds(resetKeybindings());
+
   return (
   <section>
     <h1>{tr('sbind_title')}</h1>
+    <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: '0 0 16px' }}>
+      {isRu
+        ? 'Нажмите на сочетание, чтобы изменить его, или добавьте своё. Работают глобально (кроме набора текста в полях).'
+        : 'Click a shortcut to change it, or add your own. They work globally (except while typing in fields).'}
+    </p>
+
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-      {[[tr('sbind_mute'), 'Ctrl + Shift + M'], [tr('sbind_deafen'), 'Ctrl + Shift + D'], [tr('sbind_ptt'), 'Ctrl + Space']].map(([action, key]) => (
-        <div key={action} style={{ ...card, display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: 12, marginBottom: 0 }}>
-          <span style={{ color: 'var(--text-primary)', fontSize: 14 }}>{action}</span>
-          <kbd style={{ padding: '4px 10px', background: 'var(--bg-primary)', borderRadius: 4, fontSize: 12, color: 'var(--text-secondary)', border: '1px solid var(--border-color)' }}>{key}</kbd>
+      {binds.map(b => (
+        <div key={b.id} style={{ ...card, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, padding: 12, marginBottom: 0 }}>
+          <span style={{ color: 'var(--text-primary)', fontSize: 14, flex: 1, minWidth: 0 }}>{actionLabel(b.action, isRu)}</span>
+          <button
+            type="button"
+            onClick={() => setRecordingId(b.id)}
+            style={{
+              padding: '6px 12px', borderRadius: 6, fontSize: 12, cursor: 'pointer',
+              background: recordingId === b.id ? 'var(--accent-primary)' : 'var(--bg-primary)',
+              color: recordingId === b.id ? '#fff' : 'var(--text-secondary)',
+              border: `1px solid ${recordingId === b.id ? 'var(--accent-primary)' : 'var(--border-color)'}`,
+              minWidth: 130, textAlign: 'center', fontFamily: 'monospace',
+            }}
+          >
+            {recordingId === b.id
+              ? (isRu ? 'Нажмите клавиши…' : 'Press keys…')
+              : (b.keys ? comboDisplay(b.keys) : (isRu ? 'Не задано' : 'Not set'))}
+          </button>
+          <button type="button" onClick={() => removeBind(b.id)} title={isRu ? 'Удалить' : 'Remove'} style={{ ...btnDanger, padding: '6px 10px', display: 'flex', alignItems: 'center' }}>
+            <Trash2 size={14} />
+          </button>
         </div>
       ))}
+    </div>
+
+    <div style={{ ...card, marginTop: 16 }}>
+      <h3 style={sectionH3}>{isRu ? 'Добавить сочетание' : 'Add a shortcut'}</h3>
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+        <select value={newAction} onChange={e => setNewAction(e.target.value as ActionId)} style={{ ...fieldInput, flex: 1, minWidth: 180 }}>
+          {ACTION_CATALOG.map(a => (
+            <option key={a.id} value={a.id}>{isRu ? a.ru : a.en}</option>
+          ))}
+        </select>
+        <button type="button" style={{ ...btnPrimary, display: 'inline-flex', alignItems: 'center', gap: 6 }} onClick={addBind}>
+          <Plus size={14} />{isRu ? 'Добавить' : 'Add'}
+        </button>
+      </div>
+    </div>
+
+    <div style={{ marginTop: 16 }}>
+      <button type="button" style={{ ...btnSecondary, display: 'inline-flex', alignItems: 'center', gap: 6 }} onClick={resetAll}>
+        <RotateCcw size={14} />{isRu ? 'Сбросить по умолчанию' : 'Reset to defaults'}
+      </button>
     </div>
   </section>
   );

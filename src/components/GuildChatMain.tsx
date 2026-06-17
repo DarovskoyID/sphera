@@ -243,7 +243,7 @@ const GuildMessageRow = React.memo(({ msg, isOwn, isFirstInGroup, onContextMenu,
   highlight?: boolean;
 }) => {
   const tr = useTranslation();
-  const displayName = msg.author.nickname || msg.author.username;
+  const displayName = msg.author?.nickname || msg.author?.username || '?';
   const time = new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   const [hovered, setHovered] = useState(false);
   const [avatarError, setAvatarError] = useState(false);
@@ -273,7 +273,7 @@ const GuildMessageRow = React.memo(({ msg, isOwn, isFirstInGroup, onContextMenu,
           ? (msg.author.avatar && !avatarError
               ? <img src={msg.author.avatar} alt={displayName} style={{ width: 36, height: 36, borderRadius: '50%', objectFit: 'cover' }} onError={() => setAvatarError(true)} />
               : <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'var(--accent-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 700, fontSize: 14 }}>
-                  {displayName[0].toUpperCase()}
+                  {(displayName[0] || '?').toUpperCase()}
                 </div>
             )
           : null

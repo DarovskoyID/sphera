@@ -74,6 +74,26 @@ export function showDesktopNotification(kind: NotifKind, title: string, body: st
   } catch { /* ignore */ }
 }
 
+/** Show a browser notification for an incoming call. */
+export function showCallNotification(callerName: string, withVideo: boolean): void {
+  const prefs = getNotifPrefs();
+  if (prefs.streamer_disable_notifs) return;
+  if (!prefs.enable_all_notifications) return;
+  // The in-app ringing modal already covers the focused tab.
+  if (typeof document !== 'undefined' && document.hasFocus()) return;
+  if (typeof window === 'undefined' || !('Notification' in window)) return;
+  if (Notification.permission !== 'granted') return;
+  try {
+    const n = new Notification(callerName || 'Incoming call', {
+      body: withVideo ? 'Incoming video call' : 'Incoming call',
+      icon: '/vite.svg',
+      tag: 'incoming-call',
+      requireInteraction: true,
+    });
+    n.onclick = () => { window.focus(); n.close(); };
+  } catch { /* ignore */ }
+}
+
 let lastSoundAt = 0;
 
 /** Play a short notification sound, respecting the sound_message toggle. */
