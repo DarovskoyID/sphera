@@ -291,6 +291,82 @@
       "targets": [
         { "expr": "ionik_redis_memory_bytes", "legendFormat": "Redis used memory", "refId": "A" }
       ]
+    },
+
+    {
+      "title": "Servers",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 3, "x": 0, "y": 32 },
+      "fieldConfig": { "defaults": { "thresholds": { "steps": [{ "color": "blue", "value": null }] } } },
+      "targets": [{ "expr": "ionik_db_rows{table=\"guilds\"}", "legendFormat": "servers", "refId": "A" }]
+    },
+    {
+      "title": "Personal Channels",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 3, "x": 3, "y": 32 },
+      "fieldConfig": { "defaults": { "thresholds": { "steps": [{ "color": "purple", "value": null }] } } },
+      "targets": [{ "expr": "ionik_db_rows{table=\"personal_channels\"}", "legendFormat": "channels", "refId": "A" }]
+    },
+    {
+      "title": "Guild Channels",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 3, "x": 6, "y": 32 },
+      "fieldConfig": { "defaults": { "thresholds": { "steps": [{ "color": "green", "value": null }] } } },
+      "targets": [{ "expr": "ionik_db_rows{table=\"guild_channels\"}", "legendFormat": "channels", "refId": "A" }]
+    },
+    {
+      "title": "Guild Messages",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 3, "x": 9, "y": 32 },
+      "fieldConfig": { "defaults": { "thresholds": { "steps": [{ "color": "green", "value": null }] } } },
+      "targets": [{ "expr": "ionik_db_rows{table=\"guild_messages\"}", "legendFormat": "messages", "refId": "A" }]
+    },
+    {
+      "title": "DM Messages",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 3, "x": 12, "y": 32 },
+      "fieldConfig": { "defaults": { "thresholds": { "steps": [{ "color": "green", "value": null }] } } },
+      "targets": [{ "expr": "ionik_db_rows{table=\"dm_messages\"}", "legendFormat": "messages", "refId": "A" }]
+    },
+    {
+      "title": "Comments",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 3, "x": 15, "y": 32 },
+      "fieldConfig": { "defaults": { "thresholds": { "steps": [{ "color": "yellow", "value": null }] } } },
+      "targets": [{ "expr": "ionik_db_rows{table=\"comments\"}", "legendFormat": "comments", "refId": "A" }]
+    },
+    {
+      "title": "Reactions",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 3, "x": 18, "y": 32 },
+      "fieldConfig": { "defaults": { "thresholds": { "steps": [{ "color": "orange", "value": null }] } } },
+      "targets": [{ "expr": "ionik_db_rows{table=\"reactions\"}", "legendFormat": "reactions", "refId": "A" }]
+    },
+    {
+      "title": "Registered Users",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 3, "x": 21, "y": 32 },
+      "fieldConfig": { "defaults": { "thresholds": { "steps": [{ "color": "blue", "value": null }] } } },
+      "targets": [{ "expr": "ionik_db_rows{table=\"users\"}", "legendFormat": "users", "refId": "A" }]
+    },
+
+    {
+      "title": "Content Growth (rows over time)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 36 },
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "drawStyle": "line", "fillOpacity": 10, "lineWidth": 2 },
+          "color": { "mode": "palette-classic" }
+        }
+      },
+      "targets": [
+        { "expr": "ionik_db_rows{table=\"guild_messages\"}", "legendFormat": "guild messages", "refId": "A" },
+        { "expr": "ionik_db_rows{table=\"dm_messages\"}", "legendFormat": "dm messages", "refId": "B" },
+        { "expr": "ionik_db_rows{table=\"comments\"}", "legendFormat": "comments", "refId": "C" },
+        { "expr": "ionik_db_rows{table=\"reactions\"}", "legendFormat": "reactions", "refId": "D" },
+        { "expr": "ionik_db_rows{table=\"personal_channels\"}", "legendFormat": "personal channels", "refId": "E" }
+      ]
     }
   ],
   "refresh": "30s",

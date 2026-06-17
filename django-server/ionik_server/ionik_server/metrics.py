@@ -76,14 +76,29 @@ def _db_stats():
 
     tables = {}
     try:
-        from ionik_auth.models import User
-        from ionik_messages.models import Message, Conversation, Guild, GuildMessage
+        from ionik_auth.models import User, Friendship
+        from ionik_messages.models import (
+            Message, Conversation, Guild, GuildMessage, GuildChannel,
+            GuildPostComment, GuildMessageReaction, GuildMessageView,
+            Attachment, GuildAttachment, ScheduledMessage, GuildScheduledMessage,
+        )
 
+        # Реальные сервера и личные каналы — это одна модель Guild,
+        # различаются флагом is_personal_channel, но в метриках их полезно разделить.
+        guild_qs = Guild.objects.all()
         tables['users'] = User.objects.count()
         tables['conversations'] = Conversation.objects.count()
-        tables['messages'] = Message.objects.count()
-        tables['guilds'] = Guild.objects.count()
+        tables['dm_messages'] = Message.objects.count()
+        tables['guilds'] = guild_qs.filter(is_personal_channel=False).count()
+        tables['personal_channels'] = guild_qs.filter(is_personal_channel=True).count()
+        tables['guild_channels'] = GuildChannel.objects.count()
         tables['guild_messages'] = GuildMessage.objects.count()
+        tables['comments'] = GuildPostComment.objects.count()
+        tables['reactions'] = GuildMessageReaction.objects.count()
+        tables['post_views'] = GuildMessageView.objects.count()
+        tables['friendships'] = Friendship.objects.count()
+        tables['attachments'] = Attachment.objects.count() + GuildAttachment.objects.count()
+        tables['scheduled'] = ScheduledMessage.objects.count() + GuildScheduledMessage.objects.count()
     except Exception:
         pass
 
@@ -436,9 +451,9 @@ function renderCharts(d){
         labels:labels,
         datasets:[{
           data:values,
-          backgroundColor:['#58a6ff','#bc8cff','#3fb950','#d29922','#f85149','#79c0ff'],
+          backgroundColor:labels.map((_,i)=>['#58a6ff','#bc8cff','#3fb950','#d29922','#f85149','#79c0ff','#ff9bce','#56d4dd','#e3b341','#a371f7','#7ee787','#ffa657','#f778ba'][i%13]),
           borderRadius:6,
-          barThickness:50,
+          barThickness:36,
         }]
       },
       options:{
