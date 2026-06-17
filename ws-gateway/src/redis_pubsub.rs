@@ -45,6 +45,6 @@ async fn run_subscriber(state: &Arc<AppState>) -> redis::RedisResult<()> {
 pub async fn publish(redis_url: &str, channel: &str, message: &str) -> redis::RedisResult<()> {
     let client = redis::Client::open(redis_url)?;
     let mut conn = client.get_multiplexed_async_connection().await?;
-    conn.publish(channel, message).await?;
+    conn.publish::<_, _, ()>(channel, message).await?;
     Ok(())
 }
