@@ -6,6 +6,7 @@ import { useApp, reportError } from '../context/AppContext';
 import { MessageText } from './EmojiPicker';
 import { getDraftText, setDraftText, getDraftFiles, setDraftFiles, clearDraft } from '../utils/drafts';
 import { pickRecorderFormat, mediaUnsupportedReason, describeMediaError } from '../utils/recording';
+import ConfirmModal from './ConfirmModal';
 import { VoiceMessagePlayer, VideoCirclePlayer } from './ChatMain';
 import type { Guild } from '../types';
 
@@ -440,6 +441,7 @@ function PostCard({ msg, guild, serverIP }: { msg: import('../types').GuildMessa
   const [showReactions, setShowReactions] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [showComments, setShowComments] = useState(false);
+  const [confirmDeletePost, setConfirmDeletePost] = useState(false);
   const emojiBtnRef = useRef<HTMLButtonElement>(null);
   const reactions = msg.reactions || [];
   const isOptimistic = msg.id.startsWith('optimistic-');
@@ -487,7 +489,7 @@ function PostCard({ msg, guild, serverIP }: { msg: import('../types').GuildMessa
         </div>
         {isOwner && !isOptimistic && (
           <button
-            onClick={() => { if (confirm('Удалить этот пост?')) deleteGuildMessage(msg.id); }}
+            onClick={() => setConfirmDeletePost(true)}
             title="Удалить пост"
             style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-tertiary)', padding: 6, borderRadius: 6, display: 'flex' }}
             onMouseEnter={e => (e.currentTarget.style.color = '#ed4245')}
@@ -617,6 +619,17 @@ function PostCard({ msg, guild, serverIP }: { msg: import('../types').GuildMessa
       )}
 
       {showComments && <CommentsModal guild={guild} messageId={msg.id} serverIP={serverIP} onClose={() => setShowComments(false)} />}
+
+      {confirmDeletePost && (
+        <ConfirmModal
+          title="Удалить пост"
+          message="Вы уверены, что хотите удалить этот пост? Это действие необратимо."
+          confirmLabel="Удалить"
+          cancelLabel="Отмена"
+          onConfirm={() => { deleteGuildMessage(msg.id); setConfirmDeletePost(false); }}
+          onCancel={() => setConfirmDeletePost(false)}
+        />
+      )}
     </article>
   );
 }
@@ -793,6 +806,7 @@ function ChannelSettingsModal({ guild, serverIP, onClose }: { guild: Guild; serv
 export const PersonalChannelFeed: React.FC<{ style?: React.CSSProperties }> = ({ style }) => {
   const { currentGuild, currentGuildChannel, guildMessages, currentServerIP, authToken, currentUser, customEmojis, guilds, joinGuild, sendGuildMessage, scheduleGuildMessage, updateGuild, leaveGuild, toggleGuildNotifications } = useApp();
   const [subscribing, setSubscribing] = useState(false);
+  const [confirmLeave, setConfirmLeave] = useState(false);
 
   const channelId = currentGuildChannel?.id ? `ch_${currentGuildChannel.id}` : '';
 
@@ -1073,7 +1087,7 @@ export const PersonalChannelFeed: React.FC<{ style?: React.CSSProperties }> = ({
                     {currentGuild.my_notifications_muted ? 'Включить уведомления' : 'Отключить уведомления'}
                   </button>
                   <button
-                    onClick={() => { if (confirm('Отключиться от канала?')) leaveGuild(currentGuild.id); setShowMemberMenu(false); }}
+                    onClick={() => { setShowMemberMenu(false); setConfirmLeave(true); }}
                     style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', background: 'none', border: 'none', cursor: 'pointer', color: '#ed4245', fontSize: 14, borderRadius: 6, textAlign: 'left' }}
                     onMouseEnter={e => (e.currentTarget.style.background = 'rgba(237,66,69,0.1)')}
                     onMouseLeave={e => (e.currentTarget.style.background = 'none')}
@@ -1226,6 +1240,17 @@ export const PersonalChannelFeed: React.FC<{ style?: React.CSSProperties }> = ({
             {subscribing ? 'Подписка...' : 'Подписаться на канал'}
           </button>
         </div>
+      )}
+
+      {confirmLeave && (
+        <ConfirmModal
+          title="Покинуть канал"
+          message={`Вы уверены, что хотите отписаться от канала «${currentGuild.name}»?`}
+          confirmLabel="Покинуть"
+          cancelLabel="Отмена"
+          onConfirm={() => { leaveGuild(currentGuild.id); setConfirmLeave(false); }}
+          onCancel={() => setConfirmLeave(false)}
+        />
       )}
     </div>
   );
