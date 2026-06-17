@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Search, Users, ArrowRight, Compass, Globe, Gamepad2, Music, Code, BookOpen, Palette, Trophy, MessageCircle, Sparkles, Newspaper } from 'lucide-react';
+import { Search, Users, ArrowRight, Compass, Globe, Gamepad2, Music, Code, BookOpen, Palette, Trophy, MessageCircle, Sparkles, Newspaper, Check } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { useTranslation } from '../i18n/useTranslation';
 
@@ -13,6 +13,7 @@ interface ExploreGuild {
   invite_code: string;
   tags: string[];
   is_personal_channel?: boolean;
+  is_member?: boolean;
 }
 
 const CATEGORIES = [
@@ -37,7 +38,7 @@ interface MessageResult {
 }
 
 export const ExploreServers: React.FC<{ style?: React.CSSProperties }> = ({ style }) => {
-  const { currentServerIP, authToken, joinGuild, selectGuild, guilds } = useApp();
+  const { currentServerIP, authToken, joinGuild, previewGuild, selectGuild, guilds } = useApp();
   const tr = useTranslation();
   const [search, setSearch] = useState('');
   const [results, setResults] = useState<ExploreGuild[]>([]);
@@ -88,13 +89,25 @@ export const ExploreServers: React.FC<{ style?: React.CSSProperties }> = ({ styl
       const g = guilds.find(x => String(x.id) === String(m.guild.id));
       if (g) selectGuild(g);
     } else {
-      const joined = await joinGuild(m.guild.invite_code);
-      if (joined) selectGuild(joined);
+      // Open as preview — don't auto-join/subscribe. The channel view shows a
+      // "Subscribe" button at the bottom.
+      await previewGuild(m.guild.id);
     }
-  }, [guilds, selectGuild, joinGuild]);
+  }, [guilds, selectGuild, previewGuild]);
 
   const handleJoin = async (e: React.MouseEvent, g: ExploreGuild) => {
     e.stopPropagation();
+    // Already a member → just open it instead of joining again.
+    if (g.is_member) {
+      const existing = guilds.find(x => String(x.id) === String(g.id));
+      if (existing) selectGuild(existing);
+      return;
+    }
+    // Channels: open as preview without subscribing (subscribe happens inside).
+    if (g.is_personal_channel) {
+      await previewGuild(g.id);
+      return;
+    }
     setJoining(g.id);
     try {
       const joined = await joinGuild(g.invite_code);
@@ -234,13 +247,14 @@ export const ExploreServers: React.FC<{ style?: React.CSSProperties }> = ({ styl
             onMouseEnter={() => setHoveredJoin(g.id)}
             onMouseLeave={() => setHoveredJoin(null)}
             style={{
-              marginTop: 'auto', padding: '7px 0', borderRadius: 8, border: 'none',
-              background: hoveredJoin === g.id ? '#4752c4' : 'var(--accent-primary)',
-              color: '#fff', fontWeight: 600, fontSize: 12, cursor: 'pointer',
+              marginTop: 'auto', padding: '7px 0', borderRadius: 8,
+              border: g.is_member ? '1px solid var(--border-color)' : 'none',
+              background: g.is_member ? 'transparent' : (hoveredJoin === g.id ? '#4752c4' : 'var(--accent-primary)'),
+              color: g.is_member ? 'var(--text-secondary)' : '#fff', fontWeight: 600, fontSize: 12, cursor: 'pointer',
               display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
               opacity: joining === g.id ? 0.6 : 1,
               transition: 'background 0.15s, transform 0.1s',
-              transform: hoveredJoin === g.id ? 'scale(1.02)' : 'none',
+              transform: hoveredJoin === g.id && !g.is_member ? 'scale(1.02)' : 'none',
             }}
           >
             {joining === g.id ? (
@@ -252,9 +266,13 @@ export const ExploreServers: React.FC<{ style?: React.CSSProperties }> = ({ styl
                 }} />
                 {isRu ? 'Подключение...' : 'Joining...'}
               </>
+            ) : g.is_member ? (
+              <>
+                <Check size={13} /> {isRu ? 'Вы уже здесь' : "You're in"}
+              </>
             ) : (
               <>
-                {isChannel ? (isRu ? 'Подписаться' : 'Follow') : tr('explore_join')} <ArrowRight size={13} />
+                {isChannel ? (isRu ? 'Открыть' : 'Open') : tr('explore_join')} <ArrowRight size={13} />
               </>
             )}
           </button>
@@ -445,7 +463,9 @@ export const ExploreServers: React.FC<{ style?: React.CSSProperties }> = ({ styl
               border: '1px dashed var(--border-color)',
             }}>
               <Globe size={40} style={{ color: 'var(--text-tertiary)', opacity: 0.4 }} />
-              <p style={{ color: 'var(--text-secondary)', fontSize: 14, fontWeight: 500, margin: 0 }}>{tr('explore_empty')}</p>
+              <p style={{ color: 'var(--text-secondary)', fontSize: 14, fontWeight: 500, margin: 0 }}>
+                {search ? (isRu ? 'Ничего не найдено' : 'Nothing found') : tr('explore_empty')}
+              </p>
               <p style={{ color: 'var(--text-tertiary)', fontSize: 12, margin: 0, textAlign: 'center' }}>
                 {search
                   ? (isRu ? 'Попробуйте другой запрос' : 'Try a different search')

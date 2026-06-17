@@ -177,6 +177,7 @@ interface AppContextType extends AppState {
   addPostComment: (guildId: string, messageId: string, content: string) => Promise<import('../types').PostComment | null>;
   deletePostComment: (guildId: string, commentId: string) => Promise<void>;
   joinGuild: (inviteCode: string) => Promise<Guild | null>;
+  previewGuild: (guildId: string) => Promise<boolean>;
   leaveGuild: (guildId: string) => Promise<void>;
   deleteGuild: (guildId: string, password?: string) => Promise<boolean>;
   kickMember: (guildId: string, userId: string) => Promise<void>;
@@ -2045,6 +2046,15 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     });
   }, [_connectGuildWs, _connectGuildPresenceWs]);
 
+  // Open a discoverable guild/channel for preview WITHOUT joining/subscribing.
+  const previewGuild = useCallback(async (guildId: string): Promise<boolean> => {
+    try {
+      const guild: Guild = await apiGet(`/api/guilds/${guildId}/`, state.authToken, state.currentServerIP);
+      selectGuild(guild);
+      return true;
+    } catch (e) { reportError(e); return false; }
+  }, [state.authToken, state.currentServerIP, apiGet, selectGuild]);
+
   const selectGuildChannel = useCallback((channel: GuildChannel) => {
     setState(prev => {
       if (!prev.currentGuild) return prev;
@@ -2492,6 +2502,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       addPostComment,
       deletePostComment,
       joinGuild,
+      previewGuild,
       leaveGuild,
       deleteGuild,
       kickMember,

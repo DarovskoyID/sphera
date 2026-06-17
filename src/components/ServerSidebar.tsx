@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
+import React, { useState, useRef, useEffect, useLayoutEffect, useMemo } from 'react';
 import { Settings, Home, Plus, LogIn, X, Compass, Rss } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { useTranslation } from '../i18n/useTranslation';
@@ -184,6 +184,40 @@ export const ServerSidebar: React.FC = () => {
   const addBtnRef = useRef<HTMLButtonElement>(null);
   const addMenuRef = useRef<HTMLDivElement>(null);
 
+  // Custom server order (drag to reorder) — persisted locally per device.
+  const ORDER_KEY = 'serverOrder';
+  const [order, setOrder] = useState<string[]>(() => {
+    try { return JSON.parse(localStorage.getItem(ORDER_KEY) || '[]'); } catch { return []; }
+  });
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [overId, setOverId] = useState<string | null>(null);
+
+  const orderedGuilds = useMemo(() => {
+    const pos = new Map(order.map((id, i) => [id, i]));
+    return [...guilds]
+      .map((g, i) => ({ g, i }))
+      .sort((a, b) => {
+        const pa = pos.has(String(a.g.id)) ? (pos.get(String(a.g.id)) as number) : Infinity;
+        const pb = pos.has(String(b.g.id)) ? (pos.get(String(b.g.id)) as number) : Infinity;
+        return pa === pb ? a.i - b.i : pa - pb; // stable: fall back to original order
+      })
+      .map(x => x.g);
+  }, [guilds, order]);
+
+  const dropOnGuild = (targetId: string) => {
+    const src = dragId;
+    setDragId(null);
+    setOverId(null);
+    if (!src || src === targetId) return;
+    const ids = orderedGuilds.map(g => String(g.id));
+    const from = ids.indexOf(src);
+    const to = ids.indexOf(targetId);
+    if (from < 0 || to < 0) return;
+    ids.splice(to, 0, ids.splice(from, 1)[0]);
+    setOrder(ids);
+    localStorage.setItem(ORDER_KEY, JSON.stringify(ids));
+  };
+
   useLayoutEffect(() => {
     const el = addMenuRef.current;
     if (!el || !menuPos) return;
@@ -240,14 +274,29 @@ export const ServerSidebar: React.FC = () => {
 
           {/* Scrollable guild list */}
           <div className="server-guild-scroll">
-            {guilds.map(guild => (
-              <GuildIcon
+            {orderedGuilds.map(guild => (
+              <div
                 key={guild.id}
-                guild={guild}
-                active={currentServer === String(guild.id)}
-                onClick={() => selectGuild(guild)}
-                serverIP={currentServerIP}
-              />
+                draggable
+                onDragStart={e => { setDragId(String(guild.id)); e.dataTransfer.effectAllowed = 'move'; }}
+                onDragOver={e => { e.preventDefault(); if (dragId && dragId !== String(guild.id)) setOverId(String(guild.id)); }}
+                onDragLeave={() => setOverId(prev => prev === String(guild.id) ? null : prev)}
+                onDrop={e => { e.preventDefault(); dropOnGuild(String(guild.id)); }}
+                onDragEnd={() => { setDragId(null); setOverId(null); }}
+                style={{
+                  cursor: 'grab',
+                  opacity: dragId === String(guild.id) ? 0.4 : 1,
+                  borderTop: overId === String(guild.id) ? '2px solid var(--accent-primary)' : '2px solid transparent',
+                  borderRadius: 4,
+                }}
+              >
+                <GuildIcon
+                  guild={guild}
+                  active={currentServer === String(guild.id)}
+                  onClick={() => selectGuild(guild)}
+                  serverIP={currentServerIP}
+                />
+              </div>
             ))}
 
             <button

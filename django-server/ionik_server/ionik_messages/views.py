@@ -590,9 +590,14 @@ def guild_explore(request):
             'is_personal_channel': g.is_personal_channel,
         }
 
-    def drop_mine(rows):
-        mine = {str(i) for i in my_guild_ids}
-        return [r for r in rows if r['id'] not in mine]
+    mine = {str(i) for i in my_guild_ids}
+
+    # Keep guilds/channels the user already belongs to in the results (marked
+    # is_member) so they remain findable — the UI shows "you're already here"
+    # instead of a join button. is_member is applied per-user, after the shared
+    # cache, so it never gets baked into the cached payload.
+    def with_membership(rows):
+        return [{**r, 'is_member': r['id'] in mine} for r in rows]
 
     # ── No query → cached popular list (dominates traffic) ───────────────────
     if not search:
@@ -601,14 +606,14 @@ def guild_explore(request):
         if cached is None:
             cached = [serialize(g) for g in base[:100]]
             cache.set(cache_key, cached, 30)
-        return Response(drop_mine(cached))
+        return Response(with_membership(cached))
 
     # ── Search → cache results per normalized query (shared via Redis) ───────
     norm = ' '.join(search.lower().split())
     cache_key = f'guild_explore_q:{norm}'
     cached = cache.get(cache_key)
     if cached is not None:
-        return Response(drop_mine(cached))
+        return Response(with_membership(cached))
 
     if search.startswith('#'):
         tag_q = search[1:].strip()
@@ -636,7 +641,7 @@ def guild_explore(request):
 
     result = [serialize(g) for g in guilds]
     cache.set(cache_key, result, 15)
-    return Response(drop_mine(result))
+    return Response(with_membership(result))
 
 
 @api_view(['GET'])
@@ -713,8 +718,12 @@ def search_messages_view(request):
 def guild_detail(request, guild_id):
     try:
         guild = Guild.objects.get(id=guild_id)
-        membership = GuildMembership.objects.get(guild=guild, user=request.user)
-    except (Guild.DoesNotExist, GuildMembership.DoesNotExist):
+    except Guild.DoesNotExist:
+        return Response({'error': 'not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    membership = GuildMembership.objects.filter(guild=guild, user=request.user).first()
+    # Non-members may READ a discoverable guild/channel (preview before subscribing).
+    if membership is None and not (request.method == 'GET' and guild.is_discoverable):
         return Response({'error': 'not found'}, status=status.HTTP_404_NOT_FOUND)
 
     if request.method == 'GET':
@@ -1095,9 +1104,11 @@ def _aggregate_reactions(reactions_qs, current_user):
 def guild_channel_messages(request, guild_id, channel_id):
     try:
         guild = Guild.objects.get(id=guild_id)
-        GuildMembership.objects.get(guild=guild, user=request.user)
         ch = GuildChannel.objects.get(id=channel_id, guild=guild)
-    except (Guild.DoesNotExist, GuildMembership.DoesNotExist, GuildChannel.DoesNotExist):
+    except (Guild.DoesNotExist, GuildChannel.DoesNotExist):
+        return Response({'error': 'not found'}, status=status.HTTP_404_NOT_FOUND)
+    # Members can read; non-members can read a discoverable channel (preview).
+    if not GuildMembership.objects.filter(guild=guild, user=request.user).exists() and not guild.is_discoverable:
         return Response({'error': 'not found'}, status=status.HTTP_404_NOT_FOUND)
 
     limit = min(int(request.GET.get('limit', 50)), 200)

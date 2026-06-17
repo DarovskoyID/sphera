@@ -791,7 +791,8 @@ function ChannelSettingsModal({ guild, serverIP, onClose }: { guild: Guild; serv
 }
 
 export const PersonalChannelFeed: React.FC<{ style?: React.CSSProperties }> = ({ style }) => {
-  const { currentGuild, currentGuildChannel, guildMessages, currentServerIP, authToken, currentUser, customEmojis, sendGuildMessage, scheduleGuildMessage, updateGuild, leaveGuild, toggleGuildNotifications } = useApp();
+  const { currentGuild, currentGuildChannel, guildMessages, currentServerIP, authToken, currentUser, customEmojis, guilds, joinGuild, sendGuildMessage, scheduleGuildMessage, updateGuild, leaveGuild, toggleGuildNotifications } = useApp();
+  const [subscribing, setSubscribing] = useState(false);
 
   const channelId = currentGuildChannel?.id ? `ch_${currentGuildChannel.id}` : '';
 
@@ -856,6 +857,13 @@ export const PersonalChannelFeed: React.FC<{ style?: React.CSSProperties }> = ({
   const liveVideoRef = useRef<HTMLVideoElement | null>(null);
 
   const isOwner = currentGuild && currentUser && currentGuild.owner_id === currentUser.id;
+  const isMember = !!currentGuild && guilds.some(g => String(g.id) === String(currentGuild.id));
+
+  const handleSubscribe = async () => {
+    if (!currentGuild?.invite_code) return;
+    setSubscribing(true);
+    try { await joinGuild(currentGuild.invite_code); } finally { setSubscribing(false); }
+  };
   const isMobile = useIsMobile();
 
   useEffect(() => {
@@ -1196,6 +1204,27 @@ export const PersonalChannelFeed: React.FC<{ style?: React.CSSProperties }> = ({
               <Send size={16} /> Пост
             </button>
           </div>
+        </div>
+      )}
+
+      {/* Non-members previewing the channel get a Subscribe bar instead of a composer */}
+      {!isOwner && !isMember && (
+        <div style={{ padding: '12px 20px', borderTop: '1px solid var(--border-color)', background: 'var(--bg-secondary)', flexShrink: 0 }}>
+          <button
+            onClick={handleSubscribe}
+            disabled={subscribing}
+            style={{
+              width: '100%', padding: '11px 0', borderRadius: 22, border: 'none',
+              background: 'var(--accent-primary)', color: '#fff', fontWeight: 600, fontSize: 14,
+              cursor: subscribing ? 'default' : 'pointer', opacity: subscribing ? 0.6 : 1,
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+            }}
+          >
+            {subscribing
+              ? <div style={{ width: 16, height: 16, border: '2px solid rgba(255,255,255,0.3)', borderTopColor: '#fff', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} />
+              : <SmilePlus size={18} />}
+            {subscribing ? 'Подписка...' : 'Подписаться на канал'}
+          </button>
         </div>
       )}
     </div>
