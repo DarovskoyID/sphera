@@ -5,7 +5,12 @@ global:
 scrape_configs:
   - job_name: 'ionik-django'
     metrics_path: '/metrics/'
+    # Django (Daphne) слушает 8000 по HTTPS (см. run_https.bat).
+    scheme: https
+    tls_config:
+      # Сертификат самоподписанный / на чужой hostname — проверку отключаем.
+      insecure_skip_verify: true
     static_configs:
-      - targets: ['host.docker.internal:8001']
+      - targets: ['host.docker.internal:8000']
         labels:
           service: 'django'
