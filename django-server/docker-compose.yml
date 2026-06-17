@@ -108,7 +108,10 @@ services:
     environment:
       REDIS_URL: redis://redis:6379
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
-      JWT_SECRET: ${JWT_SECRET:-django-insecure-e_-am06**zcqtimkp^2))-uxv$k99wiv2svgs^o300#sgrt+b@}
+      # ВАЖНО: $ внутри значения экранируется как $$ — иначе docker-compose
+      # подставит $k99wiv2svgs как переменную, секрет станет неполным и не
+      # совпадёт с Django SECRET_KEY → ws-gateway вернёт 401 на /ws/chat/.
+      JWT_SECRET: ${JWT_SECRET:-django-insecure-e_-am06**zcqtimkp^2))-uxv$$k99wiv2svgs^o300#sgrt+b@}
       WS_BIND: 0.0.0.0:8001
       RUST_LOG: info
     depends_on:

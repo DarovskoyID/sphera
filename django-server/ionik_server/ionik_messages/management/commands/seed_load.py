@@ -7,9 +7,12 @@
   H каналов             (--channels)            — текстовые каналы, распределяются по серверам
   J постов в каналах    (--posts)               — посты в личных каналах (лента)
   K сообщений в серверах(--server-messages)     — сообщения в текстовых каналах серверов
-  G личных сообщений    (--dm-messages)         — сообщения в личных перепиской (DM)
+  G личных сообщений    (--dm-messages)         — сообщения в личных перепиской (DM), пишутся прямо в БД
+  T отправленных ЛС     (--send-dm)             — РЕАЛЬНО отправляются через HTTP API работающего
+                                                  сервера (логин → создание диалога → send), создают
+                                                  живую нагрузку на HTTP/WS/Kafka, видны в Grafana
 
-Все шесть чисел можно передать флагами или ввести интерактивно (если флаг не задан).
+Числа можно передать флагами или ввести интерактивно (если флаг не задан).
 
 Примеры:
   python manage.py seed_load --accounts 100 --servers 10 --channels 50 \
@@ -54,7 +57,15 @@ class Command(BaseCommand):
         parser.add_argument('--channels', type=int, default=None, help='H — число каналов (всего)')
         parser.add_argument('--posts', type=int, default=None, help='J — число постов в личных каналах (всего)')
         parser.add_argument('--server-messages', type=int, default=None, help='K — сообщений в серверах (всего)')
-        parser.add_argument('--dm-messages', type=int, default=None, help='G — личных сообщений (всего)')
+        parser.add_argument('--dm-messages', type=int, default=None, help='G — личных сообщений в БД (всего)')
+        parser.add_argument('--send-dm', type=int, default=None,
+                            help='T — РЕАЛЬНО отправить столько ЛС через HTTP API сервера')
+        parser.add_argument('--base-url', default='https://127.0.0.1:8000',
+                            help='базовый URL сервера для --send-dm (по умолчанию https://127.0.0.1:8000)')
+        parser.add_argument('--verify-tls', action='store_true',
+                            help='проверять TLS-сертификат при --send-dm (по умолчанию выключено)')
+        parser.add_argument('--concurrency', type=int, default=8,
+                            help='число параллельных отправителей для --send-dm')
         parser.add_argument('--batch', type=int, default=2000, help='размер пачки для bulk_create')
         parser.add_argument('--purge', action='store_true', help='удалить ранее созданные тестовые данные и выйти')
 
@@ -94,7 +105,8 @@ class Command(BaseCommand):
         H = self._ask('H каналов', opts['channels'])
         J = self._ask('J постов в каналах', opts['posts'])
         K = self._ask('K сообщений в серверах', opts['server_messages'])
-        G = self._ask('G личных сообщений', opts['dm_messages'])
+        G = self._ask('G личных сообщений (в БД)', opts['dm_messages'])
+        T = self._ask('T отправленных ЛС (через сервер)', opts['send_dm'])
         batch = opts['batch']
 
         if N == 0:
@@ -109,6 +121,7 @@ class Command(BaseCommand):
         personal_channels = self._make_personal_channels(users)
         self._make_posts(J, personal_channels, users, batch)
         self._make_dms(G, users, batch)
+        self._send_dms(T, opts['base_url'], opts['verify_tls'], opts['concurrency'])
 
         dt = time.time() - t0
         self.stdout.write(self.style.SUCCESS(
@@ -121,7 +134,7 @@ class Command(BaseCommand):
         from django.contrib.auth.hashers import make_password
         from ionik_auth.models import User, UserSettings
 
-        self.stdout.write(f'1/6  Создаю {N} аккаунтов...')
+        self.stdout.write(f'1/7  Создаю {N} аккаунтов...')
         pwd = make_password(DEFAULT_PASSWORD)
         suffix = uuid.uuid4().hex[:6]
         users = [
@@ -141,7 +154,7 @@ class Command(BaseCommand):
     def _make_servers(self, M, users):
         from ionik_messages.models import Guild, GuildMembership
 
-        self.stdout.write(f'2/6  Создаю {M} серверов...')
+        self.stdout.write(f'2/7  Создаю {M} серверов...')
         servers = []
         memberships = []
         for i in range(M):
@@ -165,9 +178,9 @@ class Command(BaseCommand):
         from ionik_messages.models import GuildChannel
 
         if not servers:
-            self.stdout.write('3/6  Серверов нет — каналы пропущены.')
+            self.stdout.write('3/7  Серверов нет — каналы пропущены.')
             return []
-        self.stdout.write(f'3/6  Создаю {H} каналов...')
+        self.stdout.write(f'3/7  Создаю {H} каналов...')
         channels = []
         for i in range(H):
             guild = servers[i % len(servers)]
@@ -188,9 +201,9 @@ class Command(BaseCommand):
 
         text_channels = [c for c in channels if c.channel_type == 'text']
         if K == 0 or not text_channels:
-            self.stdout.write('4/6  Сообщений в серверах нет — пропуск.')
+            self.stdout.write('4/7  Сообщений в серверах нет — пропуск.')
             return
-        self.stdout.write(f'4/6  Создаю {K} сообщений в серверах...')
+        self.stdout.write(f'4/7  Создаю {K} сообщений в серверах...')
         # участники сервера = автор берётся из членов гильдии канала
         members_by_guild = self._members_by_guild(servers, users)
         buf = []
@@ -244,9 +257,9 @@ class Command(BaseCommand):
         from ionik_messages.models import GuildMessage
 
         if J == 0 or not personal_channels:
-            self.stdout.write('5/6  Постов в каналах нет — пропуск.')
+            self.stdout.write('5/7  Постов в каналах нет — пропуск.')
             return
-        self.stdout.write(f'5/6  Создаю {J} постов в {len(personal_channels)} личных каналах...')
+        self.stdout.write(f'5/7  Создаю {J} постов в {len(personal_channels)} личных каналах...')
         buf = []
         created = 0
         for i in range(J):
@@ -268,9 +281,9 @@ class Command(BaseCommand):
         from ionik_messages.models import Conversation, ConversationParticipant, Message
 
         if G == 0 or len(users) < 2:
-            self.stdout.write('6/6  Личных сообщений нет — пропуск.')
+            self.stdout.write('6/7  Личных сообщений нет — пропуск.')
             return
-        self.stdout.write(f'6/6  Создаю {G} личных сообщений...')
+        self.stdout.write(f'6/7  Создаю {G} личных сообщений...')
         # создаём пул диалогов (≈ 1 диалог на 20 сообщений, но не больше N*4)
         n_conv = max(1, min(G // 20 + 1, len(users) * 4))
         convs = []
@@ -297,3 +310,99 @@ class Command(BaseCommand):
         if buf:
             Message.objects.bulk_create(buf, batch_size=batch); created += len(buf)
         self.stdout.write(self.style.SUCCESS(f'     +{created} личных сообщений в {len(convs)} диалогах'))
+
+    # ── Реальная отправка ЛС через HTTP API (живая нагрузка) ──────────────────
+
+    def _send_dms(self, T, base_url, verify_tls, concurrency):
+        if T == 0:
+            self.stdout.write('7/7  Отправка ЛС через сервер не запрошена — пропуск.')
+            return
+
+        try:
+            import requests
+        except ImportError:
+            self.stdout.write(self.style.ERROR('7/7  Нужен пакет requests (pip install requests).'))
+            return
+        try:
+            from urllib3.exceptions import InsecureRequestWarning
+            requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
+        except Exception:
+            pass
+
+        from concurrent.futures import ThreadPoolExecutor
+        from ionik_auth.models import User
+
+        base = base_url.rstrip('/')
+        verify = bool(verify_tls)
+        self.stdout.write(f'7/7  Отправляю {T} ЛС через {base} (потоков: {concurrency})...')
+
+        # Берём готовый пул тестовых аккаунтов (пароль известен — DEFAULT_PASSWORD)
+        pool = list(User.objects.filter(username__startswith=USER_PREFIX)
+                    .values_list('username', 'id')[:max(2, concurrency * 4)])
+        if len(pool) < 2:
+            self.stdout.write(self.style.ERROR(
+                '     Недостаточно тестовых аккаунтов. Сначала создайте их (--accounts > 1).'))
+            return
+
+        # 1) Логинимся, получаем JWT для каждого аккаунта пула
+        tokens = {}  # username -> (token, user_id)
+        for username, uid in pool:
+            try:
+                r = requests.post(f'{base}/api/auth/login/',
+                                  json={'username': username, 'password': DEFAULT_PASSWORD},
+                                  verify=verify, timeout=15)
+                if r.status_code == 200:
+                    tokens[username] = (r.json()['access'], str(uid))
+            except requests.RequestException as e:
+                self.stdout.write(self.style.ERROR(f'     Сервер недоступен: {e}'))
+                return
+        if len(tokens) < 2:
+            self.stdout.write(self.style.ERROR(
+                f'     Не удалось залогиниться (получено {len(tokens)} токенов). '
+                f'Проверьте --base-url и что сервер запущен.'))
+            return
+
+        senders = list(tokens.items())  # [(username, (token, uid)), ...]
+
+        # 2) Заводим пул диалогов между парами через API (создаются по-настоящему)
+        n_conv = max(1, min(len(senders), T))
+        convos = []  # [(conv_id, sender_token), ...]
+        for i in range(n_conv):
+            (_, (tok_a, _)), (_, (_, uid_b)) = senders[i % len(senders)], senders[(i + 1) % len(senders)]
+            try:
+                r = requests.post(f'{base}/api/conversations/create/',
+                                  json={'user_id': uid_b},
+                                  headers={'Authorization': f'Bearer {tok_a}'},
+                                  verify=verify, timeout=15)
+                if r.status_code in (200, 201):
+                    convos.append((r.json()['id'], tok_a))
+            except requests.RequestException:
+                pass
+        if not convos:
+            self.stdout.write(self.style.ERROR('     Не удалось создать ни одного диалога через API.'))
+            return
+
+        # 3) Шлём T сообщений, раскидывая по диалогам, параллельно
+        ok = [0]
+        fail = [0]
+
+        def _send(i):
+            conv_id, tok = convos[i % len(convos)]
+            try:
+                r = requests.post(f'{base}/api/conversations/{conv_id}/messages/send/',
+                                  json={'content': _sentence()},
+                                  headers={'Authorization': f'Bearer {tok}'},
+                                  verify=verify, timeout=15)
+                if r.status_code in (200, 201):
+                    ok[0] += 1
+                else:
+                    fail[0] += 1
+            except requests.RequestException:
+                fail[0] += 1
+
+        with ThreadPoolExecutor(max_workers=max(1, concurrency)) as pool_exec:
+            list(pool_exec.map(_send, range(T)))
+
+        style = self.style.SUCCESS if fail[0] == 0 else self.style.WARNING
+        self.stdout.write(style(
+            f'     Отправлено: {ok[0]}, ошибок: {fail[0]} (диалогов: {len(convos)})'))

@@ -266,6 +266,20 @@ server {
     ssl_protocols TLSv1.2 TLSv1.3;
     ssl_prefer_server_ciphers off;
 
+    # presence/signaling/voice обслуживает Django (Daphne), а не Rust ws-gateway
+    location ~ ^/ws/(signaling/|guild/[0-9a-fA-F-]+/(voice/[0-9a-fA-F-]+/)?\$) {
+        proxy_pass http://$DJANGO_PROXY_HOST:$DJANGO_PORT;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_read_timeout 86400;
+    }
+
+    # chat + guild-channel -> балансировщик -> ноды ws-gateway
     location / {
         proxy_pass http://127.0.0.1:$LB_LOCAL_PORT;
         proxy_http_version 1.1;
@@ -380,6 +394,20 @@ server {
     listen [::]:$WS_PUBLIC_PORT;
     server_name _;
 
+    # presence/signaling/voice обслуживает Django (Daphne), а не Rust ws-gateway
+    location ~ ^/ws/(signaling/|guild/[0-9a-fA-F-]+/(voice/[0-9a-fA-F-]+/)?\$) {
+        proxy_pass http://$DJANGO_PROXY_HOST:$DJANGO_PORT;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto http;
+        proxy_read_timeout 86400;
+    }
+
+    # chat + guild-channel -> балансировщик -> ноды ws-gateway
     location / {
         proxy_pass http://127.0.0.1:$LB_LOCAL_PORT;
         proxy_http_version 1.1;

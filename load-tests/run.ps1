@@ -18,16 +18,40 @@ param(
 
     [int]$Accounts, [int]$Servers, [int]$Channels,
     [int]$Posts, [int]$ServerMessages, [int]$DmMessages,
+    [int]$SendDm, [string]$BaseUrl,
     [switch]$Purge
 )
 
 $ErrorActionPreference = 'Stop'
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
-$manage = Join-Path $here '..\ionik_server\manage.py'
+
+# Ищем manage.py — расположение load-tests может отличаться на разных машинах
+$manage = $null
+foreach ($c in @(
+        '..\django-server\ionik_server\manage.py',
+        '..\ionik_server\manage.py',
+        'ionik_server\manage.py',
+        'django-server\ionik_server\manage.py')) {
+    $p = Join-Path $here $c
+    if (Test-Path $p) { $manage = (Resolve-Path $p).Path; break }
+}
+if (-not $manage) {
+    $manage = Get-ChildItem -Path $here\.. -Recurse -Depth 4 -Filter manage.py -ErrorAction SilentlyContinue |
+        Where-Object { $_.FullName -match 'ionik_server' } | Select-Object -First 1 -ExpandProperty FullName
+}
+if (-not $manage) { throw 'Не найден manage.py (ionik_server). Запусти скрипт рядом с проектом.' }
+$djangoRoot = Split-Path -Parent (Split-Path -Parent $manage)   # ...\django-server
 
 # Выбираем python из виртуального окружения, если он есть
-$venvPy = Join-Path $here '..\myenv\Scripts\python.exe'
-$py = if (Test-Path $venvPy) { $venvPy } else { 'python' }
+$py = 'python'
+foreach ($c in @(
+        (Join-Path $djangoRoot '.venv\Scripts\python.exe'),
+        (Join-Path $djangoRoot 'myenv\Scripts\python.exe'))) {
+    if (Test-Path $c) { $py = $c; break }
+}
+
+Write-Host "manage.py: $manage" -ForegroundColor DarkGray
+Write-Host "python:    $py" -ForegroundColor DarkGray
 
 if ($Purge) {
     & $py $manage seed_load --purge
@@ -49,6 +73,7 @@ if ($PSBoundParameters.ContainsKey('Channels'))       { $cfg['CHANNELS'] = $Chan
 if ($PSBoundParameters.ContainsKey('Posts'))          { $cfg['POSTS'] = $Posts }
 if ($PSBoundParameters.ContainsKey('ServerMessages')) { $cfg['SERVER_MESSAGES'] = $ServerMessages }
 if ($PSBoundParameters.ContainsKey('DmMessages'))     { $cfg['DM_MESSAGES'] = $DmMessages }
+if ($PSBoundParameters.ContainsKey('SendDm'))         { $cfg['SEND_DM'] = $SendDm }
 
 $args = @($manage, 'seed_load')
 if ($cfg.ContainsKey('ACCOUNTS'))        { $args += '--accounts';        $args += $cfg['ACCOUNTS'] }
@@ -57,6 +82,8 @@ if ($cfg.ContainsKey('CHANNELS'))        { $args += '--channels';        $args +
 if ($cfg.ContainsKey('POSTS'))           { $args += '--posts';           $args += $cfg['POSTS'] }
 if ($cfg.ContainsKey('SERVER_MESSAGES')) { $args += '--server-messages'; $args += $cfg['SERVER_MESSAGES'] }
 if ($cfg.ContainsKey('DM_MESSAGES'))     { $args += '--dm-messages';     $args += $cfg['DM_MESSAGES'] }
+if ($cfg.ContainsKey('SEND_DM'))         { $args += '--send-dm';         $args += $cfg['SEND_DM'] }
+if ($BaseUrl)                            { $args += '--base-url';        $args += $BaseUrl }
 
 Write-Host "Профиль: $Profile" -ForegroundColor Cyan
 & $py @args
