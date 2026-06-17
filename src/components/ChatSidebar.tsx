@@ -934,7 +934,7 @@ export const ChatSidebar: React.FC = () => {
                     </div>
                     <div style={{ color: 'var(--text-secondary)', fontSize: 11 }}>@{u.username}</div>
                   </div>
-                  <button className="glass-btn" style={{ padding: '4px 8px', fontSize: 11, borderRadius: 6 }}
+                  <button style={{ padding: '5px 12px', fontSize: 11, fontWeight: 600, borderRadius: 6, border: 'none', cursor: 'pointer', background: 'var(--accent-primary)', color: '#fff', flexShrink: 0 }}
                     onClick={() => handleSendRequest(u.id)}>{tr('friends_add_btn')}</button>
                 </div>
               ))}
