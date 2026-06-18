@@ -776,6 +776,13 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
               }));
             } else {
               const msg: ChatMessage = enrichCallMessage(data);
+              // Notify + ping for messages from the other party (not our own echo).
+              const fromSelf = String(msg.author?.id) === String(state.userIDonServer);
+              if (!fromSelf && !String(msg.id).startsWith('optimistic-')) {
+                const sender = msg.author?.nickname || msg.author?.username || 'New message';
+                showDesktopNotification('dm', sender, msg.content || '');
+                playMessageSound();
+              }
               setState(prev => {
                 if (prev.chatMessages.some(m => String(m.id) === String(msg.id))) return prev;
                 const nonce = (data as any).nonce;

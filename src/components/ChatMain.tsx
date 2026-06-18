@@ -75,7 +75,7 @@ const ChatHeader: React.FC<{
 
   if (!chatUser) return null;
 
-  const displayName = chatUser.nickname || chatUser.username;
+  const displayName = chatUser.nickname || chatUser.username || '?';
 
   const startCall = (withVideo = false) => {
     // Prevent camera from turning on when starting a voice call (state can persist from a previous call)
@@ -208,7 +208,7 @@ const PinnedBar: React.FC<{
   if (pinned.length === 0) return null;
 
   const current = pinned[Math.min(idx, pinned.length - 1)];
-  const displayName = current.author.nickname || current.author.username;
+  const displayName = current.author?.nickname || current.author?.username || '?';
   const tr = useTranslation();
   const preview = current.content?.slice(0, 80) || tr('chat_attachment_label');
 
@@ -1162,7 +1162,7 @@ const MessageRow = React.memo(({ msg, isOwn, isFirstInGroup, onContextMenu, onRe
   highlight?: boolean;
 }) => {
   const tr = useTranslation();
-  const displayName = msg.author.nickname || msg.author.username;
+  const displayName = msg.author?.nickname || msg.author?.username || '?';
   const time = new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   const [hovered, setHovered] = useState(false);
   const [avatarError, setAvatarError] = useState(false);
