@@ -1162,7 +1162,19 @@ const MessageRow = React.memo(({ msg, isOwn, isFirstInGroup, onContextMenu, onRe
   highlight?: boolean;
 }) => {
   const tr = useTranslation();
-  const displayName = msg.author?.nickname || msg.author?.username || '?';
+  const { currentUser, friends, blockedContacts, currentChat } = useApp();
+  // Server sometimes omits author name on the first message — resolve it from
+  // who we already know: ourselves (own messages) or the chat partner.
+  const known = isOwn
+    ? currentUser
+    : friends.find(f => String(f.id) === String(msg.author?.id))
+      ?? blockedContacts.find(u => String(u.id) === String(msg.author?.id))
+      ?? friends.find(f => String(f.id) === String(currentChat))
+      ?? blockedContacts.find(u => String(u.id) === String(currentChat));
+  const displayName =
+    msg.author?.nickname || msg.author?.username ||
+    known?.nickname || known?.username || '?';
+  const avatarSrc = msg.author?.avatar || known?.avatar;
   const time = new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   const [hovered, setHovered] = useState(false);
   const [avatarError, setAvatarError] = useState(false);
@@ -1193,8 +1205,8 @@ const MessageRow = React.memo(({ msg, isOwn, isFirstInGroup, onContextMenu, onRe
       )}
       <div className="message-avatar-slot">
         {isFirstInGroup
-          ? (msg.author.avatar && !avatarError
-              ? <img src={msg.author.avatar} alt={displayName} style={{ width: 36, height: 36, borderRadius: '50%', objectFit: 'cover' }} onError={() => setAvatarError(true)} />
+          ? (avatarSrc && !avatarError
+              ? <img src={avatarSrc} alt={displayName} style={{ width: 36, height: 36, borderRadius: '50%', objectFit: 'cover' }} onError={() => setAvatarError(true)} />
               : <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'var(--accent-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 700, fontSize: 14 }}>
                   {displayName[0].toUpperCase()}
                 </div>
