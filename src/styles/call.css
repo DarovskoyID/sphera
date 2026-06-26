@@ -62,12 +62,12 @@
 }
 
 .call-content h2 {
-  font-size: 28px;
+  font-size: 32.2px;
   margin-bottom: var(--spacing-sm);
 }
 
 .call-status {
-  font-size: 16px;
+  font-size: 18.4px;
   color: rgba(255, 255, 255, 0.7);
   margin-bottom: var(--spacing-xl);
 }

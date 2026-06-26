@@ -29,14 +29,14 @@
 }
 
 .welcome-content h2 {
-  font-size: 24px;
+  font-size: 27.6px;
   font-weight: 600;
   color: var(--text-primary);
   margin-bottom: var(--spacing-md);
 }
 
 .welcome-content p {
-  font-size: 16px;
+  font-size: 18.4px;
   color: var(--text-secondary);
   line-height: 1.5;
 }
@@ -82,14 +82,14 @@
 }
 
 .welcome-hero h2 {
-  font-size: 26px;
+  font-size: 29.9px;
   font-weight: 700;
   color: var(--text-primary);
   margin: 0;
 }
 
 .welcome-hero p {
-  font-size: 15px;
+  font-size: 17.2px;
   color: var(--text-secondary);
   line-height: 1.6;
   max-width: 380px;
@@ -130,7 +130,7 @@
   position: absolute;
   top: 8px;
   left: 8px;
-  font-size: 10px;
+  font-size: 11.5px;
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -149,7 +149,7 @@
 }
 
 .welcome-ad-title {
-  font-size: 14px;
+  font-size: 16.1px;
   font-weight: 700;
   color: var(--text-primary);
   margin: 0;
@@ -157,7 +157,7 @@
 }
 
 .welcome-ad-desc {
-  font-size: 12px;
+  font-size: 13.8px;
   color: var(--text-secondary);
   margin: 0;
   line-height: 1.5;
@@ -170,7 +170,7 @@
   border-radius: var(--radius-sm);
   border: none;
   color: #fff;
-  font-size: 12px;
+  font-size: 13.8px;
   font-weight: 600;
   cursor: pointer;
   transition: opacity var(--transition-fast);
@@ -210,6 +210,6 @@
   justify-content: center;
   color: rgb(255, 255, 255);
   font-weight: 700; 
-  font-size: 14px;
+  font-size: 16.1px;
 }
 

@@ -44,13 +44,13 @@
 }
 
 .profile-name {
-  font-size: 14px;
+  font-size: 16.1px;
   font-weight: 600;
   color: var(--text-primary);
 }
 
 .profile-status {
-  font-size: 12px;
+  font-size: 13.8px;
   color: var(--text-secondary);
 }
 
@@ -168,7 +168,7 @@
 }
 
 .profile-modal-header h2 {
-  font-size: 18px;
+  font-size: 20.7px;
   font-weight: 600;
   color: var(--text-primary);
   margin: 0;
@@ -236,7 +236,7 @@
 }
 
 .profile-field label {
-  font-size: 12px;
+  font-size: 13.8px;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.5px;
@@ -244,7 +244,7 @@
 }
 
 .profile-value {
-  font-size: 15px;
+  font-size: 17.2px;
   color: var(--text-primary);
 }
 
@@ -272,7 +272,7 @@
 
 .profile-action-btn {
   padding: var(--spacing-md);
-  font-size: 14px;
+  font-size: 16.1px;
   font-weight: 500;
   border-radius: var(--radius-md);
   transition: all var(--transition-normal);

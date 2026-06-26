@@ -45,13 +45,13 @@
 }
 
 .chat-header h3 {
-  font-size: 16px;
+  font-size: 18.4px;
   font-weight: 600;
   color: var(--text-primary);
 }
 
 .chat-header p {
-  font-size: 13px;
+  font-size: 14.9px;
   color: var(--text-secondary);
 }
 
@@ -103,7 +103,7 @@
 }
 
 .date-separator-label {
-  font-size: 12px;
+  font-size: 13.8px;
   font-weight: 600;
   color: var(--text-tertiary);
   white-space: nowrap;
@@ -143,18 +143,18 @@
 }
 
 .message-author {
-  font-size: 15px;
+  font-size: 17.2px;
   font-weight: 600;
   color: var(--text-primary);
 }
 
 .message-timestamp {
-  font-size: 12px;
+  font-size: 13.8px;
   color: var(--text-tertiary);
 }
 
 .message-text {
-  font-size: 15px;
+  font-size: 17.2px;
   line-height: 1.5;
   color: var(--text-primary);
   overflow-wrap: anywhere;
@@ -168,7 +168,7 @@
   display: flex;
   flex-direction: column;
   gap: 1px;
-  font-size: 13px;
+  font-size: 14.9px;
   padding: 6px 10px;
   margin-bottom: 4px;
   border-radius: var(--radius-sm);
@@ -184,7 +184,7 @@
 
 .message-reply-author {
   font-weight: 600;
-  font-size: 14px;
+  font-size: 16.1px;
   color: var(--text-primary);
   display: block;
 }
@@ -195,7 +195,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   display: block;
-  font-size: 13px;
+  font-size: 14.9px;
 }
 
 .message-item.own .message-content {
@@ -243,7 +243,23 @@
   display: flex;
   align-items: flex-end;
   gap: 4px;
-  flex-wrap: wrap;
+  /* No wrap: the body shrinks and wraps its own text while the timestamp +
+     read-receipt stay pinned to the bottom-right corner of the bubble. */
+  flex-wrap: nowrap;
+}
+
+/* Body takes the remaining width and wraps internally; min-width:0 lets it
+   shrink below its content size so the timestamp is never pushed to a new row. */
+.message-body {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* Timestamp + read-receipt never shrink and sit at the bottom-right. */
+.message-timestamp,
+.message-line > svg {
+  flex-shrink: 0;
+  align-self: flex-end;
 }
 
 /* For own messages: body first, then time, then receipt on the RIGHT */
@@ -268,7 +284,7 @@
   align-items: center;
   gap: var(--spacing-md);
   margin: var(--spacing-lg) 0;
-  font-size: 12px;
+  font-size: 13.8px;
   color: var(--text-tertiary);
   font-weight: 600;
 }
@@ -301,7 +317,7 @@
   background-color: var(--bg-secondary);
   border-radius: var(--radius-md);
   color: var(--text-primary);
-  font-size: 15px;
+  font-size: 17.2px;
   transition: background-color var(--transition-fast);
   resize: none;
 }
@@ -312,6 +328,30 @@
 
 .message-input::placeholder {
   color: var(--text-tertiary);
+}
+
+/* ── Direct messages: hide avatars & author names, edge-to-edge on mobile ──
+   Scoped to .chat-main (the DM view). Guild chats use .guild-chat-main and
+   are unaffected. */
+.chat-main .message-avatar-slot,
+.chat-main .message-author-bubble {
+  display: none !important;
+}
+
+@media (max-width: 768px) {
+  /* Push DM bubbles to the edges — no more than 7px of side padding. */
+  .chat-main .messages-container {
+    padding-left: 7px;
+    padding-right: 7px;
+  }
+  .chat-main .message-item {
+    padding-left: 0;
+    padding-right: 0;
+  }
+  .chat-main .message-item:not(.own) .message-text,
+  .chat-main .message-item.own .message-text {
+    max-width: 92%;
+  }
 }
 
 /* Typing Indicator */

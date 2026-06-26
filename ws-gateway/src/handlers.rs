@@ -140,6 +140,14 @@ async fn handle_chat_message(
         msg_payload["nonce"] = json!(n);
     }
 
+    // Forward reply_to_id so receivers can resolve the reply preview locally
+    // (the full reply_to object is only filled in by the REST reload).
+    if let Some(ref r) = reply_to_id {
+        if !r.is_null() {
+            msg_payload["reply_to_id"] = r.clone();
+        }
+    }
+
     let payload_str = msg_payload.to_string();
 
     // 1) Broadcast to all local clients via Hub
@@ -291,6 +299,14 @@ async fn handle_guild_message(
 
     if let Some(ref n) = nonce {
         msg_payload["nonce"] = json!(n);
+    }
+
+    // Forward reply_to_id so receivers can resolve the reply preview locally
+    // (the full reply_to object is only filled in by the REST reload).
+    if let Some(ref r) = reply_to_id {
+        if !r.is_null() {
+            msg_payload["reply_to_id"] = r.clone();
+        }
     }
 
     let payload_str = msg_payload.to_string();

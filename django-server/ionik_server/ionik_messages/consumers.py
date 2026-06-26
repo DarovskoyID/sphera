@@ -916,13 +916,13 @@ class GuildPresenceConsumer(AsyncWebsocketConsumer):
             await self.close()
             return
 
-        is_member = await self._check_membership(user.id)
-        if not is_member:
-            await self.close()
-            return
-
-        await self.channel_layer.group_add(self.guild_group, self.channel_name)
+        # Accept any authenticated user even if they aren't a member yet — the client
+        # may open a guild it hasn't joined. Only members are subscribed to guild
+        # events; non-members simply receive nothing instead of a handshake 403 (which
+        # the client retries, flooding the console).
         await self.accept()
+        if await self._check_membership(user.id):
+            await self.channel_layer.group_add(self.guild_group, self.channel_name)
 
     async def disconnect(self, close_code):
         await self.channel_layer.group_discard(self.guild_group, self.channel_name)

@@ -697,8 +697,12 @@ const DevicesSettings: React.FC = () => {
       {loading ? <div style={{ color: 'var(--text-secondary)', fontSize: 13, padding: 20 }}>{tr('sdev_loading')}</div> : devices.length === 0 ? (
         <div style={{ color: 'var(--text-secondary)', fontSize: 13, padding: 20, textAlign: 'center' }}>{tr('sdev_none')}</div>
       ) : devices.map((device, i) => {
-        const browser = parseBrowser(device.device_name);
-        const os = parseOS(device.device_name);
+        // New records store a friendly name ("Chrome on Windows"); old records
+        // hold a raw user-agent string — parse those for a readable label.
+        const isRawUA = /Mozilla\//.test(device.device_name);
+        const label = device.device_name && !isRawUA
+          ? device.device_name
+          : `${parseBrowser(device.device_name)} on ${parseOS(device.device_name)}`;
         const lastSeen = new Date(device.last_login);
         const isRecent = Date.now() - lastSeen.getTime() < 5 * 60 * 1000;
         return (
@@ -708,7 +712,7 @@ const DevicesSettings: React.FC = () => {
             </div>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: 14, display: 'flex', alignItems: 'center', gap: 8 }}>
-                {browser} on {os}
+                {label}
                 {isRecent && <span style={{ fontSize: 11, background: '#22c55e22', color: '#22c55e', padding: '2px 8px', borderRadius: 99, fontWeight: 500 }}>{tr('sdev_active')}</span>}
               </div>
               <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>{tr('sdev_ip')} {device.ip_address}</div>

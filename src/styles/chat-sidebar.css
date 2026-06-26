@@ -21,7 +21,7 @@
 }
 
 .chat-sidebar-header h2 {
-  font-size: 16px;
+  font-size: 18.4px;
   font-weight: 600;
   flex: 1;
   color: var(--text-primary);
@@ -53,7 +53,7 @@
   border: 1px solid var(--border-color);
   border-radius: var(--radius-sm);
   color: var(--text-primary);
-  font-size: 13px;
+  font-size: 14.9px;
   font-family: inherit;
   outline: none;
   transition: border-color var(--transition-fast), background var(--transition-fast);
@@ -89,7 +89,7 @@
   min-width: 0;
   background: transparent;
   color: var(--text-primary);
-  font-size: 14px;
+  font-size: 16.1px;
 }
 
 .search-bar input::placeholder {
@@ -99,7 +99,7 @@
 /* Section Title */
 .section-title {
   padding: var(--spacing-md);
-  font-size: 11px;
+  font-size: 12.6px;
   font-weight: 600;
   letter-spacing: 0.5px;
   color: var(--text-tertiary);
@@ -202,7 +202,7 @@
 }
 
 .chat-name {
-  font-size: 15px;
+  font-size: 17.2px;
   font-weight: 500;
   color: var(--text-primary);
   white-space: nowrap;
@@ -211,7 +211,7 @@
 }
 
 .chat-message {
-  font-size: 13px;
+  font-size: 14.9px;
   color: var(--text-secondary);
   white-space: nowrap;
   overflow: hidden;
@@ -226,14 +226,14 @@
 }
 
 .chat-time {
-  font-size: 11px;
+  font-size: 12.6px;
   color: var(--text-tertiary);
 }
 
 .unread-badge {
   background-color: var(--unread-bg);
   color: white;
-  font-size: 11px;
+  font-size: 12.6px;
   font-weight: 600;
   padding: 2px 6px;
   border-radius: 10px;
@@ -265,7 +265,7 @@
   border-radius: var(--radius-sm);
   cursor: pointer;
   transition: background-color var(--transition-fast);
-  font-size: 15px;
+  font-size: 17.2px;
   color: var(--text-secondary);
   margin-bottom: 2px;
 }

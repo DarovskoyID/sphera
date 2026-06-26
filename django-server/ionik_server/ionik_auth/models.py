@@ -144,6 +144,9 @@ class UserDevice(models.Model):
         User, on_delete=models.CASCADE,
         related_name='devices',
     )
+    # Stable per-install id reported by the client (X-Device-Id). Used as the
+    # dedup key so devices are no longer (incorrectly) keyed by IP address.
+    device_id = models.CharField(max_length=128, null=True, blank=True, db_index=True)
     device_name = models.CharField(max_length=200)
     device_type = models.CharField(
         max_length=20,

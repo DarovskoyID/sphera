@@ -245,8 +245,21 @@ const GuildMessageRow = React.memo(({ msg, isOwn, isFirstInGroup, onContextMenu,
   const tr = useTranslation();
   const displayName = msg.author?.nickname || msg.author?.username || '?';
   const time = new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  const [hovered, setHovered] = useState(false);
   const [avatarError, setAvatarError] = useState(false);
+  // Long-press (mobile) opens the same context menu as right-click (desktop).
+  const lpTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lpFired = useRef(false);
+  const startLongPress = (e: React.TouchEvent) => {
+    const t = e.touches[0];
+    if (!t) return;
+    lpFired.current = false;
+    const x = t.clientX, y = t.clientY;
+    lpTimer.current = setTimeout(() => {
+      lpFired.current = true;
+      onContextMenu({ preventDefault() {}, stopPropagation() {}, clientX: x, clientY: y } as unknown as React.MouseEvent, msg);
+    }, 450);
+  };
+  const cancelLongPress = () => { if (lpTimer.current) { clearTimeout(lpTimer.current); lpTimer.current = null; } };
 
   return (
     <div
@@ -259,9 +272,10 @@ const GuildMessageRow = React.memo(({ msg, isOwn, isFirstInGroup, onContextMenu,
           : msg.is_pinned ? 'rgba(0,112,243,0.08)' : undefined,
         transition: 'background 0.3s ease',
       }}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
       onContextMenu={e => { e.preventDefault(); onContextMenu(e, msg); }}
+      onTouchStart={startLongPress}
+      onTouchEnd={cancelLongPress}
+      onTouchMove={cancelLongPress}
     >
       {msg.is_pinned && (
         <div style={{ position: 'absolute', top: 4, ...(isOwn ? { left: 4 } : { right: 4 }), color: 'var(--accent-primary)', opacity: 0.7, zIndex: 1 }}>
@@ -302,24 +316,6 @@ const GuildMessageRow = React.memo(({ msg, isOwn, isFirstInGroup, onContextMenu,
                 </span>
                 <span className="message-timestamp">{time}</span>
               </div>
-              {hovered && (
-                <div style={{ position: 'absolute', top: -8, ...(isOwn ? { left: -8 } : { right: -8 }), display: 'flex', gap: 4, zIndex: 2 }}>
-                  <button
-                    onClick={() => onReply(msg)}
-                    style={{ background: 'var(--bg-secondary)', border: 'none', borderRadius: 6, padding: '3px 6px', cursor: 'pointer', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center' }}
-                    title={tr('chat_reply')}
-                  >
-                    <Reply size={14} />
-                  </button>
-                  <button
-                    onClick={e => onContextMenu(e, msg)}
-                    style={{ background: 'var(--bg-secondary)', border: 'none', borderRadius: 6, padding: '3px 6px', cursor: 'pointer', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center' }}
-                    title={tr('chat_more')}
-                  >
-                    <MoreHorizontal size={14} />
-                  </button>
-                </div>
-              )}
             </div>
           )}
           {msg.attachments?.map(att => (

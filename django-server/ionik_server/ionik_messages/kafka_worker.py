@@ -68,6 +68,31 @@ def _process_chat_message(data: dict):
     if attachment_ids:
         Attachment.objects.filter(id__in=attachment_ids).update(message=msg)
 
+    # Send FCM push to the other participants. DMs reach this worker via the Kafka
+    # 'chat.messages' topic (published by the Rust ws-gateway), which bypasses the
+    # Django ChatConsumer — so without this, closed apps never get notified.
+    try:
+        from ionik_messages.models import Conversation
+        from ionik_auth.models import User
+        from ionik_server.fcm import send_to_user
+        recipient_ids = [
+            str(pid) for pid in Conversation.objects.filter(id=conversation_id)
+            .values_list('participants__id', flat=True)
+            if pid is not None and str(pid) != str(author_id)
+        ]
+        if recipient_ids:
+            author = User.objects.filter(id=author_id).first()
+            sender_name = (author.nickname or author.username) if author else ''
+            notif_content = content if content else ('\U0001f4ce Attachment' if attachment_ids else '')
+            for rid in recipient_ids:
+                send_to_user(rid, {
+                    'type': 'message',
+                    'sender_name': sender_name,
+                    'content': notif_content,
+                })
+    except Exception as e:
+        logger.warning('FCM push (chat) failed: %s', e)
+
 
 def _process_guild_message(data: dict):
     from ionik_messages.models import GuildMessage, GuildAttachment

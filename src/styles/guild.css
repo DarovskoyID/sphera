@@ -19,7 +19,7 @@
   border-bottom: 1px solid var(--border-color);
   color: var(--text-primary);
   font-weight: 600;
-  font-size: 15px;
+  font-size: 17.2px;
   flex-shrink: 0;
 }
 
@@ -39,7 +39,7 @@
 
 .guild-settings-dropdown .context-menu-item {
   padding: 8px 14px;
-  font-size: 13px;
+  font-size: 14.9px;
 }
 
 .guild-settings-dropdown .context-menu-item.danger {
@@ -67,7 +67,7 @@
   gap: 4px;
   padding: 4px 12px;
   text-transform: uppercase;
-  font-size: 11px;
+  font-size: 12.6px;
   font-weight: 700;
   color: var(--text-tertiary);
   letter-spacing: 0.04em;
@@ -103,7 +103,7 @@
   margin: 1px 8px;
   border-radius: 6px;
   cursor: pointer;
-  font-size: 14px;
+  font-size: 16.1px;
   color: var(--text-secondary);
   position: relative;
 }
@@ -141,7 +141,7 @@
   align-items: center;
   gap: 8px;
   padding: 8px 14px;
-  font-size: 11px;
+  font-size: 12.6px;
   font-weight: 700;
   text-transform: uppercase;
   color: var(--text-tertiary);
@@ -158,7 +158,7 @@
 
 .members-group-label {
   padding: 6px 8px 2px;
-  font-size: 10px;
+  font-size: 11.5px;
   font-weight: 700;
   text-transform: uppercase;
   color: var(--text-tertiary);
@@ -184,7 +184,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 10px;
+  font-size: 11.5px;
   font-weight: 700;
 }
 
@@ -202,7 +202,7 @@
 }
 
 .member-name {
-  font-size: 13px;
+  font-size: 14.9px;
   font-weight: 500;
   color: var(--text-primary);
   overflow: hidden;
@@ -262,7 +262,7 @@
   align-items: center;
   justify-content: center;
   font-weight: 700;
-  font-size: 14px;
+  font-size: 16.1px;
 }
 
 .guild-message-body {
@@ -278,7 +278,7 @@
 }
 
 .guild-reply-preview {
-  font-size: 12px;
+  font-size: 13.8px;
   color: var(--text-secondary);
   margin-bottom: 4px;
   padding-left: 8px;
@@ -287,7 +287,7 @@
 
 .guild-message-text {
   color: var(--text-primary);
-  font-size: 14px;
+  font-size: 16.1px;
   line-height: 1.4;
   word-wrap: break-word;
   overflow-wrap: anywhere;
@@ -339,18 +339,18 @@
 
 /* Author & timestamp */
 .guild-message-author {
-  font-size: 15px;
+  font-size: 17.2px;
   font-weight: 600;
   color: var(--text-primary);
 }
 
 .guild-message-ts {
-  font-size: 12px;
+  font-size: 13.8px;
   color: var(--text-tertiary);
 }
 
 .guild-message-time-hover {
-  font-size: 10px;
+  font-size: 11.5px;
   color: var(--text-tertiary);
   display: flex;
   align-items: center;
@@ -397,7 +397,7 @@
 .loading-older {
   text-align: center;
   padding: var(--spacing-md);
-  font-size: 13px;
+  font-size: 14.9px;
   color: var(--text-tertiary);
 }
 
@@ -409,7 +409,7 @@
   padding: var(--spacing-sm) var(--spacing-md);
   background: var(--bg-secondary);
   border-top: 1px solid var(--border-color);
-  font-size: 13px;
+  font-size: 14.9px;
   color: var(--text-secondary);
   flex-shrink: 0;
 }
@@ -433,13 +433,13 @@
 
 /* Chat header elements */
 .chat-header-name {
-  font-size: 16px;
+  font-size: 18.4px;
   font-weight: 600;
   color: var(--text-primary);
 }
 
 .chat-header-topic {
-  font-size: 13px;
+  font-size: 14.9px;
   color: var(--text-secondary);
   margin-left: var(--spacing-sm);
   padding-left: var(--spacing-sm);
@@ -456,11 +456,11 @@
   }
 
   .guild-message-author {
-    font-size: 14px;
+    font-size: 16.1px;
   }
 
   .guild-message-text {
-    font-size: 14px;
+    font-size: 16.1px;
   }
 
   .guild-message-avatar {

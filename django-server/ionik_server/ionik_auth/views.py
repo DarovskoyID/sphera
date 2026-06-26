@@ -31,29 +31,90 @@ def get_client_ip(request):
     return request.META.get('REMOTE_ADDR', '0.0.0.0')
 
 
+def _device_type_from_ua(ua):
+    # iPad/Android tablets first (Android tablets lack the "Mobile" token).
+    if 'iPad' in ua or 'Tablet' in ua or ('Android' in ua and 'Mobile' not in ua):
+        return 'tablet'
+    if 'Mobile' in ua or 'Android' in ua or 'iPhone' in ua or 'iPod' in ua:
+        return 'mobile'
+    return 'desktop'
+
+
+def _device_name_from_ua(ua):
+    if not ua:
+        return 'Unknown device'
+    # Browser
+    if 'Electron' in ua:
+        browser = 'Ionik Desktop'
+    elif 'Edg' in ua:
+        browser = 'Edge'
+    elif 'OPR' in ua or 'Opera' in ua:
+        browser = 'Opera'
+    elif 'SamsungBrowser' in ua:
+        browser = 'Samsung Internet'
+    elif 'Firefox' in ua or 'FxiOS' in ua:
+        browser = 'Firefox'
+    elif 'CriOS' in ua or 'Chrome' in ua or 'Chromium' in ua:
+        browser = 'Chrome'
+    elif 'Safari' in ua:
+        browser = 'Safari'
+    else:
+        browser = 'Browser'
+    # OS
+    if 'Windows' in ua:
+        os_name = 'Windows'
+    elif 'Android' in ua:
+        os_name = 'Android'
+    elif 'iPhone' in ua or 'iPod' in ua:
+        os_name = 'iOS'
+    elif 'iPad' in ua:
+        os_name = 'iPadOS'
+    elif 'Mac OS' in ua or 'Macintosh' in ua:
+        os_name = 'macOS'
+    elif 'CrOS' in ua:
+        os_name = 'ChromeOS'
+    elif 'Linux' in ua:
+        os_name = 'Linux'
+    else:
+        os_name = 'Unknown OS'
+    return f'{browser} on {os_name}'
+
+
 def track_device(request):
     user = request.user
     ip = get_client_ip(request)
     ua = request.META.get('HTTP_USER_AGENT', '')
 
-    if 'Mobile' in ua or 'Android' in ua or 'iPhone' in ua:
-        dtype = 'mobile'
-    elif 'Tablet' in ua or 'iPad' in ua:
-        dtype = 'tablet'
-    else:
-        dtype = 'desktop'
+    # The client reports an accurate id/name/type via query params (headers
+    # would trigger a CORS preflight); fall back to UA parsing.
+    device_id = (request.GET.get('device_id') or request.META.get('HTTP_X_DEVICE_ID', '') or '').strip()[:128]
+    client_name = (request.GET.get('device_name') or request.META.get('HTTP_X_DEVICE_NAME', '') or '').strip()
+    client_type = (request.GET.get('device_type') or request.META.get('HTTP_X_DEVICE_TYPE', '') or '').strip()
 
-    name = ua[:200] if ua else 'Unknown device'
+    dtype = client_type if client_type in ('mobile', 'tablet', 'desktop') else _device_type_from_ua(ua)
+    name = (client_name[:200] if client_name else _device_name_from_ua(ua))
 
-    device, _ = UserDevice.objects.get_or_create(
-        user=user,
-        ip_address=ip,
-        defaults={'device_name': name, 'device_type': dtype},
-    )
-    if not _:
-        UserDevice.objects.filter(pk=device.pk).update(
-            device_name=name, device_type=dtype,
+    # Prefer the stable device id; only fall back to IP when none was sent.
+    if device_id:
+        device, created = UserDevice.objects.get_or_create(
+            user=user,
+            device_id=device_id,
+            defaults={'device_name': name, 'device_type': dtype, 'ip_address': ip},
         )
+        if not created:
+            UserDevice.objects.filter(pk=device.pk).update(
+                device_name=name, device_type=dtype, ip_address=ip,
+            )
+    else:
+        device, created = UserDevice.objects.get_or_create(
+            user=user,
+            ip_address=ip,
+            defaults={'device_name': name, 'device_type': dtype},
+        )
+        if not created:
+            UserDevice.objects.filter(pk=device.pk).update(
+                device_name=name, device_type=dtype,
+            )
     return device
 
 

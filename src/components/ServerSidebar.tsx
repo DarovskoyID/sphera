@@ -6,6 +6,7 @@ import type { Guild } from '../types';
 
 function CreateGuildModal({ onClose }: { onClose: () => void }) {
   const { createGuild, selectGuild } = useApp();
+  const tr = useTranslation();
   const [name, setName] = useState('');
   const [desc, setDesc] = useState('');
   const [loading, setLoading] = useState(false);
@@ -23,13 +24,13 @@ function CreateGuildModal({ onClose }: { onClose: () => void }) {
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-box" onClick={e => e.stopPropagation()} style={{ maxWidth: 400 }}>
         <div className="modal-header">
-          <span>Create a Server</span>
+          <span>{tr('guild_create_server_title')}</span>
           <button className="icon-btn" onClick={onClose}><X size={18} /></button>
         </div>
         <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: '16px 0 0' }}>
           <input
             className="input-field"
-            placeholder="Server name"
+            placeholder={tr('guild_server_name')}
             value={name}
             onChange={e => setName(e.target.value)}
             maxLength={100}
@@ -37,13 +38,13 @@ function CreateGuildModal({ onClose }: { onClose: () => void }) {
           />
           <input
             className="input-field"
-            placeholder="Description (optional)"
+            placeholder={tr('guild_description')}
             value={desc}
             onChange={e => setDesc(e.target.value)}
             maxLength={500}
           />
           <button className="btn-primary" type="submit" disabled={loading || !name.trim()}>
-            {loading ? 'Creating…' : 'Create'}
+            {loading ? tr('guild_creating') : tr('guild_create')}
           </button>
         </form>
       </div>
@@ -53,6 +54,7 @@ function CreateGuildModal({ onClose }: { onClose: () => void }) {
 
 function CreatePersonalChannelModal({ onClose }: { onClose: () => void }) {
   const { createPersonalChannel, selectGuild } = useApp();
+  const tr = useTranslation();
   const [name, setName] = useState('');
   const [desc, setDesc] = useState('');
   const [loading, setLoading] = useState(false);
@@ -70,16 +72,16 @@ function CreatePersonalChannelModal({ onClose }: { onClose: () => void }) {
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-box" onClick={e => e.stopPropagation()} style={{ maxWidth: 400 }}>
         <div className="modal-header">
-          <span>Create Personal Channel</span>
+          <span>{tr('guild_create_channel_title')}</span>
           <button className="icon-btn" onClick={onClose}><X size={18} /></button>
         </div>
         <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: '8px 0 12px' }}>
-          Only you can post. Others can view and react.
+          {tr('guild_channel_desc')}
         </p>
         <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <input
             className="input-field"
-            placeholder="Channel name"
+            placeholder={tr('guild_channel_name')}
             value={name}
             onChange={e => setName(e.target.value)}
             maxLength={100}
@@ -87,13 +89,13 @@ function CreatePersonalChannelModal({ onClose }: { onClose: () => void }) {
           />
           <input
             className="input-field"
-            placeholder="Description (optional)"
+            placeholder={tr('guild_description')}
             value={desc}
             onChange={e => setDesc(e.target.value)}
             maxLength={500}
           />
           <button className="btn-primary" type="submit" disabled={loading || !name.trim()}>
-            {loading ? 'Creating…' : 'Create Channel'}
+            {loading ? tr('guild_creating') : tr('guild_create_channel_btn')}
           </button>
         </form>
       </div>
@@ -101,8 +103,9 @@ function CreatePersonalChannelModal({ onClose }: { onClose: () => void }) {
   );
 }
 
-function JoinGuildModal({ onClose }: { onClose: () => void }) {
+function JoinGuildModal({ onClose, channel = false }: { onClose: () => void; channel?: boolean }) {
   const { joinGuild, selectGuild } = useApp();
+  const tr = useTranslation();
   const [code, setCode] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -119,19 +122,19 @@ function JoinGuildModal({ onClose }: { onClose: () => void }) {
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-box" onClick={e => e.stopPropagation()} style={{ maxWidth: 400 }}>
         <div className="modal-header">
-          <span>Join a Server</span>
+          <span>{tr(channel ? 'guild_join_channel_title' : 'guild_join_server_title')}</span>
           <button className="icon-btn" onClick={onClose}><X size={18} /></button>
         </div>
         <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: '16px 0 0' }}>
           <input
             className="input-field"
-            placeholder="Invite code"
+            placeholder={tr(channel ? 'guild_channel_invite_code' : 'guild_invite_code')}
             value={code}
             onChange={e => setCode(e.target.value)}
             autoFocus
           />
           <button className="btn-primary" type="submit" disabled={loading || !code.trim()}>
-            {loading ? 'Joining…' : 'Join'}
+            {loading ? tr('guild_joining') : tr('guild_join')}
           </button>
         </form>
       </div>
@@ -178,6 +181,7 @@ export const ServerSidebar: React.FC = () => {
   const tr = useTranslation();
   const [showCreate, setShowCreate] = useState(false);
   const [showJoin, setShowJoin] = useState(false);
+  const [showJoinChannel, setShowJoinChannel] = useState(false);
   const [showCreateChannel, setShowCreateChannel] = useState(false);
   const [showAddMenu, setShowAddMenu] = useState(false);
   const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null);
@@ -307,7 +311,7 @@ export const ServerSidebar: React.FC = () => {
                 if (r) setMenuPos({ x: r.right + 8, y: r.top });
                 setShowAddMenu(v => !v);
               }}
-              title="Add a Server"
+              title={tr('srv_add_title')}
             >
               <Plus size={20} />
             </button>
@@ -322,13 +326,16 @@ export const ServerSidebar: React.FC = () => {
           style={{ position: 'fixed', left: menuPos.x, top: menuPos.y, minWidth: 180, zIndex: 9999 }}
         >
           <button className="context-menu-item" onClick={() => { setShowAddMenu(false); setShowCreate(true); }}>
-            <Plus size={14} /> Create Server
+            <Plus size={14} /> {tr('guild_create_server')}
           </button>
           <button className="context-menu-item" onClick={() => { setShowAddMenu(false); setShowCreateChannel(true); }}>
-            <Rss size={14} /> Create Channel
+            <Rss size={14} /> {tr('guild_create_channel')}
           </button>
           <button className="context-menu-item" onClick={() => { setShowAddMenu(false); setShowJoin(true); }}>
-            <LogIn size={14} /> Join Server
+            <LogIn size={14} /> {tr('guild_join_server')}
+          </button>
+          <button className="context-menu-item" onClick={() => { setShowAddMenu(false); setShowJoinChannel(true); }}>
+            <Rss size={14} /> {tr('guild_join_channel')}
           </button>
         </div>
       )}
@@ -336,6 +343,7 @@ export const ServerSidebar: React.FC = () => {
       {showCreate && <CreateGuildModal onClose={() => setShowCreate(false)} />}
       {showCreateChannel && <CreatePersonalChannelModal onClose={() => setShowCreateChannel(false)} />}
       {showJoin && <JoinGuildModal onClose={() => setShowJoin(false)} />}
+      {showJoinChannel && <JoinGuildModal channel onClose={() => setShowJoinChannel(false)} />}
     </>
   );
 };

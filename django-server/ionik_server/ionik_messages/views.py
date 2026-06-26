@@ -1646,11 +1646,14 @@ def guild_message_reaction(request, guild_id, message_id):
 def guild_message_view(request, guild_id, message_id):
     try:
         guild = Guild.objects.get(id=guild_id)
-        GuildMembership.objects.get(guild=guild, user=request.user)
         msg = GuildMessage.objects.get(id=message_id, channel__guild=guild)
-    except (Guild.DoesNotExist, GuildMembership.DoesNotExist, GuildMessage.DoesNotExist):
+    except (Guild.DoesNotExist, GuildMessage.DoesNotExist):
         return Response({'error': 'not found'}, status=status.HTTP_404_NOT_FOUND)
-    GuildMessageView.objects.get_or_create(message=msg, user=request.user)
+    # Only members record a view. Non-members (e.g. a guild the user left but the
+    # client still has open) get a harmless 200 no-op instead of a 404 — otherwise
+    # the client retries per-message and floods the console/logs.
+    if GuildMembership.objects.filter(guild=guild, user=request.user).exists():
+        GuildMessageView.objects.get_or_create(message=msg, user=request.user)
     return Response({'views': msg.views.count()})
 
 

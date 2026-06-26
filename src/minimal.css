@@ -79,7 +79,7 @@ body, button, input, textarea, select {
   letter-spacing: 0;
 }
 body {
-  font-size: 14px;
+  font-size: 16.1px;
   line-height: 1.45;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -218,7 +218,7 @@ body {
 
 .section-title {
   color: var(--text-tertiary);
-  font-size: 11px;
+  font-size: 12.6px;
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -358,17 +358,17 @@ body {
 .message-author-bubble {
   color: var(--text-secondary);
   font-weight: 600;
-  font-size: 14px;
+  font-size: 16.1px;
 }
 .message-timestamp {
   color: var(--text-tertiary);
-  font-size: 11px;
+  font-size: 12.6px;
 }
 
 /* Date divider */
 .date-divider {
   color: var(--text-tertiary);
-  font-size: 11px;
+  font-size: 12.6px;
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
@@ -425,7 +425,7 @@ body {
 .composer-bar {
   flex: 1;
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   gap: 2px;
   min-width: 0;
   background: var(--bg-secondary);
@@ -471,13 +471,18 @@ body {
   background: transparent;
   border-radius: 0;
   color: var(--text-primary);
-  font-size: 14px;
+  font-size: 16.1px;
   font-family: inherit;
   line-height: 1.4;
   padding: 8px 6px;
   min-height: 34px;
-  max-height: 120px;
+  /* ~6 lines (14px * 1.4 * 6 + 16px padding); JS caps the exact height and
+     toggles the scrollbar once the content exceeds 6 lines. */
+  max-height: 134px;
   overflow-y: hidden;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 .composer-bar .composer-input:focus {
   border: none;
@@ -492,7 +497,7 @@ body {
   background: var(--accent-primary);
   color: #fff;
   font-weight: 600;
-  font-size: 14px;
+  font-size: 16.1px;
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -555,7 +560,7 @@ select {
   border-radius: 8px;
   color: var(--text-primary);
   padding: 9px 12px;
-  font-size: 14px;
+  font-size: 16.1px;
   transition: border-color var(--transition-fast);
 }
 .field-input:focus,
@@ -576,7 +581,7 @@ button.primary,
   border-radius: 8px !important;
   padding: 9px 16px !important;
   font-weight: 600 !important;
-  font-size: 13px !important;
+  font-size: 14.9px !important;
   box-shadow: none !important;
   transition: background var(--transition-fast) !important;
 }
@@ -614,7 +619,7 @@ button.primary:hover,
 .context-menu-item {
   border-radius: 6px;
   padding: 7px 10px;
-  font-size: 13px;
+  font-size: 14.9px;
   color: var(--text-primary);
 }
 .context-menu-item:hover {
@@ -674,7 +679,7 @@ button.primary:hover,
   background: var(--unread-bg);
   color: #fff;
   font-weight: 600;
-  font-size: 11px;
+  font-size: 12.6px;
   border-radius: 999px;
   padding: 1px 6px;
   min-width: 18px;
@@ -688,7 +693,7 @@ button.primary:hover,
   border: 1px solid var(--border-color);
   border-radius: 8px;
   color: var(--text-secondary);
-  font-size: 12px;
+  font-size: 13.8px;
   box-shadow: none;
 }
 

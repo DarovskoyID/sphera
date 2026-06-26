@@ -12,6 +12,36 @@ import ConfirmModal from './ConfirmModal';
 import { getDraftText, setDraftText, getDraftFiles, setDraftFiles } from '../utils/drafts';
 import { pickRecorderFormat, mediaUnsupportedReason, describeMediaError } from '../utils/recording';
 
+// Maps a settings page key to its translation key, so the mobile settings
+// header shows a translated title instead of the raw page id.
+const SETTINGS_PAGE_TITLE: Record<string, string> = {
+  profile: 'settings_my_account',
+  content: 'settings_privacy',
+  data: 'settings_data',
+  devices: 'settings_devices',
+  servers: 'settings_servers',
+  family: 'settings_family',
+  integration: 'settings_integration',
+  notifications: 'settings_notifications',
+  apps: 'settings_apps',
+  nitro: 'settings_nitro',
+  subscribes: 'settings_subscribes',
+  gifts: 'settings_gifts',
+  payments: 'settings_payments',
+  view: 'settings_appearance',
+  special: 'settings_special',
+  voiceAndVideo: 'settings_voice_video',
+  chat: 'settings_chat',
+  formatting: 'settings_formatting',
+  binds: 'settings_binds',
+  language: 'settings_language',
+  exportImport: 'settings_export_import',
+  streamer: 'settings_streamer',
+  more: 'settings_more',
+  privacyOfActivity: 'settings_activity_privacy',
+  games: 'settings_games',
+};
+
 export const ChatMain: React.FC = () => {
   const { currentView, currentChat, currentSettingsPage, setMobileActivePanel } = useApp();
   const tr = useTranslation();
@@ -30,7 +60,7 @@ export const ChatMain: React.FC = () => {
           <button className="icon-btn glass-btn mobile-back-btn" onClick={() => setMobileActivePanel('chat-list')} title={tr('nav_back')}>
             <ArrowLeft size={20} />
           </button>
-          <h3>{currentSettingsPage}</h3>
+          <h3>{SETTINGS_PAGE_TITLE[currentSettingsPage] ? tr(SETTINGS_PAGE_TITLE[currentSettingsPage] as any) : currentSettingsPage}</h3>
         </header>
         <Settings />
       </main>
@@ -1176,8 +1206,21 @@ const MessageRow = React.memo(({ msg, isOwn, isFirstInGroup, onContextMenu, onRe
     known?.nickname || known?.username || '?';
   const avatarSrc = msg.author?.avatar || known?.avatar;
   const time = new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  const [hovered, setHovered] = useState(false);
   const [avatarError, setAvatarError] = useState(false);
+  // Long-press (mobile) opens the same context menu as right-click (desktop).
+  const lpTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lpFired = useRef(false);
+  const startLongPress = (e: React.TouchEvent) => {
+    const t = e.touches[0];
+    if (!t) return;
+    lpFired.current = false;
+    const x = t.clientX, y = t.clientY;
+    lpTimer.current = setTimeout(() => {
+      lpFired.current = true;
+      onContextMenu({ preventDefault() {}, stopPropagation() {}, clientX: x, clientY: y } as unknown as React.MouseEvent, msg);
+    }, 450);
+  };
+  const cancelLongPress = () => { if (lpTimer.current) { clearTimeout(lpTimer.current); lpTimer.current = null; } };
 
   const isSearchMatch = !!(searchQuery?.trim() && msg.content?.toLowerCase().includes(searchQuery.toLowerCase()));
 
@@ -1194,9 +1237,11 @@ const MessageRow = React.memo(({ msg, isOwn, isFirstInGroup, onContextMenu, onRe
           : msg.is_pinned ? 'rgba(0,112,243,0.08)' : undefined,
         transition: 'background 0.3s ease',
       }}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
       onContextMenu={e => { e.preventDefault(); onContextMenu(e, msg); }}
+      onTouchStart={startLongPress}
+      onTouchEnd={cancelLongPress}
+      onTouchMove={cancelLongPress}
+      onContextMenuCapture={e => { if (lpFired.current) e.preventDefault(); }}
     >
       {msg.is_pinned && (
         <div style={{ position: 'absolute', top: 4, ...(isOwn ? { left: 4 } : { right: 4 }), color: 'var(--accent-primary)', opacity: 0.7, zIndex: 1 }}>
@@ -1247,24 +1292,6 @@ const MessageRow = React.memo(({ msg, isOwn, isFirstInGroup, onContextMenu, onRe
                 <span className="message-timestamp">{time}</span>
                 {isOwn && <ReadReceipt msg={msg} />}
               </div>
-              {hovered && (
-                <div style={{ position: 'absolute', top: -8, ...(isOwn ? { left: -8 } : { right: -8 }), display: 'flex', gap: 4, zIndex: 2 }}>
-                  <button
-                    onClick={() => onReply(msg)}
-                    style={{ background: 'var(--bg-secondary)', border: 'none', borderRadius: 6, padding: '3px 6px', cursor: 'pointer', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center' }}
-                    title={tr('chat_reply')}
-                  >
-                    <Reply size={14} />
-                  </button>
-                  <button
-                    onClick={e => onContextMenu(e, msg)}
-                    style={{ background: 'var(--bg-secondary)', border: 'none', borderRadius: 6, padding: '3px 6px', cursor: 'pointer', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center' }}
-                    title={tr('chat_more')}
-                  >
-                    <MoreHorizontal size={14} />
-                  </button>
-                </div>
-              )}
             </div>
           )}
           {msg.attachments?.map(att => (
@@ -1445,6 +1472,21 @@ const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: (
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pickerButtonRef = useRef<HTMLButtonElement>(null);
   const stickerSendGuard = useRef(false);
+  const composerInputRef = useRef<HTMLTextAreaElement>(null);
+
+  // Auto-grow the composer textarea up to 6 lines, then let it scroll.
+  const MAX_COMPOSER_LINES = 6;
+  const autoResizeComposer = useCallback(() => {
+    const el = composerInputRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    const cs = getComputedStyle(el);
+    const lh = parseFloat(cs.lineHeight) || 20;
+    const pad = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0);
+    const maxH = lh * MAX_COMPOSER_LINES + pad;
+    el.style.height = `${Math.min(el.scrollHeight, maxH)}px`;
+    el.style.overflowY = el.scrollHeight > maxH ? 'auto' : 'hidden';
+  }, []);
 
   // Local draft (text + files) per conversation — survives switching chats.
   // Restored in an effect; saved imperatively via the persist* helpers so the
@@ -1457,6 +1499,8 @@ const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: (
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draftScope]);
   const persistMessage = useCallback((v: string) => { setMessage(v); setDraftText(draftScope, v); }, [draftScope]);
+  // Keep the textarea height in sync with its content (incl. draft restore / send).
+  useLayoutEffect(() => { autoResizeComposer(); }, [message, autoResizeComposer]);
   const persistPendingFiles = useCallback((updater: PendingFile[] | ((prev: PendingFile[]) => PendingFile[])) => {
     setPendingFiles(prev => {
       const next = typeof updater === 'function' ? updater(prev) : updater;
@@ -1835,8 +1879,9 @@ const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: (
           <button className="composer-icon-btn" title={tr('chat_attachment')} onClick={() => fileInputRef.current?.click()} disabled={uploading || pendingFiles.length >= MAX_FILES}>
             <Plus size={20} />
           </button>
-          <input
-            type="text"
+          <textarea
+            ref={composerInputRef}
+            rows={1}
             className="composer-input"
             placeholder={tr('chat_type_message')}
             value={message}

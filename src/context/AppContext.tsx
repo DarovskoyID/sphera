@@ -6,6 +6,7 @@ import { saveNotifPrefs, getNotifPrefs, showDesktopNotification, showCallNotific
 import { saveA11yPrefs, announce as announceA11y, type A11yPrefs } from '../utils/accessibility';
 import { saveDisplayPrefs } from '../utils/displayPrefs';
 import { setAllowScale } from '../utils/nativeBridge';
+import { deviceQuery } from '../utils/device';
 
 
 // ── Inject X-Ionik-Client header into every fetch ────────────────────────────
@@ -371,7 +372,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     }
     const load = async () => {
       try {
-        const user: ServerUser = await apiGet('/api/auth/me/', state.authToken, state.currentServerIP);
+        const user: ServerUser = await apiGet(`/api/auth/me/?${deviceQuery()}`, state.authToken, state.currentServerIP);
         setState(prev => ({ ...prev, currentUser: user, userIDonServer: String(user.id) }));
       } catch (e) { logout(); return; }
       try {
@@ -785,6 +786,22 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
               }
               setState(prev => {
                 if (prev.chatMessages.some(m => String(m.id) === String(msg.id))) return prev;
+                // Realtime broadcasts carry only reply_to_id (the full reply_to
+                // object is filled in by the REST reload). Resolve the preview
+                // from messages we already have so it shows without a refresh.
+                if (!msg.reply_to) {
+                  const rid = (data as { reply_to_id?: string }).reply_to_id;
+                  if (rid) {
+                    const target = prev.chatMessages.find(m => String(m.id) === String(rid));
+                    if (target) {
+                      msg.reply_to = {
+                        id: String(target.id),
+                        content: target.content,
+                        author: { id: String(target.author.id), username: target.author.username, nickname: target.author.nickname },
+                      };
+                    }
+                  }
+                }
                 const nonce = (data as any).nonce;
                 let optIdx = -1;
                 if (nonce) {
@@ -803,6 +820,10 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
                 }
                 let msgs: ChatMessage[];
                 if (optIdx !== -1) {
+                  // Keep the reply preview we resolved optimistically if the echo lacks it.
+                  if (!msg.reply_to && prev.chatMessages[optIdx].reply_to) {
+                    msg.reply_to = prev.chatMessages[optIdx].reply_to;
+                  }
                   msgs = [...prev.chatMessages];
                   msgs[optIdx] = msg;
                 } else {
@@ -917,6 +938,19 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     // Add optimistic message BEFORE sending so the WS echo can't arrive first
     setState(prev => {
       if (!prev.currentUser) return prev;
+      // Resolve the reply preview for our own message so it shows immediately
+      // (the server only echoes back reply_to_id, not the full object).
+      let optimisticReplyTo: import('../types').ChatMessage['reply_to'] = null;
+      if (replyToId) {
+        const target = prev.chatMessages.find(m => String(m.id) === String(replyToId));
+        if (target) {
+          optimisticReplyTo = {
+            id: String(target.id),
+            content: target.content,
+            author: { id: String(target.author.id), username: target.author.username, nickname: target.author.nickname },
+          };
+        }
+      }
       const optimistic: import('../types').ChatMessage = {
         id: `optimistic-${nonce}`,
         author: {
@@ -929,7 +963,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
         content: text,
         created_at: new Date().toISOString(),
         attachments: [],
-        reply_to: null,
+        reply_to: optimisticReplyTo,
         is_pinned: false,
       };
       const msgs = [...prev.chatMessages, optimistic];
@@ -1530,6 +1564,22 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
         }
         setState(prev => {
           if (prev.guildMessages.some(m => m.id === msg.id)) return prev;
+          // Realtime broadcasts carry only reply_to_id (the full reply_to object
+          // is filled in by the REST reload). Resolve the preview from messages
+          // we already have so the reply shows up without a refresh.
+          if (!msg.reply_to) {
+            const rid = (data as { reply_to_id?: string }).reply_to_id;
+            if (rid) {
+              const target = prev.guildMessages.find(m => String(m.id) === String(rid));
+              if (target) {
+                msg.reply_to = {
+                  id: String(target.id),
+                  content: target.content,
+                  author: { id: String(target.author.id), username: target.author.username, nickname: target.author.nickname },
+                };
+              }
+            }
+          }
           let optIdx = prev.guildMessages.findIndex(
             m => String(m.id).startsWith('optimistic-') &&
               String(m.author.id) === String(msg.author?.id) &&
@@ -1543,6 +1593,10 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
           }
           let msgs: GuildMessage[];
           if (optIdx !== -1) {
+            // Keep the reply preview we resolved optimistically if the echo lacks it.
+            if (!msg.reply_to && prev.guildMessages[optIdx].reply_to) {
+              msg.reply_to = prev.guildMessages[optIdx].reply_to;
+            }
             msgs = [...prev.guildMessages];
             msgs[optIdx] = msg;
           } else {
@@ -2168,6 +2222,19 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     guildChannelWs.current.send(JSON.stringify(payload));
     setState(prev => {
       if (!prev.currentUser) return prev;
+      // Resolve the reply preview for our own message so it shows immediately
+      // (the server only echoes back reply_to_id, not the full object).
+      let optimisticReplyTo: import('../types').GuildMessage['reply_to'] = null;
+      if (replyToId) {
+        const target = prev.guildMessages.find(m => String(m.id) === String(replyToId));
+        if (target) {
+          optimisticReplyTo = {
+            id: String(target.id),
+            content: target.content,
+            author: { id: String(target.author.id), username: target.author.username, nickname: target.author.nickname },
+          };
+        }
+      }
       const optimistic: import('../types').GuildMessage = {
         id: `optimistic-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         author: {
@@ -2180,7 +2247,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
         content: text,
         created_at: new Date().toISOString(),
         attachments: [],
-        reply_to: null,
+        reply_to: optimisticReplyTo,
         is_pinned: false,
       };
       const msgs = [...prev.guildMessages, optimistic];

@@ -40,7 +40,7 @@
   }
 
   .chat-sidebar-header h2 {
-    font-size: 14px;
+    font-size: 16.1px;
   }
 }
 
@@ -169,11 +169,11 @@
   }
 
   .chat-header h3 {
-    font-size: 15px;
+    font-size: 17.2px;
   }
 
   .chat-header p {
-    font-size: 12px;
+    font-size: 13.8px;
   }
 
   /* --- Chat sidebar Telegram-style header --- */
@@ -200,11 +200,11 @@
   }
 
   .message-author {
-    font-size: 14px;
+    font-size: 16.1px;
   }
 
   .message-text {
-    font-size: 14px;
+    font-size: 16.1px;
   }
 
   /* --- Compact UI elements --- */
@@ -230,7 +230,7 @@
   }
 
   .profile-modal-header h2 {
-    font-size: 16px;
+    font-size: 18.4px;
   }
 
   .profile-modal-body {

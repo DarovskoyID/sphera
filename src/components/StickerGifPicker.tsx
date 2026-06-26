@@ -129,6 +129,12 @@ export const UnifiedPicker: React.FC<Props> = ({ onSelectEmoji, onSelectGif, onS
   const [isMobile, setIsMobile] = useState(() => window.innerWidth < 540);
   type Pos = { top?: number; bottom?: number; right: number };
   const [pos, setPos] = useState<Pos>({ bottom: 0, right: MARGIN });
+  // On mobile, anchor the picker just above the message composer bar so the
+  // input field stays visible below the picker (and lift it above the on-screen
+  // keyboard when one is open). Measured from the live composer element.
+  const [kbInset, setKbInset] = useState(0);
+  const [composerH, setComposerH] = useState(0);
+  const [availH, setAvailH] = useState(() => window.innerHeight);
 
   const calcPos = useCallback(() => {
     const mobile = window.innerWidth < 540;
@@ -142,6 +148,32 @@ export const UnifiedPicker: React.FC<Props> = ({ onSelectEmoji, onSelectGif, onS
   }, [anchorRef]);
 
   useEffect(() => { calcPos(); window.addEventListener('resize', calcPos); return () => window.removeEventListener('resize', calcPos); }, [calcPos]);
+
+  // Keep the mobile picker above the composer bar + on-screen keyboard so the
+  // message input stays visible underneath the picker.
+  useEffect(() => {
+    const measure = () => {
+      const bar = document.querySelector('.message-input-container, .message-input-area') as HTMLElement | null;
+      setComposerH(bar ? bar.offsetHeight : 0);
+      const vv = window.visualViewport;
+      if (vv) {
+        setKbInset(Math.max(0, window.innerHeight - vv.height - vv.offsetTop));
+        setAvailH(vv.height);
+      }
+    };
+    measure();
+    window.addEventListener('resize', measure);
+    const vv = window.visualViewport;
+    vv?.addEventListener('resize', measure);
+    vv?.addEventListener('scroll', measure);
+    const iv = setInterval(measure, 400); // composer height changes as text grows
+    return () => {
+      window.removeEventListener('resize', measure);
+      vv?.removeEventListener('resize', measure);
+      vv?.removeEventListener('scroll', measure);
+      clearInterval(iv);
+    };
+  }, []);
 
   useEffect(() => {
     const h = (e: MouseEvent) => {
@@ -249,7 +281,7 @@ export const UnifiedPicker: React.FC<Props> = ({ onSelectEmoji, onSelectGif, onS
 
   const BASE: React.CSSProperties = { background: 'var(--bg-primary, #1a1a2e)', border: '1px solid var(--border-color, #2a2a3e)', color: 'var(--text-primary, #fff)' };
   const containerStyle: React.CSSProperties = isMobile
-    ? { position: 'fixed', bottom: 0, left: 0, right: 0, width: '100%', height: '60vh', minHeight: 300, maxHeight: 520, ...BASE, borderRadius: '16px 16px 0 0', boxShadow: '0 -8px 40px rgba(0,0,0,0.7)', display: 'flex', flexDirection: 'column', zIndex: 8000, overflow: 'hidden' }
+    ? { position: 'fixed', bottom: kbInset + composerH, left: 0, right: 0, width: '100%', height: '55vh', minHeight: 280, maxHeight: Math.max(240, availH - composerH - 20), ...BASE, borderRadius: '16px 16px 0 0', boxShadow: '0 -8px 40px rgba(0,0,0,0.7)', display: 'flex', flexDirection: 'column', zIndex: 8000, overflow: 'hidden' }
     : { position: 'fixed', top: pos.top, bottom: pos.bottom, right: pos.right, width: PICKER_W, height: PICKER_H, ...BASE, borderRadius: 12, boxShadow: '0 12px 40px rgba(0,0,0,0.6)', display: 'flex', flexDirection: 'column', zIndex: 8000, overflow: 'hidden' };
 
   const tabBtn = (t: Tab, icon: React.ReactNode, label: string) => (
@@ -272,7 +304,7 @@ export const UnifiedPicker: React.FC<Props> = ({ onSelectEmoji, onSelectGif, onS
 
   return (
     <>
-      {isMobile && <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 7999 }} />}
+      {isMobile && <div onClick={onClose} style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: kbInset + composerH, background: 'rgba(0,0,0,0.4)', zIndex: 7999 }} />}
       <div ref={pickerRef} style={containerStyle}>
         {isMobile && (
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '8px 12px', flexShrink: 0, position: 'relative', height: 30 }}>
@@ -353,7 +385,7 @@ export const UnifiedPicker: React.FC<Props> = ({ onSelectEmoji, onSelectGif, onS
 
 // ── Emoji Tab ────────────────────────────────────────────────────────────────
 
-const BTN: React.CSSProperties = { background: 'none', border: 'none', cursor: 'pointer', padding: '5px 7px', borderRadius: 6, fontSize: 20, lineHeight: 1 };
+const BTN: React.CSSProperties = { background: 'none', border: 'none', cursor: 'pointer', padding: '5px 7px', borderRadius: 6, fontSize: 28, lineHeight: 1 };
 
 const EmojiTab: React.FC<{
   search: string; emojiCat: string; setEmojiCat: (c: string) => void;
@@ -390,7 +422,7 @@ const EmojiTab: React.FC<{
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 2 }}>
         {customMatched.map(e => (
           <button key={e.id} onClick={() => onSelect(`:${e.name}:`)} style={{ ...BTN, fontSize: 0 }} title={`:${e.name}:`}>
-            <img src={e.image_url} alt={e.name} style={{ width: 24, height: 24, objectFit: 'contain' }} />
+            <img src={e.image_url} alt={e.name} style={{ width: 30, height: 30, objectFit: 'contain' }} />
           </button>
         ))}
         {matched.map((e, i) => <button key={i} onClick={() => onSelect(e)} style={BTN}>{e}</button>)}
@@ -417,7 +449,7 @@ const EmojiTab: React.FC<{
           : <div style={{ display: 'flex', flexWrap: 'wrap', gap: 2 }}>
               {recent.map((e, i) => e.startsWith(':') ? (() => {
                 const name = e.slice(1, -1); const f = customEmojis.find(c => c.name === name);
-                return f ? <button key={i} onClick={() => onSelect(e)} style={{ ...BTN, fontSize: 0 }} title={e}><img src={f.image_url} alt={name} style={{ width: 24, height: 24, objectFit: 'contain' }} /></button> : null;
+                return f ? <button key={i} onClick={() => onSelect(e)} style={{ ...BTN, fontSize: 0 }} title={e}><img src={f.image_url} alt={name} style={{ width: 30, height: 30, objectFit: 'contain' }} /></button> : null;
               })() : <button key={i} onClick={() => onSelect(e)} style={BTN}>{e}</button>)}
             </div>
       ) : emojiCat === 'custom' ? (
