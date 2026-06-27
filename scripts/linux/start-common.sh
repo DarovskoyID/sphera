@@ -463,7 +463,9 @@ ensure_swap() {
     # На маленьких серверах (напр. 2 ГБ) без swap любой всплеск памяти приводит
     # к срабатыванию OOM-killer'а, который убивает крупные процессы (Kafka/java),
     # а Daphne при этом может зависнуть. Включаем swap-файл, если его ещё нет.
-    local swap_size="${IONIK_SWAP_SIZE:-4G}"
+    # 6G по умолчанию: стек теперь включает Postgres + Elasticsearch (JVM heap 512MB),
+    # на 2 ГБ RAM им нужен запас свопа.
+    local swap_size="${IONIK_SWAP_SIZE:-6G}"
     local swap_file="${IONIK_SWAP_FILE:-/swapfile}"
 
     if [ "$(swapon --show --noheadings 2>/dev/null | wc -l)" -gt 0 ]; then

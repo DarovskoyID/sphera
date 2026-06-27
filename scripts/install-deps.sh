@@ -274,13 +274,13 @@ npm_install "$PROJECT_ROOT"
 log "Installing Django Python dependencies"
 install_python_deps "$PYTHON_BIN"
 
-log "Starting Docker services (Redis, Kafka, ws-gateway, load balancer)"
+log "Starting Docker services (Postgres, Elasticsearch, Redis, Kafka, ws-gateway, LB, monitoring)"
 if command -v docker >/dev/null 2>&1; then
     cd "$DJANGO_DIR"
     docker compose up -d --build \
-        redis kafka zookeeper kafka-init prometheus grafana \
+        postgres elasticsearch redis kafka zookeeper kafka-init prometheus grafana alertmanager \
         ws-gateway loadbalancer
-    echo "      Redis, Kafka, ws-gateway and load balancer started."
+    echo "      Postgres, Elasticsearch, Redis, Kafka, ws-gateway, load balancer, alertmanager started."
     echo "      Add WS nodes by editing loadbalancer/servers.conf."
 else
     echo "      WARNING: Docker not found. Install Docker to run Redis/Kafka."
