@@ -1,0 +1,70 @@
+# Правила алертов Prometheus для ionik. Подключаются через rule_files в prometheus.yml.
+groups:
+  - name: ionik-availability
+    rules:
+      - alert: DjangoDown
+        expr: up{job="ionik-django"} == 0
+        for: 1m
+        labels: {severity: critical}
+        annotations:
+          summary: "Django/Daphne не отвечает на /metrics"
+      - alert: WsGatewayDown
+        expr: up{job="ionik-ws-gateway"} == 0
+        for: 1m
+        labels: {severity: critical}
+        annotations:
+          summary: "ws-gateway не отвечает на /metrics"
+      - alert: KafkaDisconnected
+        expr: ionik_kafka_connected == 0
+        for: 2m
+        labels: {severity: critical}
+        annotations:
+          summary: "Django потерял связь с Kafka"
+      - alert: RedisDisconnected
+        expr: ionik_redis_connected == 0
+        for: 2m
+        labels: {severity: critical}
+        annotations:
+          summary: "Django потерял связь с Redis"
+      - alert: DatabaseDisconnected
+        expr: ionik_db_connected == 0
+        for: 2m
+        labels: {severity: critical}
+        annotations:
+          summary: "Django потерял связь с БД"
+
+  - name: ionik-resources
+    rules:
+      - alert: HighCPU
+        expr: ionik_cpu_percent > 85
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: "CPU > 85% более 5 минут (сейчас {{ $value | printf \"%.0f\" }}%)"
+      - alert: HighMemory
+        expr: ionik_memory_percent > 90
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: "Память > 90% более 5 минут"
+      - alert: HighDisk
+        expr: ionik_disk_percent > 85
+        for: 10m
+        labels: {severity: warning}
+        annotations:
+          summary: "Диск > 85%"
+
+  - name: ionik-latency
+    rules:
+      - alert: HighLatencyP95
+        expr: ionik_http_latency_p95_ms > 1000
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: "HTTP p95 > 1с более 5 минут (сейчас {{ $value | printf \"%.0f\" }} мс)"
+      - alert: Http5xxErrors
+        expr: rate(ionik_http_errors_5xx_total[5m]) > 0.05
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: "Поток 5xx-ошибок (> 0.05/с за 5 минут)"

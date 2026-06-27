@@ -1,4 +1,35 @@
 services:
+  postgres:
+    image: postgres:16-alpine
+    # Слушает только localhost: host-процессы Daphne/kafka_worker ходят на 127.0.0.1:5432.
+    ports:
+      - "127.0.0.1:5432:5432"
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-ionik}
+      POSTGRES_USER: ${POSTGRES_USER:-ionik}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ionikpg2026}
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    mem_limit: 320m
+    mem_reservation: 128m
+    shm_size: 128m
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.15.3
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: 'false'      # локальный доступ только с 127.0.0.1
+      ES_JAVA_OPTS: '-Xms512m -Xmx512m'    # heap 512MB (сервер 2 ГБ — риск принят)
+      bootstrap.memory_lock: 'false'
+    ports:
+      - "127.0.0.1:9200:9200"
+    volumes:
+      - es_data:/usr/share/elasticsearch/data
+    restart: unless-stopped
+    mem_limit: 1g
+    mem_reservation: 640m
+
   redis:
     image: redis:7-alpine
     ports:
@@ -70,6 +101,7 @@ services:
       - "9090:9090"
     volumes:
       - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/alert_rules.yml:/etc/prometheus/alert_rules.yml:ro
       - prometheus_data:/prometheus
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
@@ -80,6 +112,20 @@ services:
     restart: unless-stopped
     mem_limit: 384m
     mem_reservation: 192m
+
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    ports:
+      - "9093:9093"
+    volumes:
+      - ./monitoring/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager_data:/alertmanager
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+      - '--storage.path=/alertmanager'
+    restart: unless-stopped
+    mem_limit: 96m
+    mem_reservation: 32m
 
   grafana:
     image: grafana/grafana:11.1.0
@@ -146,8 +192,11 @@ services:
     restart: unless-stopped
 
 volumes:
+  pg_data:
+  es_data:
   redis_data:
   zk_data:
   kafka_data:
   prometheus_data:
   grafana_data:
+  alertmanager_data:
