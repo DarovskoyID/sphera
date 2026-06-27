@@ -195,7 +195,7 @@ interface AppContextType extends AppState {
   toggleGuildNotifications: (guildId: string) => Promise<void>;
   selectGuild: (guild: Guild) => void;
   selectGuildChannel: (channel: GuildChannel) => void;
-  sendGuildMessage: (text: string, replyToId?: string, attachmentIds?: string[]) => void;
+  sendGuildMessage: (text: string, replyToId?: string, attachmentIds?: string[], attachments?: GuildMessage['attachments']) => void;
   scheduleGuildMessage: (text: string, delaySecs: number, replyToId?: string, attachmentIds?: string[]) => Promise<{ id: string; send_at: string } | null>;
   loadOlderGuildMessages: () => Promise<boolean>;
   deleteGuildMessage: (messageId: string) => Promise<void>;
@@ -1564,6 +1564,19 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
         }
         setState(prev => {
           if (prev.guildMessages.some(m => m.id === msg.id)) return prev;
+          // The realtime broadcast only carries the author id (no name/avatar),
+          // which would render as "?". Fill it in from ourselves or the member
+          // list so the first message you send shows the right nickname.
+          if (msg.author && !msg.author.username && !msg.author.nickname) {
+            const aid = String(msg.author.id);
+            const self = selfRef.current;
+            if (self && String(self.id) === aid) {
+              msg.author = { ...msg.author, username: self.username, nickname: self.nickname, avatar: prev.currentUser?.avatar || msg.author.avatar };
+            } else {
+              const mem = prev.currentGuild?.members?.find(m => String(m.id) === aid);
+              if (mem) msg.author = { ...msg.author, username: mem.username, nickname: mem.nickname, avatar: mem.avatar, status: mem.status };
+            }
+          }
           // Realtime broadcasts carry only reply_to_id (the full reply_to object
           // is filled in by the REST reload). Resolve the preview from messages
           // we already have so the reply shows up without a refresh.
@@ -1596,6 +1609,14 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
             // Keep the reply preview we resolved optimistically if the echo lacks it.
             if (!msg.reply_to && prev.guildMessages[optIdx].reply_to) {
               msg.reply_to = prev.guildMessages[optIdx].reply_to;
+            }
+            // Keep the optimistic author (full name/avatar) if the echo lacks it.
+            if (!msg.author?.username && !msg.author?.nickname && prev.guildMessages[optIdx].author?.username) {
+              msg.author = prev.guildMessages[optIdx].author;
+            }
+            // Keep optimistic attachments (with media URLs) if the echo lacks them.
+            if (!msg.attachments?.length && prev.guildMessages[optIdx].attachments?.length) {
+              msg.attachments = prev.guildMessages[optIdx].attachments;
             }
             msgs = [...prev.guildMessages];
             msgs[optIdx] = msg;
@@ -2214,7 +2235,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       .catch(reportError);
   }, [state.currentGuildChannel?.id]);
 
-  const sendGuildMessage = useCallback((text: string, replyToId?: string, attachmentIds?: string[]) => {
+  const sendGuildMessage = useCallback((text: string, replyToId?: string, attachmentIds?: string[], attachments?: import('../types').GuildMessage['attachments']) => {
     if (guildChannelWs.current?.readyState !== WebSocket.OPEN) return;
     const payload: Record<string, unknown> = { message: text };
     if (replyToId) payload.reply_to_id = replyToId;
@@ -2246,7 +2267,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
         },
         content: text,
         created_at: new Date().toISOString(),
-        attachments: [],
+        attachments: attachments || [],
         reply_to: optimisticReplyTo,
         is_pinned: false,
       };

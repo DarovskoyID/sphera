@@ -511,10 +511,10 @@ export const GuildChatMain: React.FC = () => {
     persistPendingFiles(prev => { prev.forEach(f => { if (f.preview) URL.revokeObjectURL(f.preview); }); return []; });
   }, [persistPendingFiles]);
 
-  const uploadFiles = useCallback(async (files: PendingFile[]): Promise<string[]> => {
+  const uploadFiles = useCallback(async (files: PendingFile[]): Promise<NonNullable<GuildMessage['attachments']>> => {
     if (!currentGuild || !currentGuildChannel || files.length === 0) return [];
     setUploading(true);
-    const ids: string[] = [];
+    const atts: NonNullable<GuildMessage['attachments']> = [];
     try {
       const results = await Promise.all(files.map(async ({ file }) => {
         const form = new FormData();
@@ -523,13 +523,13 @@ export const GuildChatMain: React.FC = () => {
           `${currentServerIP}/api/guilds/${currentGuild.id}/channels/${currentGuildChannel.id}/upload/`,
           { method: 'POST', headers: { Authorization: `Bearer ${authToken}` }, body: form }
         );
-        if (res.ok) { const d = await res.json(); return d.id as string; }
+        if (res.ok) { return await res.json(); }
         return null;
       }));
-      results.forEach(id => { if (id != null) ids.push(id); });
+      results.forEach(a => { if (a != null) atts.push(a); });
     } catch (e) { reportError(e); }
     finally { setUploading(false); }
-    return ids;
+    return atts;
   }, [currentGuild, currentGuildChannel, currentServerIP, authToken]);
 
   const handleSend = useCallback(async () => {
@@ -540,8 +540,9 @@ export const GuildChatMain: React.FC = () => {
     persistInput('');
     clearFiles();
     setReplyTo(null);
-    const attachmentIds = await uploadFiles(files);
-    sendGuildMessage(text, replyId, attachmentIds.length ? attachmentIds : undefined);
+    const uploaded = await uploadFiles(files);
+    const attachmentIds = uploaded.map(a => a.id);
+    sendGuildMessage(text, replyId, attachmentIds.length ? attachmentIds : undefined, uploaded.length ? uploaded : undefined);
   }, [input, pendingFiles, replyTo, uploadFiles, sendGuildMessage, clearFiles, persistInput]);
 
   const handleDelayedSend = useCallback(async (delayMs: number) => {
@@ -553,7 +554,7 @@ export const GuildChatMain: React.FC = () => {
     persistInput('');
     clearFiles();
     setReplyTo(null);
-    const attachmentIds = await uploadFiles(files);
+    const attachmentIds = (await uploadFiles(files)).map(a => a.id);
     const result = await scheduleGuildMessage(text, Math.round(delayMs / 1000), replyId, attachmentIds.length ? attachmentIds : undefined);
     if (result) setScheduledItems(prev => [...prev, { id: result.id, send_at: result.send_at, content: text }]);
   }, [input, pendingFiles, replyTo, uploadFiles, scheduleGuildMessage, clearFiles, persistInput]);

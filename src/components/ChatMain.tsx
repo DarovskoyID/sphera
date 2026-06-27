@@ -230,6 +230,7 @@ const PinnedBar: React.FC<{
   onScrollTo: (msgId: string) => void;
 }> = ({ onClose, onScrollTo }) => {
   const { chatMessages, pinMessage } = useApp();
+  const tr = useTranslation();
   const pinned = chatMessages.filter(m => m.is_pinned);
   const [idx, setIdx] = useState(0);
 
@@ -238,8 +239,6 @@ const PinnedBar: React.FC<{
   if (pinned.length === 0) return null;
 
   const current = pinned[Math.min(idx, pinned.length - 1)];
-  const displayName = current.author?.nickname || current.author?.username || '?';
-  const tr = useTranslation();
   const preview = current.content?.slice(0, 80) || tr('chat_attachment_label');
 
   return (
@@ -254,7 +253,6 @@ const PinnedBar: React.FC<{
         style={{ flex: 1, minWidth: 0, cursor: 'pointer', overflow: 'hidden' }}
         onClick={() => onScrollTo(current.id)}
       >
-        <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--accent-primary)' }}>{displayName}</div>
         <div style={{ fontSize: 12, color: 'var(--text-secondary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{preview}</div>
       </div>
       {pinned.length > 1 && (

@@ -29,46 +29,54 @@ def _delivery_report(err, msg):
         logger.error('Kafka delivery failed: %s', err)
 
 
+def _safe_produce(topic: str, value: bytes, key: bytes | None = None) -> bool:
+    """Produce без падений и без блокировки event-loop.
+
+    Эти функции вызываются синхронно из async-консьюмеров (consumers.py).
+    Если брокер недоступен, внутренняя очередь librdkafka переполняется и
+    ``produce()`` бросает ``BufferError``. Раньше это исключение не
+    обрабатывалось и могло сломать/подвесить корутину Daphne (см. инцидент
+    с зависанием Daphne). Теперь любой сбой Kafka просто логируется и
+    сообщение тихо отбрасывается — WS-доставка через Redis уже произошла.
+    """
+    try:
+        producer = get_producer()
+    except Exception:  # noqa: BLE001 — Kafka недоступен на этапе подключения
+        logger.warning('Kafka producer unavailable, dropping message for %s', topic)
+        return False
+
+    try:
+        producer.produce(topic=topic, key=key, value=value, callback=_delivery_report)
+        # poll(0) неблокирующий: обслуживает колбэки доставки без ожидания
+        producer.poll(0)
+        return True
+    except BufferError:
+        # Очередь переполнена (брокер недоступен/медленный) — дренируем и бросаем
+        logger.warning('Kafka local queue full, dropping message for %s', topic)
+        try:
+            producer.poll(0)
+        except Exception:  # noqa: BLE001
+            pass
+        return False
+    except Exception as exc:  # noqa: BLE001 — никогда не валим консьюмер из-за Kafka
+        logger.error('Kafka produce failed for %s: %s', topic, exc)
+        return False
+
+
 def publish_chat_message(conversation_id: str, payload: dict):
-    producer = get_producer()
-    producer.produce(
-        topic='chat.messages',
-        key=str(conversation_id).encode(),
-        value=ujson.dumps(payload).encode(),
-        callback=_delivery_report,
-    )
-    producer.poll(0)
+    _safe_produce('chat.messages', ujson.dumps(payload).encode(), str(conversation_id).encode())
 
 
 def publish_chat_notification(payload: dict):
-    producer = get_producer()
-    producer.produce(
-        topic='chat.notifications',
-        value=ujson.dumps(payload).encode(),
-        callback=_delivery_report,
-    )
-    producer.poll(0)
+    _safe_produce('chat.notifications', ujson.dumps(payload).encode())
 
 
 def publish_guild_message(channel_id: str, payload: dict):
-    producer = get_producer()
-    producer.produce(
-        topic='guild.messages',
-        key=str(channel_id).encode(),
-        value=ujson.dumps(payload).encode(),
-        callback=_delivery_report,
-    )
-    producer.poll(0)
+    _safe_produce('guild.messages', ujson.dumps(payload).encode(), str(channel_id).encode())
 
 
 def publish_guild_notification(payload: dict):
-    producer = get_producer()
-    producer.produce(
-        topic='guild.notifications',
-        value=ujson.dumps(payload).encode(),
-        callback=_delivery_report,
-    )
-    producer.poll(0)
+    _safe_produce('guild.notifications', ujson.dumps(payload).encode())
 
 
 def flush():

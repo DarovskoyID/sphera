@@ -8,8 +8,10 @@ COPY servers.conf /etc/nginx/servers.conf
 
 EXPOSE 8001
 
-# Проверка здоровья балансировщика
+# Проверка здоровья балансировщика.
+# ВАЖНО: используем 127.0.0.1, а не localhost — внутри контейнера localhost
+# может резолвиться в IPv6 (::1), а nginx слушает только IPv4 → ложный unhealthy.
 HEALTHCHECK --interval=15s --timeout=3s --retries=3 \
-    CMD wget -qO- http://localhost:8001/lb-health || exit 1
+    CMD wget -qO- http://127.0.0.1:8001/lb-health || exit 1
 
 CMD ["nginx", "-g", "daemon off;"]

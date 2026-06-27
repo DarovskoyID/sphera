@@ -11,23 +11,29 @@ echo "=== Stopping all ionik services ==="
 
 # ── Django / Daphne ────────────────────────────────────────────────────────────
 echo "[1/5] Stopping Django (Daphne) ..."
+# Останавливаем и отключаем watchdog, иначе он перезапустит Daphne обратно
+if command -v systemctl >/dev/null 2>&1; then
+    sudo systemctl stop ionik-daphne-healthcheck.timer 2>/dev/null || true
+    sudo systemctl stop ionik-daphne.service 2>/dev/null || true
+fi
 if [ -f "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
     kill "$(cat "$PID_FILE")" 2>/dev/null || true
     rm -f "$PID_FILE"
-    echo "      Stopped."
-else
-    pkill -f "daphne.*ionik_server" 2>/dev/null || echo "      Not running."
 fi
+pkill -f "daphne.*ionik_server" 2>/dev/null || true
+echo "      Stopped."
 
 # ── Kafka worker ──────────────────────────────────────────────────────────────
 echo "[2/5] Stopping Kafka worker ..."
+if command -v systemctl >/dev/null 2>&1; then
+    sudo systemctl stop ionik-kafka-worker.service 2>/dev/null || true
+fi
 if [ -f "$KAFKA_PID_FILE" ] && kill -0 "$(cat "$KAFKA_PID_FILE")" 2>/dev/null; then
     kill "$(cat "$KAFKA_PID_FILE")" 2>/dev/null || true
     rm -f "$KAFKA_PID_FILE"
-    echo "      Stopped."
-else
-    pkill -f "kafka_worker" 2>/dev/null || echo "      Not running."
 fi
+pkill -f "kafka_worker" 2>/dev/null || true
+echo "      Stopped."
 
 # ── coturn ────────────────────────────────────────────────────────────────────
 echo "[3/5] Stopping coturn ..."

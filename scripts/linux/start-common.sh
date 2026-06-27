@@ -449,30 +449,129 @@ start_coturn() {
     echo "      coturn restarted."
 }
 
-start_django() {
-    log "Starting Django/Daphne on $DJANGO_BIND_HOST:$DJANGO_PORT"
+ensure_swap() {
+    # На маленьких серверах (напр. 2 ГБ) без swap любой всплеск памяти приводит
+    # к срабатыванию OOM-killer'а, который убивает крупные процессы (Kafka/java),
+    # а Daphne при этом может зависнуть. Включаем swap-файл, если его ещё нет.
+    local swap_size="${IONIK_SWAP_SIZE:-4G}"
+    local swap_file="${IONIK_SWAP_FILE:-/swapfile}"
 
-    if [ -d "$VENV" ]; then
-        # shellcheck disable=SC1091
-        source "$VENV/bin/activate"
-    else
-        echo "      WARNING: no .venv found at $VENV - using system Python."
+    if [ "$(swapon --show --noheadings 2>/dev/null | wc -l)" -gt 0 ]; then
+        echo "      swap already active:"
+        swapon --show 2>/dev/null | sed 's/^/        /'
+        return
     fi
 
-    require_command daphne "Install Python dependencies first, or run scripts/install-deps.sh."
+    log "No swap detected — creating $swap_size swap at $swap_file"
+    if ! sudo fallocate -l "$swap_size" "$swap_file" 2>/dev/null; then
+        # fallocate может не поддерживаться ФС — fallback на dd
+        local mb; mb="$(numfmt --from=iec "$swap_size" 2>/dev/null)"; mb=$(( ${mb:-4294967296} / 1048576 ))
+        sudo dd if=/dev/zero of="$swap_file" bs=1M count="$mb" status=none
+    fi
+    sudo chmod 600 "$swap_file"
+    sudo mkswap "$swap_file" >/dev/null
+    sudo swapon "$swap_file"
+    if ! grep -q "^$swap_file " /etc/fstab 2>/dev/null; then
+        echo "$swap_file none swap sw 0 0" | sudo tee -a /etc/fstab >/dev/null
+    fi
+    # Снижаем агрессивность вытеснения: swap как страховка, не как основной носитель
+    sudo sysctl -w vm.swappiness=10 >/dev/null 2>&1 || true
+    if ! grep -q '^vm.swappiness' /etc/sysctl.conf 2>/dev/null; then
+        echo 'vm.swappiness=10' | sudo tee -a /etc/sysctl.conf >/dev/null
+    fi
+    echo "      swap enabled ($swap_size)."
+}
 
-    cd "$DJANGO_DIR"
-    python manage.py migrate --run-syncdb 2>/dev/null || true
+install_daphne_service() {
+    # systemd-юнит вместо голого nohup: автоперезапуск при падении +
+    # health-check таймер, который перезапускает Daphne, если он завис
+    # (процесс жив, но не отвечает — именно так он «упал» в инциденте).
+    sudo install -d -m 0755 /var/log/ionik
 
+    local healthcheck="/usr/local/bin/ionik-daphne-healthcheck.sh"
+    sudo tee "$healthcheck" >/dev/null <<EOF
+#!/bin/bash
+# Перезапускает Daphne, если он не отвечает (зависание event-loop).
+url="http://$DJANGO_PROXY_HOST:$DJANGO_PORT/metrics/"
+if ! curl -fsS --max-time 8 -o /dev/null "\$url"; then
+    sleep 5
+    if ! curl -fsS --max-time 8 -o /dev/null "\$url"; then
+        logger -t ionik-daphne-healthcheck "Daphne unresponsive on $DJANGO_PORT — restarting"
+        systemctl restart ionik-daphne.service
+    fi
+fi
+EOF
+    sudo chmod 0755 "$healthcheck"
+
+    sudo tee /etc/systemd/system/ionik-daphne.service >/dev/null <<EOF
+[Unit]
+Description=ionik Daphne (Django ASGI)
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=$DJANGO_DIR
+Environment=KAFKA_ENABLED=true
+ExecStartPre=$VENV/bin/python manage.py migrate --run-syncdb --noinput
+ExecStart=$VENV/bin/daphne -b $DJANGO_BIND_HOST -p $DJANGO_PORT ionik_server.asgi:application
+Restart=always
+RestartSec=3
+# Защищаем Daphne от OOM-killer'а: пусть жертвой станет Kafka (восстановим из топика)
+OOMScoreAdjust=-500
+StandardOutput=append:/var/log/ionik/daphne.log
+StandardError=append:/var/log/ionik/daphne.log
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    sudo tee /etc/systemd/system/ionik-daphne-healthcheck.service >/dev/null <<EOF
+[Unit]
+Description=ionik Daphne healthcheck
+After=ionik-daphne.service
+
+[Service]
+Type=oneshot
+ExecStart=$healthcheck
+EOF
+
+    sudo tee /etc/systemd/system/ionik-daphne-healthcheck.timer >/dev/null <<EOF
+[Unit]
+Description=ionik Daphne healthcheck (every minute)
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=1min
+AccuracySec=10s
+
+[Install]
+WantedBy=timers.target
+EOF
+}
+
+start_django() {
+    log "Starting Django/Daphne on $DJANGO_BIND_HOST:$DJANGO_PORT (systemd, auto-restart)"
+
+    if [ ! -d "$VENV" ]; then
+        echo "      WARNING: no .venv found at $VENV"
+    fi
+    require_command daphne "Install Python dependencies first, or run scripts/install-deps.sh." || true
+
+    # Старый голый процесс (nohup) больше не нужен — гасим, если остался
     if [ -f "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
         kill "$(cat "$PID_FILE")" 2>/dev/null || true
         sleep 1
+        rm -f "$PID_FILE"
     fi
 
-    nohup daphne -b "$DJANGO_BIND_HOST" -p "$DJANGO_PORT" ionik_server.asgi:application \
-        > /tmp/ionik-daphne.log 2>&1 &
-    echo "$!" > "$PID_FILE"
-    echo "      Daphne PID: $(cat "$PID_FILE")  (log: /tmp/ionik-daphne.log)"
+    install_daphne_service
+    sudo systemctl daemon-reload
+    sudo systemctl enable --now ionik-daphne.service
+    sudo systemctl restart ionik-daphne.service
+    sudo systemctl enable --now ionik-daphne-healthcheck.timer
+    echo "      Daphne under systemd: ionik-daphne.service (log: /var/log/ionik/daphne.log)"
+    echo "      Hang watchdog: ionik-daphne-healthcheck.timer (every 1 min)"
 }
 
 build_frontend() {
@@ -510,27 +609,44 @@ start_docker() {
 }
 
 start_kafka_worker() {
-    log "Starting Kafka worker"
+    log "Starting Kafka worker (systemd, auto-restart)"
     if ! command -v docker >/dev/null 2>&1; then
         echo "      Skipped (no Docker/Kafka)."
         return
     fi
 
-    if [ -d "$VENV" ]; then
-        # shellcheck disable=SC1091
-        source "$VENV/bin/activate"
-    fi
-
+    # Гасим старый голый процесс, если остался от прежней версии скрипта
     if [ -f "$KAFKA_PID_FILE" ] && kill -0 "$(cat "$KAFKA_PID_FILE")" 2>/dev/null; then
         kill "$(cat "$KAFKA_PID_FILE")" 2>/dev/null || true
         sleep 1
+        rm -f "$KAFKA_PID_FILE"
     fi
 
-    cd "$DJANGO_DIR"
-    KAFKA_ENABLED=true nohup python manage.py kafka_worker \
-        > /tmp/ionik-kafka-worker.log 2>&1 &
-    echo "$!" > "$KAFKA_PID_FILE"
-    echo "      Kafka worker PID: $(cat "$KAFKA_PID_FILE")  (log: /tmp/ionik-kafka-worker.log)"
+    sudo install -d -m 0755 /var/log/ionik
+    sudo tee /etc/systemd/system/ionik-kafka-worker.service >/dev/null <<EOF
+[Unit]
+Description=ionik Kafka worker (Django)
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=$DJANGO_DIR
+Environment=KAFKA_ENABLED=true
+ExecStart=$VENV/bin/python manage.py kafka_worker
+Restart=always
+RestartSec=5
+StandardOutput=append:/var/log/ionik/kafka-worker.log
+StandardError=append:/var/log/ionik/kafka-worker.log
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    sudo systemctl daemon-reload
+    sudo systemctl enable --now ionik-kafka-worker.service
+    sudo systemctl restart ionik-kafka-worker.service
+    echo "      Kafka worker under systemd: ionik-kafka-worker.service (log: /var/log/ionik/kafka-worker.log)"
 }
 
 echo "=== Starting ionik on Linux ($MODE) ==="
@@ -539,6 +655,7 @@ echo "Project root: $PROJECT_ROOT"
 require_command npm "Install Node.js/npm first, or run scripts/install-deps.sh."
 require_command nginx "Install nginx first, or run scripts/install-deps.sh."
 
+ensure_swap
 start_docker
 start_coturn
 start_django
@@ -565,8 +682,9 @@ else
 fi
 echo ""
 echo "Logs:"
-echo "  Daphne       : /tmp/ionik-daphne.log"
-echo "  Kafka worker : /tmp/ionik-kafka-worker.log"
+echo "  Daphne       : /var/log/ionik/daphne.log   (status: systemctl status ionik-daphne)"
+echo "  Kafka worker : /var/log/ionik/kafka-worker.log (status: systemctl status ionik-kafka-worker)"
+echo "  Daphne watchdog: journalctl -t ionik-daphne-healthcheck"
 echo "  nginx        : journalctl -u nginx"
 echo "  coturn       : journalctl -u coturn"
 echo ""

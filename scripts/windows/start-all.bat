@@ -95,9 +95,9 @@ echo        Done.
 
 :: ─── 6. Django / Daphne ───────────────────────────────────────────────────────
 
-echo [6/8] Starting Django (Daphne) ...
+echo [6/8] Starting Django (Daphne, auto-restart) ...
 powershell -NoProfile -Command "Get-NetTCPConnection -LocalPort 8000 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }"
-start "ionik-django" cmd /k ^"cd /d "%DJANGO_DIR%" ^&^& "%PYTHON%" manage.py migrate --noinput ^&^& "%PYTHON%" -m daphne -b 0.0.0.0 -p 8000 ionik_server.asgi:application^"
+start "ionik-django" cmd /k ^"call "%~dp0run-daphne.bat" "%DJANGO_DIR%" "%PYTHON%"^"
 echo        Done.
 
 :: ─── 7. Kafka worker ──────────────────────────────────────────────────────────
@@ -107,7 +107,7 @@ where docker >nul 2>&1
 if errorlevel 1 (
     echo        Skipped (no Docker).
 ) else (
-    start "ionik-kafka-worker" cmd /k ^"cd /d "%DJANGO_DIR%" ^&^& set KAFKA_ENABLED=true ^&^& "%PYTHON%" manage.py kafka_worker^"
+    start "ionik-kafka-worker" cmd /k ^"call "%~dp0run-kafka-worker.bat" "%DJANGO_DIR%" "%PYTHON%"^"
     echo        Done.
 )
 

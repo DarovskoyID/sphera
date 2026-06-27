@@ -8,10 +8,15 @@ DOCKER_DIR="$PROJECT_ROOT/django-server"
 echo "=== Stopping all ionik services ==="
 
 echo "[1/5] Stopping Django (Daphne) ..."
-pkill -f "daphne.*ionik_server" 2>/dev/null || echo "      Not running."
+# Сначала гасим обёртку-супервизор, иначе она перезапустит Daphne обратно
+pkill -f "run-daphne.sh" 2>/dev/null || true
+pkill -f "daphne.*ionik_server" 2>/dev/null || true
+echo "      Stopped."
 
 echo "[2/5] Stopping Kafka worker ..."
-pkill -f "kafka_worker" 2>/dev/null || echo "      Not running."
+pkill -f "run-kafka-worker.sh" 2>/dev/null || true
+pkill -f "kafka_worker" 2>/dev/null || true
+echo "      Stopped."
 
 echo "[3/5] Stopping Vite dev server ..."
 pkill -f "vite" 2>/dev/null || echo "      Not running."

@@ -953,9 +953,9 @@ export const PersonalChannelFeed: React.FC<{ style?: React.CSSProperties }> = ({
     await updateGuild(currentGuild.id, { icon: f });
   };
 
-  const uploadFiles = async (list: File[]): Promise<string[]> => {
+  const uploadFiles = async (list: File[]): Promise<Att[]> => {
     if (!currentGuild || !currentGuildChannel) return [];
-    const ids: string[] = [];
+    const atts: Att[] = [];
     for (const f of list) {
       const form = new FormData();
       form.append('file', f, f.name);
@@ -963,9 +963,9 @@ export const PersonalChannelFeed: React.FC<{ style?: React.CSSProperties }> = ({
         `${currentServerIP}/api/guilds/${currentGuild.id}/channels/${currentGuildChannel.id}/upload/`,
         { method: 'POST', headers: { Authorization: `Bearer ${authToken}` }, body: form }
       );
-      if (res.ok) { const d = await res.json(); ids.push(d.id); }
+      if (res.ok) { atts.push(await res.json()); }
     }
-    return ids;
+    return atts;
   };
 
   const handleSend = async () => {
@@ -973,8 +973,9 @@ export const PersonalChannelFeed: React.FC<{ style?: React.CSSProperties }> = ({
     if (!currentGuild || !currentGuildChannel) return;
     setSending(true);
     try {
-      const attachmentIds = await uploadFiles(files);
-      sendGuildMessage(input.trim(), undefined, attachmentIds.length ? attachmentIds : undefined);
+      const uploaded = await uploadFiles(files);
+      const attachmentIds = uploaded.map(a => a.id);
+      sendGuildMessage(input.trim(), undefined, attachmentIds.length ? attachmentIds : undefined, uploaded.length ? uploaded : undefined);
       setInput('');
       setFiles([]);
       clearDraft(channelId);
@@ -990,7 +991,7 @@ export const PersonalChannelFeed: React.FC<{ style?: React.CSSProperties }> = ({
     setShowPicker(false);
     setSending(true);
     try {
-      const attachmentIds = await uploadFiles(files);
+      const attachmentIds = (await uploadFiles(files)).map(a => a.id);
       const result = await scheduleGuildMessage(input.trim(), Math.round(delayMs / 1000), undefined, attachmentIds.length ? attachmentIds : undefined);
       if (result) {
         setInput('');

@@ -45,31 +45,28 @@ echo "      coturn PID: $COTURN_PID  (log: /tmp/coturn.log)"
 
 # ── 3. Django / Daphne ───────────────────────────────────────────────────────
 echo ""
-echo "[3/5] Starting Django (Daphne ASGI) on port 8000..."
+echo "[3/5] Starting Django (Daphne ASGI, auto-restart) on port 8000..."
 
 VENV="$PROJECT_ROOT/django-server/.venv"
-if [ -d "$VENV" ]; then
-    source "$VENV/bin/activate"
-else
-    echo "      WARNING: no .venv found at $VENV — using system Python."
+if [ ! -d "$VENV" ]; then
+    echo "      WARNING: no .venv found at $VENV — wrapper will use system Python."
 fi
 
-cd "$DJANGO_DIR"
-python manage.py migrate --run-syncdb 2>/dev/null || true
-nohup daphne -b 0.0.0.0 -p 8000 ionik_server.asgi:application \
+# Запускаем через обёртку с автоперезапуском (run-daphne.sh), а не голым nohup,
+# чтобы зависший/упавший Daphne поднимался сам.
+nohup bash "$SCRIPT_DIR/run-daphne.sh" "$DJANGO_DIR" "$VENV" \
     > /tmp/ionik-daphne.log 2>&1 &
 DAPHNE_PID=$!
-echo "      Daphne PID: $DAPHNE_PID  (log: /tmp/ionik-daphne.log)"
+echo "      Daphne supervisor PID: $DAPHNE_PID  (log: /tmp/ionik-daphne.log)"
 
 # ── 4. Kafka worker ──────────────────────────────────────────────────────────
 echo ""
-echo "[4/5] Starting Kafka worker..."
+echo "[4/5] Starting Kafka worker (auto-restart)..."
 if command -v docker &>/dev/null; then
-    cd "$DJANGO_DIR"
-    KAFKA_ENABLED=true nohup python manage.py kafka_worker \
+    nohup bash "$SCRIPT_DIR/run-kafka-worker.sh" "$DJANGO_DIR" "$VENV" \
         > /tmp/ionik-kafka-worker.log 2>&1 &
     KAFKA_PID=$!
-    echo "      Kafka worker PID: $KAFKA_PID  (log: /tmp/ionik-kafka-worker.log)"
+    echo "      Kafka worker supervisor PID: $KAFKA_PID  (log: /tmp/ionik-kafka-worker.log)"
 else
     KAFKA_PID=""
     echo "      Skipped (no Docker/Kafka)."
