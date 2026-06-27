@@ -18,6 +18,15 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# Подхватываем БД/поиск-окружение, если есть loadtest.env рядом со скриптом.
+# ВАЖНО: management-команда seed_load должна работать с ТОЙ ЖЕ БД, что и сервер.
+# На сервере loadtest.env задаёт POSTGRES_*/ELASTICSEARCH_URL → команда идёт в
+# Postgres (а не в sqlite, иначе она читает каналы/юзеров из другой БД и логин
+# на сервер падает 0/N). На dev-машине файла нет → sqlite, как раньше.
+if [ -f "$HERE/loadtest.env" ]; then
+  set -a; . "$HERE/loadtest.env"; set +a
+fi
+
 # ── Ищем manage.py: расположение load-tests может отличаться на разных машинах ──
 find_manage() {
   local c

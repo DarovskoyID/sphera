@@ -1,0 +1,20 @@
+# Self-hosted Alertmanager. Без внешних сервисов/регистраций: получатель пустой,
+# алерты видны в UI Alertmanager (:9093) и на /alerts в Prometheus (:9090).
+# Чтобы добавить уведомления позже — впишите email (свой SMTP), Telegram или webhook.
+route:
+  receiver: 'default'
+  group_by: ['alertname']
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 3h
+
+receivers:
+  - name: 'default'
+    # Пусто — никуда не шлём, только трекинг/UI. Пример webhook (раскомментируйте):
+    # webhook_configs:
+    #   - url: 'http://host.docker.internal:8010/internal/alert/'
+
+inhibit_rules:
+  - source_matchers: ['severity = critical']
+    target_matchers: ['severity = warning']
+    equal: ['alertname']

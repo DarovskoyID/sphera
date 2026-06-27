@@ -37,6 +37,16 @@ COTURN_CONF="${IONIK_COTURN_CONF:-/etc/turnserver.conf}"
 PID_FILE="/tmp/ionik-daphne.pid"
 KAFKA_PID_FILE="/tmp/ionik-kafka-worker.pid"
 DOCKER_DIR="$PROJECT_ROOT/django-server"
+# Postgres: значения совпадают с docker-compose.yml. Daphne/kafka_worker —
+# host-процессы, ходят на 127.0.0.1:5432. Должен быть задан POSTGRES_DB, иначе
+# Django (settings.py) откатится на sqlite.
+PG_DB="${IONIK_POSTGRES_DB:-ionik}"
+PG_USER="${IONIK_POSTGRES_USER:-ionik}"
+PG_PASSWORD="${IONIK_POSTGRES_PASSWORD:-ionikpg2026}"
+PG_HOST="${IONIK_POSTGRES_HOST:-127.0.0.1}"
+PG_PORT="${IONIK_POSTGRES_PORT:-5432}"
+# Elasticsearch: поиск по сообщениям. Host-процессы ходят на 127.0.0.1:9200.
+ES_URL="${IONIK_ELASTICSEARCH_URL:-http://127.0.0.1:9200}"
 
 while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -513,6 +523,12 @@ Wants=network-online.target
 Type=simple
 WorkingDirectory=$DJANGO_DIR
 Environment=KAFKA_ENABLED=true
+Environment=POSTGRES_DB=$PG_DB
+Environment=POSTGRES_USER=$PG_USER
+Environment=POSTGRES_PASSWORD=$PG_PASSWORD
+Environment=POSTGRES_HOST=$PG_HOST
+Environment=POSTGRES_PORT=$PG_PORT
+Environment=ELASTICSEARCH_URL=$ES_URL
 ExecStartPre=$VENV/bin/python manage.py migrate --run-syncdb --noinput
 ExecStart=$VENV/bin/daphne -b $DJANGO_BIND_HOST -p $DJANGO_PORT ionik_server.asgi:application
 Restart=always
@@ -604,9 +620,9 @@ start_docker() {
     if command -v docker >/dev/null 2>&1; then
         cd "$DOCKER_DIR"
         docker compose up -d --build \
-            redis kafka zookeeper kafka-init prometheus grafana \
+            postgres elasticsearch redis kafka zookeeper kafka-init prometheus grafana alertmanager \
             ws-gateway loadbalancer
-        echo "      Redis, Kafka, ws-gateway and load balancer started."
+        echo "      Postgres, Elasticsearch, Redis, Kafka, ws-gateway, load balancer, alertmanager started."
         echo "      Load balancer: 127.0.0.1:$LB_LOCAL_PORT (edit ../loadbalancer/servers.conf to add nodes)."
     else
         echo "      WARNING: Docker not found. Messages may be lost under high load."
@@ -638,6 +654,12 @@ Wants=network-online.target
 Type=simple
 WorkingDirectory=$DJANGO_DIR
 Environment=KAFKA_ENABLED=true
+Environment=POSTGRES_DB=$PG_DB
+Environment=POSTGRES_USER=$PG_USER
+Environment=POSTGRES_PASSWORD=$PG_PASSWORD
+Environment=POSTGRES_HOST=$PG_HOST
+Environment=POSTGRES_PORT=$PG_PORT
+Environment=ELASTICSEARCH_URL=$ES_URL
 ExecStart=$VENV/bin/python manage.py kafka_worker
 Restart=always
 RestartSec=5

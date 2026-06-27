@@ -213,8 +213,25 @@ class Command(BaseCommand):
         self._make_posts(J, personal_channels, users, batch)
         self._make_dms(G, users, batch)
         self._send_dms(T, opts['base_url'], opts['verify_tls'], opts['concurrency'])
-        self._run_calls(I, call_duration, opts)
+
+        # Если запрошены и звонки (I), и живая нагрузка (R) — гоняем их ОДНОВРЕМЕННО:
+        # звонки в отдельном потоке (свой event-loop), сообщения+присутствие в основном.
+        # Так нагрузка реально имитирует пользователей, которые и пишут, и звонят.
+        call_thread = None
+        if I > 0 and R > 0:
+            import threading
+            self.stdout.write(self.style.MIGRATE_HEADING(
+                '\nЗапускаю звонки и сообщения+присутствие ОДНОВРЕМЕННО...'))
+            call_thread = threading.Thread(
+                target=self._run_calls, args=(I, call_duration, opts), daemon=True)
+            call_thread.start()
+        else:
+            self._run_calls(I, call_duration, opts)
+
         self._run_rate_load(R, rate_duration, opts['rate_target'], opts)
+
+        if call_thread is not None:
+            call_thread.join()
 
         dt = time.time() - t0
         self.stdout.write(self.style.SUCCESS(
