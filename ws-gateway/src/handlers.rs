@@ -13,6 +13,7 @@ use uuid::Uuid;
 use crate::AppState;
 use crate::auth;
 use crate::redis_pubsub;
+use crate::metrics;
 
 #[derive(Deserialize)]
 pub struct WsQuery {
@@ -36,6 +37,7 @@ pub async fn chat_ws(
 }
 
 async fn handle_chat(socket: WebSocket, state: Arc<AppState>, conversation_id: String, user_id: String) {
+    metrics::conn_open();
     let room = format!("chat_{}", conversation_id);
     let mut rx = state.hub.join(&room, &user_id);
 
@@ -50,6 +52,7 @@ async fn handle_chat(socket: WebSocket, state: Arc<AppState>, conversation_id: S
                     if sink.send(Message::Text(msg.to_string().into())).await.is_err() {
                         break;
                     }
+                    metrics::inc(&metrics::MESSAGES_OUT);
                 }
                 Err(RecvError::Lagged(n)) => {
                     tracing::warn!("Client lagged {} messages in {}", n, room_clone);
@@ -83,6 +86,7 @@ async fn handle_chat(socket: WebSocket, state: Arc<AppState>, conversation_id: S
     }
 
     state.hub.leave(&room, &user_id);
+    metrics::conn_close();
     tracing::debug!("Chat WS closed: user={} room={}", user_id, room);
 }
 
@@ -150,6 +154,8 @@ async fn handle_chat_message(
 
     let payload_str = msg_payload.to_string();
 
+    metrics::inc(&metrics::CHAT_MESSAGES_IN);
+
     // 1) Broadcast to all local clients via Hub
     state.hub.broadcast(room, &payload_str);
 
@@ -196,6 +202,7 @@ async fn handle_guild(
     channel_id: String,
     user_id: String,
 ) {
+    metrics::conn_open();
     let room = format!("guild_channel_{}", channel_id);
     let guild_room = format!("guild_{}", guild_id);
     let mut rx = state.hub.join(&room, &user_id);
@@ -213,6 +220,7 @@ async fn handle_guild(
                             if sink.send(Message::Text(msg.to_string().into())).await.is_err() {
                                 break;
                             }
+                            metrics::inc(&metrics::MESSAGES_OUT);
                         }
                         Err(RecvError::Lagged(n)) => {
                             tracing::warn!("Client lagged {} messages", n);
@@ -226,6 +234,7 @@ async fn handle_guild(
                             if sink.send(Message::Text(msg.to_string().into())).await.is_err() {
                                 break;
                             }
+                            metrics::inc(&metrics::MESSAGES_OUT);
                         }
                         Err(RecvError::Lagged(_)) => {}
                         Err(RecvError::Closed) => break,
@@ -258,6 +267,7 @@ async fn handle_guild(
 
     state.hub.leave(&room, &user_id);
     state.hub.leave(&guild_room, &user_id);
+    metrics::conn_close();
 }
 
 async fn handle_guild_message(
@@ -310,6 +320,8 @@ async fn handle_guild_message(
     }
 
     let payload_str = msg_payload.to_string();
+
+    metrics::inc(&metrics::GUILD_MESSAGES_IN);
 
     state.hub.broadcast(room, &payload_str);
     let _ = redis_pubsub::publish(&state.redis_url, room, &payload_str).await;

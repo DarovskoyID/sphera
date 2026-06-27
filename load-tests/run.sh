@@ -6,7 +6,14 @@
 #   ./run.sh medium           средний
 #   ./run.sh high             высокий
 #   ./run.sh custom           спросит N M H J K G интерактивно
+#   ./run.sh rate             ЖИВАЯ нагрузка R сообщений/мин в течение DURATION
+#                             в каналы/ЛС, БЕЗ создания профилей (на готовых данных)
 #   ./run.sh light --purge    сначала удалить старые тестовые данные
+#
+# Параметры режима rate (через переменные окружения, со значениями по умолчанию):
+#   RATE=600 DURATION=10m RATE_TARGET=both BASE_URL=https://127.0.0.1:8000 ./run.sh rate
+# Реалистичная нагрузка: онлайн-присутствие + сообщения (+ звонки через TURN):
+#   ONLINE=200 RATE=600 DURATION=10m CALLS=10 CALL_DURATION=5m ./run.sh rate
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -44,7 +51,7 @@ PURGE=0
 for a in "$@"; do
   case "$a" in
     --purge|-Purge|-purge) PURGE=1 ;;
-    light|medium|high|custom) PROFILE="$a" ;;
+    light|medium|high|custom|rate) PROFILE="$a" ;;
     *) echo "Неизвестный аргумент: $a" >&2; exit 1 ;;
   esac
 done
@@ -58,7 +65,23 @@ if [ "$PURGE" = "1" ]; then
 fi
 
 ARGS=("$MANAGE" seed_load)
-if [ "$PROFILE" != "custom" ]; then
+if [ "$PROFILE" = "rate" ]; then
+  # ЖИВАЯ нагрузка по ставке БЕЗ создания профилей: всё сидирование = 0,
+  # шлём R сообщений/мин в течение DURATION в каналы/ЛС на готовых данных.
+  RATE="${RATE:-600}"
+  DURATION="${DURATION:-10m}"
+  RATE_TARGET="${RATE_TARGET:-both}"
+  echo "Режим rate: ${RATE} сообщений/мин, длительность ${DURATION}, цель ${RATE_TARGET}"
+  ARGS+=(--accounts 0 --servers 0 --channels 0 --posts 0 \
+         --server-messages 0 --dm-messages 0 --send-dm 0 \
+         --rate "$RATE" --duration "$DURATION" --rate-target "$RATE_TARGET")
+  # ONLINE — держать N онлайн-пользователей (presence) параллельно с сообщениями
+  [ -n "${ONLINE:-}" ] && ARGS+=(--online "$ONLINE")
+  # CALLS — реальные WebRTC-звонки через TURN (нужен aiortc); CALL_DURATION — их длительность
+  ARGS+=(--active-calls "${CALLS:-0}")
+  [ -n "${CALL_DURATION:-}" ] && ARGS+=(--call-duration "$CALL_DURATION")
+  [ -n "${BASE_URL:-}" ] && ARGS+=(--base-url "$BASE_URL")
+elif [ "$PROFILE" != "custom" ]; then
   ENV_FILE="$HERE/$PROFILE.env"
   [ -f "$ENV_FILE" ] || { echo "Профиль не найден: $ENV_FILE" >&2; exit 1; }
   # shellcheck disable=SC1090
@@ -70,6 +93,12 @@ if [ "$PROFILE" != "custom" ]; then
   # I — реальные WebRTC-звонки через TURN (если задано в профиле)
   ARGS+=(--active-calls "${ACTIVE_CALLS:-0}")
   [ -n "${CALL_DURATION:-}" ] && ARGS+=(--call-duration "$CALL_DURATION")
+  # R — живая нагрузка по ставке (если задано в профиле/окружении)
+  if [ -n "${RATE:-}" ]; then
+    ARGS+=(--rate "$RATE")
+    [ -n "${DURATION:-}" ] && ARGS+=(--duration "$DURATION")
+    [ -n "${RATE_TARGET:-}" ] && ARGS+=(--rate-target "$RATE_TARGET")
+  fi
   [ -n "${BASE_URL:-}" ] && ARGS+=(--base-url "$BASE_URL")
   [ -n "${SIGNALING_URL:-}" ] && ARGS+=(--signaling-url "$SIGNALING_URL")
   [ -n "${TURN_HOST:-}" ] && ARGS+=(--turn-host "$TURN_HOST")

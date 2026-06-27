@@ -14,6 +14,11 @@
   I активных звонков    (--active-calls)        — РЕАЛЬНЫЕ WebRTC-звонки через TURN (медиапоток между
                                                   пирами) на время --call-duration (5m / 1h / 300s);
                                                   поднимают метрику active_dm_calls и грузят TURN
+  R ставка сообщений    (--rate)                — ЖИВАЯ нагрузка: R сообщений/мин в течение --duration
+                                                  (5m / 1h / 300s) в серверные каналы и/или ЛС через
+                                                  WebSocket. Использует УЖЕ существующие аккаунты/каналы/
+                                                  диалоги — БЕЗ создания профилей. Цель: --rate-target
+                                                  (guild | dm | both, по умолчанию both)
 
 Звонкам нужны пакеты aiortc и websockets:  pip install -r load-tests/requirements-loadtest.txt
 
@@ -24,6 +29,12 @@
       --posts 500 --server-messages 5000 --dm-messages 2000
 
   python manage.py seed_load            # спросит каждое число в консоли
+
+  # Живая нагрузка без создания профилей: 600 сообщений/мин 10 минут в каналы и ЛС
+  # (нужны уже созданные тестовые данные и запущенный сервер):
+  python manage.py seed_load --accounts 0 --servers 0 --channels 0 --posts 0 \
+      --server-messages 0 --dm-messages 0 --rate 600 --duration 10m --rate-target both \
+      --base-url https://127.0.0.1:8000
 
 Очистка ранее созданных тестовых данных (всё с префиксом loadtest_):
   python manage.py seed_load --purge
@@ -106,6 +117,28 @@ class Command(BaseCommand):
         parser.add_argument('--turn-port', type=int, default=DEFAULT_TURN_PORT, help=f'TURN порт ({DEFAULT_TURN_PORT})')
         parser.add_argument('--turn-user', default=DEFAULT_TURN_USER, help='TURN username')
         parser.add_argument('--turn-cred', default=DEFAULT_TURN_CRED, help='TURN credential')
+        # ── Живая нагрузка по ставке (без создания профилей) ──
+        # Шлёт R сообщений в минуту в течение --duration в серверные каналы и/или
+        # ЛС через WebSocket (как настоящий клиент). Использует УЖЕ существующие
+        # тестовые аккаунты/каналы/диалоги — ничего не создаёт.
+        parser.add_argument('--rate', type=int, default=None,
+                            help='R — сообщений в минуту (живая WS-нагрузка на существующих аккаунтах)')
+        parser.add_argument('--duration', default=None,
+                            help='сколько длить нагрузку --rate: 300 / 300s / 5m / 1h / 1h30m')
+        parser.add_argument('--rate-target', choices=['guild', 'dm', 'both'], default='both',
+                            help='куда слать живую нагрузку: серверные каналы (guild), ЛС (dm) или оба (both)')
+        parser.add_argument('--rate-max-conns', type=int, default=100,
+                            help='макс. число постоянных WS-соединений для --rate (по умолчанию 100)')
+        parser.add_argument('--ws-port', type=int, default=8001,
+                            help='порт WS-шлюза (ws-gateway/loadbalancer) для --rate. По умолчанию 8001 — '
+                                 'как у реального клиента. Сообщения каналов раздаются в realtime именно '
+                                 'через ws-gateway, а не через Daphne (:8000)')
+        parser.add_argument('--ws-url', default=None,
+                            help='полный базовый WS-URL для --rate (напр. wss://host:8001); переопределяет --ws-port')
+        parser.add_argument('--online', type=int, default=0,
+                            help='держать N «онлайн»-пользователей на время --duration: постоянные '
+                                 'presence-подключения к /ws/signaling/ (Daphne). Поднимает ionik_online_users '
+                                 'и имитирует реальное присутствие, а не только отправку сообщений')
         parser.add_argument('--batch', type=int, default=2000, help='размер пачки для bulk_create')
         parser.add_argument('--purge', action='store_true', help='удалить ранее созданные тестовые данные и выйти')
 
@@ -154,11 +187,21 @@ class Command(BaseCommand):
             if raw_dur is None:
                 raw_dur = input('  Длительность звонков (напр. 5m, 1h, 300s): ').strip()
             call_duration = _parse_duration(raw_dur)
+        # R — живая WS-нагрузка по ставке (сообщений/мин) в течение rate_duration.
+        # Берётся только из флага (--rate), интерактивно не спрашиваем, чтобы не
+        # ломать привычный сценарий сидирования.
+        R = opts['rate'] or 0
+        rate_duration = 0
+        if R > 0:
+            raw_rd = opts['duration']
+            if raw_rd is None:
+                raw_rd = input('  Длительность нагрузки --rate (напр. 5m, 1h, 300s): ').strip()
+            rate_duration = _parse_duration(raw_rd)
         batch = opts['batch']
 
-        # N=0 допустимо, если используем уже существующие аккаунты для T/I.
-        if N == 0 and not (T or I):
-            self.stdout.write(self.style.ERROR('Нечего делать: задайте N > 0 либо T/I (с уже созданными аккаунтами).'))
+        # N=0 допустимо, если используем уже существующие аккаунты для T/I/R.
+        if N == 0 and not (T or I or R):
+            self.stdout.write(self.style.ERROR('Нечего делать: задайте N > 0 либо T/I/R (с уже созданными аккаунтами).'))
             return
 
         t0 = time.time()
@@ -171,6 +214,7 @@ class Command(BaseCommand):
         self._make_dms(G, users, batch)
         self._send_dms(T, opts['base_url'], opts['verify_tls'], opts['concurrency'])
         self._run_calls(I, call_duration, opts)
+        self._run_rate_load(R, rate_duration, opts['rate_target'], opts)
 
         dt = time.time() - t0
         self.stdout.write(self.style.SUCCESS(
@@ -699,3 +743,292 @@ class Command(BaseCommand):
         style = self.style.SUCCESS if stats['fail'] == 0 else self.style.WARNING
         self.stdout.write(style(
             f'     Звонков поднято: {stats["up"]}, не удалось: {stats["fail"]} (держали {duration}с)'))
+
+    # ── Живая нагрузка по ставке: R сообщений/мин в течение T (без создания профилей) ──
+
+    def _run_rate_load(self, rate, duration, target, opts):
+        """Шлёт ~rate сообщений в минуту в течение duration секунд в серверные
+        каналы и/или ЛС через WebSocket (как настоящий клиент). Использует уже
+        существующие тестовые аккаунты, каналы и диалоги — НИЧЕГО не создаёт.
+        """
+        if not rate or rate <= 0:
+            self.stdout.write('+    Живая нагрузка по ставке (--rate) не запрошена — пропуск.')
+            return
+        if duration <= 0:
+            self.stdout.write(self.style.ERROR('+    Для --rate нужна положительная --duration. Пропуск.'))
+            return
+
+        try:
+            import asyncio, ssl, itertools
+            import json as _json
+            import random as _random
+            import requests
+            import websockets
+        except ImportError as e:
+            self.stdout.write(self.style.ERROR(
+                '+    Нужны пакеты websockets и requests:\n'
+                '       pip install -r load-tests/requirements-loadtest.txt\n'
+                f'     ({e})'))
+            return
+
+        try:
+            from urllib3.exceptions import InsecureRequestWarning
+            requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
+        except Exception:
+            pass
+
+        from urllib.parse import urlparse
+        from ionik_messages.models import GuildChannel, ConversationParticipant
+
+        base = opts['base_url'].rstrip('/')
+        verify = bool(opts['verify_tls'])
+        parsed = urlparse(base)
+        host = parsed.hostname or '127.0.0.1'
+        scheme = 'wss' if parsed.scheme == 'https' else 'ws'
+        # ВАЖНО: реальные клиенты подключают каналы/чат к WS-ШЛЮЗУ (ws-gateway через
+        # балансировщик) на отдельном порту (8001), а НЕ к Daphne (:8000). Realtime
+        # серверных каналов раздаётся именно ws-gateway через Redis pub/sub
+        # (guild_channel_*). Если слать в Daphne, до клиентов realtime НЕ дойдёт —
+        # сообщение только сохранится в БД. Поэтому WS идём на ws_port/ws_url.
+        if opts.get('ws_url'):
+            ws_base = opts['ws_url'].rstrip('/')
+        else:
+            ws_port = opts.get('ws_port') or 8001
+            ws_base = f'{scheme}://{host}:{ws_port}'
+
+        # ── Собираем цели на существующих данных (ничего не создаём) ──
+        # target = (ws_url, sender_username, sender_uid, kind, label)
+        #   kind  — 'guild' (серверный канал) или 'dm' (личный диалог)
+        #   label — человекочитаемое описание, КУДА пишется сообщение
+        targets = []
+        if target in ('guild', 'both'):
+            chans = (GuildChannel.objects
+                     .filter(channel_type='text',
+                             guild__name__startswith=GUILD_PREFIX,
+                             guild__is_personal_channel=False)
+                     .select_related('guild', 'guild__owner')[:500])
+            for ch in chans:
+                owner = ch.guild.owner
+                if owner and owner.username.startswith(USER_PREFIX):
+                    label = f'канал «{ch.name}» сервера «{ch.guild.name}» (channel_id={ch.id})'
+                    targets.append((f'{ws_base}/ws/guild/{ch.guild_id}/channel/{ch.id}/',
+                                    owner.username, str(owner.id), 'guild', label))
+        if target in ('dm', 'both'):
+            # один отправитель на диалог (участник из тестового пула)
+            seen = {}
+            for p in (ConversationParticipant.objects
+                      .filter(user__username__startswith=USER_PREFIX)
+                      .select_related('user')
+                      .order_by('conversation_id')[:2000]):
+                seen.setdefault(p.conversation_id, p)
+            for conv_id, p in seen.items():
+                label = f'ЛС: диалог {conv_id} (отправитель {p.user.username})'
+                targets.append((f'{ws_base}/ws/chat/{conv_id}/',
+                                p.user.username, str(p.user.id), 'dm', label))
+
+        if not targets:
+            self.stdout.write(self.style.ERROR(
+                f'+    Нет целей для --rate-target={target}. Сначала создайте тестовые '
+                'данные (серверы/каналы/диалоги) или поменяйте --rate-target.'))
+            return
+
+        # Ограничиваем рабочий набор маршрутов: держим не больше rate_max_conns
+        # постоянных WS-соединений и логинимся ТОЛЬКО за их владельцев. Иначе при
+        # тысячах тестовых аккаунтов цикл логина занял бы минуты (и подвешивал бы старт).
+        max_conns = max(1, opts.get('rate_max_conns') or 100)
+        _random.shuffle(targets)
+        targets = targets[:max_conns]
+
+        self.stdout.write(
+            f'+    Живая нагрузка: {rate} сообщений/мин в течение {duration}с '
+            f'(цель: {target}, маршрутов: {len(targets)}, до {max_conns} соединений) через {ws_base}')
+
+        # ── Логинимся за каждого уникального отправителя (получаем JWT для ?token=) ──
+        # Параллельно: для каналов нужен владелец-участник КАЖДОГО канала, поэтому
+        # уникальных аккаунтов может быть до rate_max_conns; последовательный логин
+        # сотни аккаунтов (да ещё под нагрузкой БД) занимал бы минуты.
+        from concurrent.futures import ThreadPoolExecutor
+        distinct = {}
+        for t in targets:
+            distinct[t[1]] = None
+        _t0_login = time.time()
+        self.stdout.write(f'     Логинюсь за {len(distinct)} отправителей(я)...')
+        _unreachable = {'flag': False}
+
+        def _login(uname):
+            try:
+                r = requests.post(f'{base}/api/auth/login/',
+                                  json={'username': uname, 'password': DEFAULT_PASSWORD},
+                                  headers=CLIENT_HEADER, verify=verify, timeout=15)
+                if r.status_code == 200:
+                    return uname, r.json().get('access')
+            except requests.RequestException:
+                _unreachable['flag'] = True
+            return uname, None
+
+        tokens = {}
+        workers = max(8, int(opts.get('concurrency') or 8))
+        with ThreadPoolExecutor(max_workers=workers) as ex:
+            for uname, tok in ex.map(_login, list(distinct)):
+                if tok:
+                    tokens[uname] = tok
+        self.stdout.write(f'     Залогинено {len(tokens)}/{len(distinct)} за {time.time() - _t0_login:.1f}с')
+        if _unreachable['flag'] and not tokens:
+            self.stdout.write(self.style.ERROR(
+                '     Сервер недоступен для логина. Проверьте --base-url и что сервер запущен.'))
+            return
+        targets = [t for t in targets if t[1] in tokens]
+        if not targets:
+            self.stdout.write(self.style.ERROR(
+                '     Не удалось залогинить ни одного отправителя. Проверьте --base-url '
+                'и что аккаунты созданы (--accounts при сидировании).'))
+            return
+
+        # ── Показываем, КУДА именно пишутся сообщения ──
+        # Каналы серверов выводим полным списком (это главное, что нужно видеть),
+        # ЛС — только числом.
+        guild_t = [t for t in targets if t[3] == 'guild']
+        dm_t = [t for t in targets if t[3] == 'dm']
+        if guild_t:
+            self.stdout.write(f'     Серверные каналы ({len(guild_t)}), сообщения идут сюда:')
+            _show = 200
+            for t in guild_t[:_show]:
+                self.stdout.write(f'       → {t[4]}')
+            if len(guild_t) > _show:
+                self.stdout.write(f'       … и ещё {len(guild_t) - _show} канал(ов)')
+        if dm_t:
+            self.stdout.write(f'     Личные диалоги (ЛС): {len(dm_t)} (список опущен; '
+                              f'для только каналов используйте --rate-target guild)')
+
+        ssl_ctx = None
+        if scheme == 'wss':
+            ssl_ctx = ssl.create_default_context()
+            if not verify:
+                ssl_ctx.check_hostname = False
+                ssl_ctx.verify_mode = ssl.CERT_NONE
+
+        # ── Онлайн-присутствие: держим N постоянных signaling-подключений ──
+        # online_users считается по SignalingConsumer._users (это Daphne, порт API,
+        # а не ws-gateway). Без этого в онлайне только реальные пользователи.
+        online_n = max(0, int(opts.get('online') or 0))
+        presence_tokens = []
+        sig_port = parsed.port or (443 if scheme == 'wss' else 80)
+        sig_base = f'{scheme}://{host}:{sig_port}'
+        if online_n > 0:
+            from ionik_auth.models import User
+            pres_users = list(User.objects.filter(username__startswith=USER_PREFIX)
+                              .values_list('username', flat=True)[:online_n])
+            self.stdout.write(f'     Поднимаю онлайн-присутствие: {len(pres_users)} пользователей '
+                              f'через {sig_base}/ws/signaling/')
+            with ThreadPoolExecutor(max_workers=workers) as ex:
+                for uname, tok in ex.map(_login, pres_users):
+                    if tok:
+                        presence_tokens.append(tok)
+            self.stdout.write(f'     Онлайн-сессий залогинено: {len(presence_tokens)}')
+
+        interval = 60.0 / rate
+        stats = {'ok': 0, 'fail': 0, 'guild': 0, 'dm': 0}
+
+        async def _presence(token):
+            # Держим signaling-соединение открытым весь --duration → пользователь
+            # числится онлайн. websockets сам шлёт ping, соединение не отвалится.
+            try:
+                async with websockets.connect(
+                        f'{sig_base}/ws/signaling/?token={token}',
+                        ssl=ssl_ctx, open_timeout=20, close_timeout=3) as ws:
+                    end = time.time() + duration
+                    while time.time() < end:
+                        try:
+                            await asyncio.wait_for(ws.recv(), timeout=min(30, max(1, end - time.time())))
+                        except asyncio.TimeoutError:
+                            pass
+                        except Exception:
+                            break
+            except Exception:
+                pass
+
+        async def _drain(ws):
+            try:
+                async for _ in ws:
+                    pass
+            except Exception:
+                pass
+
+        async def run_all():
+            conns = {}     # idx -> websocket (открываем лениво, переиспользуем)
+            drains = []
+            # Поднимаем онлайн-присутствие параллельно с рассылкой сообщений.
+            presence_tasks = [asyncio.ensure_future(_presence(t)) for t in presence_tokens]
+            order = list(range(len(targets)))
+            _random.shuffle(order)
+            rr = itertools.cycle(order)
+
+            async def get_conn(i):
+                ws = conns.get(i)
+                if ws is not None:
+                    return ws
+                url, uname = targets[i][0], targets[i][1]
+                ws = await websockets.connect(f'{url}?token={tokens[uname]}',
+                                              ssl=ssl_ctx, max_size=None,
+                                              open_timeout=20, close_timeout=3)
+                conns[i] = ws
+                drains.append(asyncio.ensure_future(_drain(ws)))
+                return ws
+
+            deadline = time.time() + duration
+            next_send = time.time()
+            last_report = time.time()
+            try:
+                while time.time() < deadline:
+                    i = next(rr)
+                    try:
+                        ws = await get_conn(i)
+                        await ws.send(_json.dumps({'message': _sentence(),
+                                                   'nonce': uuid.uuid4().hex}))
+                        stats['ok'] += 1
+                        stats[targets[i][3]] += 1  # учёт по типу цели (guild/dm)
+                    except Exception:
+                        stats['fail'] += 1
+                        conns.pop(i, None)  # переоткроем при следующем заходе
+                    next_send += interval
+                    delay = next_send - time.time()
+                    if delay > 0:
+                        await asyncio.sleep(delay)
+                    else:
+                        next_send = time.time()  # отстаём — не копим долг
+                    if time.time() - last_report >= 15:
+                        last_report = time.time()
+                        left = int(deadline - time.time())
+                        self.stdout.write(f'     отправлено: {stats["ok"]} '
+                                          f'(каналы {stats["guild"]}, ЛС {stats["dm"]}), '
+                                          f'ошибок: {stats["fail"]}, осталось ~{max(0, left)}с')
+            finally:
+                # Сначала гасим читателей, затем закрываем сокеты ПАРАЛЛЕЛЬНО и с
+                # общим лимитом времени — иначе close-handshake сотни соединений
+                # (до close_timeout каждое) подвешивал бы выход на десятки секунд.
+                for d in drains:
+                    d.cancel()
+                for pt in presence_tasks:
+                    pt.cancel()
+
+                async def _close(ws):
+                    try:
+                        await asyncio.wait_for(ws.close(), timeout=3)
+                    except Exception:
+                        pass
+                if conns:
+                    await asyncio.gather(*[_close(ws) for ws in conns.values()],
+                                         return_exceptions=True)
+                if presence_tasks:
+                    await asyncio.gather(*presence_tasks, return_exceptions=True)
+
+        try:
+            asyncio.run(run_all())
+        except KeyboardInterrupt:
+            self.stdout.write(self.style.WARNING('     Прервано пользователем — останавливаю нагрузку.'))
+
+        style = self.style.SUCCESS if stats['fail'] == 0 else self.style.WARNING
+        self.stdout.write(style(
+            f'     Готово: отправлено {stats["ok"]} '
+            f'(в каналы {stats["guild"]}, в ЛС {stats["dm"]}), ошибок {stats["fail"]} '
+            f'(~{rate}/мин, {duration}с, маршрутов {len(targets)})'))

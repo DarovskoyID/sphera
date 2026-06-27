@@ -14,3 +14,13 @@ scrape_configs:
       - targets: ['host.docker.internal:8000']
         labels:
           service: 'django'
+
+  - job_name: 'ionik-ws-gateway'
+    metrics_path: '/metrics'
+    # ws-gateway в той же docker-сети, отдаёт метрики по HTTP на том же порту 8001.
+    # Для нескольких реплик (--scale ws-gateway=N) DNS отдаёт их по очереди;
+    # для точного снятия со всех нод используйте dns_sd_configs.
+    static_configs:
+      - targets: ['ws-gateway:8001']
+        labels:
+          service: 'ws-gateway'

@@ -6,14 +6,18 @@
     .\run.ps1 medium           # средний
     .\run.ps1 high             # высокий
     .\run.ps1 custom           # спросит N M H J K G интерактивно
+    .\run.ps1 rate             # ЖИВАЯ нагрузка R сообщений/мин в течение -Duration
     .\run.ps1 light -Purge     # сначала удалить старые тестовые данные
 
   Числа из профиля можно переопределить флагами:
     .\run.ps1 medium -Accounts 500 -DmMessages 20000
+
+  Живая нагрузка БЕЗ создания профилей (на готовых данных, нужен запущенный сервер):
+    .\run.ps1 rate -Rate 600 -Duration 10m -RateTarget both -BaseUrl https://127.0.0.1:8000
 #>
 param(
     [Parameter(Position = 0)]
-    [ValidateSet('light', 'medium', 'high', 'custom')]
+    [ValidateSet('light', 'medium', 'high', 'custom', 'rate')]
     [string]$Profile = 'light',
 
     [int]$Accounts, [int]$Servers, [int]$Channels,
@@ -21,6 +25,8 @@ param(
     [int]$SendDm, [string]$BaseUrl,
     [int]$ActiveCalls, [string]$CallDuration, [string]$SignalingUrl, [string]$TurnHost,
     [switch]$WithVideo,
+    [int]$Rate, [string]$Duration, [ValidateSet('guild', 'dm', 'both')][string]$RateTarget,
+    [int]$Online, [int]$Calls,
     [switch]$Purge
 )
 
@@ -61,7 +67,17 @@ if ($Purge) {
 
 $cfg = @{}
 $callDur = $null
-if ($Profile -ne 'custom') {
+if ($Profile -eq 'rate') {
+    # ЖИВАЯ нагрузка по ставке БЕЗ создания профилей: сидирование = 0.
+    $cfg['ACCOUNTS'] = 0; $cfg['SERVERS'] = 0; $cfg['CHANNELS'] = 0
+    $cfg['POSTS'] = 0; $cfg['SERVER_MESSAGES'] = 0; $cfg['DM_MESSAGES'] = 0
+    $cfg['SEND_DM'] = 0
+    $cfg['ACTIVE_CALLS'] = if ($PSBoundParameters.ContainsKey('Calls')) { $Calls } else { 0 }
+    if (-not $PSBoundParameters.ContainsKey('Rate'))   { $Rate = 600 }
+    if (-not $Duration)                                { $Duration = '10m' }
+    if (-not $RateTarget)                              { $RateTarget = 'both' }
+}
+elseif ($Profile -ne 'custom') {
     $envFile = Join-Path $here "$Profile.env"
     if (-not (Test-Path $envFile)) { throw "Профиль не найден: $envFile" }
     Get-Content $envFile | ForEach-Object {
@@ -91,6 +107,11 @@ if ($cfg.ContainsKey('DM_MESSAGES'))     { $args += '--dm-messages';     $args +
 if ($cfg.ContainsKey('SEND_DM'))         { $args += '--send-dm';         $args += $cfg['SEND_DM'] }
 if ($cfg.ContainsKey('ACTIVE_CALLS'))    { $args += '--active-calls';    $args += $cfg['ACTIVE_CALLS'] }
 if ($callDur)                            { $args += '--call-duration';   $args += $callDur }
+# R — живая нагрузка по ставке (сообщений/мин в течение -Duration)
+if ($Rate)                               { $args += '--rate';            $args += $Rate }
+if ($Duration)                           { $args += '--duration';        $args += $Duration }
+if ($RateTarget)                         { $args += '--rate-target';     $args += $RateTarget }
+if ($Online)                             { $args += '--online';          $args += $Online }
 if ($BaseUrl)                            { $args += '--base-url';        $args += $BaseUrl }
 if ($SignalingUrl)                       { $args += '--signaling-url';   $args += $SignalingUrl }
 if ($TurnHost)                           { $args += '--turn-host';       $args += $TurnHost }

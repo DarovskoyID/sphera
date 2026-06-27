@@ -553,10 +553,15 @@ EOF
 start_django() {
     log "Starting Django/Daphne on $DJANGO_BIND_HOST:$DJANGO_PORT (systemd, auto-restart)"
 
-    if [ ! -d "$VENV" ]; then
-        echo "      WARNING: no .venv found at $VENV"
+    # systemd-юнит запускает daphne по полному пути из venv ($VENV/bin/daphne),
+    # поэтому активировать окружение и искать daphne в PATH не нужно — проверяем
+    # сам бинарь в venv.
+    if [ ! -x "$VENV/bin/daphne" ]; then
+        echo "ERROR: daphne не найден в $VENV/bin/daphne"
+        echo "Установите зависимости: pip install -r django-server/requirements.txt"
+        echo "или запустите scripts/install-deps.sh."
+        exit 1
     fi
-    require_command daphne "Install Python dependencies first, or run scripts/install-deps.sh." || true
 
     # Старый голый процесс (nohup) больше не нужен — гасим, если остался
     if [ -f "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then

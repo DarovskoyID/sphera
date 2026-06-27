@@ -33,6 +33,33 @@ _histograms = {
 MAX_HISTOGRAM_SAMPLES = 5000
 
 
+# Дорогие выборки кэшируем: /metrics дёргает Prometheus каждые 15с, а
+# status-страница автообновляется каждые 10с. COUNT(*) по sqlite (guild_messages
+# 300k+, dm_messages 160k+ — это полные сканы) и list_topics к Kafka на каждом
+# запросе сами по себе грузили CPU/БД. TTL 30с достаточно для дашборда.
+_cache = {}
+
+
+def _cached(key, ttl, fn):
+    now = time.time()
+    hit = _cache.get(key)
+    if hit and now - hit[0] < ttl:
+        return hit[1]
+    val = fn()
+    _cache[key] = (now, val)
+    return val
+
+
+# Праймим неблокирующий замер CPU: cpu_percent(interval=None) при первом вызове
+# вернёт 0.0, далее — среднюю загрузку с прошлого вызова (т.е. за интервал между
+# скрейпами). Это и не блокирует обработчик на 0.1с, и не завышает значение,
+# меряя собственный всплеск при генерации /metrics.
+try:
+    psutil.cpu_percent(interval=None)
+except Exception:
+    pass
+
+
 def inc(name, amount=1):
     _counters[name] = _counters.get(name, 0) + amount
 
@@ -67,6 +94,11 @@ class MetricsMiddleware:
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 def _db_stats():
+    # COUNT(*) по всем таблицам — дорого на sqlite, кэшируем на 30с.
+    return _cached('db_stats', 30, _db_stats_uncached)
+
+
+def _db_stats_uncached():
     try:
         with connection.cursor() as c:
             c.execute("SELECT 1")
@@ -128,6 +160,11 @@ def _redis_stats():
 _kafka_admin_client = None
 
 def _kafka_stats():
+    # list_topics ходит к брокеру (timeout 3с) — кэшируем на 30с.
+    return _cached('kafka_stats', 30, _kafka_stats_uncached)
+
+
+def _kafka_stats_uncached():
     global _kafka_admin_client
     try:
         from confluent_kafka.admin import AdminClient
@@ -157,7 +194,7 @@ def _system_stats():
         'os': f'{platform.system()} {platform.release()}',
         'python': platform.python_version(),
         'cpu_count': psutil.cpu_count(),
-        'cpu_percent': psutil.cpu_percent(interval=0.1),
+        'cpu_percent': psutil.cpu_percent(interval=None),
         'memory': {
             'total_gb': round(psutil.virtual_memory().total / 1024**3, 2),
             'available_gb': round(psutil.virtual_memory().available / 1024**3, 2),

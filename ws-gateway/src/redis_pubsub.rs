@@ -35,6 +35,7 @@ async fn run_subscriber(state: &Arc<AppState>) -> redis::RedisResult<()> {
             Err(_) => continue,
         };
 
+        crate::metrics::inc(&crate::metrics::REDIS_RECEIVED);
         state.hub.broadcast(&channel, &payload);
     }
 

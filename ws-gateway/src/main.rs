@@ -3,6 +3,7 @@ mod hub;
 mod kafka;
 mod redis_pubsub;
 mod handlers;
+mod metrics;
 
 use std::sync::Arc;
 use axum::{Router, routing::get};
@@ -49,6 +50,7 @@ async fn main() {
         .route("/ws/chat/{conversation_id}/", get(handlers::chat_ws))
         .route("/ws/guild/{guild_id}/channel/{channel_id}/", get(handlers::guild_ws))
         .route("/health", get(|| async { "ok" }))
+        .route("/metrics", get(|| async { metrics::render() }))
         .layer(CorsLayer::permissive())
         .with_state(state);
 
