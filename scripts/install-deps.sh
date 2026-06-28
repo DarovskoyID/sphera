@@ -7,6 +7,9 @@ DJANGO_DIR="$PROJECT_ROOT/django-server"
 
 INSTALL_COTURN=1
 INSTALL_SYSTEM=1
+# Почтовый сервер (Postfix+OpenDKIM для кодов подтверждения) — только на проде,
+# поэтому по умолчанию ВЫКЛ. Включается через --with-mail (Linux only).
+INSTALL_MAIL=0
 
 for arg in "$@"; do
     case "$arg" in
@@ -16,8 +19,11 @@ for arg in "$@"; do
         --skip-system)
             INSTALL_SYSTEM=0
             ;;
+        --with-mail)
+            INSTALL_MAIL=1
+            ;;
         -h|--help)
-            echo "Usage: scripts/install-deps.sh [--skip-coturn] [--skip-system]"
+            echo "Usage: scripts/install-deps.sh [--skip-coturn] [--skip-system] [--with-mail]"
             echo ""
             echo "Installs system tools and project dependencies:"
             echo "  - Node.js / npm"
@@ -26,6 +32,12 @@ for arg in "$@"; do
             echo "  - coturn"
             echo "  - root Vite/React app"
             echo "  - django-server Python virtualenv"
+            echo ""
+            echo "Options:"
+            echo "  --skip-coturn   don't install/configure coturn"
+            echo "  --skip-system   don't install OS packages (node/python/nginx/...)"
+            echo "  --with-mail     also set up the send-only SMTP server"
+            echo "                  (Postfix + OpenDKIM, Linux only — for the prod box)"
             exit 0
             ;;
         *)
@@ -247,6 +259,18 @@ install_coturn() {
     esac
 }
 
+install_mail() {
+    case "$(uname -s)" in
+        Linux)
+            # Передаём MAIL_TEST_TO как тестовый адрес, если задан в окружении.
+            sudo bash "$SCRIPT_DIR/linux/mail-install.sh" "${MAIL_TEST_TO:-}"
+            ;;
+        *)
+            echo "Skipping mail server: Linux only (prod box). Nothing to do on $(uname -s)."
+            ;;
+    esac
+}
+
 echo "=== Installing ionik dependencies ==="
 echo "Project root: $PROJECT_ROOT"
 
@@ -301,6 +325,13 @@ if [ "$INSTALL_COTURN" -eq 1 ]; then
     install_coturn
 else
     log "Skipping coturn"
+fi
+
+if [ "$INSTALL_MAIL" -eq 1 ]; then
+    log "Installing mail server (Postfix + OpenDKIM, send-only)"
+    install_mail
+else
+    log "Skipping mail server (pass --with-mail to install it)"
 fi
 
 echo ""
