@@ -894,7 +894,7 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
   const outerStyle: React.CSSProperties = windowExpanded
     ? { position: 'fixed', inset: 0, width: '100vw', height: '100svh', zIndex: 9500, background: 'var(--bg-primary)', display: 'flex', flexDirection: 'column', paddingBottom: 'max(env(safe-area-inset-bottom), 24px)' }
     : inline
-      ? { height: 420, background: 'var(--bg-primary)', display: 'flex', flexDirection: 'column' }
+      ? { flex: 1, minHeight: 0, height: '100%', background: 'var(--bg-primary)', display: 'flex', flexDirection: 'column', paddingBottom: 'env(safe-area-inset-bottom, 0px)' }
       : { position: 'fixed', bottom: 0, right: 0, width: 480, height: 420, zIndex: 9500, background: 'var(--bg-primary)', display: 'flex', flexDirection: 'column', borderRadius: '12px 12px 0 0', boxShadow: 'var(--shadow-lg)' };
 
   return (
