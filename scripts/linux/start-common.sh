@@ -767,22 +767,25 @@ EOF
 set -euo pipefail
 cd "$DJANGO_DIR"
 for i in \$(seq 1 60); do
-    if "$VENV/bin/python" - <<'PY' >/dev/null 2>&1
+    if output=\$("$VENV/bin/python" - <<'PY' 2>&1
 import os
-import socket
+import django
+from django.db import connection
 
-host = os.environ.get("POSTGRES_HOST", "127.0.0.1")
-port = int(os.environ.get("POSTGRES_PORT", "5432"))
-with socket.create_connection((host, port), timeout=2):
-    pass
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "ionik_server.settings")
+django.setup()
+connection.ensure_connection()
+connection.close()
 PY
-    then
+); then
         exec "$VENV/bin/python" manage.py migrate --run-syncdb --noinput
     fi
     sleep 2
 done
 
-echo "Postgres is not ready after 120s; migration skipped." >&2
+echo "Django database readiness check failed after 120s; migration skipped." >&2
+echo "Last readiness error:" >&2
+echo "\$output" >&2
 exit 1
 EOF
     sudo chmod 0755 "$prestart"
@@ -868,8 +871,18 @@ start_django() {
 
     install_daphne_service
     sudo systemctl daemon-reload
-    sudo systemctl enable --now ionik-daphne.service
-    sudo systemctl restart ionik-daphne.service
+    sudo systemctl enable ionik-daphne.service >/dev/null
+    if ! sudo systemctl restart ionik-daphne.service; then
+        echo ""
+        echo "ERROR: ionik-daphne.service failed to start."
+        echo "---- systemctl status ionik-daphne.service ----"
+        sudo systemctl status ionik-daphne.service -l --no-pager || true
+        echo "---- journalctl -u ionik-daphne.service ----"
+        sudo journalctl -u ionik-daphne.service -n 120 --no-pager -o cat || true
+        echo "---- /var/log/ionik/daphne.log ----"
+        sudo tail -n 120 /var/log/ionik/daphne.log 2>/dev/null || true
+        exit 1
+    fi
     sudo systemctl enable --now ionik-daphne-healthcheck.timer
     echo "      Daphne under systemd: ionik-daphne.service (log: /var/log/ionik/daphne.log)"
     echo "      Hang watchdog: ionik-daphne-healthcheck.timer (every 1 min)"
