@@ -47,6 +47,9 @@ PG_HOST="${IONIK_POSTGRES_HOST:-127.0.0.1}"
 PG_PORT="${IONIK_POSTGRES_PORT:-5432}"
 # Elasticsearch: поиск по сообщениям. Host-процессы ходят на 127.0.0.1:9200.
 ES_URL="${IONIK_ELASTICSEARCH_URL:-http://127.0.0.1:9200}"
+# Почта (отправка кодов подтверждения) живёт отдельно: scripts/linux/mail-install.sh
+# ставит локальный Postfix и пишет systemd drop-in ionik-daphne.service.d/email.conf
+# с EMAIL_* — он переживает регенерацию юнита ниже, поэтому здесь EMAIL не трогаем.
 # Число параллельных kafka_worker'ов (consumer-группа делит партиции между ними).
 # Один воркер упирался ~190 сообщ/с в PG; N≈числу ядер кратно поднимает потолок.
 WORKERS="${IONIK_WORKERS:-2}"
