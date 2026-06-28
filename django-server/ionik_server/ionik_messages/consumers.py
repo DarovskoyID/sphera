@@ -15,6 +15,12 @@ from ionik_auth.models import User, BlockedUser
 from .voice_state import _voice_channels
 from ionik_server.metrics import inc as _metrics_inc
 
+WS_AUTH_SUBPROTOCOL = 'ionik.jwt'
+
+
+def _accepted_subprotocol(scope):
+    return WS_AUTH_SUBPROTOCOL if WS_AUTH_SUBPROTOCOL in (scope.get('subprotocols') or []) else None
+
 
 def _kafka_enabled():
     try:
@@ -42,7 +48,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
         self.user_data = await self.get_user_data(user.id)
 
         await self.channel_layer.group_add(self.room_group, self.channel_name)
-        await self.accept()
+        await self.accept(subprotocol=_accepted_subprotocol(self.scope))
         _metrics_inc('ws_connections_total')
 
         # Start asyncio tasks for any pending scheduled messages
@@ -532,7 +538,7 @@ class GuildChannelConsumer(AsyncWebsocketConsumer):
 
         await self.channel_layer.group_add(self.room_group, self.channel_name)
         await self.channel_layer.group_add(self.guild_group, self.channel_name)
-        await self.accept()
+        await self.accept(subprotocol=_accepted_subprotocol(self.scope))
 
         # Send current voice presence snapshot for this guild's voice channels only
         for ch_id, ch_data in _voice_channels.items():
@@ -990,7 +996,7 @@ class GuildPresenceConsumer(AsyncWebsocketConsumer):
         # may open a guild it hasn't joined. Only members are subscribed to guild
         # events; non-members simply receive nothing instead of a handshake 403 (which
         # the client retries, flooding the console).
-        await self.accept()
+        await self.accept(subprotocol=_accepted_subprotocol(self.scope))
         if await self._check_membership(user.id):
             await self.channel_layer.group_add(self.guild_group, self.channel_name)
 
@@ -1096,7 +1102,7 @@ class GuildVoiceConsumer(AsyncWebsocketConsumer):
                 return
 
         await self.channel_layer.group_add(self.room_group, self.channel_name)
-        await self.accept()
+        await self.accept(subprotocol=_accepted_subprotocol(self.scope))
 
         if self.channel_id not in _voice_channels:
             _voice_channels[self.channel_id] = {'_guild_id': self.guild_id}

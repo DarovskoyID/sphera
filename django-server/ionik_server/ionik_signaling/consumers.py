@@ -4,6 +4,12 @@ from channels.db import database_sync_to_async
 from django.db.models import Q
 from asgiref.sync import sync_to_async
 
+WS_AUTH_SUBPROTOCOL = 'ionik.jwt'
+
+
+def _accepted_subprotocol(scope):
+    return WS_AUTH_SUBPROTOCOL if WS_AUTH_SUBPROTOCOL in (scope.get('subprotocols') or []) else None
+
 
 class SignalingConsumer(AsyncWebsocketConsumer):
     """
@@ -26,7 +32,7 @@ class SignalingConsumer(AsyncWebsocketConsumer):
         if not user or user.is_anonymous:
             # Accept then immediately close so the browser gets a clean WS
             # close frame instead of "closed before established".
-            await self.accept()
+            await self.accept(subprotocol=_accepted_subprotocol(self.scope))
             await self.close(code=4001)
             return
 
@@ -41,7 +47,7 @@ class SignalingConsumer(AsyncWebsocketConsumer):
 
         await self.channel_layer.group_add('signaling', self.channel_name)
         await self.channel_layer.group_add(f'user_{self.user_id}', self.channel_name)
-        await self.accept()
+        await self.accept(subprotocol=_accepted_subprotocol(self.scope))
 
         # Mark online in DB
         await self._set_status('online')

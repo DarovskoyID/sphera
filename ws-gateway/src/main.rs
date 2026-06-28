@@ -33,7 +33,7 @@ async fn main() {
     let kafka_brokers = std::env::var("KAFKA_BOOTSTRAP_SERVERS").unwrap_or_else(|_| "localhost:9092".into());
     let bind_addr = std::env::var("WS_BIND").unwrap_or_else(|_| "0.0.0.0:8001".into());
     let django_authz_url = std::env::var("DJANGO_WS_AUTHZ_URL")
-        .unwrap_or_else(|_| "http://127.0.0.1:8000/api/ws/authorize/".into());
+        .unwrap_or_else(|_| "http://127.0.0.1:8010/api/ws/authorize/".into());
 
     let kafka_producer = kafka::KafkaProducer::new(&kafka_brokers);
     let hub = hub::Hub::new();
