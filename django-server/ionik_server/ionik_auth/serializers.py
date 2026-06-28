@@ -1,5 +1,7 @@
 from datetime import timedelta
 
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.utils import timezone
 from rest_framework import serializers
 from .models import User, Friendship, BlockedUser, UserDevice, UserSettings, CustomEmoji
@@ -107,12 +109,20 @@ class ProfileUpdateSerializer(serializers.ModelSerializer):
 
 
 class RegisterSerializer(serializers.ModelSerializer):
-    password = serializers.CharField(write_only=True, min_length=6)
+    password = serializers.CharField(write_only=True)
     email = serializers.EmailField(required=True)
 
     class Meta:
         model = User
         fields = ['username', 'password', 'email', 'nickname', 'avatar', 'bio']
+
+    def validate_password(self, value):
+        # Apply the project-wide AUTH_PASSWORD_VALIDATORS (length, common, …).
+        try:
+            validate_password(value)
+        except DjangoValidationError as exc:
+            raise serializers.ValidationError(list(exc.messages))
+        return value
 
     def validate_username(self, value):
         if User.objects.filter(username__iexact=value).exists():

@@ -14,14 +14,67 @@ import { toUserMessage, readResponse, setErrorLang } from '../utils/errorManager
 // Prevents direct browser access to the server (the server rejects requests
 // without this header, returning an empty 200 response instead).
 const _origFetch = window.fetch.bind(window);
+let _authRefreshHandler: (() => Promise<string | null>) | null = null;
+const AUTH_TOKEN_KEY = 'authToken';
+
+function getFetchUrl(input: RequestInfo | URL): string {
+  return typeof input === 'string'
+    ? input
+    : input instanceof URL
+      ? input.toString()
+      : input.url;
+}
+
+function hasBearerAuth(input: RequestInfo | URL, init?: RequestInit): boolean {
+  const headers = new Headers(input instanceof Request ? input.headers : undefined);
+  new Headers(init?.headers as HeadersInit | undefined).forEach((value, key) => headers.set(key, value));
+  return (headers.get('Authorization') || '').startsWith('Bearer ');
+}
+
+function withBearerAuth(init: RequestInit | undefined, token: string): RequestInit {
+  const headers = new Headers(init?.headers as HeadersInit | undefined);
+  headers.set('Authorization', `Bearer ${token}`);
+  return { ...init, headers };
+}
+
 (window as unknown as { fetch: typeof fetch }).fetch = (
   input: RequestInfo | URL,
   init?: RequestInit,
 ) => {
-  const headers = new Headers((init?.headers) as HeadersInit | undefined);
+  const headers = new Headers(input instanceof Request ? input.headers : undefined);
+  new Headers(init?.headers as HeadersInit | undefined).forEach((value, key) => headers.set(key, value));
   headers.set('X-Ionik-Client', '1');
-  return _origFetch(input, { ...init, headers });
+  const nextInit = { credentials: 'include' as RequestCredentials, ...init, headers };
+  return _origFetch(input, nextInit).then(async (res) => {
+    const url = getFetchUrl(input);
+    if (
+      res.status !== 401 ||
+      url.includes('/api/auth/refresh/') ||
+      !hasBearerAuth(input, nextInit) ||
+      !_authRefreshHandler
+    ) {
+      return res;
+    }
+    const nextToken = await _authRefreshHandler();
+    if (!nextToken) return res;
+    return _origFetch(input, withBearerAuth(nextInit, nextToken));
+  });
 };
+
+function jwtExpiresSoon(token: string, skewSeconds = 60): boolean {
+  try {
+    const raw = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+    const padded = raw.padEnd(raw.length + ((4 - raw.length % 4) % 4), '=');
+    const payload = JSON.parse(atob(padded));
+    return typeof payload.exp !== 'number' || payload.exp * 1000 <= Date.now() + skewSeconds * 1000;
+  } catch {
+    return true;
+  }
+}
+
+function wsProtocols(token: string): string[] {
+  return ['ionik.jwt', token];
+}
 
 // ── Global error interception ────────────────────────────────────────────────
 // Captures errors before the context mounts, then drains them once it's ready.
@@ -244,7 +297,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     const savedServer = localStorage.getItem('messengerCurrentServer') || 'home';
     const savedChat = localStorage.getItem('messengerCurrentChat') || '';
     const savedChannel = localStorage.getItem('messengerCurrentChannel') || 'general';
-    const savedToken = localStorage.getItem('authToken') || '';
+    const savedToken = localStorage.getItem(AUTH_TOKEN_KEY) || '';
 
     return {
       currentView: savedServer === 'settings' ? 'settings' : 'home',
@@ -327,13 +380,78 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
   }, [addToast]);
 
   const chatWs = useRef<WebSocket | null>(null);
+  const authTokenRef = useRef(state.authToken);
+  const currentServerIPRef = useRef(state.currentServerIP);
+  const refreshPromiseRef = useRef<Promise<string | null> | null>(null);
   const lastGuildChatBackRef = useRef<{ channelId: string | null; at: number }>({ channelId: null, at: 0 });
   const chatLastMsgId = useRef<string | null>(null);
   const [chatReinitTrigger, setChatReinitTrigger] = useState(0);
 
+  useEffect(() => { authTokenRef.current = state.authToken; }, [state.authToken]);
+  useEffect(() => { currentServerIPRef.current = state.currentServerIP; }, [state.currentServerIP]);
+
+  const refreshAccessToken = useCallback(async (): Promise<string | null> => {
+    if (refreshPromiseRef.current) return refreshPromiseRef.current;
+
+    refreshPromiseRef.current = _origFetch(`${currentServerIPRef.current}/api/auth/refresh/`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json', 'X-Ionik-Client': '1' },
+    })
+      .then(async (res) => {
+        if (!res.ok) return null;
+        const data = await res.json();
+        const access = typeof data.access === 'string' ? data.access : '';
+        if (!access) return null;
+        localStorage.setItem(AUTH_TOKEN_KEY, access);
+        authTokenRef.current = access;
+        setState(prev => ({ ...prev, authToken: access }));
+        return access;
+      })
+      .catch(() => null)
+      .finally(() => {
+        refreshPromiseRef.current = null;
+      });
+
+    return refreshPromiseRef.current;
+  }, []);
+
+  useEffect(() => {
+    _authRefreshHandler = refreshAccessToken;
+    return () => {
+      if (_authRefreshHandler === refreshAccessToken) _authRefreshHandler = null;
+    };
+  }, [refreshAccessToken]);
+
+  useEffect(() => {
+    if (!state.authToken) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const schedule = () => {
+      if (cancelled) return;
+      if (jwtExpiresSoon(authTokenRef.current, 90)) {
+        refreshAccessToken().finally(() => {
+          timer = setTimeout(schedule, 60_000);
+        });
+      } else {
+        timer = setTimeout(schedule, 60_000);
+      }
+    };
+    schedule();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [state.authToken, refreshAccessToken]);
+
   // ==================== Logout helper ====================
   const logout = useCallback(() => {
-    localStorage.removeItem('authToken');
+    _origFetch(`${currentServerIPRef.current}/api/auth/logout/`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'X-Ionik-Client': '1' },
+    }).catch(() => undefined);
+    localStorage.removeItem(AUTH_TOKEN_KEY);
     setState(prev => ({ ...prev, authToken: '', currentUser: null, friends: [], pendingRequests: [], sentRequests: [], userIDonServer: '', currentChat: '' }));
   }, []);
 
@@ -695,7 +813,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
 
         const connectChatWs = () => {
           if (cancelled) return;
-          const ws = new WebSocket(`${wsUrl}/ws/chat/${convoId}/?token=${state.authToken}`);
+          const ws = new WebSocket(`${wsUrl}/ws/chat/${convoId}/`, wsProtocols(state.authToken));
 
           ws.onopen = () => {
             if (cancelled) { ws.close(); return; }
@@ -1173,7 +1291,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     const connect = () => {
       if (!alive) return;
       const wsUrl = wsUrlFor(currentServerIP);
-      const ws = new WebSocket(`${wsUrl}/ws/signaling/?token=${authToken}`);
+      const ws = new WebSocket(`${wsUrl}/ws/signaling/`, wsProtocols(authToken));
       activeWs = ws;
 
       ws.onopen = () => {
@@ -1414,7 +1532,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       guildChannelWs.current = null;
     }
     const wsUrl = wsUrlFor(serverIP);
-    const ws = new WebSocket(`${wsUrl}/ws/guild/${guild.id}/channel/${channel.id}/?token=${token}`);
+    const ws = new WebSocket(`${wsUrl}/ws/guild/${guild.id}/channel/${channel.id}/`, wsProtocols(token));
     ws.onopen = () => { guildChannelWs.current = ws; };
     ws.onmessage = (event) => {
       const data = JSON.parse(event.data);
@@ -1635,7 +1753,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
   const _connectGuildPresenceWs = useCallback((guild: Guild, token: string, serverIP: string) => {
     if (guildPresenceWs.current) { guildPresenceWs.current.close(); guildPresenceWs.current = null; }
     const wsUrl = wsUrlFor(serverIP);
-    const ws = new WebSocket(`${wsUrl}/ws/guild/${guild.id}/?token=${token}`);
+    const ws = new WebSocket(`${wsUrl}/ws/guild/${guild.id}/`, wsProtocols(token));
     ws.onopen = () => { guildPresenceWs.current = ws; };
     ws.onmessage = (event) => {
       const data = JSON.parse(event.data);
@@ -2350,7 +2468,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     const wsUrl = wsUrlFor(state.currentServerIP);
     const guildId = state.currentGuild?.id;
     if (!guildId) return;
-    const ws = new WebSocket(`${wsUrl}/ws/guild/${guildId}/voice/${channel.id}/?token=${state.authToken}`);
+    const ws = new WebSocket(`${wsUrl}/ws/guild/${guildId}/voice/${channel.id}/`, wsProtocols(state.authToken));
     voiceWs.current = ws;
 
     ws.onmessage = (event) => {
@@ -2549,9 +2667,17 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
   const setCurrentUser = (user: ServerUser) => setState(prev => ({ ...prev, currentUser: user }));
 
   const setAuthToken = (token: string) => {
-    localStorage.setItem('authToken', token);
+    if (token) {
+      localStorage.setItem(AUTH_TOKEN_KEY, token);
+      authTokenRef.current = token;
+    } else {
+      localStorage.removeItem(AUTH_TOKEN_KEY);
+      authTokenRef.current = '';
+    }
     if (!token) {
       // Logout — close all sockets and reset to clean state
+      chatWs.current?.close();
+      chatWs.current = null;
       signalingWs.current?.close();
       signalingWs.current = null;
       guildChannelWs.current?.close();

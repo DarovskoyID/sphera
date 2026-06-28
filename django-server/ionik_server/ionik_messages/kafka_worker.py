@@ -20,6 +20,14 @@ def _handle_signal(*_):
     _shutdown.set()
 
 
+def _normalize_id_list(value):
+    if not value:
+        return []
+    if not isinstance(value, list) or len(value) > 10:
+        return None
+    return [str(item) for item in value]
+
+
 def _make_consumer(group_id: str, topics: list[str]) -> Consumer:
     from django.conf import settings
     c = Consumer({
@@ -38,7 +46,7 @@ def _make_consumer(group_id: str, topics: list[str]) -> Consumer:
 
 
 def _process_chat_message(data: dict):
-    from ionik_messages.models import Message, Attachment
+    from ionik_messages.models import Conversation, Message, Attachment
     from ionik_messages.encryption import encrypt_text
 
     content = data.get('content', '')
@@ -50,6 +58,28 @@ def _process_chat_message(data: dict):
 
     if not conversation_id or not author_id:
         return
+    attachment_ids = _normalize_id_list(attachment_ids)
+    if attachment_ids is None:
+        logger.warning('Rejected chat message with malformed attachment_ids')
+        return
+    if not Conversation.objects.filter(id=conversation_id, participants__id=author_id).exists():
+        logger.warning('Rejected chat message for unauthorized conversation=%s author=%s', conversation_id, author_id)
+        return
+
+    if reply_to_id and not Message.objects.filter(id=reply_to_id, conversation_id=conversation_id).exists():
+        logger.warning('Rejected chat message with invalid reply=%s conversation=%s', reply_to_id, conversation_id)
+        return
+
+    if attachment_ids:
+        valid_count = Attachment.objects.filter(
+            id__in=attachment_ids,
+            conversation_id=conversation_id,
+            uploader_id=author_id,
+            message__isnull=True,
+        ).count()
+        if valid_count != len(set(attachment_ids)):
+            logger.warning('Rejected chat message with invalid attachments conversation=%s author=%s', conversation_id, author_id)
+            return
 
     if msg_uuid:
         if Message.objects.filter(id=msg_uuid).exists():
@@ -66,13 +96,17 @@ def _process_chat_message(data: dict):
     msg.save()
 
     if attachment_ids:
-        Attachment.objects.filter(id__in=attachment_ids).update(message=msg)
+        Attachment.objects.filter(
+            id__in=attachment_ids,
+            conversation_id=conversation_id,
+            uploader_id=author_id,
+            message__isnull=True,
+        ).update(message=msg)
 
     # Send FCM push to the other participants. DMs reach this worker via the Kafka
     # 'chat.messages' topic (published by the Rust ws-gateway), which bypasses the
     # Django ChatConsumer — so without this, closed apps never get notified.
     try:
-        from ionik_messages.models import Conversation
         from ionik_auth.models import User
         from ionik_server.fcm import send_to_user
         recipient_ids = [
@@ -95,7 +129,7 @@ def _process_chat_message(data: dict):
 
 
 def _process_guild_message(data: dict):
-    from ionik_messages.models import GuildMessage, GuildAttachment
+    from ionik_messages.models import GuildChannel, GuildMembership, GuildMessage, GuildAttachment
     from ionik_messages.encryption import encrypt_text
 
     content = data.get('content', '')
@@ -107,6 +141,29 @@ def _process_guild_message(data: dict):
 
     if not channel_id or not author_id:
         return
+    attachment_ids = _normalize_id_list(attachment_ids)
+    if attachment_ids is None:
+        logger.warning('Rejected guild message with malformed attachment_ids')
+        return
+    channel = GuildChannel.objects.filter(id=channel_id).only('id', 'guild_id').first()
+    if not channel or not GuildMembership.objects.filter(guild_id=channel.guild_id, user_id=author_id).exists():
+        logger.warning('Rejected guild message for unauthorized channel=%s author=%s', channel_id, author_id)
+        return
+
+    if reply_to_id and not GuildMessage.objects.filter(id=reply_to_id, channel_id=channel_id).exists():
+        logger.warning('Rejected guild message with invalid reply=%s channel=%s', reply_to_id, channel_id)
+        return
+
+    if attachment_ids:
+        valid_count = GuildAttachment.objects.filter(
+            id__in=attachment_ids,
+            channel_id=channel_id,
+            uploader_id=author_id,
+            message__isnull=True,
+        ).count()
+        if valid_count != len(set(attachment_ids)):
+            logger.warning('Rejected guild message with invalid attachments channel=%s author=%s', channel_id, author_id)
+            return
 
     if msg_uuid:
         if GuildMessage.objects.filter(id=msg_uuid).exists():
@@ -123,7 +180,12 @@ def _process_guild_message(data: dict):
     msg.save()
 
     if attachment_ids:
-        GuildAttachment.objects.filter(id__in=attachment_ids).update(message=msg)
+        GuildAttachment.objects.filter(
+            id__in=attachment_ids,
+            channel_id=channel_id,
+            uploader_id=author_id,
+            message__isnull=True,
+        ).update(message=msg)
 
     from .search_index import index_message
     index_message(msg)

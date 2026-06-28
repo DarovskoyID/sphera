@@ -14,17 +14,26 @@ from django.db import connection
 from django.db.models import Q
 from django.http import FileResponse, Http404
 from django.utils import timezone
+from django.contrib.auth.password_validation import validate_password
 from rest_framework import status
 from rest_framework.decorators import (
-    api_view, permission_classes, parser_classes,
+    api_view, permission_classes, parser_classes, throttle_classes,
 )
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.throttling import AnonRateThrottle
+from rest_framework_simplejwt.exceptions import TokenError
+from rest_framework_simplejwt.serializers import TokenObtainPairSerializer, TokenRefreshSerializer
 from rest_framework_simplejwt.tokens import RefreshToken
+
+
+class AuthRateThrottle(AnonRateThrottle):
+    """Tight, IP-keyed limit for credential / account-sensitive endpoints."""
+    scope = 'auth'
 from .models import (
     User, Friendship, BlockedUser, UserDevice, UserSettings, CustomEmoji,
-    FcmToken, DataExport, EmailVerificationCode,
+    FcmToken, DataExport, EmailVerificationCode, SecurityAuditLog,
 )
 from .serializers import (
     RegisterSerializer, UserSerializer, MeSerializer, FriendshipSerializer,
@@ -38,6 +47,22 @@ def get_client_ip(request):
     if xff:
         return xff.split(',')[0].strip()
     return request.META.get('REMOTE_ADDR', '0.0.0.0')
+
+
+def audit_event(request, event, user=None, metadata=None):
+    try:
+        actor = user or getattr(request, 'user', None)
+        if not actor or getattr(actor, 'is_anonymous', True):
+            actor = None
+        SecurityAuditLog.objects.create(
+            user=actor,
+            event=event,
+            ip_address=get_client_ip(request),
+            user_agent=request.META.get('HTTP_USER_AGENT', '')[:2000],
+            metadata=metadata or {},
+        )
+    except Exception:
+        pass
 
 
 def _device_type_from_ua(ua):
@@ -135,6 +160,44 @@ _CODE_ALPHABET = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ'
 _CODE_LENGTH = 6
 
 
+def _set_refresh_cookie(response, refresh):
+    response.set_cookie(
+        django_settings.REFRESH_COOKIE_NAME,
+        str(refresh),
+        max_age=int(django_settings.SIMPLE_JWT['REFRESH_TOKEN_LIFETIME'].total_seconds()),
+        httponly=True,
+        secure=django_settings.REFRESH_COOKIE_SECURE,
+        samesite=django_settings.REFRESH_COOKIE_SAMESITE,
+        path=django_settings.REFRESH_COOKIE_PATH,
+    )
+
+
+def _clear_refresh_cookie(response):
+    response.delete_cookie(
+        django_settings.REFRESH_COOKIE_NAME,
+        path=django_settings.REFRESH_COOKIE_PATH,
+        samesite=django_settings.REFRESH_COOKIE_SAMESITE,
+    )
+
+
+def _blacklist_user_refresh_tokens(user):
+    try:
+        from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken, OutstandingToken
+        for token in OutstandingToken.objects.filter(user=user):
+            BlacklistedToken.objects.get_or_create(token=token)
+    except Exception:
+        pass
+
+
+def _auth_response(user, refresh, request, status_code=status.HTTP_200_OK):
+    response = Response({
+        'user': UserSerializer(user, context={'request': request}).data,
+        'access': str(refresh.access_token),
+    }, status=status_code)
+    _set_refresh_cookie(response, refresh)
+    return response
+
+
 def _generate_code():
     return ''.join(secrets.choice(_CODE_ALPHABET) for _ in range(_CODE_LENGTH))
 
@@ -159,6 +222,7 @@ def _send_verification_email(email, code):
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
+@throttle_classes([AuthRateThrottle])
 def register_send_code(request):
     """Step 1 of sign-up: validate the address and email a confirmation code."""
     email = (request.data.get('email') or '').strip().lower()
@@ -216,6 +280,64 @@ def register_send_code(request):
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
+@throttle_classes([AuthRateThrottle])
+def login(request):
+    serializer = TokenObtainPairSerializer(data=request.data)
+    if not serializer.is_valid():
+        audit_event(request, 'login_failed', metadata={'username': str(request.data.get('username', ''))[:150]})
+        return Response(serializer.errors, status=status.HTTP_401_UNAUTHORIZED)
+    user = serializer.user
+    refresh = RefreshToken(serializer.validated_data['refresh'])
+    try:
+        track_device(type('AuthRequest', (), {'user': user, 'GET': request.GET, 'META': request.META})())
+    except Exception:
+        pass
+    audit_event(request, 'login_success', user=user)
+    return _auth_response(user, refresh, request)
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+@throttle_classes([AuthRateThrottle])
+def refresh_token(request):
+    refresh_value = request.COOKIES.get(django_settings.REFRESH_COOKIE_NAME)
+    if not refresh_value:
+        audit_event(request, 'refresh_missing')
+        return Response({'detail': 'refresh cookie missing'}, status=status.HTTP_401_UNAUTHORIZED)
+
+    serializer = TokenRefreshSerializer(data={'refresh': refresh_value})
+    if not serializer.is_valid():
+        audit_event(request, 'refresh_failed')
+        response = Response(serializer.errors, status=status.HTTP_401_UNAUTHORIZED)
+        _clear_refresh_cookie(response)
+        return response
+
+    response = Response({'access': serializer.validated_data['access']})
+    rotated = serializer.validated_data.get('refresh')
+    if rotated:
+        _set_refresh_cookie(response, rotated)
+    audit_event(request, 'refresh_success')
+    return response
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def logout_view(request):
+    refresh_value = request.COOKIES.get(django_settings.REFRESH_COOKIE_NAME)
+    if refresh_value:
+        try:
+            RefreshToken(refresh_value).blacklist()
+        except TokenError:
+            pass
+    audit_event(request, 'logout')
+    response = Response(status=status.HTTP_204_NO_CONTENT)
+    _clear_refresh_cookie(response)
+    return response
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+@throttle_classes([AuthRateThrottle])
 def register(request):
     """Step 2 of sign-up: verify the code, then create the account."""
     email = (request.data.get('email') or '').strip().lower()
@@ -260,13 +382,8 @@ def register(request):
         user = serializer.save()
         record.delete()
         refresh = RefreshToken.for_user(user)
-        return Response({
-            'user': UserSerializer(
-                user, context={'request': request}
-            ).data,
-            'access': str(refresh.access_token),
-            'refresh': str(refresh),
-        }, status=status.HTTP_201_CREATED)
+        audit_event(request, 'register_success', user=user)
+        return _auth_response(user, refresh, request, status.HTTP_201_CREATED)
     return Response(
         serializer.errors, status=status.HTTP_400_BAD_REQUEST
     )
@@ -319,6 +436,7 @@ def update_profile(request):
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
+@throttle_classes([AuthRateThrottle])
 def delete_account(request):
     username = request.data.get('username', '')
     password = request.data.get('password', '')
@@ -333,16 +451,22 @@ def delete_account(request):
             status=status.HTTP_400_BAD_REQUEST,
         )
     if not request.user.check_password(password):
+        audit_event(request, 'delete_account_failed')
         return Response(
             {'error': 'Password is incorrect'},
             status=status.HTTP_400_BAD_REQUEST,
         )
+    audit_event(request, 'delete_account_success')
+    _blacklist_user_refresh_tokens(request.user)
     request.user.delete()
-    return Response({'status': 'deleted'})
+    response = Response({'status': 'deleted'})
+    _clear_refresh_cookie(response)
+    return response
 
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
+@throttle_classes([AuthRateThrottle])
 def change_password(request):
     old_pw = request.data.get('old_password', '')
     new_pw = request.data.get('new_password', '')
@@ -351,19 +475,28 @@ def change_password(request):
             {'error': 'old_password and new_password required'},
             status=status.HTTP_400_BAD_REQUEST,
         )
-    if len(new_pw) < 6:
-        return Response(
-            {'error': 'Password must be at least 6 characters'},
-            status=status.HTTP_400_BAD_REQUEST,
-        )
+    # Verify the current password before doing anything else.
     if not request.user.check_password(old_pw):
+        audit_event(request, 'password_change_failed')
         return Response(
             {'error': 'Current password is incorrect'},
             status=status.HTTP_400_BAD_REQUEST,
         )
+    # Enforce the project-wide password policy (length, common, numeric, …).
+    try:
+        validate_password(new_pw, user=request.user)
+    except DjangoValidationError as exc:
+        return Response(
+            {'error': ' '.join(exc.messages)},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
     request.user.set_password(new_pw)
     request.user.save()
-    return Response({'status': 'ok'})
+    audit_event(request, 'password_change_success')
+    _blacklist_user_refresh_tokens(request.user)
+    response = Response({'status': 'ok'})
+    _clear_refresh_cookie(response)
+    return response
 
 
 @api_view(['GET'])
@@ -628,6 +761,7 @@ def block_user(request):
 
     _push_block_event(str(user_id), 'blocked', str(request.user.id))
     _log_block_in_guilds(request.user, target, 'member_block')
+    audit_event(request, 'block_user', metadata={'target_user_id': str(target.id)})
 
     return Response(
         BlockedUserSerializer(
@@ -651,6 +785,7 @@ def unblock_user(request, user_id):
 
     _push_block_event(str(user_id), 'unblocked', str(request.user.id))
     _log_block_in_guilds(request.user, User.objects.filter(id=user_id).first(), 'member_unblock')
+    audit_event(request, 'unblock_user', metadata={'target_user_id': str(user_id)})
 
     return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -730,6 +865,7 @@ def device_remove(request, device_id):
             {'error': 'Device not found'},
             status=status.HTTP_404_NOT_FOUND,
         )
+    audit_event(request, 'device_remove', metadata={'device_id': str(device_id)})
     return Response(status=status.HTTP_204_NO_CONTENT)
 
 
@@ -949,6 +1085,7 @@ def data_export_request(request):
         return Response(_export_payload(existing, request))
 
     export = DataExport.objects.create(user=request.user, status='pending')
+    audit_event(request, 'data_export_request', metadata={'export_id': str(export.id)})
     thread = threading.Thread(
         target=_build_data_export,
         args=(str(export.id), str(request.user.id)),
@@ -977,6 +1114,7 @@ def data_export_download(request, export_id):
         raise Http404
     if export.status != 'ready' or not export.file:
         return Response({'error': 'not ready'}, status=status.HTTP_409_CONFLICT)
+    audit_event(request, 'data_export_download', metadata={'export_id': str(export.id)})
     response = FileResponse(
         export.file.open('rb'),
         as_attachment=True,

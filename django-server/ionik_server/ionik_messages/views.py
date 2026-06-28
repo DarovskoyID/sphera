@@ -1,5 +1,10 @@
 import uuid
+import os
+import shlex
+import subprocess
+import tempfile
 from datetime import timedelta
+from django.conf import settings
 from django.core.files.base import ContentFile
 from django.db.models import Q, Count
 from django.http import HttpResponse
@@ -17,6 +22,107 @@ from ionik_auth.models import BlockedUser
 from .voice_state import _voice_channels
 
 MAX_UPLOAD_SIZE = 50 * 1024 * 1024  # 50 MB
+MAX_ATTACHMENTS_PER_MESSAGE = 10
+BLOCKED_UPLOAD_TYPES = {
+    'application/javascript',
+    'application/x-javascript',
+    'image/svg+xml',
+    'text/html',
+    'text/javascript',
+}
+BLOCKED_UPLOAD_EXTENSIONS = {
+    '.bat', '.cmd', '.com', '.exe', '.hta', '.html', '.js', '.jse',
+    '.msi', '.ps1', '.scr', '.svg', '.vbs', '.wsf',
+}
+
+
+def _id_list(value):
+    if value in (None, ''):
+        return []
+    if isinstance(value, (str, int)):
+        value = [value]
+    if not isinstance(value, list) or len(value) > MAX_ATTACHMENTS_PER_MESSAGE:
+        raise ValueError('invalid attachment list')
+    result = []
+    for item in value:
+        try:
+            result.append(uuid.UUID(str(item)))
+        except (TypeError, ValueError) as exc:
+            raise ValueError('invalid attachment id') from exc
+    return result
+
+
+def _safe_upload(uploaded):
+    content_type = (uploaded.content_type or 'application/octet-stream').split(';', 1)[0].lower()
+    if content_type in BLOCKED_UPLOAD_TYPES:
+        return False, content_type
+    ext = os.path.splitext(uploaded.name or '')[1].lower()
+    if ext in BLOCKED_UPLOAD_EXTENSIONS:
+        return False, content_type
+    return True, content_type
+
+
+def _scan_upload(raw):
+    command = getattr(settings, 'UPLOAD_SCAN_COMMAND', '')
+    if not command:
+        return True
+    with tempfile.NamedTemporaryFile(delete=True) as tmp:
+        tmp.write(raw)
+        tmp.flush()
+        argv = shlex.split(command) + [tmp.name]
+        return subprocess.run(argv, check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
+
+
+def _dm_reply_or_error(convo, reply_to_id):
+    if not reply_to_id:
+        return None, None
+    try:
+        return Message.objects.get(id=reply_to_id, conversation=convo), None
+    except (ValueError, Message.DoesNotExist):
+        return None, Response({'error': 'invalid reply target'}, status=status.HTTP_400_BAD_REQUEST)
+
+
+def _guild_reply_or_error(channel, reply_to_id):
+    if not reply_to_id:
+        return None, None
+    try:
+        return GuildMessage.objects.get(id=reply_to_id, channel=channel), None
+    except (ValueError, GuildMessage.DoesNotExist):
+        return None, Response({'error': 'invalid reply target'}, status=status.HTTP_400_BAD_REQUEST)
+
+
+def _claim_dm_attachments(convo, user, attachment_ids, msg=None):
+    ids = _id_list(attachment_ids)
+    if not ids:
+        return []
+    qs = Attachment.objects.filter(
+        id__in=ids,
+        conversation=convo,
+        uploader=user,
+        message__isnull=True,
+    )
+    if qs.count() != len(set(ids)):
+        raise ValueError('invalid attachment')
+    if msg is not None:
+        qs.update(message=msg)
+    return ids
+
+
+def _claim_guild_attachments(channel, user, attachment_ids, msg=None):
+    ids = _id_list(attachment_ids)
+    if not ids:
+        return []
+    qs = GuildAttachment.objects.filter(
+        id__in=ids,
+        channel=channel,
+        uploader=user,
+        message__isnull=True,
+    )
+    if qs.count() != len(set(ids)):
+        raise ValueError('invalid attachment')
+    if msg is not None:
+        qs.update(message=msg)
+    return ids
 
 
 @api_view(['GET'])
@@ -146,8 +252,13 @@ def send_message(request, conversation_id):
     content = request.data.get('content', '').strip()
     attachment_ids = request.data.get('attachment_ids', [])
     reply_to_id = request.data.get('reply_to_id')
-    if isinstance(attachment_ids, int):
-        attachment_ids = [attachment_ids]
+    try:
+        attachment_ids = _claim_dm_attachments(convo, request.user, attachment_ids)
+    except ValueError:
+        return Response({'error': 'invalid attachment'}, status=status.HTTP_400_BAD_REQUEST)
+    reply_to, reply_error = _dm_reply_or_error(convo, reply_to_id)
+    if reply_error:
+        return reply_error
 
     if not content and not attachment_ids:
         return Response({'error': 'empty message'}, status=status.HTTP_400_BAD_REQUEST)
@@ -156,35 +267,32 @@ def send_message(request, conversation_id):
         conversation=convo,
         author=request.user,
         encrypted_content=encrypt_text(content),
-        reply_to_id=reply_to_id,
+        reply_to=reply_to,
     )
     if attachment_ids:
-        Attachment.objects.filter(id__in=attachment_ids).update(message=msg)
+        _claim_dm_attachments(convo, request.user, attachment_ids, msg)
 
     attachments_data = []
     if attachment_ids:
         attachments_data = list(
-            Attachment.objects.filter(message=msg).values('id', 'original_name', 'size')
+            Attachment.objects.filter(message=msg).values('id', 'original_filename', 'file_size', 'content_type')
         )
         for a in attachments_data:
             a['id'] = str(a['id'])
 
     reply_to_data = None
-    if reply_to_id:
-        try:
-            rt = Message.objects.select_related('author').get(id=reply_to_id)
-            reply_to_data = {
-                'id': str(rt.id),
-                'author': {
-                    'id': str(rt.author.id),
-                    'username': rt.author.username,
-                    'nickname': getattr(rt.author, 'nickname', '') or '',
-                    'avatar': rt.author.avatar.url if getattr(rt.author, 'avatar', None) else '',
-                },
-                'content': rt.content[:200],
-            }
-        except Message.DoesNotExist:
-            pass
+    if reply_to:
+        rt = reply_to
+        reply_to_data = {
+            'id': str(rt.id),
+            'author': {
+                'id': str(rt.author.id),
+                'username': rt.author.username,
+                'nickname': getattr(rt.author, 'nickname', '') or '',
+                'avatar': rt.author.avatar.url if getattr(rt.author, 'avatar', None) else '',
+            },
+            'content': rt.content[:200],
+        }
 
     user_data = {
         'id': str(request.user.id),
@@ -307,15 +415,20 @@ def upload_attachment(request, conversation_id):
 
     if uploaded.size > MAX_UPLOAD_SIZE:
         return Response({'error': 'file too large (max 50 MB)'}, status=status.HTTP_400_BAD_REQUEST)
+    ok, content_type = _safe_upload(uploaded)
+    if not ok:
+        return Response({'error': 'file type not allowed'}, status=status.HTTP_400_BAD_REQUEST)
 
     raw = uploaded.read()
+    if not _scan_upload(raw):
+        return Response({'error': 'file rejected by scanner'}, status=status.HTTP_400_BAD_REQUEST)
     encrypted = encrypt_bytes(raw)
 
     att = Attachment(
         conversation=convo,
         uploader=request.user,
         original_filename=uploaded.name,
-        content_type=uploaded.content_type or 'application/octet-stream',
+        content_type=content_type,
         file_size=len(raw),
     )
     att.file.save(f'{uuid.uuid4().hex}.enc', ContentFile(encrypted), save=True)
@@ -338,8 +451,9 @@ def download_attachment(request, attachment_id):
 
     response = HttpResponse(decrypted, content_type=att.content_type)
     filename = att.original_filename.replace('"', '\\"')
-    response['Content-Disposition'] = f'inline; filename="{filename}"'
+    response['Content-Disposition'] = f'attachment; filename="{filename}"'
     response['Content-Length'] = att.file_size
+    response['X-Content-Type-Options'] = 'nosniff'
     return response
 
 
@@ -372,6 +486,13 @@ def schedule_message(request, conversation_id):
     attachment_ids = request.data.get('attachment_ids', [])
     reply_to_id = request.data.get('reply_to_id')
     delay_seconds = int(request.data.get('delay_seconds', 0))
+    try:
+        attachment_ids = _claim_dm_attachments(convo, request.user, attachment_ids)
+    except ValueError:
+        return Response({'error': 'invalid attachment'}, status=status.HTTP_400_BAD_REQUEST)
+    reply_to, reply_error = _dm_reply_or_error(convo, reply_to_id)
+    if reply_error:
+        return reply_error
 
     if not content and not attachment_ids:
         return Response(
@@ -385,8 +506,8 @@ def schedule_message(request, conversation_id):
         author=request.user,
         encrypted_content=encrypt_text(content),
         send_at=send_at,
-        reply_to_id=reply_to_id,
-        attachment_ids=attachment_ids or [],
+        reply_to=reply_to,
+        attachment_ids=[str(item) for item in attachment_ids],
     )
 
     channel_layer = get_channel_layer()
@@ -420,6 +541,31 @@ def cancel_scheduled_message(request, scheduled_id):
 
 
 # ─────────────────────────── Guild (server) views ───────────────────────────
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def ws_authorize(request):
+    ws_type = request.data.get('type')
+    if ws_type == 'chat':
+        conversation_id = request.data.get('conversation_id')
+        try:
+            Conversation.objects.get(id=conversation_id, participants=request.user)
+        except (ValueError, Conversation.DoesNotExist):
+            return Response({'error': 'not found'}, status=status.HTTP_404_NOT_FOUND)
+        return Response({'ok': True})
+
+    if ws_type == 'guild_channel':
+        guild_id = request.data.get('guild_id')
+        channel_id = request.data.get('channel_id')
+        try:
+            GuildChannel.objects.get(id=channel_id, guild_id=guild_id)
+            GuildMembership.objects.get(guild_id=guild_id, user=request.user)
+        except (ValueError, GuildChannel.DoesNotExist, GuildMembership.DoesNotExist):
+            return Response({'error': 'not found'}, status=status.HTTP_404_NOT_FOUND)
+        return Response({'ok': True})
+
+    return Response({'error': 'invalid ws type'}, status=status.HTTP_400_BAD_REQUEST)
+
 
 def _log(guild, actor, action, target_id='', target_username='', details=None):
     GuildAuditLog.objects.create(
@@ -1216,15 +1362,20 @@ def guild_upload_attachment(request, guild_id, channel_id):
         return Response({'error': 'no file provided'}, status=status.HTTP_400_BAD_REQUEST)
     if uploaded.size > MAX_UPLOAD_SIZE:
         return Response({'error': 'file too large (max 50 MB)'}, status=status.HTTP_400_BAD_REQUEST)
+    ok, content_type = _safe_upload(uploaded)
+    if not ok:
+        return Response({'error': 'file type not allowed'}, status=status.HTTP_400_BAD_REQUEST)
 
     raw = uploaded.read()
+    if not _scan_upload(raw):
+        return Response({'error': 'file rejected by scanner'}, status=status.HTTP_400_BAD_REQUEST)
     encrypted = encrypt_bytes(raw)
 
     att = GuildAttachment(
         channel=channel,
         uploader=request.user,
         original_filename=uploaded.name,
-        content_type=uploaded.content_type or 'application/octet-stream',
+        content_type=content_type,
         file_size=len(raw),
     )
     att.file.save(f'{uuid.uuid4().hex}.enc', ContentFile(encrypted), save=True)
@@ -1253,8 +1404,9 @@ def guild_download_attachment(request, attachment_id):
 
     response = HttpResponse(decrypted, content_type=att.content_type)
     filename = att.original_filename.replace('"', '\\"')
-    response['Content-Disposition'] = f'inline; filename="{filename}"'
+    response['Content-Disposition'] = f'attachment; filename="{filename}"'
     response['Content-Length'] = att.file_size
+    response['X-Content-Type-Options'] = 'nosniff'
     return response
 
 
@@ -1272,6 +1424,13 @@ def guild_schedule_message(request, guild_id, channel_id):
     delay_seconds = int(request.data.get('delay_seconds', 60))
     attachment_ids = request.data.get('attachment_ids', [])
     reply_to_id = request.data.get('reply_to_id')
+    try:
+        attachment_ids = _claim_guild_attachments(channel, request.user, attachment_ids)
+    except ValueError:
+        return Response({'error': 'invalid attachment'}, status=status.HTTP_400_BAD_REQUEST)
+    reply_to, reply_error = _guild_reply_or_error(channel, reply_to_id)
+    if reply_error:
+        return reply_error
 
     if not content and not attachment_ids:
         return Response({'error': 'content or attachments required'}, status=status.HTTP_400_BAD_REQUEST)
@@ -1283,8 +1442,8 @@ def guild_schedule_message(request, guild_id, channel_id):
         author=request.user,
         encrypted_content=encrypt_text(content),
         send_at=send_at,
-        reply_to_id=reply_to_id,
-        attachment_ids=attachment_ids,
+        reply_to=reply_to,
+        attachment_ids=[str(item) for item in attachment_ids],
     )
 
     channel_layer = get_channel_layer()

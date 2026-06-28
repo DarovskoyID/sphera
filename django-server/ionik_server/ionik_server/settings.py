@@ -1,16 +1,45 @@
 import os
 from pathlib import Path
 from datetime import timedelta
+from django.core.exceptions import ImproperlyConfigured
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-SECRET_KEY = 'django-insecure-e_-am06**zcqtimkp^2))-uxv$k99wiv2svgs^o300#sgrt+b@'
 
-DEBUG = True
+def _env_bool(name, default=False):
+    val = os.environ.get(name)
+    if val is None:
+        return default
+    return val.strip().lower() in ('1', 'true', 'yes', 'on')
 
-ALLOWED_HOSTS = ['*']
+
+# ── Core secrets ─────────────────────────────────────────────────────────────
+# Secrets are read from the environment. The hardcoded fallbacks below exist only
+# so local development keeps working without setup; they are the (already leaked)
+# legacy values, so PRODUCTION MUST override them via env and they should be
+# rotated.
+# DEBUG defaults to OFF. Local dev opts in with IONIK_DEBUG=1.
+DEBUG = _env_bool('IONIK_DEBUG', False)
+
+_DEV_SECRET_KEY = 'ionik-local-development-secret-key-not-for-production'
+SECRET_KEY = os.environ.get('IONIK_SECRET_KEY') or (_DEV_SECRET_KEY if DEBUG else '')
+if not SECRET_KEY:
+    raise ImproperlyConfigured('IONIK_SECRET_KEY must be set when IONIK_DEBUG=0.')
+
+# Restrict the Host header. Defaults to localhost + the configured domain;
+# extend via IONIK_ALLOWED_HOSTS (comma-separated). '*' only if explicitly asked.
+ALLOWED_HOSTS = ['localhost', '127.0.0.1', '[::1]']
+_extra_hosts = os.environ.get('IONIK_ALLOWED_HOSTS', '')
+if _extra_hosts.strip() == '*':
+    ALLOWED_HOSTS = ['*']
+elif _extra_hosts:
+    ALLOWED_HOSTS.extend(h.strip() for h in _extra_hosts.split(',') if h.strip())
 
 IONIK_DOMAIN = os.environ.get('IONIK_DOMAIN', 'start-ionik.ru')
+# The production domain is always a valid Host.
+if IONIK_DOMAIN and IONIK_DOMAIN not in ALLOWED_HOSTS and ALLOWED_HOSTS != ['*']:
+    ALLOWED_HOSTS.append(IONIK_DOMAIN)
+
 IONIK_CSRF_ORIGINS = os.environ.get('IONIK_CSRF_ORIGINS', '')
 
 # When served over TLS the browser sends the Origin / Referer with https://.
@@ -29,6 +58,20 @@ if IONIK_CSRF_ORIGINS:
     )
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
+# ── Transport / browser hardening ────────────────────────────────────────────
+# Enforced only outside DEBUG so local HTTP development is unaffected.
+SECURE_CONTENT_TYPE_NOSNIFF = True
+SECURE_REFERRER_POLICY = 'same-origin'
+X_FRAME_OPTIONS = 'DENY'
+if not DEBUG:
+    SECURE_SSL_REDIRECT = _env_bool('IONIK_SSL_REDIRECT', True)
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    SESSION_COOKIE_HTTPONLY = True
+    SECURE_HSTS_SECONDS = int(os.environ.get('IONIK_HSTS_SECONDS', '31536000'))
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_HSTS_PRELOAD = True
+
 INSTALLED_APPS = [
     'daphne',
     'django.contrib.admin',
@@ -41,6 +84,7 @@ INSTALLED_APPS = [
     'rest_framework',
     'corsheaders',
     'channels',
+    'rest_framework_simplejwt.token_blacklist',
     # Local apps
     'ionik_auth',
     'ionik_messages',
@@ -51,6 +95,7 @@ MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
     'ionik_server.middleware.AppOnlyMiddleware',
     'django.middleware.security.SecurityMiddleware',
+    'ionik_server.middleware.SecurityHeadersMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -159,11 +204,29 @@ else:
 AUTH_USER_MODEL = 'ionik_auth.User'
 
 AUTH_PASSWORD_VALIDATORS = [
-    {'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator'},
+    {'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator'},
+    {
+        'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
+        'OPTIONS': {'min_length': 8},
+    },
+    {'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator'},
+    {'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator'},
 ]
 
-# CORS — allow React dev server and custom app header
-CORS_ALLOW_ALL_ORIGINS = True
+# CORS — locked down in production. In DEBUG any origin is allowed (React dev
+# server, Electron, mobile WebView). In production only the configured origins
+# are accepted, unless IONIK_CORS_ALLOW_ALL=1 is set as an escape hatch for
+# clients that send an unexpected Origin.
+if DEBUG or _env_bool('IONIK_CORS_ALLOW_ALL', False):
+    CORS_ALLOW_ALL_ORIGINS = True
+else:
+    CORS_ALLOW_ALL_ORIGINS = False
+    CORS_ALLOWED_ORIGINS = list(CSRF_TRUSTED_ORIGINS)
+    _cors_extra = os.environ.get('IONIK_CORS_ORIGINS', '')
+    if _cors_extra:
+        CORS_ALLOWED_ORIGINS.extend(
+            o.strip() for o in _cors_extra.split(',') if o.strip()
+        )
 CORS_ALLOW_HEADERS = [
     'accept',
     'accept-encoding',
@@ -176,22 +239,79 @@ CORS_ALLOW_HEADERS = [
     'x-requested-with',
     'x-ionik-client',
 ]
+CORS_ALLOW_CREDENTIALS = True
+
+CONTENT_SECURITY_POLICY = os.environ.get(
+    'IONIK_CONTENT_SECURITY_POLICY',
+    "default-src 'self'; "
+    "base-uri 'self'; "
+    "object-src 'none'; "
+    "frame-ancestors 'none'; "
+    "img-src 'self' data: blob: https:; "
+    "media-src 'self' blob: https:; "
+    "font-src 'self' data:; "
+    "style-src 'self' 'unsafe-inline'; "
+    "script-src 'self'; "
+    "connect-src 'self' https: http: ws: wss:; "
+    "form-action 'self'; "
+    "upgrade-insecure-requests"
+)
+UPLOAD_SCAN_COMMAND = os.environ.get('IONIK_UPLOAD_SCAN_COMMAND', '')
 
 # DRF
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'rest_framework_simplejwt.authentication.JWTAuthentication',
     ),
+    # Rate limiting to blunt brute-force / enumeration against auth endpoints.
+    'DEFAULT_THROTTLE_CLASSES': (
+        'rest_framework.throttling.AnonRateThrottle',
+        'rest_framework.throttling.UserRateThrottle',
+        'rest_framework.throttling.ScopedRateThrottle',
+    ),
+    'DEFAULT_THROTTLE_RATES': {
+        'anon': os.environ.get('IONIK_THROTTLE_ANON', '60/min'),
+        'user': os.environ.get('IONIK_THROTTLE_USER', '1000/min'),
+        # Tight bucket for credential / account-sensitive endpoints.
+        'auth': os.environ.get('IONIK_THROTTLE_AUTH', '10/min'),
+    },
 }
 
-# JWT
+# JWT access tokens are intentionally short-lived; the web client refreshes them
+# with /api/auth/refresh/ and retries authenticated requests once after 401.
 SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': timedelta(days=7),
-    'REFRESH_TOKEN_LIFETIME': timedelta(days=30),
+    'ACCESS_TOKEN_LIFETIME': timedelta(
+        minutes=int(os.environ.get('IONIK_ACCESS_TOKEN_MINUTES', '15'))
+    ),
+    'REFRESH_TOKEN_LIFETIME': timedelta(
+        days=int(os.environ.get('IONIK_REFRESH_TOKEN_DAYS', '14'))
+    ),
+    'ROTATE_REFRESH_TOKENS': True,
+    'BLACKLIST_AFTER_ROTATION': True,
+    'UPDATE_LAST_LOGIN': True,
 }
 
-# Fernet key for encrypting chat messages at rest
-MESSAGE_ENCRYPTION_KEY = 'B_jCzvYRndN90PQCee5x7RwE5R-AjJ_WN_m0d3beh1Q='
+REFRESH_COOKIE_NAME = os.environ.get('IONIK_REFRESH_COOKIE_NAME', 'ionik_refresh')
+REFRESH_COOKIE_PATH = os.environ.get('IONIK_REFRESH_COOKIE_PATH', '/api/auth/')
+REFRESH_COOKIE_SECURE = _env_bool('IONIK_REFRESH_COOKIE_SECURE', not DEBUG)
+REFRESH_COOKIE_SAMESITE = os.environ.get('IONIK_REFRESH_COOKIE_SAMESITE', 'Lax')
+
+# Fernet key for encrypting chat messages at rest. Production must set a real
+# key. DEBUG uses a stable, public dev-only key so local setup remains easy.
+_DEV_MESSAGE_KEY = 'wHWdqFBtktDisD5K62xhK5cWhYfYcTXwDZSF6xgeHJg='
+MESSAGE_ENCRYPTION_KEY = (
+    os.environ.get('IONIK_MESSAGE_ENCRYPTION_KEY')
+    or (_DEV_MESSAGE_KEY if DEBUG else '')
+)
+if not MESSAGE_ENCRYPTION_KEY:
+    raise ImproperlyConfigured(
+        'IONIK_MESSAGE_ENCRYPTION_KEY must be set when IONIK_DEBUG=0.'
+    )
+OLD_MESSAGE_ENCRYPTION_KEYS = [
+    key.strip()
+    for key in os.environ.get('IONIK_OLD_MESSAGE_ENCRYPTION_KEYS', '').split(',')
+    if key.strip()
+]
 
 # ==================== Email (sign-up verification) ====================
 # When SMTP credentials are supplied via the environment we send real mail;

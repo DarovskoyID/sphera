@@ -35,3 +35,10 @@ django-server/ionik_server/media/load-tests/loadtest.env
 
 # Mail secrets (Yandex SMTP creds) — НЕ коммитить
 .mail.env
+
+# Secrets — НЕ коммитить
+.env
+*.env
+!.mail.env.example
+django-server/ionik_server/serviceAccountKey.json
+serviceAccountKey.json

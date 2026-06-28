@@ -6,6 +6,8 @@ set "DJANGO_DIR=%~1"
 set "PYTHON=%~2"
 
 cd /d "%DJANGO_DIR%"
+:: Локальная разработка: DEBUG включён (как в run-daphne.bat).
+set IONIK_DEBUG=1
 
 :loop
 echo [ionik-kafka-worker] Starting kafka_worker ...

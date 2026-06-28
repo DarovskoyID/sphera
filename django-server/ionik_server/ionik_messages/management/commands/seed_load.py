@@ -610,7 +610,7 @@ class Command(BaseCommand):
             f'длительность {duration}с...')
         self.stdout.write(f'     сигналинг: {sig_url}')
 
-        # Нужно 2*I аккаунтов; логинимся через HTTP, получаем JWT (для ?token= в WS)
+        # Нужно 2*I аккаунтов; логинимся через HTTP, получаем JWT для WS subprotocol.
         need = 2 * I
         pool = list(User.objects.filter(username__startswith=USER_PREFIX)
                     .values_list('username', 'id')[:need])
@@ -713,8 +713,8 @@ class Command(BaseCommand):
                     pc_a.addTrack(_BlackVideo())
                     pc_b.addTrack(_BlackVideo())
 
-                ws_a = await websockets.connect(f'{sig_url}?token={a_tok}', ssl=ssl_ctx, max_size=None)
-                ws_b = await websockets.connect(f'{sig_url}?token={b_tok}', ssl=ssl_ctx, max_size=None)
+                ws_a = await websockets.connect(sig_url, ssl=ssl_ctx, max_size=None, subprotocols=['ionik.jwt', a_tok])
+                ws_b = await websockets.connect(sig_url, ssl=ssl_ctx, max_size=None, subprotocols=['ionik.jwt', b_tok])
 
                 # A → offer (setLocalDescription соберёт ICE, включая relay-кандидаты TURN)
                 await pc_a.setLocalDescription(await pc_a.createOffer())
@@ -900,7 +900,7 @@ class Command(BaseCommand):
             f'+    Живая нагрузка: {rate} сообщений/мин в течение {duration}с '
             f'(цель: {target}, маршрутов: {len(targets)}, до {max_conns} соединений) через {ws_base}')
 
-        # ── Логинимся за каждого уникального отправителя (получаем JWT для ?token=) ──
+        # ── Логинимся за каждого уникального отправителя (получаем JWT для WS subprotocol) ──
         # Параллельно: для каналов нужен владелец-участник КАЖДОГО канала, поэтому
         # уникальных аккаунтов может быть до rate_max_conns; последовательный логин
         # сотни аккаунтов (да ещё под нагрузкой БД) занимал бы минуты.
@@ -991,8 +991,9 @@ class Command(BaseCommand):
             # числится онлайн. websockets сам шлёт ping, соединение не отвалится.
             try:
                 async with websockets.connect(
-                        f'{sig_base}/ws/signaling/?token={token}',
-                        ssl=ssl_ctx, open_timeout=20, close_timeout=3) as ws:
+                        f'{sig_base}/ws/signaling/',
+                        ssl=ssl_ctx, open_timeout=20, close_timeout=3,
+                        subprotocols=['ionik.jwt', token]) as ws:
                     end = time.time() + duration
                     while time.time() < end:
                         try:
@@ -1025,9 +1026,10 @@ class Command(BaseCommand):
                 if ws is not None:
                     return ws
                 url, uname = targets[i][0], targets[i][1]
-                ws = await websockets.connect(f'{url}?token={tokens[uname]}',
+                ws = await websockets.connect(url,
                                               ssl=ssl_ctx, max_size=None,
-                                              open_timeout=20, close_timeout=3)
+                                              open_timeout=20, close_timeout=3,
+                                              subprotocols=['ionik.jwt', tokens[uname]])
                 conns[i] = ws
                 drains.append(asyncio.ensure_future(_drain(ws)))
                 return ws

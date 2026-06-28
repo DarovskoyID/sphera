@@ -1,4 +1,3 @@
-from urllib.parse import parse_qs
 from channels.middleware import BaseMiddleware
 from channels.db import database_sync_to_async
 from django.contrib.auth.models import AnonymousUser
@@ -32,6 +31,28 @@ class AppOnlyMiddleware:
         return self.get_response(request)
 
 
+class SecurityHeadersMiddleware:
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        from django.conf import settings
+
+        response = self.get_response(request)
+        headers = {
+            'Content-Security-Policy': getattr(settings, 'CONTENT_SECURITY_POLICY', ''),
+            'Permissions-Policy': 'camera=(self), microphone=(self), geolocation=(), payment=(), usb=()',
+            'Cross-Origin-Opener-Policy': 'same-origin',
+            'Referrer-Policy': 'strict-origin-when-cross-origin',
+            'X-Content-Type-Options': 'nosniff',
+            'X-Permitted-Cross-Domain-Policies': 'none',
+        }
+        for name, value in headers.items():
+            if value and name not in response:
+                response[name] = value
+        return response
+
+
 @database_sync_to_async
 def get_user_from_token(token_str):
     try:
@@ -41,14 +62,24 @@ def get_user_from_token(token_str):
         return AnonymousUser()
 
 
+def _token_from_subprotocols(scope):
+    protocols = scope.get('subprotocols') or []
+    try:
+        marker_index = protocols.index('ionik.jwt')
+    except ValueError:
+        return None
+    if marker_index + 1 < len(protocols):
+        return protocols[marker_index + 1]
+    return None
+
+
 class JWTAuthMiddleware(BaseMiddleware):
-    """Authenticate WebSocket connections via ?token=<jwt> query param."""
+    """Authenticate WebSocket connections via the ionik.jwt subprotocol."""
 
     async def __call__(self, scope, receive, send):
-        qs = parse_qs(scope.get('query_string', b'').decode())
-        token_list = qs.get('token', [])
-        if token_list:
-            scope['user'] = await get_user_from_token(token_list[0])
+        token = _token_from_subprotocols(scope)
+        if token:
+            scope['user'] = await get_user_from_token(token)
         else:
             scope['user'] = AnonymousUser()
         return await super().__call__(scope, receive, send)

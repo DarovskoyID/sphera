@@ -42,7 +42,11 @@ DOCKER_DIR="$PROJECT_ROOT/django-server"
 # Django (settings.py) откатится на sqlite.
 PG_DB="${IONIK_POSTGRES_DB:-ionik}"
 PG_USER="${IONIK_POSTGRES_USER:-ionik}"
-PG_PASSWORD="${IONIK_POSTGRES_PASSWORD:-ionikpg2026}"
+if [ -z "${IONIK_POSTGRES_PASSWORD:-}" ]; then
+    echo "ERROR: set IONIK_POSTGRES_PASSWORD to a strong random value before starting Ionik."
+    exit 1
+fi
+PG_PASSWORD="$IONIK_POSTGRES_PASSWORD"
 PG_HOST="${IONIK_POSTGRES_HOST:-127.0.0.1}"
 PG_PORT="${IONIK_POSTGRES_PORT:-5432}"
 # Elasticsearch: поиск по сообщениям. Host-процессы ходят на 127.0.0.1:9200.
@@ -650,7 +654,44 @@ ensure_swap() {
     echo "      swap enabled ($swap_size)."
 }
 
+ensure_secrets_file() {
+    # Секреты Django живут вне репозитория и кода: генерируются один раз и
+    # переживают передеплой. SECRET_KEY и STATUS_TOKEN можно безопасно
+    # ротировать (максимум — разовый релогин пользователей). Новые установки
+    # получают свежий ключ шифрования сообщений; существующие базы ротируются
+    # через manage.py rotate_message_encryption с прежним ключом в OLD_KEYS.
+    local secrets="/etc/ionik/secrets.env"
+    sudo install -d -m 0750 /etc/ionik
+    if [ ! -f "$secrets" ]; then
+        local sk st mk gp
+        sk="$(head -c 50 /dev/urandom | base64 | tr -d '\n')"
+        st="$(head -c 24 /dev/urandom | base64 | tr -d '/+=\n')"
+        mk="$(head -c 32 /dev/urandom | base64 | tr '+/' '-_' | tr -d '\n')"
+        gp="$(head -c 24 /dev/urandom | base64 | tr -d '/+=\n')"
+        sudo tee "$secrets" >/dev/null <<EOF
+# Сгенерировано автоматически $(date -u +%FT%TZ). НЕ коммитить.
+IONIK_SECRET_KEY=$sk
+IONIK_STATUS_TOKEN=$st
+# Ключ шифрования сообщений. Для существующей БД добавьте прежний ключ в
+# IONIK_OLD_MESSAGE_ENCRYPTION_KEYS, запустите rotate_message_encryption,
+# затем удалите старый ключ из OLD_KEYS.
+IONIK_MESSAGE_ENCRYPTION_KEY=$mk
+IONIK_OLD_MESSAGE_ENCRYPTION_KEYS=
+IONIK_ACCESS_TOKEN_MINUTES=15
+GRAFANA_PASSWORD=$gp
+EOF
+        sudo chmod 0640 "$secrets"
+        log "Сгенерированы секреты Django → $secrets (STATUS_TOKEN=$st)"
+    fi
+    if ! sudo grep -q '^GRAFANA_PASSWORD=' "$secrets"; then
+        local gp
+        gp="$(head -c 24 /dev/urandom | base64 | tr -d '/+=\n')"
+        echo "GRAFANA_PASSWORD=$gp" | sudo tee -a "$secrets" >/dev/null
+    fi
+}
+
 install_daphne_service() {
+    ensure_secrets_file
     # systemd-юнит вместо голого nohup: автоперезапуск при падении +
     # health-check таймер, который перезапускает Daphne, если он завис
     # (процесс жив, но не отвечает — именно так он «упал» в инциденте).
@@ -680,6 +721,12 @@ Wants=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=$DJANGO_DIR
+# Секреты (SECRET_KEY, STATUS_TOKEN, ключ шифрования) — из защищённого файла.
+EnvironmentFile=-/etc/ionik/secrets.env
+# Прод: DEBUG выключен, Host/Origin ограничены доменом, HTTPS-редирект включён.
+Environment=IONIK_DEBUG=0
+Environment=IONIK_DOMAIN=$DOMAIN
+Environment=IONIK_ALLOWED_HOSTS=$DOMAIN
 Environment=KAFKA_ENABLED=true
 Environment=POSTGRES_DB=$PG_DB
 Environment=POSTGRES_USER=$PG_USER
@@ -777,6 +824,12 @@ start_docker() {
     log "Starting Docker services (Redis, Kafka, ws-gateway, load balancer)"
     if command -v docker >/dev/null 2>&1; then
         cd "$DOCKER_DIR"
+        local jwt_secret grafana_password
+        jwt_secret="$(sudo awk -F= '$1=="IONIK_SECRET_KEY"{print $2; exit}' /etc/ionik/secrets.env)"
+        grafana_password="$(sudo awk -F= '$1=="GRAFANA_PASSWORD"{print $2; exit}' /etc/ionik/secrets.env)"
+        POSTGRES_PASSWORD="$PG_PASSWORD" \
+        GRAFANA_PASSWORD="$grafana_password" \
+        JWT_SECRET="$jwt_secret" \
         docker compose up -d --build \
             postgres elasticsearch redis kafka zookeeper kafka-init prometheus grafana alertmanager \
             ws-gateway loadbalancer
@@ -802,6 +855,7 @@ start_kafka_worker() {
     fi
 
     sudo install -d -m 0755 /var/log/ionik
+    ensure_secrets_file
 
     # Шаблонный юнит: N процессов воркера в ОДНОЙ consumer-группе Kafka. Брокер
     # раскидывает партиции между ними → параллельная запись в PG (потолок одного
@@ -815,6 +869,12 @@ Wants=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=$DJANGO_DIR
+# Секреты (SECRET_KEY, STATUS_TOKEN, ключ шифрования) — из защищённого файла.
+EnvironmentFile=-/etc/ionik/secrets.env
+# Прод: DEBUG выключен, Host/Origin ограничены доменом, HTTPS-редирект включён.
+Environment=IONIK_DEBUG=0
+Environment=IONIK_DOMAIN=$DOMAIN
+Environment=IONIK_ALLOWED_HOSTS=$DOMAIN
 Environment=KAFKA_ENABLED=true
 Environment=POSTGRES_DB=$PG_DB
 Environment=POSTGRES_USER=$PG_USER

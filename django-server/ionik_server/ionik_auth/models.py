@@ -169,6 +169,26 @@ class UserDevice(models.Model):
         return f"{self.user} - {self.device_name} ({self.ip_address})"
 
 
+class SecurityAuditLog(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='security_audit_logs',
+    )
+    event = models.CharField(max_length=80, db_index=True)
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
+    user_agent = models.TextField(blank=True, default='')
+    metadata = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        username = self.user.username if self.user else 'anonymous'
+        return f'{self.event} by {username}'
+
+
 class FcmToken(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='fcm_tokens')
     token = models.TextField(unique=True)

@@ -95,6 +95,15 @@ class ChatConsumer(AsyncWebsocketConsumer):
         if await self.is_blocked():
             return
 
+        attachment_ids = await self.validate_attachment_ids(attachment_ids)
+        if attachment_ids is None:
+            return
+        reply_to_data = None
+        if reply_to_id:
+            reply_to_data = await self.get_reply_data(reply_to_id)
+            if reply_to_data is None:
+                return
+
         # Generate message UUID up front so both Kafka and WS broadcast use the same ID
         msg_id = str(uuid.uuid4())
 
@@ -105,10 +114,6 @@ class ChatConsumer(AsyncWebsocketConsumer):
             attachments_data = []
             if attachment_ids:
                 attachments_data = await self.get_attachments_data(attachment_ids)
-            reply_to_data = None
-            if reply_to_id:
-                reply_to_data = await self.get_reply_data(reply_to_id)
-
             now = timezone.now().isoformat()
             msg_payload = {
                 'id': msg_id,
@@ -181,7 +186,6 @@ class ChatConsumer(AsyncWebsocketConsumer):
             if attachment_ids:
                 attachments_data = results[idx] if not isinstance(results[idx], Exception) else []
                 idx += 1
-            reply_to_data = None
             if reply_to_id:
                 reply_to_data = results[idx] if not isinstance(results[idx], Exception) else None
 
@@ -307,7 +311,12 @@ class ChatConsumer(AsyncWebsocketConsumer):
             reply_to=msg.reply_to,
         )
         if msg.attachment_ids:
-            Attachment.objects.filter(id__in=msg.attachment_ids).update(message=real_msg)
+            Attachment.objects.filter(
+                id__in=msg.attachment_ids,
+                conversation_id=self.conversation_id,
+                uploader=msg.author,
+                message__isnull=True,
+            ).update(message=real_msg)
 
         msg.is_sent = True
         msg.save(update_fields=['is_sent'])
@@ -329,7 +338,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
 
         attachments_data = []
         if msg.attachment_ids:
-            for att in Attachment.objects.filter(id__in=msg.attachment_ids):
+            for att in Attachment.objects.filter(id__in=msg.attachment_ids, message=real_msg):
                 attachments_data.append({
                     'id': str(att.id),
                     'filename': att.original_filename,
@@ -458,6 +467,28 @@ class ChatConsumer(AsyncWebsocketConsumer):
             return None
 
     @database_sync_to_async
+    def validate_attachment_ids(self, attachment_ids):
+        if not attachment_ids:
+            return []
+        if not isinstance(attachment_ids, list) or len(attachment_ids) > 10:
+            return None
+        try:
+            normalized = [str(uuid.UUID(str(item))) for item in attachment_ids]
+        except (TypeError, ValueError):
+            return None
+        found = set(
+            str(item) for item in Attachment.objects.filter(
+                id__in=normalized,
+                conversation_id=self.conversation_id,
+                uploader_id=self.user_data['id'],
+                message__isnull=True,
+            ).values_list('id', flat=True)
+        )
+        if found != set(normalized):
+            return None
+        return normalized
+
+    @database_sync_to_async
     def save_message(self, plaintext, attachment_ids=None, reply_to_id=None, msg_id=None):
         kwargs = dict(
             conversation_id=self.conversation_id,
@@ -469,7 +500,12 @@ class ChatConsumer(AsyncWebsocketConsumer):
             kwargs['id'] = msg_id
         msg = Message.objects.create(**kwargs)
         if attachment_ids:
-            Attachment.objects.filter(id__in=attachment_ids).update(message=msg)
+            Attachment.objects.filter(
+                id__in=attachment_ids,
+                conversation_id=self.conversation_id,
+                uploader_id=self.user_data['id'],
+                message__isnull=True,
+            ).update(message=msg)
         return str(msg.id)
 
 
@@ -565,6 +601,15 @@ class GuildChannelConsumer(AsyncWebsocketConsumer):
             await self.send(text_data=ujson.dumps({'type': 'error', 'message': 'Only the channel owner can post'}))
             return
 
+        attachment_ids = await self.validate_attachment_ids(attachment_ids)
+        if attachment_ids is None:
+            return
+        reply_to_data = None
+        if reply_to_id:
+            reply_to_data = await self.get_reply_data(reply_to_id)
+            if reply_to_data is None:
+                return
+
         msg_id = str(uuid.uuid4())
 
         if _kafka_enabled():
@@ -573,10 +618,6 @@ class GuildChannelConsumer(AsyncWebsocketConsumer):
             attachments_data = []
             if attachment_ids:
                 attachments_data = await self.get_attachments_data(attachment_ids)
-            reply_to_data = None
-            if reply_to_id:
-                reply_to_data = await self.get_reply_data(reply_to_id)
-
             msg_payload = {
                 'id': msg_id,
                 'author': self.user_data,
@@ -619,7 +660,6 @@ class GuildChannelConsumer(AsyncWebsocketConsumer):
         else:
             # Fallback: synchronous path
             saved_id = await self.save_message(content, reply_to_id, attachment_ids, msg_id)
-            reply_to_data = None
             if reply_to_id:
                 reply_to_data = await self.get_reply_data(reply_to_id)
             attachments_data = []
@@ -722,7 +762,10 @@ class GuildChannelConsumer(AsyncWebsocketConsumer):
         )
         if sched.attachment_ids:
             GuildAttachment.objects.filter(
-                id__in=sched.attachment_ids
+                id__in=sched.attachment_ids,
+                channel_id=self.channel_id,
+                uploader=sched.author,
+                message__isnull=True,
             ).update(message=real_msg)
         from .search_index import index_message
         index_message(real_msg)
@@ -745,7 +788,7 @@ class GuildChannelConsumer(AsyncWebsocketConsumer):
 
         attachments_data = []
         if sched.attachment_ids:
-            for att in GuildAttachment.objects.filter(id__in=sched.attachment_ids):
+            for att in GuildAttachment.objects.filter(id__in=sched.attachment_ids, message=real_msg):
                 attachments_data.append({
                     'id': str(att.id),
                     'filename': att.original_filename,
@@ -866,7 +909,12 @@ class GuildChannelConsumer(AsyncWebsocketConsumer):
             kwargs['id'] = msg_id
         msg = GuildMessage.objects.create(**kwargs)
         if attachment_ids:
-            GuildAttachment.objects.filter(id__in=attachment_ids).update(message=msg)
+            GuildAttachment.objects.filter(
+                id__in=attachment_ids,
+                channel_id=self.channel_id,
+                uploader_id=self.user_data['id'],
+                message__isnull=True,
+            ).update(message=msg)
         from .search_index import index_message
         index_message(msg)
         return str(msg.id)
@@ -899,6 +947,28 @@ class GuildChannelConsumer(AsyncWebsocketConsumer):
             }
         except GuildMessage.DoesNotExist:
             return None
+
+    @database_sync_to_async
+    def validate_attachment_ids(self, attachment_ids):
+        if not attachment_ids:
+            return []
+        if not isinstance(attachment_ids, list) or len(attachment_ids) > 10:
+            return None
+        try:
+            normalized = [str(uuid.UUID(str(item))) for item in attachment_ids]
+        except (TypeError, ValueError):
+            return None
+        found = set(
+            str(item) for item in GuildAttachment.objects.filter(
+                id__in=normalized,
+                channel_id=self.channel_id,
+                uploader_id=self.user_data['id'],
+                message__isnull=True,
+            ).values_list('id', flat=True)
+        )
+        if found != set(normalized):
+            return None
+        return normalized
 
 
 class GuildPresenceConsumer(AsyncWebsocketConsumer):

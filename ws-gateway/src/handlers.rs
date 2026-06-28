@@ -1,11 +1,11 @@
 use std::sync::Arc;
 use axum::{
-    extract::{Path, Query, State, WebSocketUpgrade, ws::{Message, WebSocket}},
+    extract::{Path, State, WebSocketUpgrade, ws::{Message, WebSocket}},
+    http::HeaderMap,
     response::IntoResponse,
     http::StatusCode,
 };
 use futures_util::{SinkExt, StreamExt};
-use serde::Deserialize;
 use serde_json::{json, Value};
 use tokio::sync::broadcast::error::RecvError;
 use uuid::Uuid;
@@ -15,9 +15,28 @@ use crate::auth;
 use crate::redis_pubsub;
 use crate::metrics;
 
-#[derive(Deserialize)]
-pub struct WsQuery {
-    token: String,
+fn token_from_headers(headers: &HeaderMap) -> Option<String> {
+    let raw = headers.get("sec-websocket-protocol")?.to_str().ok()?;
+    let protocols: Vec<&str> = raw.split(',').map(str::trim).collect();
+    let idx = protocols.iter().position(|p| *p == "ionik.jwt")?;
+    protocols.get(idx + 1).map(|token| token.to_string())
+}
+
+async fn authorize_ws(state: &AppState, token: &str, payload: Value) -> bool {
+    match state.http_client
+        .post(&state.django_authz_url)
+        .bearer_auth(token)
+        .header("X-Ionik-Client", "1")
+        .json(&payload)
+        .send()
+        .await
+    {
+        Ok(response) => response.status().is_success(),
+        Err(err) => {
+            tracing::warn!("Django WS authorization failed: {}", err);
+            false
+        }
+    }
 }
 
 // ── Chat WebSocket ──────────────────────────────────────────────────────────
@@ -25,15 +44,27 @@ pub struct WsQuery {
 pub async fn chat_ws(
     ws: WebSocketUpgrade,
     Path(conversation_id): Path<String>,
-    Query(query): Query<WsQuery>,
+    headers: HeaderMap,
     State(state): State<Arc<AppState>>,
 ) -> impl IntoResponse {
-    let claims = match auth::validate_token(&query.token, &state.jwt_secret) {
+    let token = token_from_headers(&headers);
+    let Some(token) = token else {
+        return StatusCode::UNAUTHORIZED.into_response();
+    };
+    let claims = match auth::validate_token(&token, &state.jwt_secret) {
         Some(c) => c,
         None => return StatusCode::UNAUTHORIZED.into_response(),
     };
+    if !authorize_ws(
+        &state,
+        &token,
+        json!({"type": "chat", "conversation_id": conversation_id.clone()}),
+    ).await {
+        return StatusCode::FORBIDDEN.into_response();
+    }
 
-    ws.on_upgrade(move |socket| handle_chat(socket, state, conversation_id, claims.user_id))
+    ws.protocols(["ionik.jwt"])
+        .on_upgrade(move |socket| handle_chat(socket, state, conversation_id, claims.user_id))
 }
 
 async fn handle_chat(socket: WebSocket, state: Arc<AppState>, conversation_id: String, user_id: String) {
@@ -184,15 +215,31 @@ async fn handle_chat_message(
 pub async fn guild_ws(
     ws: WebSocketUpgrade,
     Path((guild_id, channel_id)): Path<(String, String)>,
-    Query(query): Query<WsQuery>,
+    headers: HeaderMap,
     State(state): State<Arc<AppState>>,
 ) -> impl IntoResponse {
-    let claims = match auth::validate_token(&query.token, &state.jwt_secret) {
+    let token = token_from_headers(&headers);
+    let Some(token) = token else {
+        return StatusCode::UNAUTHORIZED.into_response();
+    };
+    let claims = match auth::validate_token(&token, &state.jwt_secret) {
         Some(c) => c,
         None => return StatusCode::UNAUTHORIZED.into_response(),
     };
+    if !authorize_ws(
+        &state,
+        &token,
+        json!({
+            "type": "guild_channel",
+            "guild_id": guild_id.clone(),
+            "channel_id": channel_id.clone(),
+        }),
+    ).await {
+        return StatusCode::FORBIDDEN.into_response();
+    }
 
-    ws.on_upgrade(move |socket| handle_guild(socket, state, guild_id, channel_id, claims.user_id))
+    ws.protocols(["ionik.jwt"])
+        .on_upgrade(move |socket| handle_guild(socket, state, guild_id, channel_id, claims.user_id))
 }
 
 async fn handle_guild(

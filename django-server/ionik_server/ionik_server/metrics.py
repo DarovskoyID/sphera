@@ -292,10 +292,23 @@ def _status_json(request):
     }
 
 
+# A strong shared secret protecting the status/metrics endpoints. When set it
+# REPLACES the weak, guessable date token (which exposed host/OS/disk/table
+# counts to anyone who knew today's date). When unset, the legacy date behaviour
+# is kept so existing dashboards do not break.
+_STATUS_TOKEN = os.environ.get('IONIK_STATUS_TOKEN', '').strip()
+
+
+def _status_token_ok(provided):
+    if _STATUS_TOKEN:
+        return provided == _STATUS_TOKEN
+    return provided == date.today().strftime('%Y-%m-%d')
+
+
 def status_page(request, date_token):
-    today = date.today().strftime('%Y-%m-%d')
-    if date_token != today:
+    if not _status_token_ok(date_token):
         return HttpResponse('Not Found', status=404)
+    today = date.today().strftime('%Y-%m-%d')
 
     if request.GET.get('format') == 'json':
         return JsonResponse(_status_json(request), json_dumps_params={'indent': 2, 'ensure_ascii': False})
@@ -532,9 +545,8 @@ def _is_internal(request):
 
 
 def prometheus_metrics(request):
-    today = date.today().strftime('%Y-%m-%d')
     token = request.GET.get('token', '')
-    if token != today and not _is_internal(request):
+    if not _status_token_ok(token) and not _is_internal(request):
         return HttpResponse('Forbidden', status=403)
 
     lines = []

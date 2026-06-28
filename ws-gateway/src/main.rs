@@ -15,6 +15,8 @@ pub struct AppState {
     pub kafka_producer: kafka::KafkaProducer,
     pub jwt_secret: String,
     pub redis_url: String,
+    pub django_authz_url: String,
+    pub http_client: reqwest::Client,
 }
 
 #[tokio::main]
@@ -25,10 +27,13 @@ async fn main() {
         .init();
 
     let jwt_secret = std::env::var("JWT_SECRET")
-        .unwrap_or_else(|_| "django-insecure-e_-am06**zcqtimkp^2))-uxv$k99wiv2svgs^o300#sgrt+b@".into());
+        .or_else(|_| std::env::var("IONIK_SECRET_KEY"))
+        .unwrap_or_else(|_| "ionik-local-development-secret-key-not-for-production".into());
     let redis_url = std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1:6379".into());
     let kafka_brokers = std::env::var("KAFKA_BOOTSTRAP_SERVERS").unwrap_or_else(|_| "localhost:9092".into());
     let bind_addr = std::env::var("WS_BIND").unwrap_or_else(|_| "0.0.0.0:8001".into());
+    let django_authz_url = std::env::var("DJANGO_WS_AUTHZ_URL")
+        .unwrap_or_else(|_| "http://127.0.0.1:8000/api/ws/authorize/".into());
 
     let kafka_producer = kafka::KafkaProducer::new(&kafka_brokers);
     let hub = hub::Hub::new();
@@ -38,6 +43,8 @@ async fn main() {
         kafka_producer,
         jwt_secret,
         redis_url: redis_url.clone(),
+        django_authz_url,
+        http_client: reqwest::Client::new(),
     });
 
     // Spawn Redis subscriber that fans out messages to connected WS clients

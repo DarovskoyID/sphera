@@ -7,6 +7,9 @@ set "DJANGO_DIR=%~1"
 set "PYTHON=%~2"
 
 cd /d "%DJANGO_DIR%"
+:: Локальная разработка: DEBUG включён (разрешает любые CORS-origin,
+:: отключает HTTPS-редирект). На проде DEBUG выключен по умолчанию.
+set IONIK_DEBUG=1
 "%PYTHON%" manage.py migrate --noinput
 
 :loop

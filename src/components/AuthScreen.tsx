@@ -37,6 +37,7 @@ export const AuthScreen = () => {
   const handleLogin = async () => {
     const res = await fetch(`${currentServerIP}/api/auth/login/`, {
       method: 'POST',
+      credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username: login, password }),
     });
@@ -51,6 +52,7 @@ export const AuthScreen = () => {
   const handleSendCode = async () => {
     const res = await fetch(`${currentServerIP}/api/auth/register/send-code/`, {
       method: 'POST',
+      credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username: login, email }),
     });
@@ -72,6 +74,7 @@ export const AuthScreen = () => {
 
     const res = await fetch(`${currentServerIP}/api/auth/register/`, {
       method: 'POST',
+      credentials: 'include',
       body: formData,
     });
     const data = await readResponse(res, { serverIP: currentServerIP });
