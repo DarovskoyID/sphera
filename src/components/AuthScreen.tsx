@@ -3,6 +3,7 @@ import { useApp } from '../context/AppContext';
 import { useTranslation } from '../i18n/useTranslation';
 import { languages, type LangCode } from '../i18n';
 import { ServerSelector } from './ServerSelector';
+import { CodeInput, CODE_LENGTH } from './CodeInput';
 import { readResponse, toUserMessage } from '../utils/errorManager';
 
 export const AuthScreen = () => {
@@ -235,23 +236,11 @@ export const AuthScreen = () => {
           )}
 
           {codeSent && (
-            <input
-              type="text"
-              inputMode="text"
-              autoFocus
-              placeholder={tr('auth_code')}
+            <CodeInput
               value={code}
-              onChange={e => setCode(e.target.value.toUpperCase())}
-              required
-              maxLength={6}
-              autoComplete="one-time-code"
-              style={{
-                ...inputStyle,
-                textAlign: 'center',
-                fontSize: 22,
-                letterSpacing: 8,
-                fontWeight: 600,
-              }}
+              onChange={setCode}
+              length={CODE_LENGTH}
+              disabled={loading}
             />
           )}
 
@@ -282,7 +271,7 @@ export const AuthScreen = () => {
 
           <button
             type="submit"
-            disabled={loading}
+            disabled={loading || (codeSent && code.trim().length < CODE_LENGTH)}
             style={{
               padding: '10px 14px',
               borderRadius: 'var(--radius-sm)',
@@ -291,8 +280,8 @@ export const AuthScreen = () => {
               color: '#fff',
               fontSize: 14,
               fontWeight: 600,
-              cursor: loading ? 'not-allowed' : 'pointer',
-              opacity: loading ? 0.7 : 1,
+              cursor: (loading || (codeSent && code.trim().length < CODE_LENGTH)) ? 'not-allowed' : 'pointer',
+              opacity: (loading || (codeSent && code.trim().length < CODE_LENGTH)) ? 0.7 : 1,
             }}
           >
             {loading ? '...' : codeSent ? tr('auth_confirm') : isRegister ? tr('auth_register') : tr('auth_login')}
