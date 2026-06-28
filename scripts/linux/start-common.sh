@@ -547,8 +547,37 @@ _write_email_dropin() {
     sudo chmod 600 "$EMAIL_DROPIN"
 }
 
+ensure_mail_env_template() {
+    local mail_env="$PROJECT_ROOT/.mail.env"
+    local example="$PROJECT_ROOT/.mail.env.example"
+
+    if [ -f "$mail_env" ]; then
+        chmod 600 "$mail_env" 2>/dev/null || true
+        return
+    fi
+
+    if [ -f "$example" ]; then
+        cp "$example" "$mail_env"
+    else
+        cat > "$mail_env" <<'EOF'
+# Yandex SMTP credentials for --mail yandex. Do not commit this file.
+IONIK_SMTP_USER=you@yandex.ru
+IONIK_SMTP_PASSWORD=app-specific-password
+IONIK_SMTP_FROM="Ionik <you@yandex.ru>"
+
+# Optional defaults for Yandex:
+# IONIK_SMTP_HOST=smtp.yandex.ru
+# IONIK_SMTP_PORT=465
+# IONIK_SMTP_SSL=true
+EOF
+    fi
+
+    chmod 600 "$mail_env" 2>/dev/null || true
+}
+
 start_mail() {
     # Креды Yandex — из необязательного gitignore-файла .mail.env (или окружения).
+    ensure_mail_env_template
     if [ -f "$PROJECT_ROOT/.mail.env" ]; then
         set -a; . "$PROJECT_ROOT/.mail.env"; set +a
     fi
@@ -558,6 +587,15 @@ start_mail() {
     local SMTP_USER="${IONIK_SMTP_USER:-}"
     local SMTP_PASS="${IONIK_SMTP_PASSWORD:-}"
     local SMTP_FROM="${IONIK_SMTP_FROM:-$SMTP_USER}"
+    if [ "$SMTP_USER" = "you@yandex.ru" ]; then
+        SMTP_USER=""
+    fi
+    if [ "$SMTP_PASS" = "app-specific-password" ]; then
+        SMTP_PASS=""
+    fi
+    if echo "$SMTP_FROM" | grep -q 'you@yandex.ru'; then
+        SMTP_FROM="$SMTP_USER"
+    fi
     local USE_TLS; USE_TLS=$([ "$SMTP_SSL" = "true" ] && echo false || echo true)
 
     case "$MAIL_MODE" in
@@ -567,7 +605,7 @@ start_mail() {
             block_smtp_out
             if [ -z "$SMTP_USER" ] || [ -z "$SMTP_PASS" ]; then
                 echo "      ВНИМАНИЕ: нет кред Yandex — письма отправляться НЕ будут."
-                echo "      Заполни $PROJECT_ROOT/.mail.env (см. .mail.env.example):"
+                echo "      Создан шаблон $PROJECT_ROOT/.mail.env — заполни его:"
                 echo "        IONIK_SMTP_USER=you@yandex.ru"
                 echo "        IONIK_SMTP_PASSWORD=<пароль приложения Яндекс>"
             fi
@@ -718,6 +756,32 @@ EOF
     PG_PASSWORD="$pg_password"
 }
 
+sync_postgres_password() {
+    if ! command -v docker >/dev/null 2>&1; then
+        return
+    fi
+
+    log "Syncing Postgres password for user $PG_USER"
+    cd "$DOCKER_DIR"
+    local i
+    for i in $(seq 1 60); do
+        if docker compose exec -T -u postgres postgres psql -U postgres -d postgres -c 'SELECT 1' >/dev/null 2>&1; then
+            docker compose exec -T -u postgres postgres \
+                psql -v ON_ERROR_STOP=1 -v db_user="$PG_USER" -v db_pass="$PG_PASSWORD" \
+                -U postgres -d postgres <<'SQL'
+ALTER USER :"db_user" WITH LOGIN PASSWORD :'db_pass';
+SQL
+            echo "      Postgres password synced."
+            return
+        fi
+        sleep 2
+    done
+
+    echo "ERROR: could not connect to Postgres as local superuser in 120s."
+    echo "Check it with: cd $DOCKER_DIR && docker compose ps postgres && docker compose logs --tail=100 postgres"
+    exit 1
+}
+
 wait_for_postgres() {
     if ! command -v docker >/dev/null 2>&1; then
         return
@@ -727,7 +791,8 @@ wait_for_postgres() {
     cd "$DOCKER_DIR"
     local i
     for i in $(seq 1 60); do
-        if docker compose exec -T postgres pg_isready -U "$PG_USER" -d "$PG_DB" >/dev/null 2>&1; then
+        if docker compose exec -T -e PGPASSWORD="$PG_PASSWORD" postgres \
+            psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U "$PG_USER" -d "$PG_DB" -c 'SELECT 1' >/dev/null 2>&1; then
             echo "      Postgres is ready."
             return
         fi
@@ -812,6 +877,7 @@ Environment=POSTGRES_PASSWORD=$PG_PASSWORD
 Environment=POSTGRES_HOST=$PG_HOST
 Environment=POSTGRES_PORT=$PG_PORT
 Environment=ELASTICSEARCH_URL=$ES_URL
+TimeoutStartSec=300
 ExecStartPre=$prestart
 ExecStart=$VENV/bin/daphne -b $DJANGO_BIND_HOST -p $DJANGO_PORT ionik_server.asgi:application
 Restart=always
@@ -918,6 +984,7 @@ start_docker() {
             ws-gateway loadbalancer
         echo "      Postgres, Elasticsearch, Redis, Kafka, ws-gateway, load balancer, alertmanager started."
         echo "      Load balancer: 127.0.0.1:$LB_LOCAL_PORT (edit ../loadbalancer/servers.conf to add nodes)."
+        sync_postgres_password
         wait_for_postgres
     else
         echo "      WARNING: Docker not found. Messages may be lost under high load."
