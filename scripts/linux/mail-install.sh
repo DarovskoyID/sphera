@@ -70,10 +70,16 @@ else
     log "DKIM-ключ уже существует — оставляю как есть."
 fi
 chown -R opendkim:opendkim /etc/opendkim
+# OpenDKIM отказывается грузить ключ, если каталог доступен на запись «чужим».
+chmod 750 /etc/opendkim "$(dirname "$KEYDIR")" "$KEYDIR"
 chmod 600 "${KEYDIR}/${DKIM_SELECTOR}.private"
 
 cat > /etc/opendkim.conf <<EOF
 Syslog                  yes
+# Без UserID демон работает под root (uid 0), а ключ принадлежит opendkim (uid 111).
+# OpenDKIM тогда считает ключ «небезопасным» (key data is not secure) и режет
+# письмо (milter-reject 4.7.1). Запускаем под opendkim — совпадает с владельцем ключа.
+UserID                  opendkim
 UMask                   002
 Mode                    sv
 SubDomains              no
