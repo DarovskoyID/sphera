@@ -764,6 +764,14 @@ write_compose_env() {
     grafana_password="$(sudo awk -F= '$1=="GRAFANA_PASSWORD"{print $2; exit}' /etc/ionik/secrets.env)"
     pg_password="$(sudo awk -F= '$1=="IONIK_POSTGRES_PASSWORD"{print $2; exit}' /etc/ionik/secrets.env)"
 
+    # ws-gateway (docker) авторизует WS-подключения HTTP-запросом в Django. Daphne
+    # слушает только 127.0.0.1:$DJANGO_PORT — из контейнера он НЕдоступен (даже через
+    # host.docker.internal, т.к. это docker-gateway IP, где Daphne не слушает). Поэтому
+    # ходим на публичный API-эндпоинт nginx (0.0.0.0:$API_PUBLIC_PORT), он доступен
+    # из контейнера и проксирует на Daphne. Схема http/https — по режиму запуска.
+    local authz_scheme; [ "$MODE" = ssl ] && authz_scheme=https || authz_scheme=http
+    local authz_url="$authz_scheme://$DOMAIN:$API_PUBLIC_PORT/api/ws/authorize/"
+
     local old_umask
     old_umask="$(umask)"
     umask 077
@@ -774,7 +782,7 @@ POSTGRES_USER=$PG_USER
 POSTGRES_PASSWORD=$pg_password
 GRAFANA_PASSWORD=$grafana_password
 JWT_SECRET=$jwt_secret
-DJANGO_WS_AUTHZ_URL=http://host.docker.internal:$DJANGO_PORT/api/ws/authorize/
+DJANGO_WS_AUTHZ_URL=$authz_url
 EOF
     umask "$old_umask"
     chmod 0600 "$f"

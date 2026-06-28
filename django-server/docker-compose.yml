@@ -170,7 +170,9 @@
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
       # Must match Django SECRET_KEY/IONIK_SECRET_KEY or ws-gateway will reject JWTs.
       JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET}
-      DJANGO_WS_AUTHZ_URL: ${DJANGO_WS_AUTHZ_URL:-http://host.docker.internal:8010/api/ws/authorize/}
+      # Daphne слушает 127.0.0.1 — из контейнера недоступен. Авторизуемся через
+      # публичный nginx API (см. start-common.sh::write_compose_env, пишет .env).
+      DJANGO_WS_AUTHZ_URL: ${DJANGO_WS_AUTHZ_URL:-https://start-ionik.ru:8000/api/ws/authorize/}
       WS_BIND: 0.0.0.0:8001
       RUST_LOG: info
     extra_hosts:
