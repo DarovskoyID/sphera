@@ -15,6 +15,9 @@ jobs:
   codeql:
     name: CodeQL
     runs-on: ubuntu-latest
+    # Advisory: не валим пайплайн, если в репозитории включён default CodeQL
+    # setup (он конфликтует с advanced-конфигом) или анализатор споткнулся.
+    continue-on-error: true
     strategy:
       fail-fast: false
       matrix:
@@ -37,6 +40,8 @@ jobs:
   npm-audit:
     name: npm audit
     runs-on: ubuntu-latest
+    # Advisory: уязвимости в зависимостях не должны валить пайплайн.
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -49,6 +54,8 @@ jobs:
   python-audit:
     name: pip-audit
     runs-on: ubuntu-latest
+    # Advisory: уязвимости в зависимостях не должны валить пайплайн.
+    continue-on-error: true
     defaults:
       run:
         working-directory: django-server

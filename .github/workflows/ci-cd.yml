@@ -78,8 +78,13 @@ jobs:
           DEPLOY_HOST: ${{ secrets.IONIK_DEPLOY_HOST }}
           DEPLOY_PORT: ${{ secrets.IONIK_DEPLOY_PORT }}
         run: |
-          test -n "$DEPLOY_KEY"
-          test -n "$DEPLOY_HOST"
+          # Деплой включён переменной, но если секреты не заданы — не валим
+          # пайплайн, а аккуратно пропускаем шаг.
+          if [ -z "$DEPLOY_KEY" ] || [ -z "$DEPLOY_HOST" ]; then
+            echo "::warning::IONIK_DEPLOY_KEY/HOST не заданы — деплой пропущен."
+            echo "DEPLOY_SKIP=1" >> "$GITHUB_ENV"
+            exit 0
+          fi
           port="${DEPLOY_PORT:-22}"
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
@@ -88,6 +93,7 @@ jobs:
           ssh-keyscan -p "$port" -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts
 
       - name: Deploy main on server
+        if: env.DEPLOY_SKIP != '1'
         env:
           DEPLOY_HOST: ${{ secrets.IONIK_DEPLOY_HOST }}
           DEPLOY_USER: ${{ secrets.IONIK_DEPLOY_USER }}
