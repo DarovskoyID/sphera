@@ -29,7 +29,7 @@ export const fr: Translations = {
   sacc_title: 'Accessibilité', sacc_desc: "Configurez les fonctions d'accessibilité.", sacc_contrast: 'Mode contraste élevé', sacc_reader: "Support lecteur d'écran",
   sbind_title: 'Raccourcis clavier', sbind_mute: 'Muet/Activer', sbind_deafen: 'Sourdine/Activer', sbind_ptt: 'Appuyer pour parler',
   sexp_title: 'Exporter et importer', sexp_desc: 'Sauvegardez et restaurez vos paramètres', sexp_export: 'Exporter les paramètres', sexp_export_desc: 'Télécharger les paramètres en JSON', sexp_import: 'Importer les paramètres', sexp_import_desc: 'Charger un fichier de paramètres exporté',
-  loading: 'Chargement...', error_network: 'Erreur réseau', error_unauthorized: 'Session expirée. Veuillez vous reconnecter.', error_forbidden: 'Accès refusé.', error_not_found: 'Ressource introuvable.', error_server: 'Erreur serveur. Veuillez réessayer plus tard.', server_channels_soon: 'Canaux de serveur bientôt disponibles',
+  loading: 'Chargement...', error_network: 'Erreur réseau', error_unauthorized: 'Session expirée. Veuillez vous reconnecter.', error_forbidden: 'Accès refusé.', error_not_found: 'Ressource introuvable.', error_server: 'Erreur serveur. Veuillez réessayer plus tard.', error_bad_response: 'Le serveur a renvoyé une réponse inattendue. Veuillez réessayer plus tard.', error_user_exists: 'Un utilisateur portant ce nom existe déjà.', error_invalid_credentials: 'Identifiant ou mot de passe invalide.', error_unknown: 'Une erreur est survenue. Veuillez réessayer.', server_channels_soon: 'Canaux de serveur bientôt disponibles',
 
   guild_create_server: 'Créer un serveur',
   guild_join_server: 'Rejoindre un serveur',

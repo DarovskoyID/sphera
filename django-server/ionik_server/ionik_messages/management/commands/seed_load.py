@@ -39,6 +39,7 @@
 Очистка ранее созданных тестовых данных (всё с префиксом loadtest_):
   python manage.py seed_load --purge
 """
+import os
 import random
 import time
 import uuid
@@ -156,14 +157,53 @@ class Command(BaseCommand):
 
     # ── purge ────────────────────────────────────────────────────────────────
 
+    def _delete_in_batches(self, base_qs, batch):
+        """Удаляет объекты queryset партиями по pk. Фильтр базового queryset идёт
+        по префиксу через JOIN (без больших IN), а сам DELETE ограничен batch'ем —
+        поэтому не упирается в лимит переменных sqlite ('too many SQL variables')
+        и не грузит всё в память. Работает и на sqlite, и на Postgres."""
+        model = base_qs.model
+        total = 0
+        while True:
+            pks = list(base_qs.values_list('pk', flat=True)[:batch])
+            if not pks:
+                break
+            total += model._base_manager.filter(pk__in=pks).delete()[0]
+        return total
+
+    def _purge_es(self):
+        """Удаляет поисковый индекс сообщений в Elasticsearch (если настроен)."""
+        url = os.environ.get('ELASTICSEARCH_URL')
+        if not url:
+            return 'пропущено (ELASTICSEARCH_URL не задан)'
+        try:
+            from elasticsearch import Elasticsearch
+            idx = os.environ.get('ELASTICSEARCH_INDEX', 'ionik_messages')
+            es = Elasticsearch(url, request_timeout=10)
+            if es.indices.exists(index=idx):
+                es.indices.delete(index=idx)
+                return f'индекс {idx} удалён'
+            return 'индекс отсутствовал'
+        except Exception as e:  # noqa: BLE001
+            return f'ошибка ({repr(e)[:80]})'
+
     def _purge(self):
         from ionik_auth.models import User
-        from ionik_messages.models import Guild
+        from ionik_messages.models import Guild, GuildMessage, Message
 
-        self.stdout.write('Удаление тестовых данных...')
-        g = Guild.objects.filter(name__startswith=GUILD_PREFIX).delete()
-        u = User.objects.filter(username__startswith=USER_PREFIX).delete()
-        self.stdout.write(self.style.SUCCESS(f'  Удалено серверов/связей: {g[0]}, пользователей/связей: {u[0]}'))
+        self.stdout.write('Удаление тестовых данных (партиями — безопасно для sqlite/Postgres)...')
+        # Сначала тяжёлые таблицы сообщений (это они переполняли лимит sqlite),
+        # потом серверы и пользователи малыми партиями (их каскад уже лёгкий).
+        gm = self._delete_in_batches(
+            GuildMessage.objects.filter(channel__guild__name__startswith=GUILD_PREFIX), 1000)
+        dm = self._delete_in_batches(
+            Message.objects.filter(author__username__startswith=USER_PREFIX), 1000)
+        g = self._delete_in_batches(Guild.objects.filter(name__startswith=GUILD_PREFIX), 200)
+        u = self._delete_in_batches(User.objects.filter(username__startswith=USER_PREFIX), 200)
+        es = self._purge_es()
+        self.stdout.write(self.style.SUCCESS(
+            f'  Удалено: guild-сообщений {gm}, ЛС {dm}, серверов/связей {g}, '
+            f'пользователей/связей {u}. ES: {es}'))
 
     # ── main ─────────────────────────────────────────────────────────────────
 

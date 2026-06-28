@@ -47,6 +47,9 @@ PG_HOST="${IONIK_POSTGRES_HOST:-127.0.0.1}"
 PG_PORT="${IONIK_POSTGRES_PORT:-5432}"
 # Elasticsearch: поиск по сообщениям. Host-процессы ходят на 127.0.0.1:9200.
 ES_URL="${IONIK_ELASTICSEARCH_URL:-http://127.0.0.1:9200}"
+# Число параллельных kafka_worker'ов (consumer-группа делит партиции между ними).
+# Один воркер упирался ~190 сообщ/с в PG; N≈числу ядер кратно поднимает потолок.
+WORKERS="${IONIK_WORKERS:-2}"
 
 while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -646,9 +649,13 @@ start_kafka_worker() {
     fi
 
     sudo install -d -m 0755 /var/log/ionik
-    sudo tee /etc/systemd/system/ionik-kafka-worker.service >/dev/null <<EOF
+
+    # Шаблонный юнит: N процессов воркера в ОДНОЙ consumer-группе Kafka. Брокер
+    # раскидывает партиции между ними → параллельная запись в PG (потолок одного
+    # воркера был ~190 сообщ/с). %i — номер инстанса.
+    sudo tee /etc/systemd/system/ionik-kafka-worker@.service >/dev/null <<EOF
 [Unit]
-Description=ionik Kafka worker (Django)
+Description=ionik Kafka worker #%i (Django)
 After=network-online.target docker.service
 Wants=network-online.target
 
@@ -672,10 +679,42 @@ StandardError=append:/var/log/ionik/kafka-worker.log
 WantedBy=multi-user.target
 EOF
 
+    # Убираем старый ОДИНОЧНЫЙ (не шаблонный) сервис, чтобы не было двойного потребления
+    sudo systemctl disable --now ionik-kafka-worker.service 2>/dev/null || true
+    sudo rm -f /etc/systemd/system/ionik-kafka-worker.service
+    sudo rm -rf /etc/systemd/system/ionik-kafka-worker.service.d
     sudo systemctl daemon-reload
-    sudo systemctl enable --now ionik-kafka-worker.service
-    sudo systemctl restart ionik-kafka-worker.service
-    echo "      Kafka worker under systemd: ionik-kafka-worker.service (log: /var/log/ionik/kafka-worker.log)"
+
+    # Гасим инстансы свыше N (если раньше запускали больше)
+    for u in $(systemctl list-units --all --no-legend 'ionik-kafka-worker@*.service' 2>/dev/null | awk '{print $1}'); do
+        idx="${u##*@}"; idx="${idx%.service}"
+        if [ -n "$idx" ] && [ "$idx" -gt "$WORKERS" ] 2>/dev/null; then
+            sudo systemctl disable --now "$u" 2>/dev/null || true
+        fi
+    done
+
+    local i
+    for i in $(seq 1 "$WORKERS"); do
+        sudo systemctl enable --now "ionik-kafka-worker@$i.service"
+        sudo systemctl restart "ionik-kafka-worker@$i.service"
+    done
+    echo "      Kafka workers under systemd: $WORKERS × ionik-kafka-worker@N (log: /var/log/ionik/kafka-worker.log)"
+}
+
+write_loadtest_env() {
+    # Нагрузочная команда (seed_load через load-tests/run.sh) ДОЛЖНА работать с той
+    # же БД/поиском, что и сервер. Пишем loadtest.env с PG/ES — иначе команда уйдёт
+    # в sqlite (другая БД → "no such table"/логин 0/N). Файл в .gitignore.
+    local f="$PROJECT_ROOT/load-tests/loadtest.env"
+    cat > "$f" <<EOF
+POSTGRES_DB=$PG_DB
+POSTGRES_USER=$PG_USER
+POSTGRES_PASSWORD=$PG_PASSWORD
+POSTGRES_HOST=$PG_HOST
+POSTGRES_PORT=$PG_PORT
+ELASTICSEARCH_URL=$ES_URL
+EOF
+    echo "      loadtest.env написан → нагрузочные тесты пойдут в Postgres/Elasticsearch."
 }
 
 echo "=== Starting ionik on Linux ($MODE) ==="
@@ -689,6 +728,7 @@ start_docker
 start_coturn
 start_django
 start_kafka_worker
+write_loadtest_env
 build_frontend
 start_nginx
 

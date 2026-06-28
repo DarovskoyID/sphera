@@ -297,6 +297,10 @@ export const en = {
   error_forbidden: 'Access denied.',
   error_not_found: 'Resource not found.',
   error_server: 'Server error. Please try again later.',
+  error_bad_response: 'The server returned an unexpected response. Please try again later.',
+  error_user_exists: 'A user with this name already exists.',
+  error_invalid_credentials: 'Invalid login or password.',
+  error_unknown: 'Something went wrong. Please try again.',
   server_channels_soon: 'Server channels coming soon',
 
   // Guild (server)

@@ -76,6 +76,12 @@ export const EmojiPicker: React.FC<Props> = ({ onSelect, onClose, anchorRef }) =
     return () => window.removeEventListener('resize', calcPos);
   }, [calcPos]);
 
+  useEffect(() => {
+    if (!isMobile) return;
+    const active = document.activeElement;
+    if (active instanceof HTMLElement) active.blur();
+  }, [isMobile]);
+
   // Tab bar: convert vertical wheel to horizontal scroll (non-passive so preventDefault works)
   useEffect(() => {
     const el = tabBarRef.current;
@@ -266,7 +272,7 @@ export const EmojiPicker: React.FC<Props> = ({ onSelect, onClose, anchorRef }) =
             onChange={e => setSearch(e.target.value)}
             placeholder={tr('emoji_search')}
             style={{ flex: 1, background: 'none', border: 'none', outline: 'none', fontSize: 13, color: 'inherit' }}
-            autoFocus
+            autoFocus={!isMobile}
           />
           {search && (
             <button onClick={() => setSearch('')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary, #888)', padding: 0, display: 'flex' }}>

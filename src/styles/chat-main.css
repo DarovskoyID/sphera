@@ -7,6 +7,7 @@
   flex-direction: column;
   background-color: var(--bg-chat);
   overflow: hidden;
+  position: relative;
   transition: background-color var(--transition-normal);
 }
 
@@ -83,6 +84,49 @@
   display: flex;
   flex-direction: column;
   gap: var(--chat-message-gap, 16px);
+}
+
+.scroll-to-bottom-btn {
+  position: absolute;
+  right: 24px;
+  bottom: 92px;
+  width: 44px;
+  height: 44px;
+  border: 1px solid var(--border-color);
+  border-radius: 50%;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  box-shadow: var(--shadow-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 20;
+  transition: transform var(--transition-fast), background-color var(--transition-fast), border-color var(--transition-fast);
+}
+
+.scroll-to-bottom-btn:hover {
+  transform: translateY(-1px);
+  background: var(--hover-bg);
+  border-color: var(--accent-primary);
+}
+
+.scroll-to-bottom-count {
+  position: absolute;
+  top: -7px;
+  right: -7px;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--accent-primary);
+  color: #fff;
+  border: 2px solid var(--bg-chat);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+  box-sizing: border-box;
 }
 
 /* Date Separator */

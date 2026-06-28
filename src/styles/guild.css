@@ -228,6 +228,7 @@
   flex-direction: column;
   overflow: hidden;
   min-width: 0;
+  position: relative;
 }
 
 .guild-chat-main .chat-header {

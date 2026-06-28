@@ -27,10 +27,45 @@ param(
     [switch]$WithVideo,
     [int]$Rate, [string]$Duration, [ValidateSet('guild', 'dm', 'both')][string]$RateTarget,
     [int]$Online, [int]$Calls,
-    [switch]$Purge
+    [switch]$Purge,
+    [switch]$Help
 )
 
 $ErrorActionPreference = 'Stop'
+
+if ($Help) {
+    @'
+Генератор тестовой нагрузки ionik.
+
+ИСПОЛЬЗОВАНИЕ:
+  .\run.ps1 <профиль> [-Purge]
+  .\run.ps1 rate [-Rate N -Duration 2m -RateTarget both -Online N -Calls N -CallDuration 2m]
+  .\run.ps1 -Help
+
+ПРОФИЛИ: light | medium | high | custom | rate
+  light/medium/high  сидируют БД (аккаунты/серверы/каналы/сообщения)
+  custom             интерактивный ввод чисел
+  rate               живая нагрузка по ставке на готовых данных
+
+ПАРАМЕТРЫ rate:
+  -Rate N            сообщений/мин (600)
+  -Duration 2m       длительность (30s/5m/1h)
+  -RateTarget both   guild | dm | both
+  -Online N          держать N онлайн-юзеров (presence)
+  -Calls N           реальных WebRTC-звонков через TURN
+  -CallDuration 2m   длительность звонков
+  -BaseUrl URL       адрес сервера (https://127.0.0.1:8000)
+  -Purge             сначала удалить старые тестовые данные
+
+ПРИМЕРЫ:
+  .\run.ps1 light
+  .\run.ps1 medium -Purge
+  .\run.ps1 rate -Rate 600 -Duration 2m -RateTarget both
+  .\run.ps1 rate -Online 50 -Rate 600 -Duration 2m -Calls 5 -CallDuration 2m
+'@ | Write-Host
+    exit 0
+}
+
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 
 # Ищем manage.py — расположение load-tests может отличаться на разных машинах

@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback, useLayoutEffect, useMemo } from 'react';
-import { Hash, Send, Pin, Trash2, CornerUpLeft, Plus, MoreHorizontal, X, Download, FileText, FileImage, FileVideo, FileAudio, File, ChevronLeft, Reply, Copy, Flag, Clock, Ban, UserX, VolumeX, Volume1, User } from 'lucide-react';
+import { Hash, Send, Pin, Trash2, CornerUpLeft, Plus, MoreHorizontal, X, Download, FileText, FileImage, FileVideo, FileAudio, File, ChevronLeft, ChevronDown, Reply, Copy, Flag, Clock, Ban, UserX, VolumeX, Volume1, User } from 'lucide-react';
 import { useApp, reportError } from '../context/AppContext';
 import { useTranslation } from '../i18n/useTranslation';
 import { MessageText } from './EmojiPicker';
@@ -377,9 +377,13 @@ export const GuildChatMain: React.FC = () => {
   const bottomRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const prevLenRef = useRef(0);
+  const wasAtBottom = useRef(true);
+  const loadingOlderRef = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pickerButtonRef = useRef<HTMLButtonElement>(null);
   const stickerSendGuard = useRef(false);
+  const [atBottom, setAtBottom] = useState(true);
+  const [newCount, setNewCount] = useState(0);
 
   // Local draft (text + files) per channel — survives switching channels.
   const draftScope = currentGuildChannel?.id ? `gc_${currentGuildChannel.id}` : '';
@@ -399,16 +403,42 @@ export const GuildChatMain: React.FC = () => {
     });
   }, [draftScope]);
 
+  const scrollToBottom = useCallback(() => {
+    const el = listRef.current;
+    if (!el) return;
+    el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
+    wasAtBottom.current = true;
+    setAtBottom(true);
+    setNewCount(0);
+  }, []);
+
   useEffect(() => {
-    if (guildMessages.length > prevLenRef.current) {
-      bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }
+    const el = listRef.current;
+    if (!el) return;
+    const isInitialLoad = prevLenRef.current === 0;
+    const added = guildMessages.length - prevLenRef.current;
     prevLenRef.current = guildMessages.length;
+    if (added <= 0 || loadingOlderRef.current) return;
+
+    if (isInitialLoad) {
+      el.scrollTop = el.scrollHeight;
+      wasAtBottom.current = true;
+      setAtBottom(true);
+      setNewCount(0);
+      return;
+    }
+
+    wasAtBottom.current = false;
+    setAtBottom(false);
+    setNewCount(c => c + added);
   }, [guildMessages.length]);
 
   useEffect(() => {
     setHasMore(true);
     prevLenRef.current = 0;
+    wasAtBottom.current = true;
+    setAtBottom(true);
+    setNewCount(0);
     setScheduledItems([]);
     setTimeout(() => bottomRef.current?.scrollIntoView(), 50);
   }, [currentGuildChannel?.id]);
@@ -477,12 +507,30 @@ export const GuildChatMain: React.FC = () => {
   }, [currentGuild, kickMember, blockUser]);
 
   const handleScroll = useCallback(async () => {
-    if (!listRef.current || loadingOlder || !hasMore) return;
-    if (listRef.current.scrollTop < 100) {
+    const el = listRef.current;
+    if (!el) return;
+
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    wasAtBottom.current = nearBottom;
+    setAtBottom(nearBottom);
+    if (nearBottom) setNewCount(0);
+
+    if (loadingOlderRef.current || loadingOlder || !hasMore) return;
+    if (el.scrollTop < 100) {
+      loadingOlderRef.current = true;
       setLoadingOlder(true);
-      const more = await loadOlderGuildMessages();
-      if (!more) setHasMore(false);
-      setLoadingOlder(false);
+      const prevHeight = el.scrollHeight;
+      try {
+        const more = await loadOlderGuildMessages();
+        if (!more) setHasMore(false);
+        requestAnimationFrame(() => {
+          const current = listRef.current;
+          if (current) current.scrollTop = current.scrollHeight - prevHeight;
+        });
+      } finally {
+        loadingOlderRef.current = false;
+        setLoadingOlder(false);
+      }
     }
   }, [loadingOlder, hasMore, loadOlderGuildMessages]);
 
@@ -679,7 +727,16 @@ export const GuildChatMain: React.FC = () => {
         <button
           className="mobile-back-btn"
           style={{ display: 'none', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', padding: '0 6px 0 0', alignItems: 'center' }}
-          onClick={() => setMobileActivePanel('guild-channels')}
+          onPointerDown={e => {
+            e.preventDefault();
+            e.stopPropagation();
+            setMobileActivePanel('guild-channels');
+          }}
+          onClick={e => {
+            e.preventDefault();
+            e.stopPropagation();
+            setMobileActivePanel('guild-channels');
+          }}
         >
           <ChevronLeft size={22} />
         </button>
@@ -725,6 +782,17 @@ export const GuildChatMain: React.FC = () => {
         </div>
         <div ref={bottomRef} />
       </div>
+      {(!atBottom || newCount > 0) && (
+        <button
+          className="scroll-to-bottom-btn"
+          onClick={scrollToBottom}
+          title="Scroll to bottom"
+          aria-label={newCount > 0 ? `Scroll to ${newCount} new messages` : 'Scroll to bottom'}
+        >
+          <ChevronDown size={20} />
+          {newCount > 0 && <span className="scroll-to-bottom-count">{newCount}</span>}
+        </button>
+      )}
 
       {/* Scheduled items */}
       {scheduledItems.map(item => {

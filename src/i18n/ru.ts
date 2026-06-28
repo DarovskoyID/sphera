@@ -272,6 +272,10 @@ export const ru: Translations = {
   error_forbidden: 'Доступ запрещён.',
   error_not_found: 'Ресурс не найден.',
   error_server: 'Ошибка сервера. Попробуйте позже.',
+  error_bad_response: 'Сервер вернул неожиданный ответ. Попробуйте позже.',
+  error_user_exists: 'Пользователь с таким именем уже существует.',
+  error_invalid_credentials: 'Неверный логин или пароль.',
+  error_unknown: 'Что-то пошло не так. Попробуйте ещё раз.',
   server_channels_soon: 'Каналы серверов скоро',
 
   guild_create_server: 'Создать сервер',

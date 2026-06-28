@@ -7,6 +7,7 @@ import { saveA11yPrefs, announce as announceA11y, type A11yPrefs } from '../util
 import { saveDisplayPrefs } from '../utils/displayPrefs';
 import { setAllowScale } from '../utils/nativeBridge';
 import { deviceQuery } from '../utils/device';
+import { toUserMessage, readResponse, setErrorLang } from '../utils/errorManager';
 
 
 // ── Inject X-Ionik-Client header into every fetch ────────────────────────────
@@ -36,25 +37,24 @@ function _dispatch(msg: string) {
 }
 
 export function reportError(e: unknown) {
-  const msg = e instanceof Error ? e.message : String(e ?? 'Unknown error');
-  _dispatch(msg);
+  // Everything funnels through the error manager: raw technical messages are
+  // localised and the main server's address is stripped before display.
+  _dispatch(toUserMessage(e));
 }
 
 console.error = (...args: unknown[]) => {
-  const msg = args.map(a => (a instanceof Error ? a.message : String(a))).join(' ');
-  _dispatch(msg);
+  const raw = args.map(a => (a instanceof Error ? a.message : String(a))).join(' ');
+  _dispatch(toUserMessage(raw));
 };
 
 // Intercept uncaught errors
 window.addEventListener('error', (e) => {
-  _dispatch(e.message || String(e));
+  _dispatch(toUserMessage(e.error ?? e.message ?? e));
 });
 
 // Intercept unhandled promise rejections
 window.addEventListener('unhandledrejection', (e) => {
-  const reason = e.reason;
-  const msg = reason instanceof Error ? reason.message : String(reason ?? 'Unhandled rejection');
-  _dispatch(msg);
+  _dispatch(toUserMessage(e.reason ?? 'Unhandled rejection'));
 });
 
 // ── Parse call message content ───────────────────────────────────────────────
@@ -317,6 +317,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
   }, [addToast]);
 
   const chatWs = useRef<WebSocket | null>(null);
+  const lastGuildChatBackRef = useRef<{ channelId: string | null; at: number }>({ channelId: null, at: 0 });
   const chatLastMsgId = useRef<string | null>(null);
   const [chatReinitTrigger, setChatReinitTrigger] = useState(0);
 
@@ -342,9 +343,8 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     const res = await fetch(`${serverIP}${path}`, {
       headers: { 'Authorization': `Bearer ${token}` },
     });
-    if (!res.ok) handleAuthError(res.status);
-    return res.json();
-  }, [handleAuthError]);
+    return readResponse(res, { serverIP, onUnauthorized: logout });
+  }, [logout]);
 
   const apiPost = useCallback(async (path: string, token: string, serverIP: string, body: any) => {
     const res = await fetch(`${serverIP}${path}`, {
@@ -352,17 +352,8 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
-    if (!res.ok) {
-      if (res.status === 401) { logout(); throw new Error('error_unauthorized'); }
-      const data = await res.json().catch(() => null);
-      if (data && typeof data === 'object') {
-        const msg = Object.values(data).flat().join(', ');
-        if (msg) throw new Error(msg);
-      }
-      handleAuthError(res.status);
-    }
-    return res.json();
-  }, [handleAuthError, logout]);
+    return readResponse(res, { serverIP, onUnauthorized: logout });
+  }, [logout]);
 
   // ==================== Load user info after login ====================
   useEffect(() => {
@@ -2215,6 +2206,12 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       if (prev.currentGuildChannel?.id !== channel.id) {
         _connectGuildWs(prev.currentGuild, channel, prev.authToken, prev.currentServerIP);
       }
+      const isSameChannel = prev.currentGuildChannel?.id === channel.id;
+      const recentBackToList =
+        prev.mobileActivePanel === 'guild-channels' &&
+        lastGuildChatBackRef.current.channelId === channel.id &&
+        Date.now() - lastGuildChatBackRef.current.at < 900;
+      if (isSameChannel && recentBackToList) return prev;
       return { ...prev, currentGuildChannel: channel, guildMessages: prev.currentGuildChannel?.id === channel.id ? prev.guildMessages : [], mobileActivePanel: 'guild-chat' as MobilePanel };
     });
   }, [_connectGuildWs]);
@@ -2446,6 +2443,9 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
   useEffect(() => { localStorage.setItem('messengerCurrentChat', state.currentChat); }, [state.currentChat]);
   useEffect(() => { localStorage.setItem('messengerCurrentChannel', state.currentChannel); }, [state.currentChannel]);
   useEffect(() => { localStorage.setItem('messengerLanguage', state.language); }, [state.language]);
+  // Keep the (non-React) error manager in sync with the active language so
+  // globally-reported errors are localised too.
+  useEffect(() => { setErrorLang(state.language); }, [state.language]);
 
   // ==================== Cleanup on page refresh/close ====================
   useEffect(() => {
@@ -2499,7 +2499,12 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     localStorage.setItem('messengerLanguage', lang);
   };
   const toggleMobileSidebar = () => setState(prev => ({ ...prev, isMobileSidebarOpen: !prev.isMobileSidebarOpen }));
-  const setMobileActivePanel = (panel: MobilePanel) => setState(prev => ({ ...prev, mobileActivePanel: panel }));
+  const setMobileActivePanel = (panel: MobilePanel) => setState(prev => {
+    if (panel === 'guild-channels') {
+      lastGuildChatBackRef.current = { channelId: prev.currentGuildChannel?.id ?? null, at: Date.now() };
+    }
+    return { ...prev, mobileActivePanel: panel };
+  });
   const setCallActive = (active: boolean) => {
     if (active && voiceWs.current) {
       voiceWs.current.close();

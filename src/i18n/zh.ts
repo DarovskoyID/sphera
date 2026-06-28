@@ -29,7 +29,7 @@ export const zh: Translations = {
   sacc_title: '无障碍', sacc_desc: '配置无障碍功能以提高可用性。', sacc_contrast: '高对比度模式', sacc_reader: '屏幕阅读器支持',
   sbind_title: '快捷键', sbind_mute: '静音/取消静音', sbind_deafen: '全部静音/取消', sbind_ptt: '按键说话',
   sexp_title: '导出与导入', sexp_desc: '备份和恢复你的设置', sexp_export: '导出设置', sexp_export_desc: '将设置下载为JSON文件', sexp_import: '导入设置', sexp_import_desc: '上传之前导出的设置文件',
-  loading: '加载中...', error_network: '网络错误', error_unauthorized: '会话已过期，请重新登录。', error_forbidden: '访问被拒绝。', error_not_found: '资源未找到。', error_server: '服务器错误，请稍后重试。', server_channels_soon: '服务器频道即将推出',
+  loading: '加载中...', error_network: '网络错误', error_unauthorized: '会话已过期，请重新登录。', error_forbidden: '访问被拒绝。', error_not_found: '资源未找到。', error_server: '服务器错误，请稍后重试。', error_bad_response: '服务器返回了意外的响应，请稍后重试。', error_user_exists: '该名称的用户已存在。', error_invalid_credentials: '登录名或密码无效。', error_unknown: '出了点问题，请重试。', server_channels_soon: '服务器频道即将推出',
 
   guild_create_server: '创建服务器',
   guild_join_server: '加入服务器',

@@ -29,7 +29,7 @@ export const es: Translations = {
   sacc_title: 'Accesibilidad', sacc_desc: 'Configura funciones de accesibilidad.', sacc_contrast: 'Modo de alto contraste', sacc_reader: 'Soporte de lector de pantalla',
   sbind_title: 'Atajos de teclado', sbind_mute: 'Silenciar/Activar', sbind_deafen: 'Ensord./Desensord.', sbind_ptt: 'Pulsar para hablar',
   sexp_title: 'Exportar e importar', sexp_desc: 'Copia de seguridad y restauración', sexp_export: 'Exportar ajustes', sexp_export_desc: 'Descargar ajustes como archivo JSON', sexp_import: 'Importar ajustes', sexp_import_desc: 'Cargar un archivo de ajustes exportado',
-  loading: 'Cargando...', error_network: 'Error de red', error_unauthorized: 'Sesión expirada. Por favor, inicie sesión de nuevo.', error_forbidden: 'Acceso denegado.', error_not_found: 'Recurso no encontrado.', error_server: 'Error del servidor. Inténtelo más tarde.', server_channels_soon: 'Canales de servidor próximamente',
+  loading: 'Cargando...', error_network: 'Error de red', error_unauthorized: 'Sesión expirada. Por favor, inicie sesión de nuevo.', error_forbidden: 'Acceso denegado.', error_not_found: 'Recurso no encontrado.', error_server: 'Error del servidor. Inténtelo más tarde.', error_bad_response: 'El servidor devolvió una respuesta inesperada. Inténtelo más tarde.', error_user_exists: 'Ya existe un usuario con este nombre.', error_invalid_credentials: 'Usuario o contraseña no válidos.', error_unknown: 'Algo salió mal. Inténtelo de nuevo.', server_channels_soon: 'Canales de servidor próximamente',
 
   guild_create_server: 'Crear servidor',
   guild_join_server: 'Unirse al servidor',

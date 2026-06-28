@@ -29,7 +29,7 @@ export const pt: Translations = {
   sacc_title: 'Acessibilidade', sacc_desc: 'Configure recursos de acessibilidade.', sacc_contrast: 'Modo de alto contraste', sacc_reader: 'Suporte a leitor de tela',
   sbind_title: 'Atalhos de teclado', sbind_mute: 'Mutar/Desmutar', sbind_deafen: 'Ensurd./Desensurd.', sbind_ptt: 'Pressione para falar',
   sexp_title: 'Exportar e importar', sexp_desc: 'Faça backup e restaure suas configurações', sexp_export: 'Exportar configurações', sexp_export_desc: 'Baixar configurações como arquivo JSON', sexp_import: 'Importar configurações', sexp_import_desc: 'Carregar um arquivo de configurações exportado',
-  loading: 'Carregando...', error_network: 'Erro de rede', error_unauthorized: 'Sessão expirada. Por favor, faça login novamente.', error_forbidden: 'Acesso negado.', error_not_found: 'Recurso não encontrado.', error_server: 'Erro do servidor. Tente novamente mais tarde.', server_channels_soon: 'Canais de servidor em breve',
+  loading: 'Carregando...', error_network: 'Erro de rede', error_unauthorized: 'Sessão expirada. Por favor, faça login novamente.', error_forbidden: 'Acesso negado.', error_not_found: 'Recurso não encontrado.', error_server: 'Erro do servidor. Tente novamente mais tarde.', error_bad_response: 'O servidor retornou uma resposta inesperada. Tente novamente mais tarde.', error_user_exists: 'Já existe um usuário com este nome.', error_invalid_credentials: 'Login ou senha inválidos.', error_unknown: 'Algo deu errado. Tente novamente.', server_channels_soon: 'Canais de servidor em breve',
 
   guild_create_server: 'Criar servidor',
   guild_join_server: 'Entrar no servidor',

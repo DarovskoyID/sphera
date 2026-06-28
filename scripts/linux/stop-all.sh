@@ -27,6 +27,10 @@ echo "      Stopped."
 echo "[2/5] Stopping Kafka worker ..."
 if command -v systemctl >/dev/null 2>&1; then
     sudo systemctl stop ionik-kafka-worker.service 2>/dev/null || true
+    # Шаблонные инстансы (параллельные воркеры)
+    for u in $(systemctl list-units --all --no-legend 'ionik-kafka-worker@*.service' 2>/dev/null | awk '{print $1}'); do
+        sudo systemctl stop "$u" 2>/dev/null || true
+    done
 fi
 if [ -f "$KAFKA_PID_FILE" ] && kill -0 "$(cat "$KAFKA_PID_FILE")" 2>/dev/null; then
     kill "$(cat "$KAFKA_PID_FILE")" 2>/dev/null || true

@@ -319,7 +319,7 @@ export const GuildSidebar: React.FC = () => {
     createCategory, deleteCategory, toggleGuildNotifications,
     joinVoiceChannel, leaveVoiceChannel, currentVoiceChannel,
     voiceChannelParticipants, voiceParticipants, currentServerIP, authToken,
-    setMobileActivePanel, loadGuildRoles,
+    loadGuildRoles,
   } = useApp();
   const tr = useTranslation();
 
@@ -427,13 +427,6 @@ export const GuildSidebar: React.FC = () => {
     <div className="guild-sidebar">
       {/* Header */}
       <div className="guild-sidebar-header">
-        <button
-          className="mobile-back-btn"
-          style={{ display: 'none', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', padding: '0 4px 0 0', alignItems: 'center' }}
-          onClick={() => setMobileActivePanel('chat-list')}
-        >
-          <ChevronRight size={18} style={{ transform: 'rotate(180deg)' }} />
-        </button>
         <span className="guild-name" style={{ flex: 1, cursor: 'pointer' }} onClick={() => setShowSettings(v => !v)}>{currentGuild.name}</span>
         <ChevronDown size={16} style={{ transform: showSettings ? 'rotate(180deg)' : 'none', transition: '0.15s', cursor: 'pointer' }} onClick={() => setShowSettings(v => !v)} />
       </div>

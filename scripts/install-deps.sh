@@ -221,6 +221,15 @@ PY
 
     python -m pip install -r "$normalized_requirements"
     rm -f "$normalized_requirements"
+
+    # Зависимости нагрузочных тестов (websockets/requests/aiortc для --rate и
+    # --active-calls). Без них seed_load падает на импорте websockets.
+    local loadtest_req="$PROJECT_ROOT/load-tests/requirements-loadtest.txt"
+    if [ -f "$loadtest_req" ]; then
+        echo "      Installing load-test deps (websockets, requests, aiortc)..."
+        python -m pip install -r "$loadtest_req" || \
+            echo "      WARNING: load-test deps failed (aiortc/PyAV?). Звонки могут не работать."
+    fi
 }
 
 install_coturn() {

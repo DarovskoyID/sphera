@@ -18,6 +18,66 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+usage() {
+  cat <<'USAGE'
+Генератор тестовой нагрузки ionik.
+
+ИСПОЛЬЗОВАНИЕ:
+  ./run.sh <профиль> [--purge]
+  ./run.sh rate [параметры через переменные окружения]
+  ./run.sh --help
+
+ПРОФИЛИ СИДИРОВАНИЯ (наполняют БД аккаунтами/серверами/каналами/сообщениями):
+  light      лёгкий   — быстрый прогон для проверки
+  medium     средний  — реалистичный объём
+  high       высокий  — стресс БД
+  custom     спросит числа (N серверов/каналов/сообщений и т.д.) интерактивно
+  rate       ЖИВАЯ нагрузка по ставке (см. ниже), БЕЗ создания профилей
+  ramp       СТРЕСС: постепенно разгоняет ставку ДО ОТКАЗА сервера и пишет в
+             отчёт, на каких параметрах сервер упал (см. RAMP_* ниже)
+
+ФЛАГИ:
+  --purge    сначала удалить старые тестовые данные (loadtest_*), затем сеять
+  -h, --help показать эту справку
+
+РЕЖИМ rate — живая нагрузка на готовых данных (нужен запущенный сервер).
+Параметры задаются переменными окружения (значения по умолчанию в скобках):
+  RATE          сообщений в минуту                         (600)
+  DURATION      длительность: 30s / 5m / 1h / 1h30m         (10m)
+  RATE_TARGET   куда слать: guild | dm | both              (both)
+  ONLINE        держать N онлайн-юзеров (presence)          (0)
+  CALLS         реальных WebRTC-звонков через TURN          (0)
+  CALL_DURATION длительность звонков                        (—)
+  BASE_URL      адрес сервера для логина/WS                 (https://127.0.0.1:8000)
+
+РЕЖИМ ramp — разгон до отказа (env, дефолты в скобках):
+  RAMP_START      стартовая ставка, сообщений/мин            (600)
+  RAMP_STEP       прибавка ставки за стадию                  (600)
+  RAMP_STAGE      длительность одной стадии                  (20s)
+  RAMP_MAX        потолок ставки (стоп, если выдержал)       (30000)
+  RAMP_TARGET     guild | dm | both                          (guild)
+  RAMP_FAIL_ERRORS доля ошибок отправки, считающаяся отказом (0.25)
+  RAMP_MAXCONN    число WS-соединений на стадию              (100)
+  RAMP_REPORT     файл отчёта                                (load-tests/ramp-result.txt)
+
+ПРИМЕРЫ:
+  ./run.sh light                 # засеять лёгкий набор данных
+  ./run.sh medium --purge        # очистить и засеять средний
+  RATE=600 DURATION=2m RATE_TARGET=both ./run.sh rate
+  ONLINE=50 RATE=600 DURATION=2m CALLS=5 CALL_DURATION=2m ./run.sh rate
+  RAMP_START=600 RAMP_STEP=600 RAMP_STAGE=20s ./run.sh ramp   # стресс до отказа
+
+ЗАМЕТКИ:
+  • На сервере рядом со скриптом должен быть loadtest.env (PG/ES) — тогда нагрузка
+    идёт в ту же БД, что и сервер. Создаётся автоматически при start-common.sh.
+  • Звонкам нужны пакеты из requirements-loadtest.txt (aiortc/websockets).
+USAGE
+}
+
+for _a in "$@"; do
+  case "$_a" in -h|--help|help) usage; exit 0 ;; esac
+done
+
 # Подхватываем БД/поиск-окружение, если есть loadtest.env рядом со скриптом.
 # ВАЖНО: management-команда seed_load должна работать с ТОЙ ЖЕ БД, что и сервер.
 # На сервере loadtest.env задаёт POSTGRES_*/ELASTICSEARCH_URL → команда идёт в
@@ -54,13 +114,99 @@ for c in "$DJANGO_ROOT/.venv/bin/python" "$DJANGO_ROOT/myenv/bin/python" \
   [ -x "$c" ] && { PY="$c"; break; }
 done
 
+# ── Профиль ramp: разгон ставки до отказа сервера ────────────────────────────
+# Постепенно повышает сообщения/мин стадиями. После каждой стадии проверяет
+# здоровье сервера (HTTP-проба) и долю ошибок отправки. Когда сервер «падает»
+# (не отвечает или ошибки выше порога) — пишет в отчёт, на каких параметрах упал.
+# Параметры через env: RAMP_START, RAMP_STEP, RAMP_STAGE, RAMP_MAX, RAMP_TARGET,
+# RAMP_FAIL_ERRORS, RAMP_MAXCONN, RAMP_REPORT, BASE_URL.
+# ВНИМАНИЕ: цель режима — довести сервер до отказа. Запускай осознанно.
+run_ramp() {
+  local start="${RAMP_START:-600}" step="${RAMP_STEP:-600}" stage="${RAMP_STAGE:-20s}"
+  local max="${RAMP_MAX:-30000}" target="${RAMP_TARGET:-guild}" thr="${RAMP_FAIL_ERRORS:-0.25}"
+  local maxconn="${RAMP_MAXCONN:-100}" base="${BASE_URL:-https://127.0.0.1:8000}"
+  local report="${RAMP_REPORT:-$HERE/ramp-result.txt}"
+  local probe="$base/status-$(date +%Y-%m-%d)/"
+  local rate="$start" prev_ok=0 fell=0 reason=""
+
+  # ВАЖНО: внутри ramp отключаем errexit/pipefail — здесь grep/curl легитимно
+  # возвращают не-ноль (нет совпадения, недоступный сервер), а решения мы
+  # принимаем сами по захваченным значениям. Иначе скрипт молча умирал бы после
+  # первой стадии (grep по 'отправлено' без совпадений → pipefail → set -e).
+  set +e
+  set +o pipefail
+
+  echo "=== RAMP: разгон до отказа сервера ==="
+  echo "  старт=$start/мин шаг=+$step стадия=$stage потолок=$max цель=$target"
+  echo "  порог ошибок=$thr  соединений=$maxconn  отчёт=$report"
+  echo "  ВНИМАНИЕ: режим намеренно валит сервер. Нужны уже засеянные данные (./run.sh light)."
+
+  while [ "$rate" -le "$max" ]; do
+    echo ""
+    echo ">>> стадия: $rate сообщений/мин ($stage)"
+    local out sent errors code total cpu mem
+    out="$("$PY" "$MANAGE" seed_load --accounts 0 --servers 0 --channels 0 --posts 0 \
+        --server-messages 0 --dm-messages 0 --send-dm 0 --active-calls 0 \
+        --rate "$rate" --duration "$stage" --rate-target "$target" \
+        --rate-max-conns "$maxconn" --base-url "$base" 2>&1)"
+    # Нет каналов/диалогов в БД — это не «отказ сервера», а отсутствие данных.
+    if printf '%s' "$out" | grep -q 'Нет целей'; then
+      echo "    Нет целей для нагрузки — каналов/диалогов нет в БД."
+      echo ""
+      echo "Сначала засей данные:  ./run.sh light   (или medium/high), затем ./run.sh ramp"
+      return 1
+    fi
+    sent="$(printf '%s' "$out"  | grep -oE 'отправлено [0-9]+' | grep -oE '[0-9]+' | tail -1)"; sent="${sent:-0}"
+    errors="$(printf '%s' "$out" | grep -oE 'ошибок [0-9]+'    | grep -oE '[0-9]+' | tail -1)"; errors="${errors:-0}"
+    code="$(curl -sk -o /dev/null -w '%{http_code}' --max-time 8 "$probe" 2>/dev/null || echo 000)"
+    cpu="$(curl -s --max-time 5 http://127.0.0.1:8010/metrics/ 2>/dev/null | grep -oE '^ionik_cpu_percent [0-9.]+'    | awk '{print $2}')"
+    mem="$(curl -s --max-time 5 http://127.0.0.1:8010/metrics/ 2>/dev/null | grep -oE '^ionik_memory_percent [0-9.]+' | awk '{print $2}')"
+    echo "    отправлено=$sent ошибок=$errors health=$code CPU=${cpu:-?}% MEM=${mem:-?}%"
+
+    total=$((sent + errors))
+    if [ "$code" = "000" ]; then
+      fell=1; reason="сервер не отвечает на $probe (health=000)"
+    elif [ "$total" -eq 0 ]; then
+      fell=1; reason="ноль отправок (логин/коннект не прошёл — сервер недоступен?)"
+    elif awk "BEGIN{exit !($errors/$total > $thr)}"; then
+      fell=1; reason="доля ошибок $errors/$total превысила порог $thr"
+    fi
+
+    if [ "$fell" = "1" ]; then
+      echo ""
+      echo "!!! СЕРВЕР УПАЛ на $rate сообщений/мин — $reason"
+      {
+        echo "=== ionik ramp result — $(date) ==="
+        echo "Упал на ставке:           $rate сообщений/мин"
+        echo "Последняя успешная ставка: $prev_ok сообщений/мин"
+        echo "Причина:                  $reason"
+        echo "Последняя стадия:         отправлено=$sent ошибок=$errors health=$code"
+        echo "Метрики сервера:          CPU=${cpu:-?}% MEM=${mem:-?}%"
+        echo "Параметры разгона:        старт=$start шаг=$step стадия=$stage цель=$target соединений=$maxconn"
+      } | tee "$report"
+      return 0
+    fi
+    prev_ok="$rate"
+    rate=$((rate + step))
+  done
+
+  echo ""
+  echo "Достигнут потолок $max сообщений/мин — сервер ВЫДЕРЖАЛ. Подними RAMP_MAX для продолжения."
+  {
+    echo "=== ionik ramp result — $(date) ==="
+    echo "Сервер выдержал до потолка $max сообщений/мин (последняя успешная ставка $prev_ok)."
+    echo "Параметры: старт=$start шаг=$step стадия=$stage цель=$target соединений=$maxconn"
+  } | tee "$report"
+  return 0
+}
+
 # ── Аргументы: профиль + флаг очистки (принимаем --purge и -Purge) ──
 PROFILE="light"
 PURGE=0
 for a in "$@"; do
   case "$a" in
     --purge|-Purge|-purge) PURGE=1 ;;
-    light|medium|high|custom|rate) PROFILE="$a" ;;
+    light|medium|high|custom|rate|ramp) PROFILE="$a" ;;
     *) echo "Неизвестный аргумент: $a" >&2; exit 1 ;;
   esac
 done
@@ -71,6 +217,11 @@ echo "Профиль:   $PROFILE"
 
 if [ "$PURGE" = "1" ]; then
   "$PY" "$MANAGE" seed_load --purge
+fi
+
+if [ "$PROFILE" = "ramp" ]; then
+  run_ramp
+  exit $?
 fi
 
 ARGS=("$MANAGE" seed_load)

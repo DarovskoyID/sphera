@@ -29,7 +29,7 @@ export const de: Translations = {
   sacc_title: 'Barrierefreiheit', sacc_desc: 'Barrierefreiheitsfunktionen konfigurieren.', sacc_contrast: 'Hoher Kontrast', sacc_reader: 'Screenreader-Unterstützung',
   sbind_title: 'Tastenkürzel', sbind_mute: 'Stumm/Laut', sbind_deafen: 'Ton aus/ein', sbind_ptt: 'Sprechtaste',
   sexp_title: 'Export & Import', sexp_desc: 'Einstellungen sichern und wiederherstellen', sexp_export: 'Einstellungen exportieren', sexp_export_desc: 'Einstellungen als JSON herunterladen', sexp_import: 'Einstellungen importieren', sexp_import_desc: 'Exportierte Einstellungsdatei hochladen',
-  loading: 'Laden...', error_network: 'Netzwerkfehler', error_unauthorized: 'Sitzung abgelaufen. Bitte erneut anmelden.', error_forbidden: 'Zugriff verweigert.', error_not_found: 'Ressource nicht gefunden.', error_server: 'Serverfehler. Bitte später erneut versuchen.', server_channels_soon: 'Serverkanäle demnächst',
+  loading: 'Laden...', error_network: 'Netzwerkfehler', error_unauthorized: 'Sitzung abgelaufen. Bitte erneut anmelden.', error_forbidden: 'Zugriff verweigert.', error_not_found: 'Ressource nicht gefunden.', error_server: 'Serverfehler. Bitte später erneut versuchen.', error_bad_response: 'Der Server hat eine unerwartete Antwort gesendet. Bitte später erneut versuchen.', error_user_exists: 'Ein Benutzer mit diesem Namen existiert bereits.', error_invalid_credentials: 'Ungültiger Benutzername oder Passwort.', error_unknown: 'Etwas ist schiefgelaufen. Bitte erneut versuchen.', server_channels_soon: 'Serverkanäle demnächst',
 
   guild_create_server: 'Server erstellen',
   guild_join_server: 'Server beitreten',

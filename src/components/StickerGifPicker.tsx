@@ -176,6 +176,12 @@ export const UnifiedPicker: React.FC<Props> = ({ onSelectEmoji, onSelectGif, onS
   }, []);
 
   useEffect(() => {
+    if (!isMobile) return;
+    const active = document.activeElement;
+    if (active instanceof HTMLElement) active.blur();
+  }, [isMobile]);
+
+  useEffect(() => {
     const h = (e: MouseEvent) => {
       if (pickerRef.current && !pickerRef.current.contains(e.target as Node) &&
           anchorRef.current && !anchorRef.current.contains(e.target as Node)) onClose();
@@ -331,7 +337,7 @@ export const UnifiedPicker: React.FC<Props> = ({ onSelectEmoji, onSelectGif, onS
                 onChange={e => handleSearch(e.target.value)}
                 placeholder={tab === 'emoji' ? 'Search emoji…' : tab === 'gif' ? 'Search GIFs…' : 'Search stickers…'}
                 style={{ flex: 1, background: 'none', border: 'none', outline: 'none', fontSize: 13, color: 'inherit' }}
-                autoFocus
+                autoFocus={!isMobile}
               />
               {search && <button onClick={() => handleSearch('')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', padding: 0, display: 'flex' }}><X size={13} /></button>}
             </div>

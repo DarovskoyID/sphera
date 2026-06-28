@@ -1329,9 +1329,32 @@ const MessagesContainer: React.FC<{
   const containerRef = useRef<HTMLDivElement>(null);
   const wasAtBottom = useRef(true);
   const loadingOlder = useRef(false);
+  const prevLenRef = useRef(0);
   const [ctxMenu, setCtxMenu] = useState<CtxMenu | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [highlightId, setHighlightId] = useState<string | null>(null);
+  // Floating "jump to bottom" button: shown when the user has scrolled up;
+  // the badge counts messages that arrived while they were reading history.
+  const [atBottom, setAtBottom] = useState(true);
+  const [newCount, setNewCount] = useState(0);
+
+  const scrollToBottom = useCallback(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
+    wasAtBottom.current = true;
+    setAtBottom(true);
+    setNewCount(0);
+  }, []);
+
+  // Reset tracking when switching conversations so a new chat opens at the
+  // bottom with no stale "new messages" count.
+  useEffect(() => {
+    prevLenRef.current = 0;
+    wasAtBottom.current = true;
+    setAtBottom(true);
+    setNewCount(0);
+  }, [currentChat]);
 
   useEffect(() => {
     if (scrollToRef) {
@@ -1350,13 +1373,32 @@ const MessagesContainer: React.FC<{
 
   useEffect(() => {
     const el = containerRef.current;
-    if (el && wasAtBottom.current) el.scrollTop = el.scrollHeight;
+    if (!el) return;
+    const isInitialLoad = prevLenRef.current === 0;
+    const added = chatMessages.length - prevLenRef.current;
+    prevLenRef.current = chatMessages.length;
+    if (added <= 0 || loadingOlder.current) return; // older messages prepended, or a deletion
+
+    if (isInitialLoad) {
+      el.scrollTop = el.scrollHeight;
+      wasAtBottom.current = true;
+      setAtBottom(true);
+      setNewCount(0);
+      return;
+    }
+
+    wasAtBottom.current = false;
+    setAtBottom(false);
+    setNewCount(c => c + added);
   }, [chatMessages.length]);
 
   const handleScroll = async () => {
     const el = containerRef.current;
     if (!el) return;
-    wasAtBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    wasAtBottom.current = nearBottom;
+    setAtBottom(nearBottom);
+    if (nearBottom) setNewCount(0);
     if (el.scrollTop < 100 && !loadingOlder.current && chatMessages.length > 0) {
       loadingOlder.current = true;
       const prevHeight = el.scrollHeight;
@@ -1448,6 +1490,17 @@ const MessagesContainer: React.FC<{
           })}
         </div>
       </div>
+      {(!atBottom || newCount > 0) && (
+        <button
+          className="scroll-to-bottom-btn"
+          onClick={scrollToBottom}
+          title="Scroll to bottom"
+          aria-label={newCount > 0 ? `Scroll to ${newCount} new messages` : 'Scroll to bottom'}
+        >
+          <ChevronDown size={20} />
+          {newCount > 0 && <span className="scroll-to-bottom-count">{newCount}</span>}
+        </button>
+      )}
     </>
   );
 };

@@ -3,6 +3,7 @@ import { useApp } from '../context/AppContext';
 import { useTranslation } from '../i18n/useTranslation';
 import { languages, type LangCode } from '../i18n';
 import { ServerSelector } from './ServerSelector';
+import { readResponse, toUserMessage } from '../utils/errorManager';
 
 export const AuthScreen = () => {
   const { currentServerIP, setAuthToken, setLanguage, language } = useApp();
@@ -44,14 +45,7 @@ export const AuthScreen = () => {
           method: 'POST',
           body: formData,
         });
-        const data = await res.json();
-        if (!res.ok) {
-          const msg = typeof data === 'object'
-            ? Object.values(data).flat().join(', ')
-            : String(data);
-          setError(msg);
-          return;
-        }
+        const data = await readResponse(res, { serverIP: currentServerIP });
         setAuthToken(data.access);
       } else {
         const res = await fetch(`${currentServerIP}/api/auth/login/`, {
@@ -59,18 +53,11 @@ export const AuthScreen = () => {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ username: login, password }),
         });
-        const data = await res.json();
-        if (!res.ok) {
-          const msg = typeof data === 'object'
-            ? Object.values(data).flat().join(', ')
-            : String(data);
-          setError(msg);
-          return;
-        }
+        const data = await readResponse(res, { serverIP: currentServerIP });
         setAuthToken(data.access);
       }
-    } catch (e: any) {
-      setError(e.message || tr('auth_connection_error'));
+    } catch (e: unknown) {
+      setError(toUserMessage(e, { serverIP: currentServerIP }));
     } finally {
       setLoading(false);
     }
@@ -174,7 +161,7 @@ export const AuthScreen = () => {
               borderRadius: 'var(--radius-sm)',
               background: 'rgba(240, 71, 71, 0.1)',
             }}>
-              {error} {currentServerIP}
+              {error}
             </div>
           )}
 
