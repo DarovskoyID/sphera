@@ -417,11 +417,15 @@ export const GuildChatMain: React.FC = () => {
     if (!el) return;
     const isInitialLoad = prevLenRef.current === 0;
     const added = guildMessages.length - prevLenRef.current;
+    const shouldStickToBottom = wasAtBottom.current;
     prevLenRef.current = guildMessages.length;
     if (added <= 0 || loadingOlderRef.current) return;
 
-    if (isInitialLoad) {
-      el.scrollTop = el.scrollHeight;
+    if (isInitialLoad || shouldStickToBottom) {
+      requestAnimationFrame(() => {
+        const current = listRef.current;
+        if (current) current.scrollTop = current.scrollHeight;
+      });
       wasAtBottom.current = true;
       setAtBottom(true);
       setNewCount(0);

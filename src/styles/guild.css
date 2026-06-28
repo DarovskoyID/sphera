@@ -9,6 +9,7 @@
   flex-direction: column;
   overflow: hidden;
   min-width: 0;
+  position: relative;
 }
 
 .guild-sidebar-header {
@@ -130,10 +131,109 @@
 /* Members panel */
 .guild-members-panel {
   border-top: 1px solid var(--border-color);
-  display: flex;
+  display: none;
   flex-direction: column;
-  max-height: 240px;
   flex-shrink: 0;
+}
+
+.guild-sidebar.members-open .guild-members-panel {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  max-height: none;
+  background: var(--bg-secondary);
+  border-top: none;
+}
+
+.guild-members-entry {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: calc(100% - 16px);
+  margin: 8px;
+  padding: 9px 10px;
+  background: transparent;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 14.9px;
+  flex-shrink: 0;
+  text-align: left;
+}
+
+.guild-members-entry:hover {
+  background: var(--hover-bg);
+  color: var(--text-primary);
+}
+
+.guild-members-entry-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+}
+
+.guild-members-entry-count {
+  min-width: 24px;
+  height: 22px;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12.6px;
+  font-weight: 700;
+}
+
+.guild-members-screen-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border-color);
+  flex-shrink: 0;
+}
+
+.guild-members-back {
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.guild-members-back:hover {
+  background: var(--hover-bg);
+  color: var(--text-primary);
+}
+
+.guild-members-screen-title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  color: var(--text-primary);
+  font-weight: 700;
+}
+
+.guild-members-screen-title small {
+  color: var(--text-secondary);
+  font-size: 12.6px;
+  font-weight: 600;
+}
+
+.guild-sidebar.members-open .members-toggle {
+  display: none;
 }
 
 .members-toggle {
@@ -154,6 +254,12 @@
   display: flex;
   flex-direction: column;
   gap: 1px;
+}
+
+.guild-sidebar.members-open .members-list {
+  flex: 1;
+  min-height: 0;
+  padding: 8px 6px 12px;
 }
 
 .members-group-label {

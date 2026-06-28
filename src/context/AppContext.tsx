@@ -27,6 +27,7 @@ const _origFetch = window.fetch.bind(window);
 // Captures errors before the context mounts, then drains them once it's ready.
 const _errorQueue: string[] = [];
 let _errorSink: ((msg: string) => void) | null = null;
+let _guildBackGuardTimer: ReturnType<typeof setTimeout> | null = null;
 
 function _dispatch(msg: string) {
   if (_errorSink) {
@@ -34,6 +35,15 @@ function _dispatch(msg: string) {
   } else if (!_errorQueue.includes(msg)) {
     _errorQueue.push(msg);
   }
+}
+
+function armGuildBackGuard() {
+  document.documentElement.classList.add('guild-back-guard');
+  if (_guildBackGuardTimer) clearTimeout(_guildBackGuardTimer);
+  _guildBackGuardTimer = setTimeout(() => {
+    document.documentElement.classList.remove('guild-back-guard');
+    _guildBackGuardTimer = null;
+  }, 500);
 }
 
 export function reportError(e: unknown) {
@@ -2502,6 +2512,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
   const setMobileActivePanel = (panel: MobilePanel) => setState(prev => {
     if (panel === 'guild-channels') {
       lastGuildChatBackRef.current = { channelId: prev.currentGuildChannel?.id ?? null, at: Date.now() };
+      if (prev.mobileActivePanel === 'guild-chat') armGuildBackGuard();
     }
     return { ...prev, mobileActivePanel: panel };
   });

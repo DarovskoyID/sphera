@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
-import { Hash, Volume2, Plus, Trash2, LogOut, Copy, Users, ChevronDown, ChevronRight, Crown, Shield, UserPlus, Ban, User, MicOff, Settings, Headphones, VolumeX, Volume1, BellOff, Bell } from 'lucide-react';
+import { Hash, Volume2, Plus, Trash2, LogOut, Copy, Users, ChevronDown, ChevronRight, ChevronLeft, Crown, Shield, UserPlus, Ban, User, MicOff, Settings, Headphones, VolumeX, Volume1, BellOff, Bell } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { useTranslation } from '../i18n/useTranslation';
 import { ProfileModal, type ProfileUser } from './ProfileModal';
@@ -319,7 +319,7 @@ export const GuildSidebar: React.FC = () => {
     createCategory, deleteCategory, toggleGuildNotifications,
     joinVoiceChannel, leaveVoiceChannel, currentVoiceChannel,
     voiceChannelParticipants, voiceParticipants, currentServerIP, authToken,
-    loadGuildRoles,
+    loadGuildRoles, setMobileActivePanel,
   } = useApp();
   const tr = useTranslation();
 
@@ -334,6 +334,7 @@ export const GuildSidebar: React.FC = () => {
   const [categoryMenu, setCategoryMenu] = useState<{ id: string; x: number; y: number } | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [showMembersScreen, setShowMembersScreen] = useState(false);
   const [copied, setCopied] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleteInput, setDeleteInput] = useState('');
@@ -365,6 +366,10 @@ export const GuildSidebar: React.FC = () => {
     if (!currentGuild) return;
     loadGuildRoles(currentGuild.id).then(setGuildRoles);
   }, [currentGuild?.id, loadGuildRoles]);
+
+  useEffect(() => {
+    setShowMembersScreen(false);
+  }, [currentGuild?.id]);
 
   // Merge WS-realtime updates into local presence (WS updates take priority)
   const mergedPresence: VoicePresenceMap = {
@@ -422,9 +427,18 @@ export const GuildSidebar: React.FC = () => {
 
   const online = currentGuild.members.filter(m => m.status !== 'offline');
   const offline = currentGuild.members.filter(m => m.status === 'offline');
+  const openMembersScreen = () => {
+    setShowSettings(false);
+    setShowMembersScreen(true);
+    setMobileActivePanel('guild-members');
+  };
+  const closeMembersScreen = () => {
+    setShowMembersScreen(false);
+    setMobileActivePanel('guild-channels');
+  };
 
   return (
-    <div className="guild-sidebar">
+    <div className={`guild-sidebar ${showMembersScreen ? 'members-open' : ''}`}>
       {/* Header */}
       <div className="guild-sidebar-header">
         <span className="guild-name" style={{ flex: 1, cursor: 'pointer' }} onClick={() => setShowSettings(v => !v)}>{currentGuild.name}</span>
@@ -695,6 +709,15 @@ export const GuildSidebar: React.FC = () => {
 
       {/* Members — fixed height */}
       <div className="guild-members-panel">
+        <div className="guild-members-screen-header">
+          <button className="guild-members-back" onClick={closeMembersScreen} title={tr('back')}>
+            <ChevronLeft size={20} />
+          </button>
+          <div className="guild-members-screen-title">
+            <span>{tr('guild_members')}</span>
+            <small>{currentGuild.members.length}</small>
+          </div>
+        </div>
         <div className="members-toggle">
           <Users size={14} />
           <span>{tr('guild_members')} — {currentGuild.members.length}</span>
@@ -714,6 +737,15 @@ export const GuildSidebar: React.FC = () => {
           )}
         </div>
       </div>
+
+      <button className="guild-members-entry" onClick={openMembersScreen}>
+        <span className="guild-members-entry-main">
+          <Users size={14} />
+          <span>{tr('guild_members')}</span>
+        </span>
+        <span className="guild-members-entry-count">{currentGuild.members.length}</span>
+        <ChevronRight size={16} />
+      </button>
 
       <UserProfile />
 

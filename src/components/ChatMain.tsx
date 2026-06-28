@@ -1376,11 +1376,15 @@ const MessagesContainer: React.FC<{
     if (!el) return;
     const isInitialLoad = prevLenRef.current === 0;
     const added = chatMessages.length - prevLenRef.current;
+    const shouldStickToBottom = wasAtBottom.current;
     prevLenRef.current = chatMessages.length;
     if (added <= 0 || loadingOlder.current) return; // older messages prepended, or a deletion
 
-    if (isInitialLoad) {
-      el.scrollTop = el.scrollHeight;
+    if (isInitialLoad || shouldStickToBottom) {
+      requestAnimationFrame(() => {
+        const current = containerRef.current;
+        if (current) current.scrollTop = current.scrollHeight;
+      });
       wasAtBottom.current = true;
       setAtBottom(true);
       setNewCount(0);
