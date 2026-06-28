@@ -47,16 +47,33 @@
   font-size: 16.1px;
   font-weight: 600;
   color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .profile-status {
   font-size: 13.8px;
   color: var(--text-secondary);
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+/* Точка статуса не сжимается, текст статуса обрезается многоточием, а не
+   переносится на вторую строку в узкой панели. */
+.profile-status > :first-child {
+  flex-shrink: 0;
+}
+.profile-status > span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .profile-controls {
   display: flex;
   gap: var(--spacing-xs);
+  flex-shrink: 0;
 }
 
 .profile-icon-btn {

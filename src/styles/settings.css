@@ -93,7 +93,9 @@
   gap: var(--spacing-md);
 }
 
-.settings-list label {
+/* Stacked label-over-input for form fields, но НЕ для чекбоксов (.ui-checkbox —
+   тоже <label>, ему нужна горизонтальная раскладка бокс+текст). */
+.settings-list label:not(.ui-checkbox) {
   display: flex;
   flex-direction: column;
   gap: var(--spacing-xs);
@@ -293,11 +295,19 @@ input[readonly] {
    ================================ */
 .ui-checkbox {
   display: inline-flex;
+  flex-direction: row;
   align-items: center;
   gap: var(--spacing-sm);
   cursor: pointer;
   user-select: none;
   position: relative;
+}
+
+.ui-checkbox-text {
+  font-size: 16.1px;
+  font-weight: 600;
+  color: var(--text-primary);
+  line-height: 1.2;
 }
 
 /* Прячем input, но оставляем кликабельным */
