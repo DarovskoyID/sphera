@@ -465,6 +465,28 @@ start_coturn() {
     echo "      coturn restarted."
 }
 
+start_mail() {
+    # Почта (отправка кодов подтверждения) ставится отдельно — install-deps.sh
+    # --with-mail или scripts/linux/mail-install.sh. Здесь, как с coturn, ничего
+    # НЕ инсталлируем: только поднимаем сервисы, если Postfix уже установлен.
+    if ! command -v postfix >/dev/null 2>&1; then
+        echo "      mail server not installed — skipping (codes won't be emailed)."
+        echo "      To enable: scripts/linux/mail-install.sh  (or install-deps.sh --with-mail)"
+        return
+    fi
+    log "Starting mail server (Postfix + OpenDKIM)"
+    sudo systemctl enable --now opendkim >/dev/null 2>&1 || true
+    sudo systemctl enable --now postfix  >/dev/null 2>&1 || true
+    sudo systemctl restart opendkim 2>/dev/null || true
+    sudo systemctl restart postfix  2>/dev/null || true
+    if [ -f /etc/systemd/system/ionik-daphne.service.d/email.conf ]; then
+        echo "      Postfix+OpenDKIM up; Daphne wired via email.conf drop-in."
+    else
+        echo "      WARNING: Daphne не подключён к Postfix (нет drop-in email.conf)."
+        echo "      Запусти scripts/linux/mail-install.sh — пропишет EMAIL_* и напечатает DNS."
+    fi
+}
+
 ensure_swap() {
     # На маленьких серверах (напр. 2 ГБ) без swap любой всплеск памяти приводит
     # к срабатыванию OOM-killer'а, который убивает крупные процессы (Kafka/java),
@@ -729,6 +751,7 @@ require_command nginx "Install nginx first, or run scripts/install-deps.sh."
 ensure_swap
 start_docker
 start_coturn
+start_mail
 start_django
 start_kafka_worker
 write_loadtest_env
@@ -759,5 +782,8 @@ echo "  Kafka worker : /var/log/ionik/kafka-worker.log (status: systemctl status
 echo "  Daphne watchdog: journalctl -t ionik-daphne-healthcheck"
 echo "  nginx        : journalctl -u nginx"
 echo "  coturn       : journalctl -u coturn"
+if command -v postfix >/dev/null 2>&1; then
+    echo "  mail (SMTP)  : journalctl -u postfix / journalctl -u opendkim ; queue: postqueue -p"
+fi
 echo ""
 echo "Stop all: scripts/linux/stop-all.sh"
