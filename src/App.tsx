@@ -256,7 +256,7 @@ function AppContent() {
   const inExplore = currentServer === 'explore';
 
   return (
-    <div className={`app-container mobile-panel-${mobileActivePanel}${currentVoiceChannel ? ' voice-connected' : ''}`}>
+    <div className={`app-container mobile-panel-${mobileActivePanel}${currentVoiceChannel ? ' voice-connected' : ''}${isCallActive ? ' call-active' : ''}`}>
       <ServerSidebar />
       {inExplore ? (
         <ExploreServers style={{ gridColumn: '2 / -1' }} />

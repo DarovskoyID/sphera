@@ -124,6 +124,16 @@
     transform: translateX(100%);
   }
 
+  /* Во время звонка панель серверов (нижний док) скрыта окном звонка, а контент
+     забирает освободившиеся 60px — чтобы из звонка нельзя было уйти в серверы. */
+  .app-container.call-active .server-sidebar {
+    display: none;
+  }
+  .app-container.call-active .chat-sidebar,
+  .app-container.call-active .chat-main {
+    height: 100%;
+  }
+
   /* --- Panel switching via class on .app-container --- */
 
   .mobile-panel-chat-list .chat-sidebar {
