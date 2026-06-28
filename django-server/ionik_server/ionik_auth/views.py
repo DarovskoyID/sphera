@@ -1,9 +1,15 @@
 import json
+import secrets
 import threading
+from datetime import timedelta
 
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
+from django.conf import settings as django_settings
 from django.core.files.base import ContentFile
+from django.core.mail import send_mail
+from django.core.validators import validate_email
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import connection
 from django.db.models import Q
 from django.http import FileResponse, Http404
@@ -16,7 +22,10 @@ from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
-from .models import User, Friendship, BlockedUser, UserDevice, UserSettings, CustomEmoji, FcmToken, DataExport
+from .models import (
+    User, Friendship, BlockedUser, UserDevice, UserSettings, CustomEmoji,
+    FcmToken, DataExport, EmailVerificationCode,
+)
 from .serializers import (
     RegisterSerializer, UserSerializer, MeSerializer, FriendshipSerializer,
     ProfileUpdateSerializer, BlockedUserSerializer,
@@ -120,12 +129,136 @@ def track_device(request):
 
 # ==================== Auth ====================
 
+# Code alphabet: digits + uppercase letters, minus the visually ambiguous ones
+# (0/O, 1/I) so a code copied from an email is hard to mistype.
+_CODE_ALPHABET = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ'
+_CODE_LENGTH = 6
+
+
+def _generate_code():
+    return ''.join(secrets.choice(_CODE_ALPHABET) for _ in range(_CODE_LENGTH))
+
+
+def _send_verification_email(email, code):
+    ttl = getattr(django_settings, 'EMAIL_CODE_TTL_MINUTES', 15)
+    subject = 'Ionik — email confirmation code'
+    body = (
+        f'Your Ionik confirmation code is: {code}\n\n'
+        f'Enter it in the app to finish creating your account. '
+        f'The code expires in {ttl} minutes.\n\n'
+        f'If you did not request this, you can ignore this email.'
+    )
+    send_mail(
+        subject,
+        body,
+        getattr(django_settings, 'DEFAULT_FROM_EMAIL', None),
+        [email],
+        fail_silently=False,
+    )
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def register_send_code(request):
+    """Step 1 of sign-up: validate the address and email a confirmation code."""
+    email = (request.data.get('email') or '').strip().lower()
+    username = (request.data.get('username') or '').strip()
+
+    if not email:
+        return Response({'email': 'Email is required.'}, status=status.HTTP_400_BAD_REQUEST)
+    try:
+        validate_email(email)
+    except DjangoValidationError:
+        return Response({'email': 'Enter a valid email address.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    if User.objects.filter(email__iexact=email).exists():
+        return Response(
+            {'email': 'A user with that email already exists.'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    if username and User.objects.filter(username__iexact=username).exists():
+        return Response(
+            {'username': 'A user with that username already exists.'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    now = timezone.now()
+    resend_gap = getattr(django_settings, 'EMAIL_CODE_RESEND_SECONDS', 60)
+    existing = EmailVerificationCode.objects.filter(email=email).first()
+    if existing and (now - existing.updated_at).total_seconds() < resend_gap:
+        wait = int(resend_gap - (now - existing.updated_at).total_seconds())
+        return Response(
+            {'detail': f'Please wait {wait}s before requesting a new code.'},
+            status=status.HTTP_429_TOO_MANY_REQUESTS,
+        )
+
+    code = _generate_code()
+    ttl = getattr(django_settings, 'EMAIL_CODE_TTL_MINUTES', 15)
+    EmailVerificationCode.objects.update_or_create(
+        email=email,
+        defaults={
+            'code': code,
+            'attempts': 0,
+            'expires_at': now + timedelta(minutes=ttl),
+        },
+    )
+
+    try:
+        _send_verification_email(email, code)
+    except Exception:
+        return Response(
+            {'detail': 'Could not send the confirmation email. Try again later.'},
+            status=status.HTTP_502_BAD_GATEWAY,
+        )
+
+    return Response({'status': 'sent'}, status=status.HTTP_200_OK)
+
+
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def register(request):
+    """Step 2 of sign-up: verify the code, then create the account."""
+    email = (request.data.get('email') or '').strip().lower()
+    code = (request.data.get('code') or '').strip().upper()
+
+    if not email or not code:
+        return Response(
+            {'code': 'Email and confirmation code are required.'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    record = EmailVerificationCode.objects.filter(email=email).first()
+    if record is None:
+        return Response(
+            {'code': 'No confirmation code was requested for this email.'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    if record.is_expired():
+        record.delete()
+        return Response(
+            {'code': 'The confirmation code has expired. Request a new one.'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    max_attempts = getattr(django_settings, 'EMAIL_CODE_MAX_ATTEMPTS', 5)
+    if record.attempts >= max_attempts:
+        record.delete()
+        return Response(
+            {'code': 'Too many incorrect attempts. Request a new code.'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    if record.code != code:
+        record.attempts += 1
+        record.save(update_fields=['attempts'])
+        return Response(
+            {'code': 'Incorrect confirmation code.'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
     serializer = RegisterSerializer(data=request.data)
     if serializer.is_valid():
         user = serializer.save()
+        record.delete()
         refresh = RefreshToken.for_user(user)
         return Response({
             'user': UserSerializer(

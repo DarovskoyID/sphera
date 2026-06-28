@@ -10,12 +10,17 @@ export const AuthScreen = () => {
   const tr = useTranslation();
 
   const [login, setLogin] = useState('');
+  const [email, setEmail] = useState('');
   const [nickname, setNickname] = useState('');
   const [password, setPassword] = useState('');
+  const [code, setCode] = useState('');
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
   const [avatarPreview, setAvatarPreview] = useState('');
   const [error, setError] = useState('');
+  const [info, setInfo] = useState('');
   const [isRegister, setIsRegister] = useState(false);
+  // Sign-up is two steps: fill the form, then confirm the email code.
+  const [codeSent, setCodeSent] = useState(false);
   const [loading, setLoading] = useState(false);
   const [showServers, setShowServers] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -28,39 +33,100 @@ export const AuthScreen = () => {
     setAvatarPreview(URL.createObjectURL(file));
   };
 
+  const handleLogin = async () => {
+    const res = await fetch(`${currentServerIP}/api/auth/login/`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: login, password }),
+    });
+    const data = await readResponse(res, {
+      serverIP: currentServerIP,
+      unauthorizedKey: 'error_invalid_credentials',
+    });
+    setAuthToken(data.access);
+  };
+
+  // Step 1 of sign-up: ask the server to email a confirmation code.
+  const handleSendCode = async () => {
+    const res = await fetch(`${currentServerIP}/api/auth/register/send-code/`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: login, email }),
+    });
+    await readResponse(res, { serverIP: currentServerIP });
+    setCodeSent(true);
+    setCode('');
+    setInfo(tr('auth_code_sent'));
+  };
+
+  // Step 2 of sign-up: send the code together with the full registration data.
+  const handleVerifyAndRegister = async () => {
+    const formData = new FormData();
+    formData.append('username', login);
+    formData.append('email', email);
+    formData.append('password', password);
+    formData.append('nickname', nickname);
+    formData.append('code', code.trim());
+    if (avatarFile) formData.append('avatar', avatarFile);
+
+    const res = await fetch(`${currentServerIP}/api/auth/register/`, {
+      method: 'POST',
+      body: formData,
+    });
+    const data = await readResponse(res, { serverIP: currentServerIP });
+    setAuthToken(data.access);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setInfo('');
     setLoading(true);
 
     try {
-      if (isRegister) {
-        const formData = new FormData();
-        formData.append('username', login);
-        formData.append('password', password);
-        formData.append('nickname', nickname);
-        if (avatarFile) formData.append('avatar', avatarFile);
-
-        const res = await fetch(`${currentServerIP}/api/auth/register/`, {
-          method: 'POST',
-          body: formData,
-        });
-        const data = await readResponse(res, { serverIP: currentServerIP });
-        setAuthToken(data.access);
+      if (!isRegister) {
+        await handleLogin();
+      } else if (!codeSent) {
+        await handleSendCode();
       } else {
-        const res = await fetch(`${currentServerIP}/api/auth/login/`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ username: login, password }),
-        });
-        const data = await readResponse(res, { serverIP: currentServerIP });
-        setAuthToken(data.access);
+        await handleVerifyAndRegister();
       }
     } catch (e: unknown) {
       setError(toUserMessage(e, { serverIP: currentServerIP }));
     } finally {
       setLoading(false);
     }
+  };
+
+  // "Resend code" link — same call as step 1, with its own loading/error guard.
+  const handleResend = async () => {
+    if (loading) return;
+    setError('');
+    setInfo('');
+    setLoading(true);
+    try {
+      await handleSendCode();
+    } catch (e: unknown) {
+      setError(toUserMessage(e, { serverIP: currentServerIP }));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Reset back to the sign-up form (e.g. wrong email, or to change details).
+  const handleEditDetails = () => {
+    setCodeSent(false);
+    setCode('');
+    setError('');
+    setInfo('');
+  };
+
+  const toggleMode = () => {
+    setIsRegister(!isRegister);
+    setCodeSent(false);
+    setCode('');
+    setError('');
+    setInfo('');
   };
 
   const inputStyle: React.CSSProperties = {
@@ -91,67 +157,116 @@ export const AuthScreen = () => {
         boxShadow: '0 8px 32px var(--glass-shadow)',
       }}>
         <h2 style={{ margin: '0 0 8px', color: 'var(--text-primary)', fontSize: 24, textAlign: 'center' }}>
-          {isRegister ? tr('auth_create_account') : tr('auth_welcome_back')}
+          {codeSent ? tr('auth_verify_title') : isRegister ? tr('auth_create_account') : tr('auth_welcome_back')}
         </h2>
         <p style={{ margin: '0 0 24px', color: 'var(--text-secondary)', fontSize: 14, textAlign: 'center' }}>
-          {isRegister ? tr('auth_signup_desc') : tr('auth_signin_desc')}
+          {codeSent ? `${tr('auth_verify_desc')} ${email}` : isRegister ? tr('auth_signup_desc') : tr('auth_signin_desc')}
         </p>
 
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {isRegister && (
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
-              <div
-                onClick={() => fileInputRef.current?.click()}
-                style={{
-                  width: 72,
-                  height: 72,
-                  borderRadius: '50%',
-                  background: 'var(--bg-primary)',
-                  border: '2px dashed var(--border-color)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  cursor: 'pointer',
-                  overflow: 'hidden',
-                }}
-              >
-                {avatarPreview
-                  ? <img src={avatarPreview} alt="avatar" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                  : <span style={{ color: 'var(--text-secondary)', fontSize: 12 }}>{tr('auth_photo')}</span>
-                }
-              </div>
-              <input ref={fileInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleAvatarChange} />
-            </div>
+          {!codeSent && (
+            <>
+              {isRegister && (
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
+                  <div
+                    onClick={() => fileInputRef.current?.click()}
+                    style={{
+                      width: 72,
+                      height: 72,
+                      borderRadius: '50%',
+                      background: 'var(--bg-primary)',
+                      border: '2px dashed var(--border-color)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      cursor: 'pointer',
+                      overflow: 'hidden',
+                    }}
+                  >
+                    {avatarPreview
+                      ? <img src={avatarPreview} alt="avatar" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      : <span style={{ color: 'var(--text-secondary)', fontSize: 12 }}>{tr('auth_photo')}</span>
+                    }
+                  </div>
+                  <input ref={fileInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleAvatarChange} />
+                </div>
+              )}
+
+              <input
+                type="text"
+                placeholder={tr('auth_login')}
+                value={login}
+                onChange={e => setLogin(e.target.value)}
+                required
+                style={inputStyle}
+              />
+
+              {isRegister && (
+                <input
+                  type="email"
+                  placeholder={tr('auth_email')}
+                  value={email}
+                  onChange={e => setEmail(e.target.value)}
+                  required
+                  style={inputStyle}
+                />
+              )}
+
+              {isRegister && (
+                <input
+                  type="text"
+                  placeholder={tr('auth_nickname')}
+                  value={nickname}
+                  onChange={e => setNickname(e.target.value)}
+                  style={inputStyle}
+                />
+              )}
+
+              <input
+                type="password"
+                placeholder={tr('auth_password')}
+                value={password}
+                onChange={e => setPassword(e.target.value)}
+                required
+                minLength={6}
+                style={inputStyle}
+              />
+            </>
           )}
 
-          <input
-            type="text"
-            placeholder={tr('auth_login')}
-            value={login}
-            onChange={e => setLogin(e.target.value)}
-            required
-            style={inputStyle}
-          />
-
-          {isRegister && (
+          {codeSent && (
             <input
               type="text"
-              placeholder={tr('auth_nickname')}
-              value={nickname}
-              onChange={e => setNickname(e.target.value)}
-              style={inputStyle}
+              inputMode="text"
+              autoFocus
+              placeholder={tr('auth_code')}
+              value={code}
+              onChange={e => setCode(e.target.value.toUpperCase())}
+              required
+              maxLength={6}
+              autoComplete="one-time-code"
+              style={{
+                ...inputStyle,
+                textAlign: 'center',
+                fontSize: 22,
+                letterSpacing: 8,
+                fontWeight: 600,
+              }}
             />
           )}
 
-          <input
-            type="password"
-            placeholder={tr('auth_password')}
-            value={password}
-            onChange={e => setPassword(e.target.value)}
-            required
-            minLength={6}
-            style={inputStyle}
-          />
+          {info && (
+            <div style={{
+              color: 'var(--text-secondary)',
+              fontSize: 13,
+              padding: '6px 10px',
+              borderRadius: 'var(--radius-sm)',
+              background: 'var(--bg-primary)',
+              textAlign: 'center',
+            }}>
+              {info}
+            </div>
+          )}
 
           {error && (
             <div style={{
@@ -180,19 +295,37 @@ export const AuthScreen = () => {
               opacity: loading ? 0.7 : 1,
             }}
           >
-            {loading ? '...' : isRegister ? tr('auth_register') : tr('auth_login')}
+            {loading ? '...' : codeSent ? tr('auth_confirm') : isRegister ? tr('auth_register') : tr('auth_login')}
           </button>
         </form>
 
-        <p style={{ margin: '16px 0 0', color: 'var(--text-secondary)', fontSize: 13, textAlign: 'center' }}>
-          {isRegister ? tr('auth_already_have') : tr('auth_dont_have')}{' '}
-          <span
-            onClick={() => { setIsRegister(!isRegister); setError(''); }}
-            style={{ color: 'var(--accent-primary)', cursor: 'pointer', fontWeight: 600 }}
-          >
-            {isRegister ? tr('auth_signin') : tr('auth_register')}
-          </span>
-        </p>
+        {codeSent ? (
+          <p style={{ margin: '16px 0 0', color: 'var(--text-secondary)', fontSize: 13, textAlign: 'center' }}>
+            <span
+              onClick={handleResend}
+              style={{ color: 'var(--accent-primary)', cursor: loading ? 'default' : 'pointer', fontWeight: 600 }}
+            >
+              {tr('auth_resend_code')}
+            </span>
+            {'  ·  '}
+            <span
+              onClick={handleEditDetails}
+              style={{ color: 'var(--accent-primary)', cursor: 'pointer', fontWeight: 600 }}
+            >
+              {tr('auth_change_email')}
+            </span>
+          </p>
+        ) : (
+          <p style={{ margin: '16px 0 0', color: 'var(--text-secondary)', fontSize: 13, textAlign: 'center' }}>
+            {isRegister ? tr('auth_already_have') : tr('auth_dont_have')}{' '}
+            <span
+              onClick={toggleMode}
+              style={{ color: 'var(--accent-primary)', cursor: 'pointer', fontWeight: 600 }}
+            >
+              {isRegister ? tr('auth_signin') : tr('auth_register')}
+            </span>
+          </p>
+        )}
 
         <div style={{ marginTop: 20, borderTop: '1px solid var(--border-color)', paddingTop: 14 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>

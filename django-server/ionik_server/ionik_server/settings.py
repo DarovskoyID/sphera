@@ -193,6 +193,30 @@ SIMPLE_JWT = {
 # Fernet key for encrypting chat messages at rest
 MESSAGE_ENCRYPTION_KEY = 'B_jCzvYRndN90PQCee5x7RwE5R-AjJ_WN_m0d3beh1Q='
 
+# ==================== Email (sign-up verification) ====================
+# When SMTP credentials are supplied via the environment we send real mail;
+# otherwise (local dev) the code is printed to the server console so the flow
+# is testable without an SMTP server.
+EMAIL_HOST = os.environ.get('EMAIL_HOST', '')
+if EMAIL_HOST:
+    EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+    EMAIL_PORT = int(os.environ.get('EMAIL_PORT', '587'))
+    EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', '')
+    EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
+    EMAIL_USE_TLS = os.environ.get('EMAIL_USE_TLS', 'true').lower() in ('1', 'true', 'yes')
+    EMAIL_USE_SSL = os.environ.get('EMAIL_USE_SSL', '').lower() in ('1', 'true', 'yes')
+else:
+    EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+
+DEFAULT_FROM_EMAIL = os.environ.get(
+    'DEFAULT_FROM_EMAIL', f'Ionik <no-reply@{IONIK_DOMAIN}>'
+)
+
+# Lifetime of a verification code, and the minimum gap between resends.
+EMAIL_CODE_TTL_MINUTES = int(os.environ.get('EMAIL_CODE_TTL_MINUTES', '15'))
+EMAIL_CODE_RESEND_SECONDS = int(os.environ.get('EMAIL_CODE_RESEND_SECONDS', '60'))
+EMAIL_CODE_MAX_ATTEMPTS = int(os.environ.get('EMAIL_CODE_MAX_ATTEMPTS', '5'))
+
 # Firebase service account key — download from:
 # Firebase Console → Project Settings → Service Accounts → Generate new private key
 FIREBASE_CREDENTIALS = BASE_DIR / 'serviceAccountKey.json'

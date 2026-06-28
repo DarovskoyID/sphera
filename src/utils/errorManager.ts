@@ -85,6 +85,8 @@ export interface ErrorContext {
   serverIP?: string;
   /** Called once when a 401 is seen, so the caller can log the user out. */
   onUnauthorized?: () => void;
+  /** Translation key to use for a 401 response. Defaults to expired session. */
+  unauthorizedKey?: keyof Translations;
 }
 
 /** Convert anything into a localised, user-safe message. */
@@ -127,7 +129,7 @@ function decorate(message: string, ctx: ErrorContext): string {
 export async function readResponse(res: Response, ctx: ErrorContext = {}): Promise<any> {
   if (res.status === 401) {
     ctx.onUnauthorized?.();
-    throw new Error(toUserMessage('error_unauthorized', ctx));
+    throw new Error(toUserMessage(ctx.unauthorizedKey ?? 'error_unauthorized', ctx));
   }
 
   const text = await res.text();

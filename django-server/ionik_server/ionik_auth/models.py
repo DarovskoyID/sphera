@@ -207,6 +207,25 @@ class DataExport(models.Model):
         return f"DataExport({self.user} — {self.status})"
 
 
+class EmailVerificationCode(models.Model):
+    """A short alphanumeric code emailed to confirm ownership of an address
+    during sign-up. One row per email — re-requesting overwrites the code."""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    email = models.EmailField(unique=True, db_index=True)
+    code = models.CharField(max_length=12)
+    attempts = models.PositiveSmallIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    expires_at = models.DateTimeField()
+
+    def is_expired(self):
+        from django.utils import timezone
+        return timezone.now() >= self.expires_at
+
+    def __str__(self):
+        return f'{self.email} ({self.code})'
+
+
 def _emoji_upload_path(instance, filename):
     ext = os.path.splitext(filename)[1] or '.png'
     return f'emojis/{uuid.uuid4().hex}{ext}'

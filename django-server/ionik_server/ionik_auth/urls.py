@@ -5,6 +5,7 @@ from rest_framework_simplejwt.views import (
 from . import views
 
 urlpatterns = [
+    path('register/send-code/', views.register_send_code),
     path('register/', views.register),
     path('login/', TokenObtainPairView.as_view()),
     path('refresh/', TokenRefreshView.as_view()),
