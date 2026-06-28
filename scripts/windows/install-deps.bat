@@ -7,6 +7,7 @@ set "DJANGO_DIR=%ROOT%\django-server"
 set "PYTHON=%DJANGO_DIR%\myenv\Scripts\python.exe"
 set "PIP=%DJANGO_DIR%\myenv\Scripts\pip.exe"
 set "REQ_UTF8=%TEMP%\ionik-requirements-%RANDOM%.txt"
+set "DOCKER_ENV=%DJANGO_DIR%\.env"
 set "INSTALL_COTURN=1"
 set "INSTALL_SYSTEM=1"
 
@@ -76,6 +77,7 @@ if errorlevel 1 (
     echo        Without Docker, the app will use InMemoryChannelLayer (unreliable).
 ) else (
     cd /d "%DJANGO_DIR%"
+    call :ensure_docker_env
     docker compose up -d --build redis kafka zookeeper kafka-init prometheus grafana ws-gateway loadbalancer
     echo        Done.
 )
@@ -101,6 +103,26 @@ echo Usage: scripts\windows\install-deps.bat [--skip-coturn] [--skip-system]
 echo.
 echo Installs Node.js/npm, Python/pip, project npm packages,
 echo Django Python packages, Docker services, and coturn via WSL.
+exit /b 0
+
+:ensure_docker_env
+if not exist "%DOCKER_ENV%" (
+    >"%DOCKER_ENV%" echo # Generated automatically. Do not commit.
+)
+call :ensure_env_key GRAFANA_PASSWORD random
+call :ensure_env_key POSTGRES_PASSWORD random
+call :ensure_env_key JWT_SECRET fixed
+exit /b 0
+
+:ensure_env_key
+findstr /b /c:"%~1=" "%DOCKER_ENV%" >nul 2>&1
+if not errorlevel 1 exit /b 0
+if /i "%~2"=="fixed" (
+    >>"%DOCKER_ENV%" echo %~1=ionik-local-development-secret-key-not-for-production
+    exit /b 0
+)
+for /f "usebackq delims=" %%S in (`powershell -NoProfile -Command "[Convert]::ToBase64String([Security.Cryptography.RandomNumberGenerator]::GetBytes(24)).Replace('/','').Replace('+','').Replace('=','')"`) do set "ENV_VALUE=%%S"
+>>"%DOCKER_ENV%" echo %~1=!ENV_VALUE!
 exit /b 0
 
 :install_system_tools

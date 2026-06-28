@@ -42,11 +42,7 @@ DOCKER_DIR="$PROJECT_ROOT/django-server"
 # Django (settings.py) откатится на sqlite.
 PG_DB="${IONIK_POSTGRES_DB:-ionik}"
 PG_USER="${IONIK_POSTGRES_USER:-ionik}"
-if [ -z "${IONIK_POSTGRES_PASSWORD:-}" ]; then
-    echo "ERROR: set IONIK_POSTGRES_PASSWORD to a strong random value before starting Ionik."
-    exit 1
-fi
-PG_PASSWORD="$IONIK_POSTGRES_PASSWORD"
+PG_PASSWORD="${IONIK_POSTGRES_PASSWORD:-}"
 PG_HOST="${IONIK_POSTGRES_HOST:-127.0.0.1}"
 PG_PORT="${IONIK_POSTGRES_PORT:-5432}"
 # Elasticsearch: поиск по сообщениям. Host-процессы ходят на 127.0.0.1:9200.
@@ -663,11 +659,12 @@ ensure_secrets_file() {
     local secrets="/etc/ionik/secrets.env"
     sudo install -d -m 0750 /etc/ionik
     if [ ! -f "$secrets" ]; then
-        local sk st mk gp
+        local sk st mk gp pgp
         sk="$(head -c 50 /dev/urandom | base64 | tr -d '\n')"
         st="$(head -c 24 /dev/urandom | base64 | tr -d '/+=\n')"
         mk="$(head -c 32 /dev/urandom | base64 | tr '+/' '-_' | tr -d '\n')"
         gp="$(head -c 24 /dev/urandom | base64 | tr -d '/+=\n')"
+        pgp="$(head -c 24 /dev/urandom | base64 | tr -d '/+=\n')"
         sudo tee "$secrets" >/dev/null <<EOF
 # Сгенерировано автоматически $(date -u +%FT%TZ). НЕ коммитить.
 IONIK_SECRET_KEY=$sk
@@ -679,6 +676,7 @@ IONIK_MESSAGE_ENCRYPTION_KEY=$mk
 IONIK_OLD_MESSAGE_ENCRYPTION_KEYS=
 IONIK_ACCESS_TOKEN_MINUTES=15
 GRAFANA_PASSWORD=$gp
+IONIK_POSTGRES_PASSWORD=$pgp
 EOF
         sudo chmod 0640 "$secrets"
         log "Сгенерированы секреты Django → $secrets (STATUS_TOKEN=$st)"
@@ -688,6 +686,15 @@ EOF
         gp="$(head -c 24 /dev/urandom | base64 | tr -d '/+=\n')"
         echo "GRAFANA_PASSWORD=$gp" | sudo tee -a "$secrets" >/dev/null
     fi
+    if ! sudo grep -q '^IONIK_POSTGRES_PASSWORD=' "$secrets"; then
+        local pgp
+        pgp="$(head -c 24 /dev/urandom | base64 | tr -d '/+=\n')"
+        echo "IONIK_POSTGRES_PASSWORD=$pgp" | sudo tee -a "$secrets" >/dev/null
+    fi
+    if [ -z "${IONIK_POSTGRES_PASSWORD:-}" ]; then
+        IONIK_POSTGRES_PASSWORD="$(sudo awk -F= '$1=="IONIK_POSTGRES_PASSWORD"{print $2; exit}' "$secrets")"
+    fi
+    PG_PASSWORD="$IONIK_POSTGRES_PASSWORD"
 }
 
 install_daphne_service() {
@@ -823,11 +830,13 @@ start_nginx() {
 start_docker() {
     log "Starting Docker services (Redis, Kafka, ws-gateway, load balancer)"
     if command -v docker >/dev/null 2>&1; then
+        ensure_secrets_file
         cd "$DOCKER_DIR"
-        local jwt_secret grafana_password
+        local jwt_secret grafana_password pg_password
         jwt_secret="$(sudo awk -F= '$1=="IONIK_SECRET_KEY"{print $2; exit}' /etc/ionik/secrets.env)"
         grafana_password="$(sudo awk -F= '$1=="GRAFANA_PASSWORD"{print $2; exit}' /etc/ionik/secrets.env)"
-        POSTGRES_PASSWORD="$PG_PASSWORD" \
+        pg_password="$(sudo awk -F= '$1=="IONIK_POSTGRES_PASSWORD"{print $2; exit}' /etc/ionik/secrets.env)"
+        POSTGRES_PASSWORD="$pg_password" \
         GRAFANA_PASSWORD="$grafana_password" \
         JWT_SECRET="$jwt_secret" \
         docker compose up -d --build \

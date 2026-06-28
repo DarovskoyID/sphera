@@ -64,6 +64,107 @@ require_command() {
     fi
 }
 
+random_token() {
+    head -c 24 /dev/urandom | base64 | tr -d '/+=\n'
+}
+
+random_secret_key() {
+    head -c 50 /dev/urandom | base64 | tr -d '\n'
+}
+
+random_fernet_key() {
+    head -c 32 /dev/urandom | base64 | tr '+/' '-_' | tr -d '\n'
+}
+
+ensure_key_value_file_entry() {
+    local file="$1"
+    local key="$2"
+    local value="$3"
+
+    if ! grep -q "^$key=" "$file" 2>/dev/null; then
+        printf '%s=%s\n' "$key" "$value" >> "$file"
+    fi
+}
+
+read_key_value_file_entry() {
+    local file="$1"
+    local key="$2"
+    awk -F= -v key="$key" '$1 == key { print $2; exit }' "$file"
+}
+
+ensure_docker_secrets() {
+    local os_name
+    os_name="$(uname -s)"
+
+    if [ "$os_name" = "Linux" ]; then
+        local secrets="/etc/ionik/secrets.env"
+        sudo install -d -m 0750 /etc/ionik
+        if [ ! -f "$secrets" ]; then
+            sudo install -m 0640 /dev/null "$secrets"
+            sudo tee "$secrets" >/dev/null <<EOF
+# Generated automatically $(date -u +%FT%TZ). Do not commit.
+IONIK_SECRET_KEY=$(random_secret_key)
+IONIK_STATUS_TOKEN=$(random_token)
+IONIK_MESSAGE_ENCRYPTION_KEY=$(random_fernet_key)
+IONIK_OLD_MESSAGE_ENCRYPTION_KEYS=
+IONIK_ACCESS_TOKEN_MINUTES=15
+GRAFANA_PASSWORD=$(random_token)
+IONIK_POSTGRES_PASSWORD=$(random_token)
+EOF
+        else
+            local tmp
+            tmp="$(mktemp)"
+            sudo cp "$secrets" "$tmp"
+            ensure_key_value_file_entry "$tmp" IONIK_SECRET_KEY "$(random_secret_key)"
+            ensure_key_value_file_entry "$tmp" IONIK_STATUS_TOKEN "$(random_token)"
+            ensure_key_value_file_entry "$tmp" IONIK_MESSAGE_ENCRYPTION_KEY "$(random_fernet_key)"
+            ensure_key_value_file_entry "$tmp" IONIK_OLD_MESSAGE_ENCRYPTION_KEYS ""
+            ensure_key_value_file_entry "$tmp" IONIK_ACCESS_TOKEN_MINUTES "15"
+            ensure_key_value_file_entry "$tmp" GRAFANA_PASSWORD "$(random_token)"
+            ensure_key_value_file_entry "$tmp" IONIK_POSTGRES_PASSWORD "$(random_token)"
+            sudo install -m 0640 "$tmp" "$secrets"
+            rm -f "$tmp"
+        fi
+
+        POSTGRES_PASSWORD="$(sudo awk -F= '$1=="IONIK_POSTGRES_PASSWORD"{print $2; exit}' "$secrets")"
+        GRAFANA_PASSWORD="$(sudo awk -F= '$1=="GRAFANA_PASSWORD"{print $2; exit}' "$secrets")"
+        JWT_SECRET="$(sudo awk -F= '$1=="IONIK_SECRET_KEY"{print $2; exit}' "$secrets")"
+        export POSTGRES_PASSWORD GRAFANA_PASSWORD JWT_SECRET
+        echo "      Docker secrets ready: $secrets"
+        return
+    fi
+
+    local env_file="$DJANGO_DIR/.env"
+    if [ ! -f "$env_file" ]; then
+        cat > "$env_file" <<EOF
+# Generated automatically $(date -u +%FT%TZ). Do not commit.
+IONIK_SECRET_KEY=$(random_secret_key)
+IONIK_STATUS_TOKEN=$(random_token)
+IONIK_MESSAGE_ENCRYPTION_KEY=$(random_fernet_key)
+IONIK_OLD_MESSAGE_ENCRYPTION_KEYS=
+IONIK_ACCESS_TOKEN_MINUTES=15
+GRAFANA_PASSWORD=$(random_token)
+POSTGRES_PASSWORD=$(random_token)
+JWT_SECRET=ionik-local-development-secret-key-not-for-production
+EOF
+    else
+        ensure_key_value_file_entry "$env_file" IONIK_SECRET_KEY "$(random_secret_key)"
+        ensure_key_value_file_entry "$env_file" IONIK_STATUS_TOKEN "$(random_token)"
+        ensure_key_value_file_entry "$env_file" IONIK_MESSAGE_ENCRYPTION_KEY "$(random_fernet_key)"
+        ensure_key_value_file_entry "$env_file" IONIK_OLD_MESSAGE_ENCRYPTION_KEYS ""
+        ensure_key_value_file_entry "$env_file" IONIK_ACCESS_TOKEN_MINUTES "15"
+        ensure_key_value_file_entry "$env_file" GRAFANA_PASSWORD "$(random_token)"
+        ensure_key_value_file_entry "$env_file" POSTGRES_PASSWORD "$(random_token)"
+        ensure_key_value_file_entry "$env_file" JWT_SECRET "ionik-local-development-secret-key-not-for-production"
+    fi
+
+    POSTGRES_PASSWORD="$(read_key_value_file_entry "$env_file" POSTGRES_PASSWORD)"
+    GRAFANA_PASSWORD="$(read_key_value_file_entry "$env_file" GRAFANA_PASSWORD)"
+    JWT_SECRET="$(read_key_value_file_entry "$env_file" JWT_SECRET)"
+    export POSTGRES_PASSWORD GRAFANA_PASSWORD JWT_SECRET
+    echo "      Docker secrets ready: $env_file"
+}
+
 install_docker() {
     if command -v docker >/dev/null 2>&1; then
         echo "      Docker already installed: $(docker --version)"
@@ -309,6 +410,7 @@ install_python_deps "$PYTHON_BIN"
 
 log "Starting Docker services (Postgres, Elasticsearch, Redis, Kafka, ws-gateway, LB, monitoring)"
 if command -v docker >/dev/null 2>&1; then
+    ensure_docker_secrets
     cd "$DJANGO_DIR"
     docker compose up -d --build \
         postgres elasticsearch redis kafka zookeeper kafka-init prometheus grafana alertmanager \
