@@ -28,7 +28,9 @@ if not SECRET_KEY:
 
 # Restrict the Host header. Defaults to localhost + the configured domain;
 # extend via IONIK_ALLOWED_HOSTS (comma-separated). '*' only if explicitly asked.
-ALLOWED_HOSTS = ['localhost', '127.0.0.1', '[::1]']
+# host.docker.internal — чтобы Prometheus (docker) мог скрейпить /metrics через
+# nginx по этому Host без 400 (DisallowedHost).
+ALLOWED_HOSTS = ['localhost', '127.0.0.1', '[::1]', 'host.docker.internal']
 _extra_hosts = os.environ.get('IONIK_ALLOWED_HOSTS', '')
 if _extra_hosts.strip() == '*':
     ALLOWED_HOSTS = ['*']

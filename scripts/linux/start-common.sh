@@ -1152,13 +1152,16 @@ echo "  WebSocket   : public port $WS_PUBLIC_PORT -> load balancer 127.0.0.1:$LB
 echo "  Load bal.   : nodes in loadbalancer/servers.conf (reload: docker compose exec loadbalancer nginx -s reload)"
 echo "  Kafka worker: processing messages"
 echo "  Mail        : mode=$MAIL_MODE ($([ "$MAIL_MODE" = own ] && echo 'own Postfix, :25 open' || echo 'outbound :25 firewalled'))"
+# Статус-страница защищена IONIK_STATUS_TOKEN (если задан) — он заменяет дату в URL.
+_status_seg="$(sudo awk -F= '$1=="IONIK_STATUS_TOKEN"{print $2; exit}' /etc/ionik/secrets.env 2>/dev/null)"
+_status_seg="${_status_seg:-$(date +%Y-%m-%d)}"
 if [ "$MODE" = "ssl" ]; then
     echo "  Frontend    : https://$DOMAIN"
-    echo "  Status      : https://$DOMAIN:$API_PUBLIC_PORT/status-$(date +%Y-%m-%d)/"
+    echo "  Status      : https://$DOMAIN/status-$_status_seg/"
     echo "  Grafana     : https://$DOMAIN/grafana/"
 else
     echo "  Frontend    : http://<server-ip>/"
-    echo "  Status      : http://<server-ip>:$API_PUBLIC_PORT/status-$(date +%Y-%m-%d)/"
+    echo "  Status      : http://<server-ip>:$API_PUBLIC_PORT/status-$_status_seg/"
     echo "  Grafana     : http://<server-ip>/grafana/"
 fi
 echo ""
