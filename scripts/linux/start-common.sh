@@ -47,9 +47,16 @@ PG_HOST="${IONIK_POSTGRES_HOST:-127.0.0.1}"
 PG_PORT="${IONIK_POSTGRES_PORT:-5432}"
 # Elasticsearch: поиск по сообщениям. Host-процессы ходят на 127.0.0.1:9200.
 ES_URL="${IONIK_ELASTICSEARCH_URL:-http://127.0.0.1:9200}"
-# Почта (отправка кодов подтверждения) живёт отдельно: scripts/linux/mail-install.sh
-# ставит локальный Postfix и пишет systemd drop-in ionik-daphne.service.d/email.conf
-# с EMAIL_* — он переживает регенерацию юнита ниже, поэтому здесь EMAIL не трогаем.
+# Почта (отправка кодов подтверждения). Режим выбирается флагом --mail:
+#   yandex (по умолчанию) — внешний релей Yandex SMTP (465). Исходящий TCP/25
+#                           заблокирован файрволом (анти-спам харднинг на случай
+#                           компрометации сервера).
+#   own                   — свой Postfix на 127.0.0.1:25 (нужен установленный
+#                           mail-install.sh). Блок 25 при этом снимается.
+#   off                   — письма не шлём (console backend).
+# Креды Yandex НЕ в репозитории: положи их в $PROJECT_ROOT/.mail.env (в .gitignore)
+# либо передай через окружение IONIK_SMTP_USER / IONIK_SMTP_PASSWORD.
+MAIL_MODE="${IONIK_MAIL_MODE:-yandex}"
 # Число параллельных kafka_worker'ов (consumer-группа делит партиции между ними).
 # Один воркер упирался ~190 сообщ/с в PG; N≈числу ядер кратно поднимает потолок.
 WORKERS="${IONIK_WORKERS:-2}"
@@ -96,6 +103,14 @@ while [ "$#" -gt 0 ]; do
             DJANGO_BIND_HOST="$2"
             shift 2
             ;;
+        --mail)
+            if [ -z "${2:-}" ]; then
+                echo "ERROR: --mail requires a mode: yandex | own | off."
+                exit 1
+            fi
+            MAIL_MODE="$2"
+            shift 2
+            ;;
         --help|-h)
             echo "Usage: $0 http|ssl [--cert PATH --key PATH] [--api-port PORT] [--django-port PORT]"
             echo ""
@@ -107,6 +122,13 @@ while [ "$#" -gt 0 ]; do
             echo "  --api-port PORT      Public nginx API port (default: 8000)"
             echo "  --django-port PORT   Internal Daphne port (default: 8010)"
             echo "  --django-bind HOST   Internal Daphne bind host (default: 127.0.0.1)"
+            echo ""
+            echo "Mail options:"
+            echo "  --mail MODE   Email sending mode (default: yandex):"
+            echo "                  yandex — Yandex SMTP relay (465); outbound :25 firewalled"
+            echo "                  own    — local Postfix (needs mail-install.sh); opens :25"
+            echo "                  off    — no email (console backend)"
+            echo "                Yandex creds: \$PROJECT_ROOT/.mail.env or IONIK_SMTP_USER/PASSWORD env"
             echo ""
             echo "WebSocket / load balancer:"
             echo "  IONIK_WS_PUBLIC_PORT  Public WS port proxied to the load balancer (default: 8001)"
@@ -465,26 +487,132 @@ start_coturn() {
     echo "      coturn restarted."
 }
 
+SMTP_GUARD_NFT="/etc/ionik/smtp-guard.nft"
+SMTP_GUARD_UNIT="ionik-smtp-guard.service"
+EMAIL_DROPIN="/etc/systemd/system/ionik-daphne.service.d/email.conf"
+
+# Изолированная nft-таблица, режущая исходящий TCP/25 (IPv4+IPv6) с хоста —
+# чтобы взломанный сервер нельзя было использовать как спам-релей. Не трогает
+# Docker (FORWARD). systemd-юнит переживает перезагрузку.
+_write_smtp_guard_files() {
+    sudo mkdir -p /etc/ionik
+    sudo tee "$SMTP_GUARD_NFT" >/dev/null <<'NFT'
+#!/usr/sbin/nft -f
+table inet ionik_mail
+delete table inet ionik_mail
+table inet ionik_mail {
+    chain output {
+        type filter hook output priority 0; policy accept;
+        tcp dport 25 counter reject with tcp reset
+    }
+}
+NFT
+    sudo tee "/etc/systemd/system/$SMTP_GUARD_UNIT" >/dev/null <<UNIT
+[Unit]
+Description=ionik: block outbound SMTP/25 (anti-spam hardening)
+After=network-pre.target
+Before=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/nft -f $SMTP_GUARD_NFT
+ExecStop=/usr/sbin/nft delete table inet ionik_mail
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+    sudo systemctl daemon-reload
+}
+
+block_smtp_out() {
+    _write_smtp_guard_files
+    sudo systemctl enable --now "$SMTP_GUARD_UNIT" >/dev/null 2>&1 \
+        || sudo systemctl restart "$SMTP_GUARD_UNIT"
+    echo "      outbound TCP/25 blocked (anti-spam guard active)."
+}
+
+unblock_smtp_out() {
+    if systemctl list-unit-files 2>/dev/null | grep -q "^$SMTP_GUARD_UNIT"; then
+        sudo systemctl disable --now "$SMTP_GUARD_UNIT" >/dev/null 2>&1 || true
+    fi
+    sudo nft delete table inet ionik_mail 2>/dev/null || true
+    echo "      outbound TCP/25 allowed (own server can deliver direct-to-MX)."
+}
+
+# Пишет drop-in с EMAIL_* (контент со stdin). Права 600 — внутри пароль SMTP.
+_write_email_dropin() {
+    sudo mkdir -p /etc/systemd/system/ionik-daphne.service.d
+    sudo tee "$EMAIL_DROPIN" >/dev/null
+    sudo chmod 600 "$EMAIL_DROPIN"
+}
+
 start_mail() {
-    # Почта (отправка кодов подтверждения) ставится отдельно — install-deps.sh
-    # --with-mail или scripts/linux/mail-install.sh. Здесь, как с coturn, ничего
-    # НЕ инсталлируем: только поднимаем сервисы, если Postfix уже установлен.
-    if ! command -v postfix >/dev/null 2>&1; then
-        echo "      mail server not installed — skipping (codes won't be emailed)."
-        echo "      To enable: scripts/linux/mail-install.sh  (or install-deps.sh --with-mail)"
-        return
+    # Креды Yandex — из необязательного gitignore-файла .mail.env (или окружения).
+    if [ -f "$PROJECT_ROOT/.mail.env" ]; then
+        set -a; . "$PROJECT_ROOT/.mail.env"; set +a
     fi
-    log "Starting mail server (Postfix + OpenDKIM)"
-    sudo systemctl enable --now opendkim >/dev/null 2>&1 || true
-    sudo systemctl enable --now postfix  >/dev/null 2>&1 || true
-    sudo systemctl restart opendkim 2>/dev/null || true
-    sudo systemctl restart postfix  2>/dev/null || true
-    if [ -f /etc/systemd/system/ionik-daphne.service.d/email.conf ]; then
-        echo "      Postfix+OpenDKIM up; Daphne wired via email.conf drop-in."
-    else
-        echo "      WARNING: Daphne не подключён к Postfix (нет drop-in email.conf)."
-        echo "      Запусти scripts/linux/mail-install.sh — пропишет EMAIL_* и напечатает DNS."
-    fi
+    local SMTP_HOST="${IONIK_SMTP_HOST:-smtp.yandex.ru}"
+    local SMTP_PORT="${IONIK_SMTP_PORT:-465}"
+    local SMTP_SSL="${IONIK_SMTP_SSL:-true}"
+    local SMTP_USER="${IONIK_SMTP_USER:-}"
+    local SMTP_PASS="${IONIK_SMTP_PASSWORD:-}"
+    local SMTP_FROM="${IONIK_SMTP_FROM:-$SMTP_USER}"
+    local USE_TLS; USE_TLS=$([ "$SMTP_SSL" = "true" ] && echo false || echo true)
+
+    case "$MAIL_MODE" in
+        yandex)
+            log "Mail mode: Yandex SMTP relay ($SMTP_HOST:$SMTP_PORT, SSL=$SMTP_SSL)"
+            sudo systemctl stop postfix opendkim 2>/dev/null || true
+            block_smtp_out
+            if [ -z "$SMTP_USER" ] || [ -z "$SMTP_PASS" ]; then
+                echo "      ВНИМАНИЕ: нет кред Yandex — письма отправляться НЕ будут."
+                echo "      Заполни $PROJECT_ROOT/.mail.env (см. .mail.env.example):"
+                echo "        IONIK_SMTP_USER=you@yandex.ru"
+                echo "        IONIK_SMTP_PASSWORD=<пароль приложения Яндекс>"
+            fi
+            _write_email_dropin <<EOF
+[Service]
+Environment=EMAIL_HOST=$SMTP_HOST
+Environment=EMAIL_PORT=$SMTP_PORT
+Environment=EMAIL_USE_SSL=$SMTP_SSL
+Environment=EMAIL_USE_TLS=$USE_TLS
+Environment=EMAIL_HOST_USER=$SMTP_USER
+Environment="EMAIL_HOST_PASSWORD=$SMTP_PASS"
+Environment="DEFAULT_FROM_EMAIL=$SMTP_FROM"
+EOF
+            echo "      Daphne wired to Yandex SMTP via email.conf drop-in."
+            ;;
+        own)
+            log "Mail mode: own Postfix server (127.0.0.1:25)"
+            unblock_smtp_out
+            if ! command -v postfix >/dev/null 2>&1; then
+                echo "      ВНИМАНИЕ: Postfix не установлен — codes won't be emailed."
+                echo "      Поставь: scripts/linux/mail-install.sh (или install-deps.sh --with-mail)."
+            else
+                sudo systemctl enable --now opendkim postfix >/dev/null 2>&1 || true
+                sudo systemctl restart opendkim postfix 2>/dev/null || true
+                echo "      Postfix + OpenDKIM up."
+            fi
+            _write_email_dropin <<EOF
+[Service]
+Environment=EMAIL_HOST=127.0.0.1
+Environment=EMAIL_PORT=25
+Environment=EMAIL_USE_TLS=false
+Environment="DEFAULT_FROM_EMAIL=Ionik <no-reply@${DOMAIN}>"
+EOF
+            ;;
+        off|none)
+            log "Mail mode: off (console backend — письма не отправляются)"
+            sudo systemctl stop postfix opendkim 2>/dev/null || true
+            block_smtp_out
+            sudo rm -f "$EMAIL_DROPIN"
+            ;;
+        *)
+            echo "ERROR: неизвестный режим --mail '$MAIL_MODE' (yandex|own|off)."
+            exit 1
+            ;;
+    esac
 }
 
 ensure_swap() {
@@ -766,6 +894,7 @@ echo "  Django API  : http://$DJANGO_BIND_HOST:$DJANGO_PORT internal, public por
 echo "  WebSocket   : public port $WS_PUBLIC_PORT -> load balancer 127.0.0.1:$LB_LOCAL_PORT -> ws-gateway nodes"
 echo "  Load bal.   : nodes in loadbalancer/servers.conf (reload: docker compose exec loadbalancer nginx -s reload)"
 echo "  Kafka worker: processing messages"
+echo "  Mail        : mode=$MAIL_MODE ($([ "$MAIL_MODE" = own ] && echo 'own Postfix, :25 open' || echo 'outbound :25 firewalled'))"
 if [ "$MODE" = "ssl" ]; then
     echo "  Frontend    : https://$DOMAIN"
     echo "  Status      : https://$DOMAIN:$API_PUBLIC_PORT/status-$(date +%Y-%m-%d)/"
