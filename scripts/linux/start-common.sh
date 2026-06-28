@@ -786,4 +786,5 @@ if command -v postfix >/dev/null 2>&1; then
     echo "  mail (SMTP)  : journalctl -u postfix / journalctl -u opendkim ; queue: postqueue -p"
 fi
 echo ""
-echo "Stop all: scripts/linux/stop-all.sh"
+echo "Stop:     scripts/linux/stop.sh       (обычная остановка, контейнеры остаются)"
+echo "Stop all: scripts/linux/stop-all.sh   (полный снос: +почта, docker down, зачистка)"
