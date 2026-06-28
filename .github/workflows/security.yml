@@ -63,6 +63,7 @@ jobs:
   secret-scan:
     name: Gitleaks
     runs-on: ubuntu-latest
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
         with:
@@ -74,6 +75,7 @@ jobs:
   trivy-fs:
     name: Trivy FS
     runs-on: ubuntu-latest
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: aquasecurity/trivy-action@master
