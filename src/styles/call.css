@@ -190,3 +190,18 @@
 .call-window {
   height: 300px;
 }
+
+/* Мобильная версия: окно звонка перекрывает АБСОЛЮТНО ВСЁ — сайдбар, нижний
+   док серверов и текстовый чат. На ПК (>768px) поведение прежнее: блок звонка
+   сверху, текстовый чат под ним. !important нужен, чтобы перебить inline-стиль
+   height:420 из компонента. */
+@media (max-width: 768px) {
+  .call-window.inline-call {
+    position: fixed !important;
+    inset: 0 !important;
+    width: 100vw !important;
+    height: 100svh !important;
+    z-index: 9500 !important;
+    padding-bottom: env(safe-area-inset-bottom, 0px) !important;
+  }
+}

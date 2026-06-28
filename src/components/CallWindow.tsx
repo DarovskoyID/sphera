@@ -898,7 +898,7 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
       : { position: 'fixed', bottom: 0, right: 0, width: 480, height: 420, zIndex: 9500, background: 'var(--bg-primary)', display: 'flex', flexDirection: 'column', borderRadius: '12px 12px 0 0', boxShadow: 'var(--shadow-lg)' };
 
   return (
-    <div className="call-window" style={outerStyle}>
+    <div className={`call-window${inline ? ' inline-call' : ''}`} style={outerStyle}>
       {/* Call header */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 12px', background: 'var(--bg-secondary)', flexShrink: 0 }}>
         {remotePeerId ? (
