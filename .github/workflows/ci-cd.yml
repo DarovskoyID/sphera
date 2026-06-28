@@ -1,0 +1,113 @@
+name: CI/CD
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      deploy:
+        description: Deploy after CI
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-cd-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    name: Build and Check
+    runs-on: ubuntu-latest
+    env:
+      IONIK_DEBUG: '1'
+      IONIK_CORS_ALLOW_ALL: '1'
+      KAFKA_ENABLED: 'false'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Build frontend
+        run: npm run build
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: django-server/requirements.txt
+
+      - name: Install backend dependencies
+        working-directory: django-server
+        run: python -m pip install --upgrade pip && python -m pip install -r requirements.txt
+
+      - name: Compile backend
+        working-directory: django-server/ionik_server
+        run: python -m compileall ionik_auth ionik_messages ionik_server
+
+      - name: Django system check
+        working-directory: django-server/ionik_server
+        run: python manage.py check --deploy
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Check ws-gateway
+        working-directory: ws-gateway
+        run: cargo check --locked || cargo check
+
+  deploy:
+    name: Deploy
+    needs: ci
+    runs-on: ubuntu-latest
+    if: >
+      (github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.IONIK_DEPLOY_ENABLED == 'true') ||
+      (github.event_name == 'workflow_dispatch' && inputs.deploy == true)
+    steps:
+      - name: Install SSH key
+        env:
+          DEPLOY_KEY: ${{ secrets.IONIK_DEPLOY_KEY }}
+          DEPLOY_HOST: ${{ secrets.IONIK_DEPLOY_HOST }}
+          DEPLOY_PORT: ${{ secrets.IONIK_DEPLOY_PORT }}
+        run: |
+          test -n "$DEPLOY_KEY"
+          test -n "$DEPLOY_HOST"
+          port="${DEPLOY_PORT:-22}"
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/ionik_deploy
+          chmod 600 ~/.ssh/ionik_deploy
+          ssh-keyscan -p "$port" -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts
+
+      - name: Deploy main on server
+        env:
+          DEPLOY_HOST: ${{ secrets.IONIK_DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.IONIK_DEPLOY_USER }}
+          DEPLOY_PORT: ${{ secrets.IONIK_DEPLOY_PORT }}
+          DEPLOY_PATH: ${{ vars.IONIK_DEPLOY_PATH }}
+          DEPLOY_MODE: ${{ vars.IONIK_DEPLOY_MODE }}
+          DEPLOY_ENV_FILE: ${{ vars.IONIK_DEPLOY_ENV_FILE }}
+        run: |
+          user="${DEPLOY_USER:-root}"
+          port="${DEPLOY_PORT:-22}"
+          app_dir="${DEPLOY_PATH:-/opt/ionik}"
+          mode="${DEPLOY_MODE:-ssl}"
+          env_file="${DEPLOY_ENV_FILE:-/etc/ionik/deploy.env}"
+          ssh -i ~/.ssh/ionik_deploy -p "$port" "$user@$DEPLOY_HOST" \
+            "set -euo pipefail
+             cd '$app_dir'
+             git fetch --prune origin main
+             git checkout main
+             git reset --hard origin/main
+             set -a
+             [ -f '$env_file' ] && . '$env_file'
+             set +a
+             bash scripts/linux/start-common.sh '$mode'"
