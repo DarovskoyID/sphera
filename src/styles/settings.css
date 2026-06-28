@@ -294,10 +294,15 @@ input[readonly] {
    PREMIUM UI CHECKBOX
    ================================ */
 .ui-checkbox {
-  display: inline-flex;
+  /* Блочный элемент по ширине контента — каждый чекбокс на своей строке,
+     ровным вертикальным списком, а не вплотную друг к другу в ряд. */
+  display: flex;
+  width: fit-content;
+  max-width: 100%;
   flex-direction: row;
   align-items: center;
   gap: var(--spacing-sm);
+  margin: var(--spacing-xs) 0;
   cursor: pointer;
   user-select: none;
   position: relative;
