@@ -43,7 +43,7 @@ const SETTINGS_PAGE_TITLE: Record<string, string> = {
 };
 
 export const ChatMain: React.FC = () => {
-  const { currentView, currentChat, currentSettingsPage, setMobileActivePanel, isCallActive } = useApp();
+  const { currentView, currentChat, currentSettingsPage, setMobileActivePanel } = useApp();
   const tr = useTranslation();
 
   if (currentView === 'settings') {
@@ -75,15 +75,6 @@ export const ChatMain: React.FC = () => {
         </main>
       );
     }
-    // Во время звонка окно звонка занимает весь чат — без шапки, списка
-    // сообщений и строки ввода под ним.
-    if (isCallActive) {
-      return (
-        <main className="chat-main">
-          <CallWindow inline />
-        </main>
-      );
-    }
     return <ChatView />;
   }
 
@@ -101,12 +92,16 @@ const ChatHeader: React.FC<{
   pinnedOpen: boolean;
   pinnedCount: number;
 }> = ({ onSearchToggle, searchOpen, onPinnedToggle, pinnedOpen, pinnedCount }) => {
-  const { currentChat, friends, blockedContacts, toggleMobileSidebar, setCallActive, setVideoActive, setCallTargetId, setMobileActivePanel } = useApp();
+  const { isCallActive, currentChat, friends, blockedContacts, toggleMobileSidebar, setCallActive, setVideoActive, setCallTargetId, setMobileActivePanel } = useApp();
   const tr = useTranslation();
 
   const friend = friends.find(f => String(f.id) === String(currentChat));
   const blockedUser = !friend ? blockedContacts.find(u => String(u.id) === String(currentChat)) : null;
   const chatUser = friend ?? blockedUser;
+
+  if (isCallActive) {
+    return <CallWindow inline />;
+  }
 
   if (!chatUser) return null;
 
