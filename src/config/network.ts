@@ -48,6 +48,27 @@ export const getIceServers = (entry?: ServerEntry | null): RTCIceServer[] => {
   ];
 };
 
+/**
+ * Запрашивает у бэкенда сбалансированный набор ICE-серверов (round-robin TURN-
+ * нода из пула, /api/turn/). Возвращает null при любой ошибке — вызывающий
+ * откатывается на статический getIceServers(), так что звонки не ломаются.
+ */
+export async function fetchPoolIceServers(
+  serverIP: string,
+  token: string,
+): Promise<RTCIceServer[] | null> {
+  try {
+    const res = await fetch(`${serverIP}/api/turn/`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return Array.isArray(data?.iceServers) && data.iceServers.length ? data.iceServers : null;
+  } catch {
+    return null;
+  }
+}
+
 // ── Dynamic server list (localStorage-backed) ──────────────────────────────
 
 export interface ServerEntry {

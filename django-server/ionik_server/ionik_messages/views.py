@@ -1871,3 +1871,49 @@ def guild_comment_delete(request, guild_id, comment_id):
         return Response({'error': 'forbidden'}, status=status.HTTP_403_FORBIDDEN)
     comment.delete()
     return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def turn_credentials(request):
+    """ICE-серверы для звонка. Балансировка: TURN-нода выбирается round-robin из
+    пула settings.IONIK_TURN_NODES. Если задан общий секрет — креды временные
+    (coturn use-auth-secret), иначе статические. Клиент кэширует ответ на звонок."""
+    import base64
+    import hashlib
+    import hmac
+    import random
+    import time
+
+    realm = getattr(settings, 'IONIK_TURN_REALM', '') or 'localhost'
+    default_port = int(getattr(settings, 'IONIK_TURN_PORT', 3478))
+    nodes = [n.strip() for n in getattr(settings, 'IONIK_TURN_NODES', '').split(',') if n.strip()]
+    if not nodes:
+        nodes = ['%s:%d' % (realm, default_port)]
+
+    host, _, port_s = random.choice(nodes).partition(':')
+    port = int(port_s) if port_s else default_port
+
+    secret = getattr(settings, 'IONIK_TURN_SECRET', '')
+    if secret:
+        ttl = int(getattr(settings, 'IONIK_TURN_TTL', 3600))
+        username = '%d:ionik' % (int(time.time()) + ttl)
+        credential = base64.b64encode(
+            hmac.new(secret.encode(), username.encode(), hashlib.sha1).digest()
+        ).decode()
+    else:
+        username = getattr(settings, 'IONIK_TURN_USER', 'ionikuser')
+        credential = getattr(settings, 'IONIK_TURN_PASS', 'ionikturn123')
+
+    ice_servers = [
+        {'urls': 'stun:%s:%d' % (host, port)},
+        {
+            'urls': [
+                'turn:%s:%d?transport=udp' % (host, port),
+                'turn:%s:%d?transport=tcp' % (host, port),
+            ],
+            'username': username,
+            'credential': credential,
+        },
+    ]
+    return Response({'iceServers': ice_servers, 'node': host})

@@ -2,7 +2,7 @@ import { useRef, useEffect, useState, useCallback } from 'react';
 import { Maximize2, Minimize2, Info } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { useTranslation } from '../i18n/useTranslation';
-import { getIceServers, getSelectedServerEntry, getResolvedTurn, pingServer, pingStun, API_BASE_URL, APP_HOST, type ServerEntry } from '../config/network';
+import { getIceServers, getSelectedServerEntry, getResolvedTurn, fetchPoolIceServers, pingServer, pingStun, API_BASE_URL, APP_HOST, type ServerEntry } from '../config/network';
 
 // ── Module-level helpers (never redefined) ────────────────────────────────────
 
@@ -77,6 +77,10 @@ const _call = {
   activeIceServers: null as RTCIceServer[] | null,
 };
 
+// Сбалансированный пул ICE/TURN с бэкенда (/api/turn/), обновляется на старте
+// звонка. null → используем статический getIceServers() (фолбэк, звонок не ломается).
+let _poolIce: RTCIceServer[] | null = null;
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
@@ -99,7 +103,20 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
     setIncomingOffer,
     friends,
     addCallMessage,
+    currentServerIP,
+    authToken,
   } = useApp();
+
+  // На старте звонка тянем сбалансированную TURN-ноду из пула. Если бэкенд не
+  // ответил — _poolIce остаётся null и createPeerConnection берёт статику.
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      const pool = await fetchPoolIceServers(currentServerIP, authToken);
+      if (alive && pool) _poolIce = pool;
+    })();
+    return () => { alive = false; };
+  }, [currentServerIP, authToken]);
 
 
   // Video element refs — recreated on each mount; streams re-attached via useEffect
@@ -499,7 +516,7 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
   _clearRemoteScreenRef = _clearRemoteScreenLocalRef;
 
   const createPeerConnection = (remoteId: string, customIceServers?: RTCIceServer[]): RTCPeerConnection => {
-    const iceServers = customIceServers || getIceServers(getSelectedServerEntry());
+    const iceServers = customIceServers || _poolIce || getIceServers(getSelectedServerEntry());
     _call.activeIceServers = iceServers;
     const pc = new RTCPeerConnection({ iceServers });
 

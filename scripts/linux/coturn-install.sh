@@ -8,6 +8,9 @@ MAX_PORT="${IONIK_COTURN_MAX_PORT:-65535}"
 REALM="${IONIK_TURN_REALM:-start-ionik.ru}"
 TURN_USER="${IONIK_TURN_USER:-ionikuser}"
 TURN_PASS="${IONIK_TURN_PASS:-ionikturn123}"
+# Общий секрет → режим use-auth-secret (временные креды, валидны на любой ноде с
+# тем же секретом — нужно для нескольких TURN-серверов). Иначе статич. user/pass.
+TURN_SECRET="${IONIK_TURN_SECRET:-}"
 EXTERNAL_IP="${IONIK_TURN_EXTERNAL_IP:-}"
 SSL_CERT="${IONIK_SSL_CERT:-/etc/letsencrypt/live/$REALM/fullchain.pem}"
 SSL_KEY="${IONIK_SSL_KEY:-/etc/letsencrypt/live/$REALM/privkey.pem}"
@@ -42,7 +45,6 @@ listening-port=3478
 tls-listening-port=5349
 listening-ip=0.0.0.0
 fingerprint
-lt-cred-mech
 no-cli
 no-multicast-peers
 no-loopback-peers
@@ -56,7 +58,13 @@ EOF
         echo "min-port=$MIN_PORT"
         echo "max-port=$MAX_PORT"
         echo "realm=$REALM"
-        echo "user=$TURN_USER:$TURN_PASS"
+        if [ -n "$TURN_SECRET" ]; then
+            echo "use-auth-secret"
+            echo "static-auth-secret=$TURN_SECRET"
+        else
+            echo "lt-cred-mech"
+            echo "user=$TURN_USER:$TURN_PASS"
+        fi
         if [ -f "$SSL_CERT" ] && [ -f "$SSL_KEY" ]; then
             echo "cert=$SSL_CERT"
             echo "pkey=$SSL_KEY"

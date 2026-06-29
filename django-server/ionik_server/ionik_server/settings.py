@@ -315,6 +315,19 @@ OLD_MESSAGE_ENCRYPTION_KEYS = [
     if key.strip()
 ]
 
+# ==================== TURN / звонки (горизонтальное масштабирование) ===========
+# Пул TURN-нод: "host:port,host:port,...". Эндпоинт /api/turn/ выдаёт клиенту одну
+# ноду round-robin → нагрузка звонков размазывается. Пусто → одна нода (realm).
+IONIK_TURN_NODES = os.environ.get('IONIK_TURN_NODES', '')
+IONIK_TURN_REALM = os.environ.get('IONIK_TURN_REALM', IONIK_DOMAIN)
+IONIK_TURN_PORT = int(os.environ.get('IONIK_TURN_PORT', '3478'))
+# Общий секрет → ВРЕМЕННЫЕ креды (coturn use-auth-secret), валидны на любой ноде с
+# тем же секретом. Иначе — статический user/pass.
+IONIK_TURN_SECRET = os.environ.get('IONIK_TURN_SECRET', '')
+IONIK_TURN_TTL = int(os.environ.get('IONIK_TURN_TTL', '3600'))
+IONIK_TURN_USER = os.environ.get('IONIK_TURN_USER', 'ionikuser')
+IONIK_TURN_PASS = os.environ.get('IONIK_TURN_PASS', 'ionikturn123')
+
 # ==================== Email (sign-up verification) ====================
 # When SMTP credentials are supplied via the environment we send real mail;
 # otherwise (local dev) the code is printed to the server console so the flow
