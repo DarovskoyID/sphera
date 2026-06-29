@@ -60,9 +60,18 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ws-gateway
+
+      - name: Install librdkafka build deps
+        # rdkafka (feature cmake-build) собирает librdkafka из исходников —
+        # нужны те же либы, что и в ws-gateway/Dockerfile, иначе cargo check падает.
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends cmake libssl-dev libsasl2-dev pkg-config
+
       - name: Check ws-gateway
         working-directory: ws-gateway
-        run: cargo check --locked || cargo check
+        run: cargo check
 
   deploy:
     name: Deploy
