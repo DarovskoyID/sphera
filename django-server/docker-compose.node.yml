@@ -1,0 +1,26 @@
+# ДОП-НОДА кластера: запускает ТОЛЬКО ws-gateway. Без БД, Redis, Kafka, LB,
+# мониторинга — всё это остаётся на главном сервере и доступно по WireGuard.
+#
+# Запуск (на ноде):  bash ../scripts/linux/node-up.sh
+# (он подставляет переменные из /etc/ionik/node.env и зовёт этот файл)
+name: ionik-node
+services:
+  ws-gateway:
+    build:
+      context: ../ws-gateway
+      dockerfile: Dockerfile
+    # Публикуем 8001 на WG-адресе ноды — балансировщик ГЛАВНОГО сервера ходит сюда.
+    ports:
+      - "${IONIK_WG_NODE_IP}:8001:8001"
+    environment:
+      # Redis/Kafka ГЛАВНОГО сервера через VPN.
+      REDIS_URL: "redis://${IONIK_WG_HUB_IP:-10.77.0.1}:6379"
+      KAFKA_BOOTSTRAP_SERVERS: "${IONIK_WG_HUB_IP:-10.77.0.1}:9094"
+      # ОБЯЗАН совпадать с IONIK_SECRET_KEY главного сервера (/etc/ionik/secrets.env),
+      # иначе ws-gateway отвергнет все JWT.
+      JWT_SECRET: "${JWT_SECRET:?set JWT_SECRET = main IONIK_SECRET_KEY}"
+      # Авторизация WS — публичный API главного (уже доступен извне).
+      DJANGO_WS_AUTHZ_URL: "${DJANGO_WS_AUTHZ_URL:-https://start-ionik.ru:8000/api/ws/authorize/}"
+      WS_BIND: "0.0.0.0:8001"
+      RUST_LOG: info
+    restart: unless-stopped

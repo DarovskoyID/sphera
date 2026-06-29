@@ -1,0 +1,21 @@
+# Оверрайд для ГЛАВНОГО сервера, чтобы доп-ноды кластера видели Redis/Kafka
+# ТОЛЬКО через WireGuard-адрес хаба (10.77.0.1), а не из интернета.
+#
+# Применять вместе с базовым compose:
+#   IONIK_WG_HUB_IP=10.77.0.1 docker compose \
+#     -f docker-compose.yml -f docker-compose.cluster.yml up -d redis kafka
+#
+# Kafka получает дополнительный listener EXTERNAL, анонсируемый по WG-адресу —
+# иначе удалённый клиент, подключившись, получил бы 'localhost' и не достучался.
+services:
+  redis:
+    ports:
+      - "${IONIK_WG_HUB_IP:-10.77.0.1}:6379:6379"
+
+  kafka:
+    ports:
+      - "${IONIK_WG_HUB_IP:-10.77.0.1}:9094:9094"
+    environment:
+      KAFKA_LISTENERS: "PLAINTEXT://0.0.0.0:29092,PLAINTEXT_HOST://0.0.0.0:9092,EXTERNAL://0.0.0.0:9094"
+      KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092,EXTERNAL://${IONIK_WG_HUB_IP:-10.77.0.1}:9094"
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT,EXTERNAL:PLAINTEXT"
