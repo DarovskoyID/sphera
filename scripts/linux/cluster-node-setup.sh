@@ -12,7 +12,6 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WG_DIR=/etc/wireguard
 WG_IF=wg0
-SUBNET="${IONIK_WG_SUBNET:-10.77.0.0/24}"
 
 [ "$(id -u)" -eq 0 ] || { echo "Запусти под root (sudo)."; exit 1; }
 
@@ -24,6 +23,7 @@ printf '%s' "$token" | base64 -d > "$tmp" 2>/dev/null || { echo "Битый то
 # Значения токена — KEY=VALUE без пробелов (ключи/секреты в base64, IP, URL).
 set -a; . "$tmp"; set +a
 : "${HUB_PUB:?}"; : "${HUB_ENDPOINT:?}"; : "${HUB_IP:?}"; : "${NODE_IP:?}"; : "${NODE_PRIVKEY:?}"; : "${JWT_SECRET:?}"; : "${AUTHZ_URL:?}"
+SUBNET="${WG_SUBNET:-10.77.0.0/24}"
 
 echo "[node] Ставлю WireGuard…"
 command -v wg >/dev/null 2>&1 || { apt-get update -qq && apt-get install -y -qq wireguard; }
