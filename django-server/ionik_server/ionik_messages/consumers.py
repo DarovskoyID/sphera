@@ -476,7 +476,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
     def validate_attachment_ids(self, attachment_ids):
         if not attachment_ids:
             return []
-        if not isinstance(attachment_ids, list) or len(attachment_ids) > 10:
+        if not isinstance(attachment_ids, list) or len(attachment_ids) > 15:
             return None
         try:
             normalized = [str(uuid.UUID(str(item))) for item in attachment_ids]
@@ -882,6 +882,13 @@ class GuildChannelConsumer(AsyncWebsocketConsumer):
             'custom_roles': event['custom_roles'],
         }))
 
+    async def member_role_changed(self, event):
+        await self.send(text_data=ujson.dumps({
+            'type': 'member_role_changed',
+            'user_id': event['user_id'],
+            'role': event['role'],
+        }))
+
     @database_sync_to_async
     def check_membership(self, user_id):
         return GuildMembership.objects.filter(guild_id=self.guild_id, user_id=user_id).exists()
@@ -1064,6 +1071,13 @@ class GuildPresenceConsumer(AsyncWebsocketConsumer):
             'type': 'member_roles_changed',
             'user_id': event['user_id'],
             'custom_roles': event['custom_roles'],
+        }))
+
+    async def member_role_changed(self, event):
+        await self.send(text_data=ujson.dumps({
+            'type': 'member_role_changed',
+            'user_id': event['user_id'],
+            'role': event['role'],
         }))
 
     @database_sync_to_async

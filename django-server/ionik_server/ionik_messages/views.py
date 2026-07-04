@@ -3,6 +3,7 @@ import os
 import shlex
 import subprocess
 import tempfile
+import threading
 from datetime import timedelta
 from django.conf import settings
 from django.core.files.base import ContentFile
@@ -22,7 +23,7 @@ from ionik_auth.models import BlockedUser
 from .voice_state import _voice_channels
 
 MAX_UPLOAD_SIZE = 50 * 1024 * 1024  # 50 MB
-MAX_ATTACHMENTS_PER_MESSAGE = 10
+MAX_ATTACHMENTS_PER_MESSAGE = 15
 BLOCKED_UPLOAD_TYPES = {
     'application/javascript',
     'application/x-javascript',
@@ -274,11 +275,19 @@ def send_message(request, conversation_id):
 
     attachments_data = []
     if attachment_ids:
-        attachments_data = list(
-            Attachment.objects.filter(message=msg).values('id', 'original_filename', 'file_size', 'content_type')
-        )
-        for a in attachments_data:
-            a['id'] = str(a['id'])
+        # Must match the shape the client renderer expects (see AuthMedia):
+        # `filename` + `url`, same as the WS broadcast and REST serializer.
+        # Otherwise the recipient can't load the media until a full reload.
+        attachments_data = [
+            {
+                'id': str(att.id),
+                'filename': att.original_filename,
+                'content_type': att.content_type,
+                'file_size': att.file_size,
+                'url': f'/api/attachments/{att.id}/',
+            }
+            for att in Attachment.objects.filter(message=msg)
+        ]
 
     reply_to_data = None
     if reply_to:
@@ -338,6 +347,19 @@ def send_message(request, conversation_id):
     return Response(msg_payload, status=status.HTTP_201_CREATED)
 
 
+def _wipe_files_async(file_fields):
+    """Delete storage files off the request path so a delete returns instantly
+    and the realtime broadcast isn't blocked on (potentially large) disk I/O."""
+    def _run():
+        for f in file_fields:
+            try:
+                f.delete(save=False)
+            except Exception:
+                pass
+    if file_fields:
+        threading.Thread(target=_run, daemon=True).start()
+
+
 @api_view(['DELETE'])
 @permission_classes([IsAuthenticated])
 def delete_message(request, message_id):
@@ -348,12 +370,9 @@ def delete_message(request, message_id):
 
     conversation_id = msg.conversation_id
 
-    # Collect and delete attachment files from disk before cascade-deleting the message
-    for att in msg.attachments.all():
-        try:
-            att.file.delete(save=False)
-        except Exception:
-            pass
+    # Capture the attachment files, then drop the row and broadcast immediately;
+    # the actual disk cleanup happens in the background (see _wipe_files_async).
+    attachment_files = [att.file for att in msg.attachments.all() if att.file]
 
     msg.delete()
 
@@ -362,6 +381,8 @@ def delete_message(request, message_id):
         f'chat_{conversation_id}',
         {'type': 'message_deleted', 'message_id': str(message_id)}
     )
+
+    _wipe_files_async(attachment_files)
 
     return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -444,8 +465,11 @@ def download_attachment(request, attachment_id):
     except Attachment.DoesNotExist:
         return Response({'error': 'not found'}, status=status.HTTP_404_NOT_FOUND)
 
-    with att.file.open('rb') as f:
-        encrypted = f.read()
+    try:
+        with att.file.open('rb') as f:
+            encrypted = f.read()
+    except FileNotFoundError:
+        return Response({'error': 'not found'}, status=status.HTTP_404_NOT_FOUND)
 
     decrypted = decrypt_bytes(encrypted)
 
@@ -1093,6 +1117,14 @@ def guild_set_role(request, guild_id, user_id):
     target_membership.role = new_role
     target_membership.save(update_fields=['role'])
     _log(guild, request.user, 'member_role_set', target_id=str(user_id), target_username=target_membership.user.username, details={'role': new_role})
+    # Broadcast so the promoted/demoted member (and everyone viewing the guild)
+    # sees the new role live, without needing a page refresh.
+    channel_layer = get_channel_layer()
+    async_to_sync(channel_layer.group_send)(f'guild_{guild_id}', {
+        'type': 'member_role_changed',
+        'user_id': str(user_id),
+        'role': new_role,
+    })
     return Response({'role': new_role})
 
 
@@ -1317,6 +1349,10 @@ def guild_message_delete(request, guild_id, message_id):
     if msg.author != request.user and membership.role not in ('owner', 'admin'):
         return Response({'error': 'forbidden'}, status=status.HTTP_403_FORBIDDEN)
     channel_id = msg.channel_id
+    # Capture attachment files, then delete + broadcast immediately and wipe the
+    # files off the request path (attachment.message is SET_NULL, so without this
+    # the files would leak on disk).
+    attachment_files = [att.file for att in msg.attachments.all() if att.file]
     msg.delete()
     from .search_index import unindex_message
     unindex_message(message_id)
@@ -1325,6 +1361,7 @@ def guild_message_delete(request, guild_id, message_id):
         f'guild_channel_{channel_id}',
         {'type': 'message_deleted', 'id': str(message_id)},
     )
+    _wipe_files_async(attachment_files)
     return Response(status=status.HTTP_204_NO_CONTENT)
 
 
@@ -1398,8 +1435,11 @@ def guild_download_attachment(request, attachment_id):
     except (GuildAttachment.DoesNotExist, GuildMembership.DoesNotExist):
         return Response({'error': 'not found'}, status=status.HTTP_404_NOT_FOUND)
 
-    with att.file.open('rb') as f:
-        encrypted = f.read()
+    try:
+        with att.file.open('rb') as f:
+            encrypted = f.read()
+    except FileNotFoundError:
+        return Response({'error': 'not found'}, status=status.HTTP_404_NOT_FOUND)
     decrypted = decrypt_bytes(encrypted)
 
     response = HttpResponse(decrypted, content_type=att.content_type)

@@ -192,7 +192,12 @@ if os.environ.get('POSTGRES_DB'):
             'PASSWORD': os.environ.get('POSTGRES_PASSWORD', ''),
             'HOST': os.environ.get('POSTGRES_HOST', '127.0.0.1'),
             'PORT': os.environ.get('POSTGRES_PORT', '5432'),
-            'CONN_MAX_AGE': 60,
+            # 0 by default: close the connection at the end of each request so
+            # bursts (e.g. loading a photo gallery = many parallel attachment
+            # requests) can't accumulate connections past Postgres max_connections
+            # ("FATAL: sorry, too many clients already"). Small local-socket
+            # reconnect cost. Raise via env only with a pooler in front.
+            'CONN_MAX_AGE': int(os.environ.get('IONIK_CONN_MAX_AGE', '0')),
         }
     }
 else:

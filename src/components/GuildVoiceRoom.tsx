@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useCallback, useState } from 'react';
 import { useApp } from '../context/AppContext';
-import { getIceServers, getSelectedServerEntry } from '../config/network';
+import { getIceServers, getSelectedServerEntry, fetchPoolIceServers } from '../config/network';
 const SPEAKING_THRESHOLD = 15; // 0–255 RMS; tune as needed
 
 function AudioEl({ stream }: { stream: MediaStream }) {
@@ -26,9 +26,24 @@ export const GuildVoiceRoom: React.FC = () => {
     voiceLocalStream,
     userIDonServer,
     setSpeakersActive,
+    authToken,
+    currentServerIP,
   } = useApp();
 
   const peers = useRef<Map<string, PeerEntry>>(new Map());
+  // Valid (possibly HMAC-temporary) TURN creds fetched from /api/turn/. Guild
+  // voice must use these — the static creds don't authenticate against a coturn
+  // running in use-auth-secret mode, so relayed audio (behind NAT) would fail.
+  const iceServersRef = useRef<RTCIceServer[]>(getIceServers(getSelectedServerEntry()));
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const pool = await fetchPoolIceServers(currentServerIP, authToken);
+      if (!cancelled && pool) iceServersRef.current = pool;
+    })();
+    return () => { cancelled = true; };
+  }, [currentServerIP, authToken]);
   const remoteStreams = useRef<Map<string, MediaStream>>(new Map());
   const [, forceUpdate] = useState(0);
   const rerender = useCallback(() => forceUpdate(n => n + 1), []);
@@ -119,7 +134,7 @@ export const GuildVoiceRoom: React.FC = () => {
   const getOrCreatePeer = useCallback((remoteId: string): PeerEntry => {
     if (peers.current.has(remoteId)) return peers.current.get(remoteId)!;
 
-    const pc = new RTCPeerConnection({ iceServers: getIceServers(getSelectedServerEntry()) });
+    const pc = new RTCPeerConnection({ iceServers: iceServersRef.current });
     const entry: PeerEntry = { pc, makingOffer: false, ignoreOffer: false };
     peers.current.set(remoteId, entry);
 

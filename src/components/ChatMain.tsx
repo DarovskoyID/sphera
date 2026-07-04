@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useLayoutEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { Phone, PhoneOff, PhoneIncoming, PhoneMissed, Video, Search, Menu, ArrowLeft, Plus, Send, FileText, FileImage, FileVideo, FileAudio, File, Download, X, MoreHorizontal, Reply, Copy, Trash2, Flag, Pin, Ban, Check, CheckCheck, ChevronUp, ChevronDown, Mic, Circle, Play, Square, Pause } from 'lucide-react';
 import type { ChatAttachment, ChatMessage as ChatMessageType } from '../types';
 import { useApp, reportError } from '../context/AppContext';
@@ -459,17 +460,11 @@ const AuthMedia: React.FC<{ url: string; contentType: string; filename: string }
   useEffect(() => {
     let revoked = false;
     (async () => {
-      try {
-        const res = await fetch(`${currentServerIP}${url}`, {
-          headers: { Authorization: `Bearer ${authToken}` },
-        });
-        if (!res.ok) return;
-        const blob = await res.blob();
-        if (revoked) return;
-        const bu = URL.createObjectURL(blob);
-        blobUrlRef.current = bu;
-        setBlobUrl(bu);
-      } catch { /* ignore */ }
+      const blob = await fetchMediaBlob(currentServerIP, authToken, url);
+      if (!blob || revoked) return;
+      const bu = URL.createObjectURL(blob);
+      blobUrlRef.current = bu;
+      setBlobUrl(bu);
     })();
     return () => {
       revoked = true;
@@ -893,6 +888,170 @@ export const VideoCirclePlayer: React.FC<{ url: string }> = ({ url }) => {
   );
 };
 
+// True for image / plain video attachments that belong in the media grid.
+// Voice notes and recorded video circles keep their dedicated players.
+function isGalleryMedia(att: ChatAttachment): boolean {
+  const isVoice = att.filename.startsWith('voice_') && att.filename.endsWith('.webm');
+  const isCircle = att.filename.startsWith('video_') && att.filename.endsWith('.webm');
+  if (isVoice || isCircle) return false;
+  return att.content_type.startsWith('image/') || att.content_type.startsWith('video/');
+}
+
+// Cap concurrent attachment fetches. A photo gallery mounts many thumbnails at
+// once; firing them all in parallel opened a DB connection per request on the
+// server and exhausted Postgres ("too many clients"). Gate them through a small
+// semaphore so at most MEDIA_CONCURRENCY are in flight at a time.
+const MEDIA_CONCURRENCY = 6;
+let _mediaActive = 0;
+const _mediaWaiters: Array<() => void> = [];
+function _acquireMedia(): Promise<void> {
+  return new Promise(resolve => {
+    if (_mediaActive < MEDIA_CONCURRENCY) { _mediaActive++; resolve(); }
+    else _mediaWaiters.push(resolve);
+  });
+}
+function _releaseMedia() {
+  const next = _mediaWaiters.shift();
+  if (next) next(); // hand the slot straight to the next waiter
+  else _mediaActive--;
+}
+async function fetchMediaBlob(serverIP: string, token: string, url: string): Promise<Blob | null> {
+  await _acquireMedia();
+  try {
+    const res = await fetch(`${serverIP}${url}`, { headers: { Authorization: `Bearer ${token}` } });
+    if (!res.ok) return null;
+    return await res.blob();
+  } catch { return null; }
+  finally { _releaseMedia(); }
+}
+
+// Fetches an auth-protected resource once and exposes it as an object URL.
+function useAuthObjectUrl(url: string): string | null {
+  const { authToken, currentServerIP } = useApp();
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+  useEffect(() => {
+    let revoked = false;
+    let created: string | null = null;
+    (async () => {
+      const blob = await fetchMediaBlob(currentServerIP, authToken, url);
+      if (!blob || revoked) return;
+      created = URL.createObjectURL(blob);
+      setBlobUrl(created);
+    })();
+    return () => { revoked = true; if (created) URL.revokeObjectURL(created); };
+  }, [url, authToken, currentServerIP]);
+  return blobUrl;
+}
+
+async function downloadAuthed(serverIP: string, token: string, url: string, filename: string) {
+  const blob = await fetchMediaBlob(serverIP, token, url);
+  if (!blob) return;
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+}
+
+const spin: React.CSSProperties = { width: 20, height: 20, border: '2px solid var(--accent-primary)', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.7s linear infinite' };
+
+const GalleryThumb: React.FC<{ att: ChatAttachment; onOpen: () => void }> = ({ att, onOpen }) => {
+  const blobUrl = useAuthObjectUrl(att.url);
+  const isVideo = att.content_type.startsWith('video/');
+  return (
+    <div onClick={onOpen} style={{ position: 'relative', aspectRatio: '1 / 1', borderRadius: 8, overflow: 'hidden', cursor: 'pointer', background: 'var(--bg-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      {!blobUrl ? <div style={spin} /> : isVideo ? (
+        <>
+          <video src={blobUrl} muted preload="metadata" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+          <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.25)', pointerEvents: 'none' }}>
+            <Play size={26} style={{ color: '#fff', filter: 'drop-shadow(0 1px 3px rgba(0,0,0,0.6))' }} />
+          </div>
+        </>
+      ) : (
+        <img src={blobUrl} alt={att.filename} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+      )}
+    </div>
+  );
+};
+
+const MediaLightbox: React.FC<{
+  items: ChatAttachment[];
+  index: number;
+  onIndex: (i: number) => void;
+  onClose: () => void;
+  onDownloadAll: () => void;
+}> = ({ items, index, onIndex, onClose, onDownloadAll }) => {
+  const { authToken, currentServerIP } = useApp();
+  const att = items[index];
+  const blobUrl = useAuthObjectUrl(att.url);
+  const isVideo = att.content_type.startsWith('video/');
+  const go = useCallback((d: number) => onIndex((index + d + items.length) % items.length), [index, items.length, onIndex]);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+      else if (e.key === 'ArrowRight') go(1);
+      else if (e.key === 'ArrowLeft') go(-1);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [go, onClose]);
+  const navBtn: React.CSSProperties = { position: 'absolute', top: '50%', transform: 'translateY(-50%)', width: 44, height: 44, borderRadius: '50%', border: 'none', background: 'rgba(0,0,0,0.5)', color: '#fff', fontSize: 28, lineHeight: 1, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' };
+  const topBtn: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 6, background: 'rgba(0,0,0,0.5)', border: 'none', color: '#fff', borderRadius: 8, padding: '8px 12px', cursor: 'pointer', fontSize: 13 };
+  return createPortal(
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,0.9)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ position: 'absolute', top: 16, right: 16, display: 'flex', gap: 8, alignItems: 'center' }}>
+        <span style={{ color: '#fff', fontSize: 13, opacity: 0.8, marginRight: 4 }}>{index + 1} / {items.length}</span>
+        <button style={topBtn} title="Скачать" onClick={() => downloadAuthed(currentServerIP, authToken, att.url, att.filename)}><Download size={16} /></button>
+        {items.length > 1 && <button style={topBtn} title="Скачать все" onClick={onDownloadAll}><Download size={16} /> {items.length}</button>}
+        <button style={topBtn} title="Закрыть" onClick={onClose}><X size={18} /></button>
+      </div>
+      {items.length > 1 && <button style={{ ...navBtn, left: 16 }} onClick={(e) => { e.stopPropagation(); go(-1); }}>‹</button>}
+      <div onClick={(e) => e.stopPropagation()} style={{ maxWidth: '90vw', maxHeight: '85vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        {!blobUrl ? <div style={{ ...spin, width: 40, height: 40 }} /> : isVideo
+          ? <video src={blobUrl} controls autoPlay style={{ maxWidth: '90vw', maxHeight: '85vh', borderRadius: 8 }} />
+          : <img src={blobUrl} alt={att.filename} style={{ maxWidth: '90vw', maxHeight: '85vh', objectFit: 'contain', borderRadius: 8 }} />}
+      </div>
+      {items.length > 1 && <button style={{ ...navBtn, right: 16 }} onClick={(e) => { e.stopPropagation(); go(1); }}>›</button>}
+    </div>,
+    document.body,
+  );
+};
+
+const MediaGallery: React.FC<{ items: ChatAttachment[] }> = ({ items }) => {
+  const { authToken, currentServerIP } = useApp();
+  const [lightbox, setLightbox] = useState<number | null>(null);
+  const downloadAll = useCallback(async () => {
+    for (const att of items) {
+      await downloadAuthed(currentServerIP, authToken, att.url, att.filename);
+      await new Promise(r => setTimeout(r, 250));
+    }
+  }, [items, authToken, currentServerIP]);
+
+  // Single item keeps the classic large preview.
+  if (items.length === 1) {
+    return <AuthMedia url={items[0].url} contentType={items[0].content_type} filename={items[0].filename} />;
+  }
+
+  const cols = items.length === 2 ? 2 : items.length === 4 ? 2 : 3;
+  return (
+    <div style={{ marginTop: 6, maxWidth: 360 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: `repeat(${cols}, 1fr)`, gap: 4 }}>
+        {items.map((att, i) => <GalleryThumb key={att.id} att={att} onOpen={() => setLightbox(i)} />)}
+      </div>
+      <button
+        onClick={downloadAll}
+        style={{ marginTop: 6, display: 'inline-flex', alignItems: 'center', gap: 6, background: 'var(--bg-secondary)', border: 'none', borderRadius: 8, padding: '6px 12px', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 12 }}
+        title="Скачать все"
+      >
+        <Download size={14} /> Скачать все ({items.length})
+      </button>
+      {lightbox !== null && (
+        <MediaLightbox items={items} index={lightbox} onIndex={setLightbox} onClose={() => setLightbox(null)} onDownloadAll={downloadAll} />
+      )}
+    </div>
+  );
+};
+
 const AttachmentView: React.FC<{ att: ChatAttachment }> = ({ att }) => {
   const isImage = att.content_type.startsWith('image/');
   const isVideo = att.content_type.startsWith('video/');
@@ -1292,9 +1451,17 @@ const MessageRow = React.memo(({ msg, isOwn, isFirstInGroup, onContextMenu, onRe
               </div>
             </div>
           )}
-          {msg.attachments?.map(att => (
-            <AttachmentView key={att.id} att={att} />
-          ))}
+          {(() => {
+            const atts = msg.attachments ?? [];
+            const media = atts.filter(isGalleryMedia);
+            const rest = atts.filter(a => !isGalleryMedia(a));
+            return (
+              <>
+                {media.length > 0 && <MediaGallery items={media} />}
+                {rest.map(att => <AttachmentView key={att.id} att={att} />)}
+              </>
+            );
+          })()}
           {!msg.content && !msg.attachments?.length && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderRadius: 16, background: 'var(--bg-secondary)', maxWidth: 240, animation: 'pulse 1.5s ease-in-out infinite' }}>
               <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'var(--border-color)', flexShrink: 0 }} />
@@ -1509,7 +1676,10 @@ const MessagesContainer: React.FC<{
   );
 };
 
-const MAX_FILES = 5;
+// Photos/videos per message. Selecting more is allowed — the send splits the
+// batch into several messages of ATTACHMENTS_PER_MESSAGE each (matches backend).
+const ATTACHMENTS_PER_MESSAGE = 15;
+const MAX_FILES = 100;
 
 type PendingFile = { file: File; preview?: string };
 
@@ -1745,8 +1915,26 @@ const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: (
 
   const doSend = useCallback(async (text: string, files: PendingFile[], replyId?: number) => {
     const attachmentIds = await uploadFiles(files);
-    sendChatMessage(text, attachmentIds.length > 0 ? attachmentIds : undefined, replyId);
-  }, [uploadFiles, sendChatMessage]);
+    // With attachments, send over HTTP (send_message) instead of the chat WS:
+    // uploading many files concurrently can leave the WS stale-OPEN so the frame
+    // is silently dropped and the message never persists (files orphan on disk).
+    // send_message persists synchronously and broadcasts to the room.
+    if (attachmentIds.length > 0) {
+      if (!chatConversationId) return;
+      try {
+        await fetch(
+          `${currentServerIP}/api/conversations/${chatConversationId}/messages/send/`,
+          {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${authToken}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ content: text || '', attachment_ids: attachmentIds, reply_to_id: replyId || null }),
+          },
+        );
+      } catch (e) { reportError(e); }
+      return;
+    }
+    sendChatMessage(text, undefined, replyId);
+  }, [uploadFiles, sendChatMessage, chatConversationId, currentServerIP, authToken]);
 
   const handleSend = useCallback(async () => {
     if (!message.trim() && pendingFiles.length === 0) return;
@@ -1756,7 +1944,16 @@ const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: (
     persistMessage('');
     clearFiles();
     onCancelReply();
-    await doSend(text, files, replyId);
+    if (files.length <= ATTACHMENTS_PER_MESSAGE) {
+      await doSend(text, files, replyId);
+      return;
+    }
+    // Too many attachments for one message — split into batches of 15. The
+    // first message carries the text/reply, the rest are attachment-only.
+    for (let i = 0; i < files.length; i += ATTACHMENTS_PER_MESSAGE) {
+      const chunk = files.slice(i, i + ATTACHMENTS_PER_MESSAGE);
+      await doSend(i === 0 ? text : '', chunk, i === 0 ? replyId : undefined);
+    }
   }, [message, pendingFiles, replyTo, doSend, clearFiles, onCancelReply, persistMessage]);
 
   const handleDelayedSend = useCallback(async (delayMs: number) => {
@@ -1798,7 +1995,18 @@ const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: (
       );
       if (res.ok) {
         const d = await res.json();
-        sendChatMessage('', [d.id], replyTo?.id);
+        // Send over HTTP (send_message) rather than the chat WebSocket: right
+        // after camera recording the WS can be stale-OPEN and silently drop the
+        // frame, so the note would upload but never actually send. send_message
+        // persists synchronously and broadcasts to the room, so it's reliable.
+        await fetch(
+          `${currentServerIP}/api/conversations/${chatConversationId}/messages/send/`,
+          {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${authToken}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ content: '', attachment_ids: [d.id], reply_to_id: replyTo?.id || null }),
+          },
+        );
         onCancelReply();
       }
     } catch (e) { reportError(e); }
@@ -1850,24 +2058,35 @@ const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: (
         </div>
       )}
 
-      {/* Pending file previews */}
+      {/* Pending file previews — compact, horizontally scrollable thumbnail row */}
       {pendingFiles.length > 0 && (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, padding: '8px 12px 0' }}>
-          {pendingFiles.map((pf, i) => (
-            <div key={i} style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 8, background: 'var(--bg-secondary)', borderRadius: 8, padding: '6px 10px', maxWidth: 200 }}>
-              {pf.preview
-                ? <img src={pf.preview} alt="" style={{ width: 40, height: 40, objectFit: 'cover', borderRadius: 6, flexShrink: 0 }} />
-                : <div style={{ color: 'var(--accent-primary)', flexShrink: 0 }}>{getFileIcon(pf.file.type || 'application/octet-stream')}</div>
-              }
-              <div style={{ minWidth: 0 }}>
-                <div style={{ fontSize: 12, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 100 }}>{pf.file.name}</div>
-                <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{formatFileSize(pf.file.size)}</div>
-              </div>
-              <button onClick={() => removeFile(i)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', padding: 2, flexShrink: 0 }} title={tr('chat_remove')}>
-                <X size={14} />
+        <div style={{ padding: '8px 12px 0' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+            <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{pendingFiles.length}</span>
+            {pendingFiles.length > 1 && (
+              <button onClick={clearFiles} title={tr('chat_remove')} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 12, padding: 2 }}>
+                <Trash2 size={13} />
               </button>
-            </div>
-          ))}
+            )}
+          </div>
+          <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 4 }}>
+            {pendingFiles.map((pf, i) => (
+              <div key={i} style={{ position: 'relative', flexShrink: 0, width: 56, height: 56 }}>
+                {pf.preview
+                  ? <img src={pf.preview} alt="" style={{ width: 56, height: 56, objectFit: 'cover', borderRadius: 8, display: 'block' }} />
+                  : (
+                    <div style={{ width: 56, height: 56, borderRadius: 8, background: 'var(--bg-secondary)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2, padding: 3, boxSizing: 'border-box' }} title={pf.file.name}>
+                      <div style={{ color: 'var(--accent-primary)' }}>{getFileIcon(pf.file.type || 'application/octet-stream')}</div>
+                      <span style={{ fontSize: 9, color: 'var(--text-secondary)', maxWidth: 50, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pf.file.name}</span>
+                    </div>
+                  )
+                }
+                <button onClick={() => removeFile(i)} title={tr('chat_remove')} style={{ position: 'absolute', top: -5, right: -5, width: 18, height: 18, borderRadius: '50%', background: 'rgba(0,0,0,0.72)', border: 'none', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}>
+                  <X size={11} />
+                </button>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 

@@ -5,7 +5,7 @@ import { loadSelectedServer, wsUrlFor } from '../config/network';
 import { saveNotifPrefs, getNotifPrefs, showDesktopNotification, showCallNotification, playMessageSound, ensureNotificationPermission } from '../utils/notifications';
 import { saveA11yPrefs, announce as announceA11y, type A11yPrefs } from '../utils/accessibility';
 import { saveDisplayPrefs } from '../utils/displayPrefs';
-import { setAllowScale } from '../utils/nativeBridge';
+import { postNativeTheme, setAllowScale } from '../utils/nativeBridge';
 import { deviceQuery } from '../utils/device';
 import { toUserMessage, readResponse, setErrorLang } from '../utils/errorManager';
 
@@ -385,6 +385,10 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
   const refreshPromiseRef = useRef<Promise<string | null> | null>(null);
   const lastGuildChatBackRef = useRef<{ channelId: string | null; at: number }>({ channelId: null, at: 0 });
   const chatLastMsgId = useRef<string | null>(null);
+  // Tombstones for just-deleted DM messages. Deleting a media message is slow
+  // server-side (it wipes attachment files from disk), so the REST poll can
+  // still return it mid-delete and "resurrect" it. We suppress those ids.
+  const deletedChatMsgIds = useRef<Set<string>>(new Set());
   const [chatReinitTrigger, setChatReinitTrigger] = useState(0);
 
   useEffect(() => { authTokenRef.current = state.authToken; }, [state.authToken]);
@@ -871,6 +875,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
               return;
             }
             if (data.type === 'message_deleted') {
+              deletedChatMsgIds.current.add(String(data.id));
               setState(prev => ({
                 ...prev,
                 chatMessages: prev.chatMessages
@@ -982,25 +987,54 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
             if (!res.ok || cancelled) return;
             const body = await res.json();
             // Support both plain array and DRF paginated {results:[...]} shapes
-            const polled: ChatMessage[] = (Array.isArray(body) ? body : (body?.results ?? [])).map(enrichCallMessage);
-            if (!polled.length || cancelled) return;
+            const polledRaw: ChatMessage[] = (Array.isArray(body) ? body : (body?.results ?? [])).map(enrichCallMessage);
+            if (!polledRaw.length || cancelled) return;
+            // Drop just-deleted messages so a slow (media) delete can't be
+            // resurrected by a poll that raced the server-side file cleanup.
+            const polled = polledRaw.filter(m => !deletedChatMsgIds.current.has(String(m.id)));
 
             setState(prev => {
+              const now = Date.now();
               const realIds = new Set(prev.chatMessages.filter(m => !String(m.id).startsWith('optimistic-')).map(m => String(m.id)));
               const fresh = polled.filter(m => !realIds.has(String(m.id)));
-              if (!fresh.length) {
-                // Even with no fresh messages, clean up stale optimistic messages
-                // (older than 10s — server should have confirmed them by now)
-                const now = Date.now();
-                const cleaned = prev.chatMessages.filter(m =>
-                  !String(m.id).startsWith('optimistic-') ||
-                  (now - new Date(m.created_at).getTime()) < 10000
-                );
-                return cleaned.length !== prev.chatMessages.length
-                  ? { ...prev, chatMessages: cleaned }
-                  : prev;
+              const polledById = new Map(polled.map(m => [String(m.id), m]));
+              const polledIds = new Set(polled.map(m => String(m.id)));
+              // Oldest message the poll window covers; only reconcile within it
+              // so we never prune older history the poll didn't fetch.
+              const oldestPolledTs = polled.reduce(
+                (min, m) => Math.min(min, new Date(m.created_at).getTime()), Infinity,
+              );
+
+              let changed = false;
+              // Single pass: heal (fill missing attachments) AND prune messages
+              // the server no longer has (deleted) — this catches deletes whose
+              // realtime WS event the client missed, without a manual reload.
+              const base: ChatMessage[] = [];
+              for (const m of prev.chatMessages) {
+                if (String(m.id).startsWith('optimistic-')) { base.push(m); continue; }
+                const p = polledById.get(String(m.id));
+                if (p) {
+                  if ((p.attachments?.length ?? 0) > 0 && (m.attachments?.length ?? 0) === 0) {
+                    changed = true;
+                    base.push({ ...m, ...p });
+                  } else {
+                    base.push(m);
+                  }
+                  continue;
+                }
+                // Present locally but absent from the poll. If it's inside the
+                // polled window and had time to persist, it was deleted server-side.
+                const ts = new Date(m.created_at).getTime();
+                if (!polledIds.has(String(m.id)) && ts >= oldestPolledTs && (now - ts) > 8000) {
+                  // Inferred server-side deletion. Don't tombstone — if this was
+                  // a transient partial poll, the next poll re-adds it (self-heal).
+                  changed = true;
+                  continue; // prune
+                }
+                base.push(m);
               }
-              let updated = [...prev.chatMessages];
+
+              let updated = base;
               for (const fm of fresh) {
                 let optIdx = updated.findIndex(
                   m => String(m.id).startsWith('optimistic-') &&
@@ -1013,18 +1047,21 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
                 }
                 if (optIdx !== -1) {
                   updated[optIdx] = fm;
+                  changed = true;
                 } else {
                   updated.push(fm);
+                  changed = true;
                 }
               }
               // Remove any remaining stale optimistic messages
-              const now = Date.now();
+              const beforeLen = updated.length;
               updated = updated.filter(m =>
                 !String(m.id).startsWith('optimistic-') ||
                 (now - new Date(m.created_at).getTime()) < 10000
               );
+              if (updated.length !== beforeLen) changed = true;
               if (updated.length > 500) updated.splice(0, updated.length - 500);
-              return { ...prev, chatMessages: updated };
+              return changed ? { ...prev, chatMessages: updated } : prev;
             });
           } catch { /* ignore */ }
         }, 5000);
@@ -1170,6 +1207,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
   }, [state.chatConversationId, state.currentServerIP, state.authToken]);
 
   const deleteMessage = useCallback(async (messageId: string) => {
+    deletedChatMsgIds.current.add(String(messageId));
     await fetch(`${state.currentServerIP}/api/messages/${messageId}/`, {
       method: 'DELETE',
       headers: { Authorization: `Bearer ${state.authToken}` },
@@ -1651,6 +1689,22 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
             },
           };
         });
+      } else if (data.type === 'member_role_changed') {
+        setState(prev => {
+          if (!prev.currentGuild || prev.currentGuild.id !== guild.id) return prev;
+          const isSelf = String(data.user_id) === String(prev.userIDonServer);
+          return {
+            ...prev,
+            currentGuild: {
+              ...prev.currentGuild,
+              // Unlock/lock the admin UI for the affected member right away.
+              ...(isSelf ? { my_role: data.role } : {}),
+              members: prev.currentGuild.members.map(m =>
+                String(m.id) === String(data.user_id) ? { ...m, role: data.role } : m
+              ),
+            },
+          };
+        });
       } else if (data.type === 'voice_presence_update') {
         setState(prev => ({
           ...prev,
@@ -1861,6 +1915,22 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
               ...prev.currentGuild,
               members: prev.currentGuild.members.map(m =>
                 String(m.id) === String(data.user_id) ? { ...m, custom_roles: data.custom_roles } : m
+              ),
+            },
+          };
+        });
+      } else if (data.type === 'member_role_changed') {
+        setState(prev => {
+          if (!prev.currentGuild || prev.currentGuild.id !== guild.id) return prev;
+          const isSelf = String(data.user_id) === String(prev.userIDonServer);
+          return {
+            ...prev,
+            currentGuild: {
+              ...prev.currentGuild,
+              // Unlock/lock the admin UI for the affected member right away.
+              ...(isSelf ? { my_role: data.role } : {}),
+              members: prev.currentGuild.members.map(m =>
+                String(m.id) === String(data.user_id) ? { ...m, role: data.role } : m
               ),
             },
           };
@@ -2565,6 +2635,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     }
     localStorage.setItem('messengerTheme', state.theme);
     applyAccent(localStorage.getItem('accentColor') || DEFAULT_ACCENT);
+    postNativeTheme(state.theme);
   }, [state.theme]);
 
   useEffect(() => { localStorage.setItem('messengerCurrentServer', state.currentServer); }, [state.currentServer]);

@@ -26,10 +26,13 @@
 
 const LS_KEY = 'ionik.allowScale';
 
+export type NativeTheme = 'light' | 'dark';
+
 declare global {
   interface Window {
     IonikNative?: { getAllowScale: () => boolean };
     IonikScaleBridge?: { onAllowScaleChanged?: (allow: boolean) => void };
+    chrome?: { webview?: { postMessage: (msg: unknown) => void } };
     webkit?: { messageHandlers?: Record<string, { postMessage: (msg: unknown) => void }> };
   }
 }
@@ -59,6 +62,51 @@ export function setAllowScale(value: boolean): void {
     // Also a DOM event, in case anything else wants to listen.
     try { window.dispatchEvent(new CustomEvent('ionik:allowScaleChanged', { detail: allowScale })); } catch { /* ignore */ }
   }
+}
+
+function rgbToHex(value: string): string {
+  const match = String(value || '').match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([.\d]+))?/i);
+  if (!match) return '';
+  if (match[4] !== undefined && Number(match[4]) === 0) return '';
+  return [match[1], match[2], match[3]]
+    .map((part) => Math.max(0, Math.min(255, Number(part))).toString(16).padStart(2, '0'))
+    .join('')
+    .replace(/^/, '#');
+}
+
+function readThemeColor(theme: NativeTheme): string {
+  if (typeof window === 'undefined') return theme === 'dark' ? '#101012' : '#f5f6fa';
+
+  const candidates = [
+    document.querySelector('.app-container'),
+    document.querySelector('.main-content'),
+    document.querySelector('.chat-area'),
+    document.body,
+    document.documentElement,
+  ];
+
+  for (const element of candidates) {
+    if (!(element instanceof Element)) continue;
+    const color = rgbToHex(getComputedStyle(element).backgroundColor);
+    if (color) return color;
+  }
+
+  return theme === 'dark' ? '#101012' : '#f5f6fa';
+}
+
+export function postNativeTheme(theme: NativeTheme): void {
+  if (typeof window === 'undefined') return;
+
+  const send = () => {
+    const color = readThemeColor(theme);
+    try {
+      window.chrome?.webview?.postMessage({ type: 'theme', theme, color });
+    } catch { /* ignore */ }
+  };
+
+  send();
+  requestAnimationFrame(send);
+  window.setTimeout(send, 80);
 }
 
 /** Initialise from localStorage and install the global getter (call at startup). */
