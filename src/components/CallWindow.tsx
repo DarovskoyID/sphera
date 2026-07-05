@@ -515,6 +515,20 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
   _attachRemoteScreenRef = _attachRemoteScreenLocalRef;
   _clearRemoteScreenRef = _clearRemoteScreenLocalRef;
 
+  // Возвращает валидные ICE-серверы для звонка. Coturn работает в режиме
+  // use-auth-secret, поэтому статические логин/пароль он отклоняет — нужны
+  // временные креды из /api/turn/. Тянем их синхронно (await) на КАЖDОЙ
+  // стороне звонка, чтобы и звонящий, и отвечающий получили рабочий TURN.
+  // Если бэкенд недоступен — откатываемся на статику (звонок в LAN не ломается).
+  const resolveIceServers = async (): Promise<RTCIceServer[]> => {
+    try {
+      const pool = await fetchPoolIceServers(currentServerIP, authToken);
+      if (pool) { _poolIce = pool; return pool; }
+    } catch { /* ignore */ }
+    if (_poolIce) return _poolIce;
+    return getIceServers(getSelectedServerEntry());
+  };
+
   const createPeerConnection = (remoteId: string, customIceServers?: RTCIceServer[]): RTCPeerConnection => {
     const iceServers = customIceServers || _poolIce || getIceServers(getSelectedServerEntry());
     _call.activeIceServers = iceServers;
@@ -750,15 +764,15 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
       }
     } catch { }
 
-    const pc = createPeerConnection(String(peerId));
+    const iceServers = await resolveIceServers();
+    const pc = createPeerConnection(String(peerId), iceServers);
     _call.pc = pc;
     addLocalTracks(pc);
 
     try {
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
-      const callerTurn = getResolvedTurn(getSelectedServerEntry());
-      sendSignal({ type: 'offer', sdp: offer, withVideo: wantVideo, turnHost: callerTurn.host, turnPort: callerTurn.port, turnUser: callerTurn.username, turnCred: callerTurn.credential, to: peerId });
+      sendSignal({ type: 'offer', sdp: offer, withVideo: wantVideo, to: peerId });
     } catch { }
 
     startDialTone();
@@ -786,8 +800,11 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
 
     try {
       if (_call.pc) _call.pc.close();
-      const callerIce = msg.turnHost ? getIceServers({ url: '', name: '', turn_host: msg.turnHost, turn_port: msg.turnPort, turn_username: msg.turnUser, turn_credential: msg.turnCred }) : undefined;
-      _call.pc = createPeerConnection(senderId, callerIce);
+      // Отвечающий тянет СВОИ валидные временные TURN-креды (use-auth-secret),
+      // а не полагается на переданные звонящим — иначе TURN-авторизация падает
+      // и relay-кандидаты не появляются, звонок не соединяется.
+      const iceServers = await resolveIceServers();
+      _call.pc = createPeerConnection(senderId, iceServers);
       _call.targetId = senderId;
       _call.pendingCandidates = [];
       _call.remoteStream = null;
