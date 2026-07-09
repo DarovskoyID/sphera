@@ -1342,7 +1342,7 @@ const DataSettings: React.FC = () => {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = 'ionik-data-export.json';
+      a.download = 'sfera-data-export.json';
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -1627,7 +1627,7 @@ const ExportImportSettings: React.FC = () => {
     const local: Record<string, string> = {};
     LOCAL_PREF_KEYS.forEach(k => { const v = localStorage.getItem(k); if (v !== null) local[k] = v; });
     const bundle = {
-      app: 'ionik',
+      app: 'sfera',
       kind: 'settings-backup',
       version: 1,
       exported_at: new Date().toISOString(),
@@ -1638,7 +1638,7 @@ const ExportImportSettings: React.FC = () => {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `ionik-settings-${new Date().toISOString().slice(0, 10)}.json`;
+    a.download = `sfera-settings-${new Date().toISOString().slice(0, 10)}.json`;
     document.body.appendChild(a); a.click(); a.remove();
     URL.revokeObjectURL(url);
     setMsg({ text: isRu ? 'Настройки экспортированы' : 'Settings exported', type: 'ok' });

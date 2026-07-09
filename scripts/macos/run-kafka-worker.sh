@@ -12,8 +12,8 @@ fi
 cd "$DJANGO_DIR" || exit 1
 
 while true; do
-    echo "[ionik-kafka-worker] Starting kafka_worker ..."
+    echo "[sfera-kafka-worker] Starting kafka_worker ..."
     KAFKA_ENABLED=true python manage.py kafka_worker
-    echo "[ionik-kafka-worker] Worker exited ($?). Restarting in 5s... (kill this wrapper to stop)"
+    echo "[sfera-kafka-worker] Worker exited ($?). Restarting in 5s... (kill this wrapper to stop)"
     sleep 5
 done

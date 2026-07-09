@@ -7,18 +7,18 @@ set "NGINX_DIR=D:\nginx-1.29.8"
 set "DOCKER_DIR=%ROOT%\django-server"
 
 echo.
-echo  Stopping all ionik services...
+echo  Stopping all sfera services...
 echo.
 
 :: ─── Django / Daphne ──────────────────────────────────────────────────────────
 echo [1/6] Stopping Django ...
-taskkill /f /fi "windowtitle eq ionik-django*" >nul 2>&1
+taskkill /f /fi "windowtitle eq sfera-django*" >nul 2>&1
 powershell -NoProfile -Command "Get-NetTCPConnection -LocalPort 8000 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }" >nul 2>&1
 echo        Done.
 
 :: ─── Kafka worker ─────────────────────────────────────────────────────────────
 echo [2/6] Stopping Kafka worker ...
-taskkill /f /fi "windowtitle eq ionik-kafka-worker*" >nul 2>&1
+taskkill /f /fi "windowtitle eq sfera-kafka-worker*" >nul 2>&1
 echo        Done.
 
 :: ─── nginx ────────────────────────────────────────────────────────────────────
@@ -32,8 +32,8 @@ echo        Done.
 
 :: ─── coturn (WSL) ─────────────────────────────────────────────────────────────
 echo [4/6] Stopping coturn ...
-taskkill /f /fi "windowtitle eq ionik-coturn*" >nul 2>&1
-taskkill /f /fi "windowtitle eq ionik-turn*"   >nul 2>&1
+taskkill /f /fi "windowtitle eq sfera-coturn*" >nul 2>&1
+taskkill /f /fi "windowtitle eq sfera-turn*"   >nul 2>&1
 wsl -e bash -c "pkill -9 turnserver 2>/dev/null; exit 0" >nul 2>&1
 taskkill /f /im turn-server.exe >nul 2>&1
 echo        Done.

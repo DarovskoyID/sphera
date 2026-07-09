@@ -138,11 +138,11 @@ export const IncomingCallModal = () => {
 
   // Expose callbacks for native Android to trigger accept/decline
   useEffect(() => {
-    (window as any).ionikAcceptCall = (withVideo?: boolean) => acceptCall(withVideo);
-    (window as any).ionikDeclineCall = () => reject();
+    (window as any).sferaAcceptCall = (withVideo?: boolean) => acceptCall(withVideo);
+    (window as any).sferaDeclineCall = () => reject();
     return () => {
-      delete (window as any).ionikAcceptCall;
-      delete (window as any).ionikDeclineCall;
+      delete (window as any).sferaAcceptCall;
+      delete (window as any).sferaDeclineCall;
     };
   });
 

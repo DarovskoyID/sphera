@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# stop-all.sh — ПОЛНАЯ остановка всего, что относится к ionik.
+# stop-all.sh — ПОЛНАЯ остановка всего, что относится к sfera.
 #
 # Делает всё, что делает stop.sh (Daphne+watchdog, Kafka-воркеры, coturn, nginx),
 # и ДОПОЛНИТЕЛЬНО:
@@ -17,7 +17,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 DOCKER_DIR="$PROJECT_ROOT/django-server"
 
-echo "=== Stopping ABSOLUTELY ALL ionik services ==="
+echo "=== Stopping ABSOLUTELY ALL sfera services ==="
 
 # ── 1. Базовая остановка приложения ─────────────────────────────────────────
 # Переиспользуем stop.sh: Daphne(+watchdog timer), Kafka-воркеры, coturn, nginx,
@@ -49,10 +49,10 @@ fi
 
 # ── 4. Зачистка осиротевших процессов и PID-файлов ──────────────────────────
 echo "[+] Cleaning up stray processes ..."
-pkill -f "daphne.*ionik_server" 2>/dev/null || true
+pkill -f "daphne.*sfera_server" 2>/dev/null || true
 pkill -f "kafka_worker"         2>/dev/null || true
 pkill -f "turnserver"           2>/dev/null || true
-rm -f /tmp/ionik-daphne.pid /tmp/ionik-kafka-worker.pid
+rm -f /tmp/sfera-daphne.pid /tmp/sfera-kafka-worker.pid
 echo "      Done."
 
 echo ""

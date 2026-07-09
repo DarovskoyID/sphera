@@ -28,10 +28,10 @@ myenv/
 django-server/myenv/
 
 # Django
-django-server/ionik_server/db.sqlite3
+django-server/sfera_server/db.sqlite3
 *.pyc
 __pycache__/
-django-server/ionik_server/media/load-tests/loadtest.env
+django-server/sfera_server/media/load-tests/loadtest.env
 
 # Mail secrets (Yandex SMTP creds) — НЕ коммитить
 .mail.env
@@ -40,5 +40,5 @@ django-server/ionik_server/media/load-tests/loadtest.env
 .env
 *.env
 !.mail.env.example
-django-server/ionik_server/serviceAccountKey.json
+django-server/sfera_server/serviceAccountKey.json
 serviceAccountKey.json

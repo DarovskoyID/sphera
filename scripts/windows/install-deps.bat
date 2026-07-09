@@ -6,7 +6,7 @@ for %%I in ("%ROOT%") do set "ROOT=%%~fI"
 set "DJANGO_DIR=%ROOT%\django-server"
 set "PYTHON=%DJANGO_DIR%\myenv\Scripts\python.exe"
 set "PIP=%DJANGO_DIR%\myenv\Scripts\pip.exe"
-set "REQ_UTF8=%TEMP%\ionik-requirements-%RANDOM%.txt"
+set "REQ_UTF8=%TEMP%\sfera-requirements-%RANDOM%.txt"
 set "DOCKER_ENV=%DJANGO_DIR%\.env"
 set "INSTALL_COTURN=1"
 set "INSTALL_SYSTEM=1"
@@ -23,7 +23,7 @@ if not "%~1"=="" if /i not "%~1"=="--skip-coturn" if /i not "%~1"=="--skip-syste
 
 echo.
 echo  ==========================================
-echo    Installing ionik dependencies
+echo    Installing sfera dependencies
 echo  ==========================================
 echo.
 echo  Project root: %ROOT%
@@ -118,7 +118,7 @@ exit /b 0
 findstr /b /c:"%~1=" "%DOCKER_ENV%" >nul 2>&1
 if not errorlevel 1 exit /b 0
 if /i "%~2"=="fixed" (
-    >>"%DOCKER_ENV%" echo %~1=ionik-local-development-secret-key-not-for-production
+    >>"%DOCKER_ENV%" echo %~1=sfera-local-development-secret-key-not-for-production
     exit /b 0
 )
 for /f "usebackq delims=" %%S in (`powershell -NoProfile -Command "[Convert]::ToBase64String([Security.Cryptography.RandomNumberGenerator]::GetBytes(24)).Replace('/','').Replace('+','').Replace('=','')"`) do set "ENV_VALUE=%%S"

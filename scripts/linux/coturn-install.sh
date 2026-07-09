@@ -3,17 +3,17 @@ set -e
 
 echo "=== Installing coturn (TURN server) on Linux ==="
 
-MIN_PORT="${IONIK_COTURN_MIN_PORT:-49152}"
-MAX_PORT="${IONIK_COTURN_MAX_PORT:-65535}"
-REALM="${IONIK_TURN_REALM:-start-ionik.ru}"
-TURN_USER="${IONIK_TURN_USER:-ionikuser}"
-TURN_PASS="${IONIK_TURN_PASS:-ionikturn123}"
+MIN_PORT="${SFERA_COTURN_MIN_PORT:-49152}"
+MAX_PORT="${SFERA_COTURN_MAX_PORT:-65535}"
+REALM="${SFERA_TURN_REALM:-start-ionik.ru}"
+TURN_USER="${SFERA_TURN_USER:-sferauser}"
+TURN_PASS="${SFERA_TURN_PASS:-sferaturn123}"
 # Общий секрет → режим use-auth-secret (временные креды, валидны на любой ноде с
 # тем же секретом — нужно для нескольких TURN-серверов). Иначе статич. user/pass.
-TURN_SECRET="${IONIK_TURN_SECRET:-}"
-EXTERNAL_IP="${IONIK_TURN_EXTERNAL_IP:-}"
-SSL_CERT="${IONIK_SSL_CERT:-/etc/letsencrypt/live/$REALM/fullchain.pem}"
-SSL_KEY="${IONIK_SSL_KEY:-/etc/letsencrypt/live/$REALM/privkey.pem}"
+TURN_SECRET="${SFERA_TURN_SECRET:-}"
+EXTERNAL_IP="${SFERA_TURN_EXTERNAL_IP:-}"
+SSL_CERT="${SFERA_SSL_CERT:-/etc/letsencrypt/live/$REALM/fullchain.pem}"
+SSL_KEY="${SFERA_SSL_KEY:-/etc/letsencrypt/live/$REALM/privkey.pem}"
 
 # Detect package manager
 if command -v apt-get &>/dev/null; then
@@ -40,7 +40,7 @@ if [ ! -f "$CONF" ]; then
     fi
 
     sudo tee "$CONF" > /dev/null <<'EOF'
-# coturn config for ionik
+# coturn config for sfera
 listening-port=3478
 tls-listening-port=5349
 listening-ip=0.0.0.0
@@ -71,7 +71,7 @@ EOF
         fi
     } | sudo tee -a "$CONF" > /dev/null
     echo "Default config written to $CONF"
-    echo "IMPORTANT: Change IONIK_TURN_USER/IONIK_TURN_PASS for production."
+    echo "IMPORTANT: Change SFERA_TURN_USER/SFERA_TURN_PASS for production."
 else
     sudo sed -i -E \
         -e "/^min-port=/d" \

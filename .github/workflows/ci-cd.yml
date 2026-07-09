@@ -23,8 +23,8 @@ jobs:
     name: Build and Check
     runs-on: ubuntu-latest
     env:
-      IONIK_DEBUG: '1'
-      IONIK_CORS_ALLOW_ALL: '1'
+      SFERA_DEBUG: '1'
+      SFERA_CORS_ALLOW_ALL: '1'
       KAFKA_ENABLED: 'false'
     steps:
       - uses: actions/checkout@v4
@@ -51,11 +51,11 @@ jobs:
         run: python -m pip install --upgrade pip && python -m pip install -r requirements.txt
 
       - name: Compile backend
-        working-directory: django-server/ionik_server
-        run: python -m compileall ionik_auth ionik_messages ionik_server
+        working-directory: django-server/sfera_server
+        run: python -m compileall sfera_auth sfera_messages sfera_server
 
       - name: Django system check
-        working-directory: django-server/ionik_server
+        working-directory: django-server/sfera_server
         run: python manage.py check --deploy
 
       - uses: dtolnay/rust-toolchain@stable
@@ -82,45 +82,45 @@ jobs:
     needs: ci
     runs-on: ubuntu-latest
     if: >
-      (github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.IONIK_DEPLOY_ENABLED == 'true') ||
+      (github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.SFERA_DEPLOY_ENABLED == 'true') ||
       (github.event_name == 'workflow_dispatch' && inputs.deploy == true)
     steps:
       - name: Install SSH key
         env:
-          DEPLOY_KEY: ${{ secrets.IONIK_DEPLOY_KEY }}
-          DEPLOY_HOST: ${{ secrets.IONIK_DEPLOY_HOST }}
-          DEPLOY_PORT: ${{ secrets.IONIK_DEPLOY_PORT }}
+          DEPLOY_KEY: ${{ secrets.SFERA_DEPLOY_KEY }}
+          DEPLOY_HOST: ${{ secrets.SFERA_DEPLOY_HOST }}
+          DEPLOY_PORT: ${{ secrets.SFERA_DEPLOY_PORT }}
         run: |
           # Деплой включён переменной, но если секреты не заданы — не валим
           # пайплайн, а аккуратно пропускаем шаг.
           if [ -z "$DEPLOY_KEY" ] || [ -z "$DEPLOY_HOST" ]; then
-            echo "::warning::IONIK_DEPLOY_KEY/HOST не заданы — деплой пропущен."
+            echo "::warning::SFERA_DEPLOY_KEY/HOST не заданы — деплой пропущен."
             echo "DEPLOY_SKIP=1" >> "$GITHUB_ENV"
             exit 0
           fi
           port="${DEPLOY_PORT:-22}"
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
-          printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/ionik_deploy
-          chmod 600 ~/.ssh/ionik_deploy
+          printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/sfera_deploy
+          chmod 600 ~/.ssh/sfera_deploy
           ssh-keyscan -p "$port" -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts
 
       - name: Deploy main on server
         if: env.DEPLOY_SKIP != '1'
         env:
-          DEPLOY_HOST: ${{ secrets.IONIK_DEPLOY_HOST }}
-          DEPLOY_USER: ${{ secrets.IONIK_DEPLOY_USER }}
-          DEPLOY_PORT: ${{ secrets.IONIK_DEPLOY_PORT }}
-          DEPLOY_PATH: ${{ vars.IONIK_DEPLOY_PATH }}
-          DEPLOY_MODE: ${{ vars.IONIK_DEPLOY_MODE }}
-          DEPLOY_ENV_FILE: ${{ vars.IONIK_DEPLOY_ENV_FILE }}
+          DEPLOY_HOST: ${{ secrets.SFERA_DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.SFERA_DEPLOY_USER }}
+          DEPLOY_PORT: ${{ secrets.SFERA_DEPLOY_PORT }}
+          DEPLOY_PATH: ${{ vars.SFERA_DEPLOY_PATH }}
+          DEPLOY_MODE: ${{ vars.SFERA_DEPLOY_MODE }}
+          DEPLOY_ENV_FILE: ${{ vars.SFERA_DEPLOY_ENV_FILE }}
         run: |
           user="${DEPLOY_USER:-root}"
           port="${DEPLOY_PORT:-22}"
-          app_dir="${DEPLOY_PATH:-/opt/ionik}"
+          app_dir="${DEPLOY_PATH:-/opt/sfera}"
           mode="${DEPLOY_MODE:-ssl}"
-          env_file="${DEPLOY_ENV_FILE:-/etc/ionik/deploy.env}"
-          ssh -i ~/.ssh/ionik_deploy -p "$port" "$user@$DEPLOY_HOST" \
+          env_file="${DEPLOY_ENV_FILE:-/etc/sfera/deploy.env}"
+          ssh -i ~/.ssh/sfera_deploy -p "$port" "$user@$DEPLOY_HOST" \
             "set -euo pipefail
              cd '$app_dir'
              git fetch --prune origin main

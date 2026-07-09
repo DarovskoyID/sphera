@@ -117,7 +117,7 @@ export const ExploreServers: React.FC<{ style?: React.CSSProperties }> = ({ styl
     setJoining(null);
   };
 
-  const isRu = tr('explore_title') === 'Исследовать Ионик';
+  const isRu = tr('explore_title') === 'Исследовать Сферу';
 
   const channelResults = results.filter(g => g.is_personal_channel);
   const serverResults = results.filter(g => !g.is_personal_channel);

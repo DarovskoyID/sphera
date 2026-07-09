@@ -34,9 +34,9 @@ RUN apt-get update && apt-get install -y \
         liblz4-1 \
         libzstd1 \
     && rm -rf /var/lib/apt/lists/*
-COPY --from=builder /app/target/release/ionik-ws-gateway /usr/local/bin/
+COPY --from=builder /app/target/release/sfera-ws-gateway /usr/local/bin/
 
 ENV RUST_LOG=info
 EXPOSE 8001
 
-CMD ["ionik-ws-gateway"]
+CMD ["sfera-ws-gateway"]

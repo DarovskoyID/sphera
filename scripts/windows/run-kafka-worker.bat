@@ -7,12 +7,12 @@ set "PYTHON=%~2"
 
 cd /d "%DJANGO_DIR%"
 :: Локальная разработка: DEBUG включён (как в run-daphne.bat).
-set IONIK_DEBUG=1
+set SFERA_DEBUG=1
 
 :loop
-echo [ionik-kafka-worker] Starting kafka_worker ...
+echo [sfera-kafka-worker] Starting kafka_worker ...
 set KAFKA_ENABLED=true
 "%PYTHON%" manage.py kafka_worker
-echo [ionik-kafka-worker] Worker exited (code %errorlevel%). Restarting in 5s... (close window to stop)
+echo [sfera-kafka-worker] Worker exited (code %errorlevel%). Restarting in 5s... (close window to stop)
 timeout /t 5 /nobreak >nul
 goto loop

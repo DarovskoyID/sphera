@@ -5,12 +5,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 DOCKER_DIR="$PROJECT_ROOT/django-server"
 
-echo "=== Stopping all ionik services ==="
+echo "=== Stopping all sfera services ==="
 
 echo "[1/5] Stopping Django (Daphne) ..."
 # Сначала гасим обёртку-супервизор, иначе она перезапустит Daphne обратно
 pkill -f "run-daphne.sh" 2>/dev/null || true
-pkill -f "daphne.*ionik_server" 2>/dev/null || true
+pkill -f "daphne.*sfera_server" 2>/dev/null || true
 echo "      Stopped."
 
 echo "[2/5] Stopping Kafka worker ..."

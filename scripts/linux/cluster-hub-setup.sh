@@ -2,7 +2,7 @@
 #
 # cluster-hub-setup.sh — интерактивная настройка кластера на ГЛАВНОМ сервере.
 # Ничего не захардкожено: все параметры спрашиваются (дефолты можно подтвердить
-# Enter) и запоминаются в /etc/ionik/cluster.env.
+# Enter) и запоминаются в /etc/sfera/cluster.env.
 #
 #   sudo bash scripts/linux/cluster-hub-setup.sh
 set -euo pipefail
@@ -12,8 +12,8 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 DJANGO_DIR="$PROJECT_ROOT/django-server"
 SERVERS_CONF="$PROJECT_ROOT/loadbalancer/servers.conf"
 WG_DIR=/etc/wireguard
-SECRETS=/etc/ionik/secrets.env
-CLUSTER_ENV=/etc/ionik/cluster.env
+SECRETS=/etc/sfera/secrets.env
+CLUSTER_ENV=/etc/sfera/cluster.env
 
 [ "$(id -u)" -eq 0 ] || { echo "Запусти под root (sudo)."; exit 1; }
 
@@ -29,7 +29,7 @@ ask() {
 load_config() { [ -f "$CLUSTER_ENV" ] && { set -a; . "$CLUSTER_ENV"; set +a; } || true; }
 
 save_config() {
-    mkdir -p /etc/ionik
+    mkdir -p /etc/sfera
     cat > "$CLUSTER_ENV" <<EOF
 WG_HUB_IP=$WG_HUB_IP
 WG_SUBNET=$WG_SUBNET
@@ -47,7 +47,7 @@ gather_config() {
     WG_SUBNET="${WG_SUBNET:-10.77.0.0/24}"
     WG_PORT="${WG_PORT:-51820}"
     WG_ENDPOINT="${WG_ENDPOINT:-$(pubip):$WG_PORT}"
-    local domain_def; domain_def="$(sed -n 's/^IONIK_DOMAIN=//p' "$SECRETS" 2>/dev/null)"
+    local domain_def; domain_def="$(sed -n 's/^SFERA_DOMAIN=//p' "$SECRETS" 2>/dev/null)"
     AUTHZ_URL="${AUTHZ_URL:-https://${domain_def:-$(pubip)}:8000/api/ws/authorize/}"
 
     echo "--- Параметры кластера (Enter — оставить значение в скобках) ---"
@@ -76,11 +76,11 @@ next_free_ip() {
 
 do_init() {
     gather_config
-    IONIK_WG_HUB_IP="$WG_HUB_IP" IONIK_WG_SUBNET="$WG_SUBNET" IONIK_WG_PORT="$WG_PORT" \
+    SFERA_WG_HUB_IP="$WG_HUB_IP" SFERA_WG_SUBNET="$WG_SUBNET" SFERA_WG_PORT="$WG_PORT" \
         bash "$SCRIPT_DIR/wg-hub.sh" install
     echo ""
     echo "[hub] Открываю Redis/Kafka в VPN на $WG_HUB_IP (пересоздаю redis+kafka, ~10с)…"
-    ( cd "$DJANGO_DIR" && IONIK_WG_HUB_IP="$WG_HUB_IP" docker compose \
+    ( cd "$DJANGO_DIR" && SFERA_WG_HUB_IP="$WG_HUB_IP" docker compose \
         -f docker-compose.yml -f docker-compose.cluster.yml up -d redis kafka )
     echo "[hub] Готово. Теперь пункт 2 — «Добавить ноду»."
 }
@@ -90,15 +90,15 @@ do_add_node() {
     load_config
     [ -n "${WG_HUB_IP:-}" ] || { echo "Нет конфига — запусти пункт 1."; return; }
 
-    local jwt; jwt="$(sed -n 's/^IONIK_SECRET_KEY=//p' "$SECRETS" 2>/dev/null)"
-    [ -n "$jwt" ] || { echo "Не нашёл IONIK_SECRET_KEY в $SECRETS."; return; }
+    local jwt; jwt="$(sed -n 's/^SFERA_SECRET_KEY=//p' "$SECRETS" 2>/dev/null)"
+    [ -n "$jwt" ] || { echo "Не нашёл SFERA_SECRET_KEY в $SECRETS."; return; }
 
     local node_ip; node_ip="$(next_free_ip)"
     ask node_ip "WG-IP для новой ноды" "$node_ip"
 
     local npriv npub
     npriv="$(wg genkey)"; npub="$(printf '%s' "$npriv" | wg pubkey)"
-    IONIK_WG_HUB_IP="$WG_HUB_IP" bash "$SCRIPT_DIR/wg-hub.sh" add-peer "$npub" "$node_ip" >/dev/null
+    SFERA_WG_HUB_IP="$WG_HUB_IP" bash "$SCRIPT_DIR/wg-hub.sh" add-peer "$npub" "$node_ip" >/dev/null
     grep -q "server $node_ip:8001" "$SERVERS_CONF" 2>/dev/null \
         || echo "server $node_ip:8001 max_fails=3 fail_timeout=10s;" >> "$SERVERS_CONF"
     lb_reload
@@ -143,7 +143,7 @@ do_status() {
 while true; do
     cat <<MENU
 
-==== ionik cluster (хаб) ====
+==== sfera cluster (хаб) ====
   1) Инициализировать хаб (WireGuard + Redis/Kafka в VPN)
   2) Добавить ноду  (выдать команду для второго сервера)
   3) Убрать ноду

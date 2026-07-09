@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 #
-# mail-install.sh — поднимает СВОЙ отправляющий SMTP на сервере ionik.
+# mail-install.sh — поднимает СВОЙ отправляющий SMTP на сервере sfera.
 #
 # Ставит Postfix (только исходящая почта, слушает 127.0.0.1) + OpenDKIM
 # (DKIM-подпись писем). Django шлёт код подтверждения на 127.0.0.1:25 —
 # наружу не торчит ничего, кроме самих писем. Скрипт идемпотентный: можно
 # гонять повторно.
 #
-# Запуск на сервере (из /root/ionik):
+# Запуск на сервере (из /root/sfera):
 #     sudo bash scripts/linux/mail-install.sh
 #   проверка доставки (отправит тестовое письмо):
 #     sudo bash scripts/linux/mail-install.sh you@gmail.com
@@ -127,22 +127,22 @@ systemctl enable --now postfix  >/dev/null 2>&1 || true
 systemctl restart postfix
 
 # ── 4b. Подключаем Django к локальному Postfix (systemd drop-in) ─────────────
-# Drop-in переживает регенерацию ionik-daphne.service из start-common.sh,
+# Drop-in переживает регенерацию sfera-daphne.service из start-common.sh,
 # поэтому почта не отвалится при следующем деплое.
-if systemctl list-unit-files | grep -q '^ionik-daphne.service'; then
-    log "Прописываю EMAIL_* в ionik-daphne.service (drop-in) и перезапускаю Daphne…"
-    mkdir -p /etc/systemd/system/ionik-daphne.service.d
-    cat > /etc/systemd/system/ionik-daphne.service.d/email.conf <<EOF
+if systemctl list-unit-files | grep -q '^sfera-daphne.service'; then
+    log "Прописываю EMAIL_* в sfera-daphne.service (drop-in) и перезапускаю Daphne…"
+    mkdir -p /etc/systemd/system/sfera-daphne.service.d
+    cat > /etc/systemd/system/sfera-daphne.service.d/email.conf <<EOF
 [Service]
 Environment=EMAIL_HOST=127.0.0.1
 Environment=EMAIL_PORT=25
 Environment=EMAIL_USE_TLS=false
-Environment="DEFAULT_FROM_EMAIL=Ionik <no-reply@${MAIL_DOMAIN}>"
+Environment="DEFAULT_FROM_EMAIL=Sfera <no-reply@${MAIL_DOMAIN}>"
 EOF
     systemctl daemon-reload
-    systemctl restart ionik-daphne.service || warn "Не удалось перезапустить Daphne — сделай это вручную."
+    systemctl restart sfera-daphne.service || warn "Не удалось перезапустить Daphne — сделай это вручную."
 else
-    warn "Юнит ionik-daphne.service не найден. Задай Django'у переменные вручную:"
+    warn "Юнит sfera-daphne.service не найден. Задай Django'у переменные вручную:"
     warn "  EMAIL_HOST=127.0.0.1  EMAIL_PORT=25  EMAIL_USE_TLS=false"
 fi
 
@@ -159,7 +159,7 @@ fi
 # ── 6. Тестовое письмо (если указан адрес) ───────────────────────────────────
 if [ -n "$TEST_TO" ]; then
     log "Шлю тестовое письмо на ${TEST_TO}…"
-    printf 'Subject: Ionik mail test\nFrom: no-reply@%s\nTo: %s\n\nЕсли ты это читаешь — свой SMTP работает.\n' \
+    printf 'Subject: Sfera mail test\nFrom: no-reply@%s\nTo: %s\n\nЕсли ты это читаешь — свой SMTP работает.\n' \
         "$MAIL_DOMAIN" "$TEST_TO" | sendmail -t
     log "Отправлено. Проверь Входящие/Спам. Очередь: postqueue -p ; лог: journalctl -u postfix -n 50"
 fi

@@ -3,12 +3,12 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-DJANGO_DIR="$PROJECT_ROOT/django-server/ionik_server"
+DJANGO_DIR="$PROJECT_ROOT/django-server/sfera_server"
 DOCKER_DIR="$PROJECT_ROOT/django-server"
 FRONTEND_DIR="$PROJECT_ROOT"
 COTURN_CONF="$HOME/.coturn/turnserver.conf"
 
-echo "=== Starting ionik (macOS) ==="
+echo "=== Starting sfera (macOS) ==="
 echo "Project root: $PROJECT_ROOT"
 
 # ── 1. Docker services ─────────────────────────────────────────────────────
@@ -55,18 +55,18 @@ fi
 # Запускаем через обёртку с автоперезапуском (run-daphne.sh), а не голым nohup,
 # чтобы зависший/упавший Daphne поднимался сам.
 nohup bash "$SCRIPT_DIR/run-daphne.sh" "$DJANGO_DIR" "$VENV" \
-    > /tmp/ionik-daphne.log 2>&1 &
+    > /tmp/sfera-daphne.log 2>&1 &
 DAPHNE_PID=$!
-echo "      Daphne supervisor PID: $DAPHNE_PID  (log: /tmp/ionik-daphne.log)"
+echo "      Daphne supervisor PID: $DAPHNE_PID  (log: /tmp/sfera-daphne.log)"
 
 # ── 4. Kafka worker ──────────────────────────────────────────────────────────
 echo ""
 echo "[4/5] Starting Kafka worker (auto-restart)..."
 if command -v docker &>/dev/null; then
     nohup bash "$SCRIPT_DIR/run-kafka-worker.sh" "$DJANGO_DIR" "$VENV" \
-        > /tmp/ionik-kafka-worker.log 2>&1 &
+        > /tmp/sfera-kafka-worker.log 2>&1 &
     KAFKA_PID=$!
-    echo "      Kafka worker supervisor PID: $KAFKA_PID  (log: /tmp/ionik-kafka-worker.log)"
+    echo "      Kafka worker supervisor PID: $KAFKA_PID  (log: /tmp/sfera-kafka-worker.log)"
 else
     KAFKA_PID=""
     echo "      Skipped (no Docker/Kafka)."
@@ -84,9 +84,9 @@ fi
 
 [ ! -d node_modules ] && npm install
 nohup npm run dev -- --host \
-    > /tmp/ionik-vite.log 2>&1 &
+    > /tmp/sfera-vite.log 2>&1 &
 VITE_PID=$!
-echo "      Vite PID: $VITE_PID  (log: /tmp/ionik-vite.log)"
+echo "      Vite PID: $VITE_PID  (log: /tmp/sfera-vite.log)"
 
 # ── Summary ──────────────────────────────────────────────────────────────────
 echo ""

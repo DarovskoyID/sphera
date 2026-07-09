@@ -1,6 +1,6 @@
 # Тестовые нагрузки (load-tests)
 
-Генерация тестовых данных в базе Ionik: аккаунты, серверы, каналы, посты и сообщения.
+Генерация тестовых данных в базе Sfera: аккаунты, серверы, каналы, посты и сообщения.
 Под капотом — management-команда Django `seed_load`, которая пишет напрямую через ORM
 (`bulk_create`), поэтому быстро наполняет даже высокий профиль.
 
@@ -42,7 +42,7 @@ cd load-tests
 значение, если флаг не передан:
 
 ```bash
-python ../django-server/ionik_server/manage.py seed_load
+python ../django-server/sfera_server/manage.py seed_load
 #   N аккаунтов: 100
 #   M серверов: 10
 #   H каналов: 50
@@ -53,7 +53,7 @@ python ../django-server/ionik_server/manage.py seed_load
 
 Или всё флагами:
 ```bash
-python ../django-server/ionik_server/manage.py seed_load \
+python ../django-server/sfera_server/manage.py seed_load \
   --accounts 100 --servers 10 --channels 50 \
   --posts 500 --server-messages 5000 --dm-messages 2000
 ```
@@ -84,7 +84,7 @@ pip install -r load-tests/requirements-loadtest.txt   # requests + websockets + 
 
 Запуск — 10 звонков на 5 минут (нужно ≥ 2·I тестовых аккаунтов):
 ```bash
-python ../django-server/ionik_server/manage.py seed_load \
+python ../django-server/sfera_server/manage.py seed_load \
   --accounts 0 --servers 0 --channels 0 --posts 0 --server-messages 0 --dm-messages 0 \
   --active-calls 10 --call-duration 5m --base-url https://<домен>:8000
 ```
@@ -97,7 +97,7 @@ python ../django-server/ionik_server/manage.py seed_load \
 - `--with-video` — добавить видеодорожку (по умолчанию только аудио).
 - `--signaling-url` — WS сигналинга (по умолчанию `wss://<host>:<port>/ws/signaling/` из `--base-url`).
   Метрика `active_dm_calls` обновляется только если сигналинг идёт через Django-консьюмер.
-- TURN по умолчанию берётся из `src/config/network.ts` (`ionikuser` / `ionikturn123`, порт 3478);
+- TURN по умолчанию берётся из `src/config/network.ts` (`sferauser` / `sferaturn123`, порт 3478);
   переопределяется `--turn-host/--turn-port/--turn-user/--turn-cred`.
 - На время звонков команда **блокируется** (держит звонки `--call-duration`), затем кладёт трубку.
 
@@ -109,7 +109,7 @@ python ../django-server/ionik_server/manage.py seed_load \
 .\run.ps1 medium -SendDm 500 -BaseUrl https://127.0.0.1:8000
 ```
 ```bash
-python ../django-server/ionik_server/manage.py seed_load \
+python ../django-server/sfera_server/manage.py seed_load \
   --accounts 50 --servers 0 --channels 0 --posts 0 --server-messages 0 --dm-messages 0 \
   --send-dm 500 --base-url https://127.0.0.1:8000 --concurrency 16
 ```
@@ -127,5 +127,5 @@ python ../django-server/ionik_server/manage.py seed_load \
 
 ```powershell
 .\run.ps1 light -Purge        # только очистка + лёгкий профиль
-python ..\django-server\ionik_server\manage.py seed_load --purge   # только очистка
+python ..\django-server\sfera_server\manage.py seed_load --purge   # только очистка
 ```

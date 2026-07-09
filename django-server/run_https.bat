@@ -4,7 +4,7 @@ REM Сертификаты лежат в D:\nginx-1.29.8\ssl\
 REM   fullchain.pem  — публичный сертификат (chain)
 REM   privkey.pem    — приватный ключ
 REM
-REM Запуск:  D:\ionik-all\django-server\run_https.bat
+REM Запуск:  D:\sfera-all\django-server\run_https.bat
 REM Сервер слушает 0.0.0.0:8000 по HTTPS/WSS.
 REM Подключение:  https://bottomweb.ru:8000   /   wss://bottomweb.ru:8000/ws/...
 
@@ -34,7 +34,7 @@ if not exist "%PYTHON%" (
     exit /b 1
 )
 
-cd /d "%BASE%ionik_server"
+cd /d "%BASE%sfera_server"
 
 REM Применяем миграции на всякий случай
 "%PYTHON%" manage.py migrate --noinput
@@ -42,6 +42,6 @@ REM Применяем миграции на всякий случай
 REM Запускаем Daphne с TLS endpoint (двоеточия в путях экранированы)
 "%PYTHON%" -m daphne ^
   -e "ssl:8000:privateKey=%KEY_ESC%:certKey=%CERT_ESC%" ^
-  ionik_server.asgi:application
+  sfera_server.asgi:application
 
 endlocal

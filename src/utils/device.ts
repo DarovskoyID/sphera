@@ -4,7 +4,7 @@
 // networks. Instead the client generates a persistent id and reports an
 // accurate name/type, sent on every authenticated request via headers.
 
-const DEVICE_ID_KEY = 'ionik.deviceId';
+const DEVICE_ID_KEY = 'sfera.deviceId';
 
 /** Persistent random id for this browser/app install. */
 export function getDeviceId(): string {
@@ -53,8 +53,8 @@ export function getDeviceInfo(): DeviceInfo {
 
   // ── Browser / app shell (order matters) ─────────────────────────────────
   let browser = 'Browser';
-  if (/Electron/i.test(ua)) browser = 'Ionik Desktop';
-  else if (isCapacitor) browser = 'Ionik App';
+  if (/Electron/i.test(ua)) browser = 'Сфера Desktop';
+  else if (isCapacitor) browser = 'Сфера App';
   else if (/Edg(A|iOS|)\//i.test(ua)) browser = 'Edge';
   else if (/OPR\/|Opera/i.test(ua)) browser = 'Opera';
   else if (/SamsungBrowser/i.test(ua)) browser = 'Samsung Internet';

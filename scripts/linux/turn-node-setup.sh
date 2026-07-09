@@ -14,25 +14,25 @@ ask() { local ans def="$3"; read -rp "$2 [${def}]: " ans; printf -v "$1" '%s' "$
 detect_ip() { curl -s --max-time 5 https://api.ipify.org 2>/dev/null || hostname -I | awk '{print $1}'; }
 
 echo "--- Параметры TURN-ноды (Enter — значение в скобках) ---"
-ask REALM    "Realm/домен (как на главном)"     "${IONIK_TURN_REALM:-start-ionik.ru}"
-ask EXT_IP   "Публичный IP этой ноды"           "${IONIK_TURN_EXTERNAL_IP:-$(detect_ip)}"
-ask MINP     "Начало relay-диапазона портов"    "${IONIK_COTURN_MIN_PORT:-49152}"
-ask MAXP     "Конец relay-диапазона портов"     "${IONIK_COTURN_MAX_PORT:-65535}"
+ask REALM    "Realm/домен (как на главном)"     "${SFERA_TURN_REALM:-start-ionik.ru}"
+ask EXT_IP   "Публичный IP этой ноды"           "${SFERA_TURN_EXTERNAL_IP:-$(detect_ip)}"
+ask MINP     "Начало relay-диапазона портов"    "${SFERA_COTURN_MIN_PORT:-49152}"
+ask MAXP     "Конец relay-диапазона портов"     "${SFERA_COTURN_MAX_PORT:-65535}"
 
-SECRET="${IONIK_TURN_SECRET:-}"
+SECRET="${SFERA_TURN_SECRET:-}"
 ask SECRET "Общий секрет TURN (Enter — статич. user/pass)" "$SECRET"
 USER_VAL=""; PASS_VAL=""
 if [ -z "$SECRET" ]; then
-    ask USER_VAL "TURN user (как на главном)" "${IONIK_TURN_USER:-ionikuser}"
-    ask PASS_VAL "TURN pass (как на главном)" "${IONIK_TURN_PASS:-ionikturn123}"
+    ask USER_VAL "TURN user (как на главном)" "${SFERA_TURN_USER:-sferauser}"
+    ask PASS_VAL "TURN pass (как на главном)" "${SFERA_TURN_PASS:-sferaturn123}"
 fi
 
 echo "[turn] Ставлю coturn…"
-IONIK_TURN_REALM="$REALM" \
-IONIK_TURN_EXTERNAL_IP="$EXT_IP" \
-IONIK_COTURN_MIN_PORT="$MINP" IONIK_COTURN_MAX_PORT="$MAXP" \
-${SECRET:+IONIK_TURN_SECRET="$SECRET"} \
-${USER_VAL:+IONIK_TURN_USER="$USER_VAL"} ${PASS_VAL:+IONIK_TURN_PASS="$PASS_VAL"} \
+SFERA_TURN_REALM="$REALM" \
+SFERA_TURN_EXTERNAL_IP="$EXT_IP" \
+SFERA_COTURN_MIN_PORT="$MINP" SFERA_COTURN_MAX_PORT="$MAXP" \
+${SECRET:+SFERA_TURN_SECRET="$SECRET"} \
+${USER_VAL:+SFERA_TURN_USER="$USER_VAL"} ${PASS_VAL:+SFERA_TURN_PASS="$PASS_VAL"} \
     bash "$SCRIPT_DIR/coturn-install.sh"
 
 systemctl restart coturn 2>/dev/null || true

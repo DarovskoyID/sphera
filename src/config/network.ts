@@ -1,8 +1,12 @@
 export const APP_HOST = 'start-ionik.ru';
 
 export const API_PROTOCOL = 'https';
-export const API_PORT = 8000;
-export const API_BASE_URL = `${API_PROTOCOL}://${APP_HOST}:${API_PORT}`;
+// API идёт по стандартному 443 (без явного порта). Нестандартный 8000 режут
+// многие мобильные операторы / публичный Wi-Fi / корпоративные фаерволы —
+// из-за этого логин падал с «ошибкой сети», хотя push-уведомления (FCM, 443)
+// проходили. Сервер отдаёт тот же Django и на 443 (nginx-прокси).
+export const API_PORT = 443;
+export const API_BASE_URL = `${API_PROTOCOL}://${APP_HOST}`;
 
 // WebSocket-трафик идёт не напрямую на Daphne, а на балансировщик нагрузки
 // (см. loadbalancer/), который слушает на отдельном порту и распределяет
@@ -10,7 +14,7 @@ export const API_BASE_URL = `${API_PROTOCOL}://${APP_HOST}:${API_PORT}`;
 export const WS_PORT = 8001;
 export const WS_BASE_URL = `wss://${APP_HOST}:${WS_PORT}`;
 
-// Преобразует базовый URL сервера API (https://host:8000) в адрес WebSocket
+// Преобразует базовый URL сервера API (https://host) в адрес WebSocket
 // через балансировщик (wss://host:8001). Используется во всех WS-подключениях.
 export function wsUrlFor(serverIP: string): string {
   try {
@@ -25,8 +29,8 @@ export function wsUrlFor(serverIP: string): string {
 
 export const TURN_HOST = APP_HOST;
 export const TURN_PORT = 3478;
-export const TURN_USERNAME = 'ionikuser';
-export const TURN_CREDENTIAL = 'ionikturn123';
+export const TURN_USERNAME = 'sferauser';
+export const TURN_CREDENTIAL = 'sferaturn123';
 
 export const SERVER_IPS: string[] = [API_BASE_URL];
 
@@ -80,8 +84,8 @@ export interface ServerEntry {
   turn_credential?: string;
 }
 
-const LS_SERVERS_KEY = 'ionik_servers';
-const LS_SELECTED_KEY = 'ionik_selected_server';
+const LS_SERVERS_KEY = 'sfera_servers';
+const LS_SELECTED_KEY = 'sfera_selected_server';
 
 const DEFAULT_SERVERS: ServerEntry[] = [
   { url: API_BASE_URL, name: 'Main', turn_host: TURN_HOST, turn_port: TURN_PORT, turn_username: TURN_USERNAME, turn_credential: TURN_CREDENTIAL },

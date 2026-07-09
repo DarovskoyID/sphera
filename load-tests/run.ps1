@@ -35,7 +35,7 @@ $ErrorActionPreference = 'Stop'
 
 if ($Help) {
     @'
-Генератор тестовой нагрузки ionik.
+Генератор тестовой нагрузки sfera.
 
 ИСПОЛЬЗОВАНИЕ:
   .\run.ps1 <профиль> [-Purge]
@@ -71,18 +71,18 @@ $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 # Ищем manage.py — расположение load-tests может отличаться на разных машинах
 $manage = $null
 foreach ($c in @(
-        '..\django-server\ionik_server\manage.py',
-        '..\ionik_server\manage.py',
-        'ionik_server\manage.py',
-        'django-server\ionik_server\manage.py')) {
+        '..\django-server\sfera_server\manage.py',
+        '..\sfera_server\manage.py',
+        'sfera_server\manage.py',
+        'django-server\sfera_server\manage.py')) {
     $p = Join-Path $here $c
     if (Test-Path $p) { $manage = (Resolve-Path $p).Path; break }
 }
 if (-not $manage) {
     $manage = Get-ChildItem -Path $here\.. -Recurse -Depth 4 -Filter manage.py -ErrorAction SilentlyContinue |
-        Where-Object { $_.FullName -match 'ionik_server' } | Select-Object -First 1 -ExpandProperty FullName
+        Where-Object { $_.FullName -match 'sfera_server' } | Select-Object -First 1 -ExpandProperty FullName
 }
-if (-not $manage) { throw 'Не найден manage.py (ionik_server). Запусти скрипт рядом с проектом.' }
+if (-not $manage) { throw 'Не найден manage.py (sfera_server). Запусти скрипт рядом с проектом.' }
 $djangoRoot = Split-Path -Parent (Split-Path -Parent $manage)   # ...\django-server
 
 # Выбираем python из виртуального окружения, если он есть

@@ -5,8 +5,8 @@
     ports:
       - "127.0.0.1:5432:5432"
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-ionik}
-      POSTGRES_USER: ${POSTGRES_USER:-ionik}
+      POSTGRES_DB: ${POSTGRES_DB:-sfera}
+      POSTGRES_USER: ${POSTGRES_USER:-sfera}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
     volumes:
       - pg_data:/var/lib/postgresql/data
@@ -168,7 +168,7 @@
     environment:
       REDIS_URL: redis://redis:6379
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
-      # Must match Django SECRET_KEY/IONIK_SECRET_KEY or ws-gateway will reject JWTs.
+      # Must match Django SECRET_KEY/SFERA_SECRET_KEY or ws-gateway will reject JWTs.
       JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET}
       # Daphne слушает 127.0.0.1 — из контейнера недоступен. Авторизуемся через
       # публичный nginx API (см. start-common.sh::write_compose_env, пишет .env).

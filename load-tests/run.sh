@@ -20,7 +20,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 usage() {
   cat <<'USAGE'
-Генератор тестовой нагрузки ionik.
+Генератор тестовой нагрузки sfera.
 
 ИСПОЛЬЗОВАНИЕ:
   ./run.sh <профиль> [--purge]
@@ -91,20 +91,20 @@ fi
 find_manage() {
   local c
   for c in \
-    "$HERE/../django-server/ionik_server/manage.py" \
-    "$HERE/../ionik_server/manage.py" \
-    "$HERE/ionik_server/manage.py" \
-    "$HERE/django-server/ionik_server/manage.py"; do
+    "$HERE/../django-server/sfera_server/manage.py" \
+    "$HERE/../sfera_server/manage.py" \
+    "$HERE/sfera_server/manage.py" \
+    "$HERE/django-server/sfera_server/manage.py"; do
     [ -f "$c" ] && { echo "$c"; return 0; }
   done
   # запасной вариант — поиск вверх по дереву
   local found
-  found="$(find "$HERE/.." "$HERE/../.." -maxdepth 4 -name manage.py -path '*ionik_server*' 2>/dev/null | head -n1)"
+  found="$(find "$HERE/.." "$HERE/../.." -maxdepth 4 -name manage.py -path '*sfera_server*' 2>/dev/null | head -n1)"
   [ -n "$found" ] && { echo "$found"; return 0; }
   return 1
 }
 
-MANAGE="$(find_manage)" || { echo "Не найден manage.py (ionik_server). Запусти скрипт рядом с проектом." >&2; exit 1; }
+MANAGE="$(find_manage)" || { echo "Не найден manage.py (sfera_server). Запусти скрипт рядом с проектом." >&2; exit 1; }
 DJANGO_ROOT="$(cd "$(dirname "$MANAGE")/.." && pwd)"   # .../django-server
 
 # ── Python: venv проекта, иначе системный ──
@@ -159,8 +159,8 @@ run_ramp() {
     sent="$(printf '%s' "$out"  | grep -oE 'отправлено [0-9]+' | grep -oE '[0-9]+' | tail -1)"; sent="${sent:-0}"
     errors="$(printf '%s' "$out" | grep -oE 'ошибок [0-9]+'    | grep -oE '[0-9]+' | tail -1)"; errors="${errors:-0}"
     code="$(curl -sk -o /dev/null -w '%{http_code}' --max-time 8 "$probe" 2>/dev/null || echo 000)"
-    cpu="$(curl -s --max-time 5 http://127.0.0.1:8010/metrics/ 2>/dev/null | grep -oE '^ionik_cpu_percent [0-9.]+'    | awk '{print $2}')"
-    mem="$(curl -s --max-time 5 http://127.0.0.1:8010/metrics/ 2>/dev/null | grep -oE '^ionik_memory_percent [0-9.]+' | awk '{print $2}')"
+    cpu="$(curl -s --max-time 5 http://127.0.0.1:8010/metrics/ 2>/dev/null | grep -oE '^sfera_cpu_percent [0-9.]+'    | awk '{print $2}')"
+    mem="$(curl -s --max-time 5 http://127.0.0.1:8010/metrics/ 2>/dev/null | grep -oE '^sfera_memory_percent [0-9.]+' | awk '{print $2}')"
     echo "    отправлено=$sent ошибок=$errors health=$code CPU=${cpu:-?}% MEM=${mem:-?}%"
 
     total=$((sent + errors))
@@ -176,7 +176,7 @@ run_ramp() {
       echo ""
       echo "!!! СЕРВЕР УПАЛ на $rate сообщений/мин — $reason"
       {
-        echo "=== ionik ramp result — $(date) ==="
+        echo "=== sfera ramp result — $(date) ==="
         echo "Упал на ставке:           $rate сообщений/мин"
         echo "Последняя успешная ставка: $prev_ok сообщений/мин"
         echo "Причина:                  $reason"
@@ -193,7 +193,7 @@ run_ramp() {
   echo ""
   echo "Достигнут потолок $max сообщений/мин — сервер ВЫДЕРЖАЛ. Подними RAMP_MAX для продолжения."
   {
-    echo "=== ionik ramp result — $(date) ==="
+    echo "=== sfera ramp result — $(date) ==="
     echo "Сервер выдержал до потолка $max сообщений/мин (последняя успешная ставка $prev_ok)."
     echo "Параметры: старт=$start шаг=$step стадия=$stage цель=$target соединений=$maxconn"
   } | tee "$report"

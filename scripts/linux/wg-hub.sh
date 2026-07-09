@@ -7,13 +7,13 @@
 #   sudo bash scripts/linux/wg-hub.sh add-peer <pubkey> <ip>   # добавить ноду (её pubkey + WG-IP)
 #   sudo bash scripts/linux/wg-hub.sh info                     # показать pubkey/endpoint для ноды
 #
-# Сеть VPN: хаб 10.77.0.1, ноды 10.77.0.2, .3, … (меняется через IONIK_WG_*).
+# Сеть VPN: хаб 10.77.0.1, ноды 10.77.0.2, .3, … (меняется через SFERA_WG_*).
 set -euo pipefail
 
 WG_IF=wg0
-WG_SUBNET="${IONIK_WG_SUBNET:-10.77.0.0/24}"
-WG_HUB_IP="${IONIK_WG_HUB_IP:-10.77.0.1}"
-WG_PORT="${IONIK_WG_PORT:-51820}"
+WG_SUBNET="${SFERA_WG_SUBNET:-10.77.0.0/24}"
+WG_HUB_IP="${SFERA_WG_HUB_IP:-10.77.0.1}"
+WG_PORT="${SFERA_WG_PORT:-51820}"
 WG_DIR=/etc/wireguard
 conf="$WG_DIR/$WG_IF.conf"
 cmd="${1:-install}"
@@ -41,8 +41,8 @@ EOF
     chmod 600 "$conf"
     systemctl enable --now "wg-quick@$WG_IF" 2>/dev/null || systemctl restart "wg-quick@$WG_IF"
     # Открыть UDP-порт WireGuard на вход (изолированная nft-таблица).
-    nft list table inet ionik_wg >/dev/null 2>&1 || nft -f - <<NFT
-table inet ionik_wg {
+    nft list table inet sfera_wg >/dev/null 2>&1 || nft -f - <<NFT
+table inet sfera_wg {
     chain input {
         type filter hook input priority 0; policy accept;
         udp dport $WG_PORT counter accept
@@ -73,8 +73,8 @@ EOF
     echo "HUB wg ip      : $WG_HUB_IP   (Redis/Kafka слушают тут)"
     echo "----------------------------------------------------------------"
     echo "На НОДЕ запусти (подставив значения выше):"
-    echo "  sudo IONIK_WG_HUB_PUBKEY='<pubkey>' IONIK_WG_HUB_ENDPOINT='$ip4:$WG_PORT' \\"
-    echo "       IONIK_WG_NODE_IP=10.77.0.2 bash scripts/linux/wg-node.sh"
+    echo "  sudo SFERA_WG_HUB_PUBKEY='<pubkey>' SFERA_WG_HUB_ENDPOINT='$ip4:$WG_PORT' \\"
+    echo "       SFERA_WG_NODE_IP=10.77.0.2 bash scripts/linux/wg-node.sh"
     ;;
   *)
     echo "Usage: $0 install | add-peer <pubkey> <ip> | info"; exit 1;;

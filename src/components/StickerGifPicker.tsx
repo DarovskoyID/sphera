@@ -12,7 +12,7 @@ interface GifItem { id: string; title: string; url: string; preview: string }
 
 interface CustomSticker { id: string; name: string; imageData: string; createdAt: number }
 
-const CS_KEY = 'ionik_custom_stickers';
+const CS_KEY = 'sfera_custom_stickers';
 function loadCS(): CustomSticker[] { try { return JSON.parse(localStorage.getItem(CS_KEY) || '[]'); } catch { return []; } }
 function saveCS(s: CustomSticker[]) { localStorage.setItem(CS_KEY, JSON.stringify(s)); }
 

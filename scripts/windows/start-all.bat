@@ -6,7 +6,7 @@ set "ROOT=%ROOT%\"
 set "NGINX_DIR=D:\nginx-1.29.8"
 set "NGINX_HTML=%NGINX_DIR%\html"
 set "PYTHON=%ROOT%django-server\myenv\Scripts\python.exe"
-set "DJANGO_DIR=%ROOT%django-server\ionik_server"
+set "DJANGO_DIR=%ROOT%django-server\sfera_server"
 set "DOCKER_DIR=%ROOT%django-server"
 set "STUN_DIR=%ROOT%stun-server"
 set "TURN_DIR=%ROOT%turn-server-go"
@@ -15,7 +15,7 @@ set "GO_EXE=C:\Program Files\Go\bin\go.exe"
 
 echo.
 echo  ==========================================
-echo    ionik -- full stack startup
+echo    sfera -- full stack startup
 echo  ==========================================
 echo.
 
@@ -97,7 +97,7 @@ echo        Done.
 
 echo [6/8] Starting Django (Daphne, auto-restart) ...
 powershell -NoProfile -Command "Get-NetTCPConnection -LocalPort 8000 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }"
-start "ionik-django" cmd /k ^"call "%~dp0run-daphne.bat" "%DJANGO_DIR%" "%PYTHON%"^"
+start "sfera-django" cmd /k ^"call "%~dp0run-daphne.bat" "%DJANGO_DIR%" "%PYTHON%"^"
 echo        Done.
 
 :: ─── 7. Kafka worker ──────────────────────────────────────────────────────────
@@ -107,7 +107,7 @@ where docker >nul 2>&1
 if errorlevel 1 (
     echo        Skipped (no Docker).
 ) else (
-    start "ionik-kafka-worker" cmd /k ^"call "%~dp0run-kafka-worker.bat" "%DJANGO_DIR%" "%PYTHON%"^"
+    start "sfera-kafka-worker" cmd /k ^"call "%~dp0run-kafka-worker.bat" "%DJANGO_DIR%" "%PYTHON%"^"
     echo        Done.
 )
 
@@ -124,7 +124,7 @@ if errorlevel 1 (
 )
 
 :: Ensure TURN user exists in SQLite DB (idempotent)
-wsl -e bash -c "test -s ~/turndb && sqlite3 ~/turndb 'SELECT 1 FROM turnusers_lt WHERE name=\"ionikuser\" LIMIT 1' | grep -q 1 || turnadmin -a -u ionikuser -r bottomweb.ru -p ionikturn123 -b ~/turndb >/dev/null 2>&1; exit 0" >nul 2>&1
+wsl -e bash -c "test -s ~/turndb && sqlite3 ~/turndb 'SELECT 1 FROM turnusers_lt WHERE name=\"sferauser\" LIMIT 1' | grep -q 1 || turnadmin -a -u sferauser -r bottomweb.ru -p sferaturn123 -b ~/turndb >/dev/null 2>&1; exit 0" >nul 2>&1
 
 :: Stop anything currently bound to 3478 on Windows side (pion remnants etc.)
 powershell -NoProfile -Command "Get-NetUDPEndpoint -LocalPort 3478 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }"
@@ -135,7 +135,7 @@ wsl -e bash -c "pkill -9 turnserver 2>/dev/null; exit 0" >nul 2>&1
 timeout /t 1 >nul
 
 :: Start coturn in WSL (background, log to ~/coturn.log)
-start "ionik-coturn" wsl -e bash -c "turnserver -c ~/turnserver.conf > ~/coturn.log 2>&1"
+start "sfera-coturn" wsl -e bash -c "turnserver -c ~/turnserver.conf > ~/coturn.log 2>&1"
 echo        Done.
 
 :: ─── Summary ──────────────────────────────────────────────────────────────────

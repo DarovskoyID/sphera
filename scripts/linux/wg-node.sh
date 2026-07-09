@@ -2,9 +2,9 @@
 #
 # wg-node.sh — WireGuard клиент на ДОП-НОДЕ. Подключает её в приватный VPN к хабу.
 #
-#   sudo IONIK_WG_HUB_PUBKEY='<pubkey хаба>' \
-#        IONIK_WG_HUB_ENDPOINT='<публичный IP хаба>:51820' \
-#        IONIK_WG_NODE_IP=10.77.0.2 \
+#   sudo SFERA_WG_HUB_PUBKEY='<pubkey хаба>' \
+#        SFERA_WG_HUB_ENDPOINT='<публичный IP хаба>:51820' \
+#        SFERA_WG_NODE_IP=10.77.0.2 \
 #        bash scripts/linux/wg-node.sh
 #
 # После запуска выведет public key ноды — его нужно добавить на ХАБЕ:
@@ -13,10 +13,10 @@ set -euo pipefail
 
 WG_IF=wg0
 WG_DIR=/etc/wireguard
-NODE_IP="${IONIK_WG_NODE_IP:?задай IONIK_WG_NODE_IP (напр. 10.77.0.2)}"
-HUB_PUB="${IONIK_WG_HUB_PUBKEY:?задай IONIK_WG_HUB_PUBKEY (из 'wg-hub.sh info')}"
-HUB_EP="${IONIK_WG_HUB_ENDPOINT:?задай IONIK_WG_HUB_ENDPOINT (IP:51820)}"
-SUBNET="${IONIK_WG_SUBNET:-10.77.0.0/24}"
+NODE_IP="${SFERA_WG_NODE_IP:?задай SFERA_WG_NODE_IP (напр. 10.77.0.2)}"
+HUB_PUB="${SFERA_WG_HUB_PUBKEY:?задай SFERA_WG_HUB_PUBKEY (из 'wg-hub.sh info')}"
+HUB_EP="${SFERA_WG_HUB_ENDPOINT:?задай SFERA_WG_HUB_ENDPOINT (IP:51820)}"
+SUBNET="${SFERA_WG_SUBNET:-10.77.0.0/24}"
 
 [ "$(id -u)" -eq 0 ] || { echo "Запусти под root (sudo)."; exit 1; }
 command -v wg >/dev/null 2>&1 || { apt-get update -qq && apt-get install -y -qq wireguard; }
@@ -43,5 +43,5 @@ echo "----------------------------------------------------------------"
 echo "NODE public key: $(cat "$WG_DIR/node.pub")"
 echo "Теперь на ГЛАВНОМ сервере выполни:"
 echo "  sudo bash scripts/linux/wg-hub.sh add-peer $(cat "$WG_DIR/node.pub") $NODE_IP"
-echo "Затем проверь связь:  ping ${IONIK_WG_HUB_IP:-10.77.0.1}"
+echo "Затем проверь связь:  ping ${SFERA_WG_HUB_IP:-10.77.0.1}"
 echo "----------------------------------------------------------------"

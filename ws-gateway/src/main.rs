@@ -27,8 +27,8 @@ async fn main() {
         .init();
 
     let jwt_secret = std::env::var("JWT_SECRET")
-        .or_else(|_| std::env::var("IONIK_SECRET_KEY"))
-        .unwrap_or_else(|_| "ionik-local-development-secret-key-not-for-production".into());
+        .or_else(|_| std::env::var("SFERA_SECRET_KEY"))
+        .unwrap_or_else(|_| "sfera-local-development-secret-key-not-for-production".into());
     let redis_url = std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1:6379".into());
     let kafka_brokers = std::env::var("KAFKA_BOOTSTRAP_SERVERS").unwrap_or_else(|_| "localhost:9092".into());
     let bind_addr = std::env::var("WS_BIND").unwrap_or_else(|_| "0.0.0.0:8001".into());

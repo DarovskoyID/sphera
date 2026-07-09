@@ -1,5 +1,5 @@
 [package]
-name = "ionik-ws-gateway"
+name = "sfera-ws-gateway"
 version = "0.1.0"
 edition = "2021"
 

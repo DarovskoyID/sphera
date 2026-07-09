@@ -97,38 +97,38 @@ ensure_docker_secrets() {
     os_name="$(uname -s)"
 
     if [ "$os_name" = "Linux" ]; then
-        local secrets="/etc/ionik/secrets.env"
-        sudo install -d -m 0750 /etc/ionik
+        local secrets="/etc/sfera/secrets.env"
+        sudo install -d -m 0750 /etc/sfera
         if [ ! -f "$secrets" ]; then
             sudo install -m 0640 /dev/null "$secrets"
             sudo tee "$secrets" >/dev/null <<EOF
 # Generated automatically $(date -u +%FT%TZ). Do not commit.
-IONIK_SECRET_KEY=$(random_secret_key)
-IONIK_STATUS_TOKEN=$(random_token)
-IONIK_MESSAGE_ENCRYPTION_KEY=$(random_fernet_key)
-IONIK_OLD_MESSAGE_ENCRYPTION_KEYS=
-IONIK_ACCESS_TOKEN_MINUTES=15
+SFERA_SECRET_KEY=$(random_secret_key)
+SFERA_STATUS_TOKEN=$(random_token)
+SFERA_MESSAGE_ENCRYPTION_KEY=$(random_fernet_key)
+SFERA_OLD_MESSAGE_ENCRYPTION_KEYS=
+SFERA_ACCESS_TOKEN_MINUTES=15
 GRAFANA_PASSWORD=$(random_token)
-IONIK_POSTGRES_PASSWORD=$(random_token)
+SFERA_POSTGRES_PASSWORD=$(random_token)
 EOF
         else
             local tmp
             tmp="$(mktemp)"
             sudo cp "$secrets" "$tmp"
-            ensure_key_value_file_entry "$tmp" IONIK_SECRET_KEY "$(random_secret_key)"
-            ensure_key_value_file_entry "$tmp" IONIK_STATUS_TOKEN "$(random_token)"
-            ensure_key_value_file_entry "$tmp" IONIK_MESSAGE_ENCRYPTION_KEY "$(random_fernet_key)"
-            ensure_key_value_file_entry "$tmp" IONIK_OLD_MESSAGE_ENCRYPTION_KEYS ""
-            ensure_key_value_file_entry "$tmp" IONIK_ACCESS_TOKEN_MINUTES "15"
+            ensure_key_value_file_entry "$tmp" SFERA_SECRET_KEY "$(random_secret_key)"
+            ensure_key_value_file_entry "$tmp" SFERA_STATUS_TOKEN "$(random_token)"
+            ensure_key_value_file_entry "$tmp" SFERA_MESSAGE_ENCRYPTION_KEY "$(random_fernet_key)"
+            ensure_key_value_file_entry "$tmp" SFERA_OLD_MESSAGE_ENCRYPTION_KEYS ""
+            ensure_key_value_file_entry "$tmp" SFERA_ACCESS_TOKEN_MINUTES "15"
             ensure_key_value_file_entry "$tmp" GRAFANA_PASSWORD "$(random_token)"
-            ensure_key_value_file_entry "$tmp" IONIK_POSTGRES_PASSWORD "$(random_token)"
+            ensure_key_value_file_entry "$tmp" SFERA_POSTGRES_PASSWORD "$(random_token)"
             sudo install -m 0640 "$tmp" "$secrets"
             rm -f "$tmp"
         fi
 
-        POSTGRES_PASSWORD="$(sudo awk -F= '$1=="IONIK_POSTGRES_PASSWORD"{print $2; exit}' "$secrets")"
+        POSTGRES_PASSWORD="$(sudo awk -F= '$1=="SFERA_POSTGRES_PASSWORD"{print $2; exit}' "$secrets")"
         GRAFANA_PASSWORD="$(sudo awk -F= '$1=="GRAFANA_PASSWORD"{print $2; exit}' "$secrets")"
-        JWT_SECRET="$(sudo awk -F= '$1=="IONIK_SECRET_KEY"{print $2; exit}' "$secrets")"
+        JWT_SECRET="$(sudo awk -F= '$1=="SFERA_SECRET_KEY"{print $2; exit}' "$secrets")"
         export POSTGRES_PASSWORD GRAFANA_PASSWORD JWT_SECRET
         echo "      Docker secrets ready: $secrets"
         return
@@ -138,24 +138,24 @@ EOF
     if [ ! -f "$env_file" ]; then
         cat > "$env_file" <<EOF
 # Generated automatically $(date -u +%FT%TZ). Do not commit.
-IONIK_SECRET_KEY=$(random_secret_key)
-IONIK_STATUS_TOKEN=$(random_token)
-IONIK_MESSAGE_ENCRYPTION_KEY=$(random_fernet_key)
-IONIK_OLD_MESSAGE_ENCRYPTION_KEYS=
-IONIK_ACCESS_TOKEN_MINUTES=15
+SFERA_SECRET_KEY=$(random_secret_key)
+SFERA_STATUS_TOKEN=$(random_token)
+SFERA_MESSAGE_ENCRYPTION_KEY=$(random_fernet_key)
+SFERA_OLD_MESSAGE_ENCRYPTION_KEYS=
+SFERA_ACCESS_TOKEN_MINUTES=15
 GRAFANA_PASSWORD=$(random_token)
 POSTGRES_PASSWORD=$(random_token)
-JWT_SECRET=ionik-local-development-secret-key-not-for-production
+JWT_SECRET=sfera-local-development-secret-key-not-for-production
 EOF
     else
-        ensure_key_value_file_entry "$env_file" IONIK_SECRET_KEY "$(random_secret_key)"
-        ensure_key_value_file_entry "$env_file" IONIK_STATUS_TOKEN "$(random_token)"
-        ensure_key_value_file_entry "$env_file" IONIK_MESSAGE_ENCRYPTION_KEY "$(random_fernet_key)"
-        ensure_key_value_file_entry "$env_file" IONIK_OLD_MESSAGE_ENCRYPTION_KEYS ""
-        ensure_key_value_file_entry "$env_file" IONIK_ACCESS_TOKEN_MINUTES "15"
+        ensure_key_value_file_entry "$env_file" SFERA_SECRET_KEY "$(random_secret_key)"
+        ensure_key_value_file_entry "$env_file" SFERA_STATUS_TOKEN "$(random_token)"
+        ensure_key_value_file_entry "$env_file" SFERA_MESSAGE_ENCRYPTION_KEY "$(random_fernet_key)"
+        ensure_key_value_file_entry "$env_file" SFERA_OLD_MESSAGE_ENCRYPTION_KEYS ""
+        ensure_key_value_file_entry "$env_file" SFERA_ACCESS_TOKEN_MINUTES "15"
         ensure_key_value_file_entry "$env_file" GRAFANA_PASSWORD "$(random_token)"
         ensure_key_value_file_entry "$env_file" POSTGRES_PASSWORD "$(random_token)"
-        ensure_key_value_file_entry "$env_file" JWT_SECRET "ionik-local-development-secret-key-not-for-production"
+        ensure_key_value_file_entry "$env_file" JWT_SECRET "sfera-local-development-secret-key-not-for-production"
     fi
 
     POSTGRES_PASSWORD="$(read_key_value_file_entry "$env_file" POSTGRES_PASSWORD)"
@@ -372,7 +372,7 @@ install_mail() {
     esac
 }
 
-echo "=== Installing ionik dependencies ==="
+echo "=== Installing sfera dependencies ==="
 echo "Project root: $PROJECT_ROOT"
 
 if [ "$INSTALL_SYSTEM" -eq 1 ]; then

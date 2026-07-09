@@ -160,7 +160,7 @@ function ServerTagSection() {
           <span style={{ color: 'var(--text-tertiary)', fontWeight: 700, fontSize: 16 }}>#</span>
           <input style={{ ...inputStyle, flex: 1 }} value={tag} maxLength={8}
             onChange={e => setTag(e.target.value.replace(/[^a-zA-Z0-9]/g, '').slice(0, 8))}
-            placeholder="e.g. IONIK" />
+            placeholder="e.g. SFERA" />
         </div>
         <p style={{ margin: '6px 0 0', fontSize: 12, color: 'var(--text-tertiary)' }}>{tag.length}/8 {tr('gs_characters')}</p>
       </div>

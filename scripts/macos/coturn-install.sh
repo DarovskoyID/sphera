@@ -17,13 +17,13 @@ mkdir -p "$(dirname "$CONF")"
 
 if [ ! -f "$CONF" ]; then
     cat > "$CONF" <<'EOF'
-# coturn config for ionik (macOS dev)
+# coturn config for sfera (macOS dev)
 listening-port=3478
 tls-listening-port=5349
 fingerprint
 lt-cred-mech
-user=ionik:changeme
-realm=ionik.local
+user=sfera:changeme
+realm=sfera.local
 log-file=/tmp/coturn.log
 no-cli
 EOF

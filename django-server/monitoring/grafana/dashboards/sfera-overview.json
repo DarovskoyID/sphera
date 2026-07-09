@@ -1,0 +1,1102 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "links": [],
+  "panels": [
+    {
+      "title": "Server Uptime",
+      "type": "stat",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 0,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "sfera_uptime_seconds",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "title": "CPU Usage %",
+      "type": "gauge",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 4,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "max": 100,
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 60
+              },
+              {
+                "color": "red",
+                "value": 85
+              }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "sfera_cpu_percent",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "title": "Memory Usage %",
+      "type": "gauge",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 8,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "max": 100,
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 70
+              },
+              {
+                "color": "red",
+                "value": 90
+              }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "sfera_memory_percent",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "title": "Disk Usage %",
+      "type": "gauge",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 12,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "max": 100,
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 75
+              },
+              {
+                "color": "red",
+                "value": 90
+              }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "sfera_disk_percent",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "title": "Process RSS Memory",
+      "type": "stat",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 16,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "thresholds": {
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "sfera_process_rss_bytes",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "title": "Threads",
+      "type": "stat",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 20,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "steps": [
+              {
+                "color": "purple",
+                "value": null
+              }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "sfera_process_threads",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "title": "HTTP Requests / sec",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 4
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 20,
+            "lineWidth": 2
+          },
+          "color": {
+            "mode": "palette-classic"
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "rate(sfera_http_requests_total[1m])",
+          "legendFormat": "requests/s",
+          "refId": "A"
+        },
+        {
+          "expr": "rate(sfera_http_errors_5xx_total[1m])",
+          "legendFormat": "5xx errors/s",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "title": "HTTP Latency (ms)",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 4
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 2
+          },
+          "color": {
+            "mode": "palette-classic"
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "sfera_http_latency_p50_ms",
+          "legendFormat": "p50",
+          "refId": "A"
+        },
+        {
+          "expr": "sfera_http_latency_p95_ms",
+          "legendFormat": "p95",
+          "refId": "B"
+        },
+        {
+          "expr": "sfera_http_latency_p99_ms",
+          "legendFormat": "p99",
+          "refId": "C"
+        }
+      ]
+    },
+    {
+      "title": "WebSocket Messages / sec",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 12
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 20,
+            "lineWidth": 2
+          },
+          "color": {
+            "mode": "palette-classic"
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "rate(sfera_ws_messages_received_total[1m])",
+          "legendFormat": "received/s",
+          "refId": "A"
+        },
+        {
+          "expr": "rate(sfera_ws_messages_sent_total[1m])",
+          "legendFormat": "sent/s",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "title": "WebSocket Connections",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 12
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 20,
+            "lineWidth": 2
+          },
+          "color": {
+            "fixedColor": "orange",
+            "mode": "fixed"
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "sfera_ws_connections_total",
+          "legendFormat": "total connections",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "title": "Online Users",
+      "type": "stat",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 0,
+        "y": 20
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "sfera_online_users",
+          "legendFormat": "online",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "title": "Active DM Calls",
+      "type": "stat",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 4,
+        "y": 20
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "steps": [
+              {
+                "color": "orange",
+                "value": null
+              }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "sfera_active_dm_calls",
+          "legendFormat": "calls",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "title": "Voice Channels",
+      "type": "stat",
+      "gridPos": {
+        "h": 4,
+        "w": 2,
+        "x": 8,
+        "y": 20
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "sfera_voice_channels_active",
+          "legendFormat": "channels",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "title": "Voice Users",
+      "type": "stat",
+      "gridPos": {
+        "h": 4,
+        "w": 2,
+        "x": 10,
+        "y": 20
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "sfera_voice_users",
+          "legendFormat": "in voice",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "title": "Infrastructure Status",
+      "type": "stat",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 12,
+        "y": 20
+      },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "1": {
+                  "text": "UP",
+                  "color": "green"
+                },
+                "0": {
+                  "text": "DOWN",
+                  "color": "red"
+                }
+              }
+            }
+          ],
+          "thresholds": {
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "sfera_db_connected",
+          "legendFormat": "Database",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "title": "Redis Status",
+      "type": "stat",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 16,
+        "y": 20
+      },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "1": {
+                  "text": "UP",
+                  "color": "green"
+                },
+                "0": {
+                  "text": "DOWN",
+                  "color": "red"
+                }
+              }
+            }
+          ],
+          "thresholds": {
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "sfera_redis_connected",
+          "legendFormat": "Redis",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "title": "Kafka Status",
+      "type": "stat",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 20,
+        "y": 20
+      },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "1": {
+                  "text": "UP",
+                  "color": "green"
+                },
+                "0": {
+                  "text": "DOWN",
+                  "color": "red"
+                }
+              }
+            }
+          ],
+          "thresholds": {
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "sfera_kafka_connected",
+          "legendFormat": "Kafka",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "title": "Database Rows by Table",
+      "type": "barchart",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 24
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "fillOpacity": 80
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "sfera_db_rows",
+          "legendFormat": "{{table}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "title": "Redis Memory",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 24
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 20,
+            "lineWidth": 2
+          },
+          "color": {
+            "fixedColor": "red",
+            "mode": "fixed"
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "sfera_redis_memory_bytes",
+          "legendFormat": "Redis used memory",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "title": "Servers",
+      "type": "stat",
+      "gridPos": {
+        "h": 4,
+        "w": 3,
+        "x": 0,
+        "y": 32
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "sfera_db_rows{table=\"guilds\"}",
+          "legendFormat": "servers",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "title": "Personal Channels",
+      "type": "stat",
+      "gridPos": {
+        "h": 4,
+        "w": 3,
+        "x": 3,
+        "y": 32
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "steps": [
+              {
+                "color": "purple",
+                "value": null
+              }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "sfera_db_rows{table=\"personal_channels\"}",
+          "legendFormat": "channels",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "title": "Guild Channels",
+      "type": "stat",
+      "gridPos": {
+        "h": 4,
+        "w": 3,
+        "x": 6,
+        "y": 32
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "sfera_db_rows{table=\"guild_channels\"}",
+          "legendFormat": "channels",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "title": "Guild Messages",
+      "type": "stat",
+      "gridPos": {
+        "h": 4,
+        "w": 3,
+        "x": 9,
+        "y": 32
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "sfera_db_rows{table=\"guild_messages\"}",
+          "legendFormat": "messages",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "title": "DM Messages",
+      "type": "stat",
+      "gridPos": {
+        "h": 4,
+        "w": 3,
+        "x": 12,
+        "y": 32
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "sfera_db_rows{table=\"dm_messages\"}",
+          "legendFormat": "messages",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "title": "Comments",
+      "type": "stat",
+      "gridPos": {
+        "h": 4,
+        "w": 3,
+        "x": 15,
+        "y": 32
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "steps": [
+              {
+                "color": "yellow",
+                "value": null
+              }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "sfera_db_rows{table=\"comments\"}",
+          "legendFormat": "comments",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "title": "Reactions",
+      "type": "stat",
+      "gridPos": {
+        "h": 4,
+        "w": 3,
+        "x": 18,
+        "y": 32
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "steps": [
+              {
+                "color": "orange",
+                "value": null
+              }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "sfera_db_rows{table=\"reactions\"}",
+          "legendFormat": "reactions",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "title": "Registered Users",
+      "type": "stat",
+      "gridPos": {
+        "h": 4,
+        "w": 3,
+        "x": 21,
+        "y": 32
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "sfera_db_rows{table=\"users\"}",
+          "legendFormat": "users",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "title": "Content Growth (rows over time)",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 36
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 2
+          },
+          "color": {
+            "mode": "palette-classic"
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "sfera_db_rows{table=\"guild_messages\"}",
+          "legendFormat": "guild messages",
+          "refId": "A"
+        },
+        {
+          "expr": "sfera_db_rows{table=\"dm_messages\"}",
+          "legendFormat": "dm messages",
+          "refId": "B"
+        },
+        {
+          "expr": "sfera_db_rows{table=\"comments\"}",
+          "legendFormat": "comments",
+          "refId": "C"
+        },
+        {
+          "expr": "sfera_db_rows{table=\"reactions\"}",
+          "legendFormat": "reactions",
+          "refId": "D"
+        },
+        {
+          "expr": "sfera_db_rows{table=\"personal_channels\"}",
+          "legendFormat": "personal channels",
+          "refId": "E"
+        }
+      ]
+    },
+    {
+      "id": 899,
+      "type": "row",
+      "title": "WS Gateway (realtime)",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 44
+      },
+      "panels": []
+    },
+    {
+      "id": 901,
+      "title": "Gateway: Messages In / sec",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 45
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 20,
+            "lineWidth": 2
+          },
+          "color": {
+            "mode": "palette-classic"
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "rate(wsgw_chat_messages_in_total[1m])",
+          "legendFormat": "chat in/s",
+          "refId": "A"
+        },
+        {
+          "expr": "rate(wsgw_guild_messages_in_total[1m])",
+          "legendFormat": "guild in/s",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "id": 902,
+      "title": "Gateway: Messages Out / sec",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 45
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 20,
+            "lineWidth": 2
+          },
+          "color": {
+            "mode": "palette-classic"
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "rate(wsgw_messages_out_total[1m])",
+          "legendFormat": "out/s",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 903,
+      "title": "Gateway: Active WS Connections",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 53
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 20,
+            "lineWidth": 2
+          },
+          "color": {
+            "mode": "palette-classic"
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "wsgw_ws_active",
+          "legendFormat": "active conns",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 904,
+      "title": "Gateway: Redis Fanout / sec",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 53
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 20,
+            "lineWidth": 2
+          },
+          "color": {
+            "mode": "palette-classic"
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "rate(wsgw_redis_received_total[1m])",
+          "legendFormat": "redis msgs/s",
+          "refId": "A"
+        }
+      ]
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": [
+    "sfera"
+  ],
+  "templating": {
+    "list": []
+  },
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "utc",
+  "title": "Sfera Overview",
+  "uid": "sfera-overview"
+}

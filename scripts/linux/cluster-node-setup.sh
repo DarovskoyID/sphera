@@ -42,7 +42,7 @@ ask HUB_ENDPOINT "Endpoint хаба (публ. IP:порт)"           "${HUB_EN
 ask HUB_IP       "WG-адрес хаба"                           "${HUB_IP:-10.77.0.1}"
 ask WG_SUBNET    "WG-подсеть"                              "${WG_SUBNET:-10.77.0.0/24}"
 ask NODE_IP      "WG-адрес этой ноды"                      "${NODE_IP:-10.77.0.2}"
-ask JWT_SECRET   "JWT_SECRET (= IONIK_SECRET_KEY главного)" "${JWT_SECRET:-}"
+ask JWT_SECRET   "JWT_SECRET (= SFERA_SECRET_KEY главного)" "${JWT_SECRET:-}"
 ask AUTHZ_URL    "URL авторизации WS (публ. API главного)" "${AUTHZ_URL:-https://${HUB_ENDPOINT%%:*}:8000/api/ws/authorize/}"
 
 for v in HUB_PUB HUB_ENDPOINT HUB_IP NODE_IP JWT_SECRET AUTHZ_URL; do
@@ -85,15 +85,15 @@ fi
 echo "[node] Проверяю VPN до хаба ($HUB_IP)…"
 ping -c1 -W4 "$HUB_IP" >/dev/null 2>&1 || { echo "Нет связи с $HUB_IP. Проверь UDP-порт WG на хостере и регистрацию пира на хабе."; exit 1; }
 
-echo "[node] Пишу /etc/ionik/node.env…"
-mkdir -p /etc/ionik
-cat > /etc/ionik/node.env <<EOF
-IONIK_WG_HUB_IP=$HUB_IP
-IONIK_WG_NODE_IP=$NODE_IP
+echo "[node] Пишу /etc/sfera/node.env…"
+mkdir -p /etc/sfera
+cat > /etc/sfera/node.env <<EOF
+SFERA_WG_HUB_IP=$HUB_IP
+SFERA_WG_NODE_IP=$NODE_IP
 JWT_SECRET=$JWT_SECRET
 DJANGO_WS_AUTHZ_URL=$AUTHZ_URL
 EOF
-chmod 600 /etc/ionik/node.env
+chmod 600 /etc/sfera/node.env
 
 echo "[node] Поднимаю ws-gateway…"
 bash "$SCRIPT_DIR/node-up.sh"

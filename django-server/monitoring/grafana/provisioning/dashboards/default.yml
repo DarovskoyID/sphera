@@ -1,9 +1,9 @@
 apiVersion: 1
 
 providers:
-  - name: 'ionik'
+  - name: 'sfera'
     orgId: 1
-    folder: 'Ionik'
+    folder: 'Sfera'
     type: file
     disableDeletion: false
     editable: true

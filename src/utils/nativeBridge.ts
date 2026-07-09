@@ -6,32 +6,32 @@
 //
 //   1. Synchronous getter (recommended):
 //        Android (Kotlin):
-//          webView.evaluateJavascript("window.IonikNative.getAllowScale()") { v ->
+//          webView.evaluateJavascript("window.SferaNative.getAllowScale()") { v ->
 //              val allow = v == "true"
 //          }
 //        iOS (Swift):
-//          webView.evaluateJavaScript("window.IonikNative.getAllowScale()") { result, _ in
+//          webView.evaluateJavaScript("window.SferaNative.getAllowScale()") { result, _ in
 //              let allow = (result as? Bool) ?? (result as? String == "true")
 //          }
 //
 //   2. localStorage (read on startup):
-//        key "ionik.allowScale" -> "true" | "false"
+//        key "sfera.allowScale" -> "true" | "false"
 //
 //   3. Push callbacks (fired immediately on every change) — implement either
 //      hook on the native side and it will be called:
-//        Android: add a @JavascriptInterface object named `IonikScaleBridge`
+//        Android: add a @JavascriptInterface object named `SferaScaleBridge`
 //                 with `fun onAllowScaleChanged(allow: Boolean)`.
-//        iOS:     add a WKScriptMessageHandler named `ionikAllowScale`;
+//        iOS:     add a WKScriptMessageHandler named `sferaAllowScale`;
 //                 message body is a Bool.
 
-const LS_KEY = 'ionik.allowScale';
+const LS_KEY = 'sfera.allowScale';
 
 export type NativeTheme = 'light' | 'dark';
 
 declare global {
   interface Window {
-    IonikNative?: { getAllowScale: () => boolean };
-    IonikScaleBridge?: { onAllowScaleChanged?: (allow: boolean) => void };
+    SferaNative?: { getAllowScale: () => boolean };
+    SferaScaleBridge?: { onAllowScaleChanged?: (allow: boolean) => void };
     chrome?: { webview?: { postMessage: (msg: unknown) => void } };
     webkit?: { messageHandlers?: Record<string, { postMessage: (msg: unknown) => void }> };
   }
@@ -51,16 +51,16 @@ export function setAllowScale(value: boolean): void {
 
   if (typeof window !== 'undefined') {
     // 1. Synchronous getter for evaluateJavascript / evaluateJavaScript.
-    window.IonikNative = { getAllowScale: () => allowScale };
+    window.SferaNative = { getAllowScale: () => allowScale };
 
     // 3a. Android @JavascriptInterface push callback.
-    try { window.IonikScaleBridge?.onAllowScaleChanged?.(allowScale); } catch { /* ignore */ }
+    try { window.SferaScaleBridge?.onAllowScaleChanged?.(allowScale); } catch { /* ignore */ }
 
     // 3b. iOS WKScriptMessageHandler push callback.
-    try { window.webkit?.messageHandlers?.ionikAllowScale?.postMessage(allowScale); } catch { /* ignore */ }
+    try { window.webkit?.messageHandlers?.sferaAllowScale?.postMessage(allowScale); } catch { /* ignore */ }
 
     // Also a DOM event, in case anything else wants to listen.
-    try { window.dispatchEvent(new CustomEvent('ionik:allowScaleChanged', { detail: allowScale })); } catch { /* ignore */ }
+    try { window.dispatchEvent(new CustomEvent('sfera:allowScaleChanged', { detail: allowScale })); } catch { /* ignore */ }
   }
 }
 
@@ -116,6 +116,6 @@ export function initNativeBridge(): void {
     if (raw !== null) allowScale = raw === 'true';
   } catch { /* ignore */ }
   if (typeof window !== 'undefined') {
-    window.IonikNative = { getAllowScale: () => allowScale };
+    window.SferaNative = { getAllowScale: () => allowScale };
   }
 }

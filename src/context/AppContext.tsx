@@ -10,7 +10,7 @@ import { deviceQuery } from '../utils/device';
 import { toUserMessage, readResponse, setErrorLang } from '../utils/errorManager';
 
 
-// ── Inject X-Ionik-Client header into every fetch ────────────────────────────
+// ── Inject X-Sfera-Client header into every fetch ────────────────────────────
 // Prevents direct browser access to the server (the server rejects requests
 // without this header, returning an empty 200 response instead).
 const _origFetch = window.fetch.bind(window);
@@ -43,7 +43,7 @@ function withBearerAuth(init: RequestInit | undefined, token: string): RequestIn
 ) => {
   const headers = new Headers(input instanceof Request ? input.headers : undefined);
   new Headers(init?.headers as HeadersInit | undefined).forEach((value, key) => headers.set(key, value));
-  headers.set('X-Ionik-Client', '1');
+  headers.set('X-Sfera-Client', '1');
   const nextInit = { credentials: 'include' as RequestCredentials, ...init, headers };
   return _origFetch(input, nextInit).then(async (res) => {
     const url = getFetchUrl(input);
@@ -73,7 +73,7 @@ function jwtExpiresSoon(token: string, skewSeconds = 60): boolean {
 }
 
 function wsProtocols(token: string): string[] {
-  return ['ionik.jwt', token];
+  return ['sfera.jwt', token];
 }
 
 // ── Global error interception ────────────────────────────────────────────────
@@ -259,6 +259,9 @@ interface AppContextType extends AppState {
   selectGuild: (guild: Guild) => void;
   selectGuildChannel: (channel: GuildChannel) => void;
   sendGuildMessage: (text: string, replyToId?: string, attachmentIds?: string[], attachments?: GuildMessage['attachments']) => void;
+  addOptimisticGuildPost: (text: string, fileCount: number) => string;
+  removeOptimisticGuildPost: (id: string) => void;
+  resolveGuildPost: (optimisticId: string, realMsgs: GuildMessage[]) => void;
   scheduleGuildMessage: (text: string, delaySecs: number, replyToId?: string, attachmentIds?: string[]) => Promise<{ id: string; send_at: string } | null>;
   loadOlderGuildMessages: () => Promise<boolean>;
   deleteGuildMessage: (messageId: string) => Promise<void>;
@@ -271,6 +274,7 @@ interface AppContextType extends AppState {
   voiceWs: React.MutableRefObject<WebSocket | null>;
   voiceSignalHandler: React.MutableRefObject<((data: unknown) => void) | null>;
   voiceLocalStream: React.MutableRefObject<MediaStream | null>;
+  postCommentHandler: React.MutableRefObject<((ev: { type: 'added' | 'deleted'; messageId: string; comment?: import('../types').PostComment; commentId?: string }) => void) | null>;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -385,6 +389,8 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
   const refreshPromiseRef = useRef<Promise<string | null> | null>(null);
   const lastGuildChatBackRef = useRef<{ channelId: string | null; at: number }>({ channelId: null, at: 0 });
   const chatLastMsgId = useRef<string | null>(null);
+  // Real-time post-comment events are dispatched here for the open comments modal.
+  const postCommentHandler = useRef<((ev: { type: 'added' | 'deleted'; messageId: string; comment?: import('../types').PostComment; commentId?: string }) => void) | null>(null);
   // Tombstones for just-deleted DM messages. Deleting a media message is slow
   // server-side (it wipes attachment files from disk), so the REST poll can
   // still return it mid-delete and "resurrect" it. We suppress those ids.
@@ -400,7 +406,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     refreshPromiseRef.current = _origFetch(`${currentServerIPRef.current}/api/auth/refresh/`, {
       method: 'POST',
       credentials: 'include',
-      headers: { 'Content-Type': 'application/json', 'X-Ionik-Client': '1' },
+      headers: { 'Content-Type': 'application/json', 'X-Sfera-Client': '1' },
     })
       .then(async (res) => {
         if (!res.ok) return null;
@@ -453,7 +459,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     _origFetch(`${currentServerIPRef.current}/api/auth/logout/`, {
       method: 'POST',
       credentials: 'include',
-      headers: { 'X-Ionik-Client': '1' },
+      headers: { 'X-Sfera-Client': '1' },
     }).catch(() => undefined);
     localStorage.removeItem(AUTH_TOKEN_KEY);
     setState(prev => ({ ...prev, authToken: '', currentUser: null, friends: [], pendingRequests: [], sentRequests: [], userIDonServer: '', currentChat: '' }));
@@ -584,14 +590,14 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       }).catch(() => {/* silent — non-critical */});
     };
 
-    (window as any).ionikOnFcmToken = registerToken;
+    (window as any).sferaOnFcmToken = registerToken;
 
     // Request the token from Android if the bridge is available
     if ((window as any).AndroidBridge?.requestFcmToken) {
       (window as any).AndroidBridge.requestFcmToken();
     }
 
-    return () => { (window as any).ionikOnFcmToken = undefined; };
+    return () => { (window as any).sferaOnFcmToken = undefined; };
   }, [state.authToken, state.currentServerIP]);
 
   // ==================== Friends actions ====================
@@ -981,7 +987,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
           if (cancelled) return;
           try {
             const res = await fetch(pollUrl, {
-              headers: { Authorization: `Bearer ${state.authToken}`, 'X-Ionik-Client': '1' },
+              headers: { Authorization: `Bearer ${state.authToken}`, 'X-Sfera-Client': '1' },
               cache: 'no-store',
             });
             if (!res.ok || cancelled) return;
@@ -1580,6 +1586,12 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
         setState(prev => ({ ...prev, guildMessages: prev.guildMessages.map(m => m.id === data.id ? { ...m, is_pinned: data.is_pinned } : m) }));
       } else if (data.type === 'reaction_update') {
         setState(prev => ({ ...prev, guildMessages: prev.guildMessages.map(m => m.id === data.message_id ? { ...m, reactions: data.reactions } : m) }));
+      } else if (data.type === 'comment_added') {
+        setState(prev => ({ ...prev, guildMessages: prev.guildMessages.map(m => String(m.id) === String(data.message_id) ? { ...m, comments_count: (m.comments_count ?? 0) + 1 } : m) }));
+        postCommentHandler.current?.({ type: 'added', messageId: String(data.message_id), comment: data.comment });
+      } else if (data.type === 'comment_deleted') {
+        setState(prev => ({ ...prev, guildMessages: prev.guildMessages.map(m => String(m.id) === String(data.message_id) ? { ...m, comments_count: Math.max(0, (m.comments_count ?? 1) - 1) } : m) }));
+        postCommentHandler.current?.({ type: 'deleted', messageId: String(data.message_id), commentId: String(data.comment_id) });
       } else if (data.type === 'guild_deleted') {
         setState(prev => ({
           ...prev,
@@ -2019,10 +2031,9 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       });
       if (!res.ok) return null;
       const comment = await res.json();
-      setState(prev => ({
-        ...prev,
-        guildMessages: prev.guildMessages.map(m => m.id === messageId ? { ...m, comments_count: (m.comments_count ?? 0) + 1 } : m),
-      }));
+      // Count/thread updates arrive via the WS 'comment_added' broadcast (which
+      // this sender also receives), so we don't bump comments_count here to avoid
+      // double-counting.
       return comment;
     } catch (e) { reportError(e); return null; }
   }, [state.authToken, state.currentServerIP]);
@@ -2429,6 +2440,50 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       }))
       .catch(reportError);
   }, [state.currentGuildChannel?.id]);
+
+  // Show an immediate placeholder post while the author's photos upload/post.
+  // The real post (delivered over the WS gateway bridge) reconciles with this
+  // optimistic entry by matching author + content in the guild chat_message
+  // handler; a timeout drops it if the broadcast never arrives.
+  const addOptimisticGuildPost = useCallback((text: string, fileCount: number): string => {
+    const id = `optimistic-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    setState(prev => {
+      if (!prev.currentUser) return prev;
+      const optimistic = {
+        id,
+        author: { id: prev.userIDonServer, username: prev.currentUser.username, nickname: prev.currentUser.nickname, avatar: prev.currentUser.avatar, status: prev.currentUser.status },
+        content: text,
+        created_at: new Date().toISOString(),
+        attachments: [],
+        reply_to: null,
+        is_pinned: false,
+        pending: true,
+        pending_count: fileCount,
+      } as unknown as import('../types').GuildMessage;
+      return { ...prev, guildMessages: [...prev.guildMessages, optimistic] };
+    });
+    return id;
+  }, []);
+
+  const removeOptimisticGuildPost = useCallback((id: string) => {
+    setState(prev => {
+      if (!prev.guildMessages.some(m => m.id === id)) return prev;
+      return { ...prev, guildMessages: prev.guildMessages.filter(m => m.id !== id) };
+    });
+  }, []);
+
+  // Drop a pending skeleton and add the real post(s) straight from the HTTP
+  // response, so the author sees their post even if the WS bridge broadcast
+  // never reached them (e.g. the socket reconnected during the upload).
+  const resolveGuildPost = useCallback((optimisticId: string, realMsgs: import('../types').GuildMessage[]) => {
+    setState(prev => {
+      const existing = new Set(prev.guildMessages.map(m => String(m.id)));
+      const fresh = realMsgs.filter(m => m && !existing.has(String(m.id)));
+      const kept = prev.guildMessages.filter(m => m.id !== optimisticId);
+      if (!fresh.length && kept.length === prev.guildMessages.length) return prev;
+      return { ...prev, guildMessages: [...kept, ...fresh] };
+    });
+  }, []);
 
   const sendGuildMessage = useCallback((text: string, replyToId?: string, attachmentIds?: string[], attachments?: import('../types').GuildMessage['attachments']) => {
     if (guildChannelWs.current?.readyState !== WebSocket.OPEN) return;
@@ -2896,6 +2951,9 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       selectGuild,
       selectGuildChannel,
       sendGuildMessage,
+      addOptimisticGuildPost,
+      removeOptimisticGuildPost,
+      resolveGuildPost,
       scheduleGuildMessage,
       loadOlderGuildMessages,
       deleteGuildMessage,
@@ -2907,6 +2965,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       sendVoiceSignal,
       voiceWs,
       voiceSignalHandler,
+      postCommentHandler,
       voiceLocalStream,
       setCurrentUser,
     }}>

@@ -5,7 +5,7 @@
 // Scope is an arbitrary string id, e.g. a conversation id, guild-channel id, etc.
 
 const fileStore = new Map<string, File[]>();
-const textKey = (scope: string) => `ionik_draft_text_${scope}`;
+const textKey = (scope: string) => `sfera_draft_text_${scope}`;
 
 export function getDraftText(scope: string): string {
   if (!scope) return '';

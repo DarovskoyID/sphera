@@ -346,7 +346,7 @@ function AttachmentBlock({ att }: { att: { id: string; filename: string; content
 }
 
 function CommentsModal({ guild, messageId, serverIP, onClose }: { guild: Guild; messageId: string; serverIP: string; onClose: () => void }) {
-  const { loadPostComments, addPostComment, deletePostComment, currentUser } = useApp();
+  const { loadPostComments, addPostComment, deletePostComment, currentUser, postCommentHandler } = useApp();
   const [comments, setComments] = useState<import('../types').PostComment[]>([]);
   const [loading, setLoading] = useState(true);
   const [input, setInput] = useState('');
@@ -361,11 +361,26 @@ function CommentsModal({ guild, messageId, serverIP, onClose }: { guild: Guild; 
 
   useEffect(() => { refresh(); }, [refresh]);
 
+  // Real-time: append/remove comments as other users post/delete them.
+  useEffect(() => {
+    postCommentHandler.current = (ev) => {
+      if (ev.messageId !== messageId) return;
+      if (ev.type === 'added' && ev.comment) {
+        const c = ev.comment;
+        setComments(prev => prev.some(x => x.id === c.id) ? prev : [...prev, c]);
+        setTimeout(() => { if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight; }, 30);
+      } else if (ev.type === 'deleted') {
+        setComments(prev => prev.filter(x => x.id !== ev.commentId));
+      }
+    };
+    return () => { postCommentHandler.current = null; };
+  }, [messageId, postCommentHandler]);
+
   const send = async () => {
     if (!input.trim() || sending) return;
     setSending(true);
     const c = await addPostComment(guild.id, messageId, input.trim());
-    if (c) { setComments(prev => [...prev, c]); setInput(''); setTimeout(() => { if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight; }, 30); }
+    if (c) { setComments(prev => prev.some(x => x.id === c.id) ? prev : [...prev, c]); setInput(''); setTimeout(() => { if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight; }, 30); }
     setSending(false);
   };
 
@@ -463,6 +478,38 @@ function PostCard({ msg, guild, serverIP }: { msg: import('../types').GuildMessa
 
   // Show CHANNEL identity (name + icon), not the posting user
   const channelAvatar = guild.icon ? (guild.icon.startsWith('http') ? guild.icon : serverIP + guild.icon) : '';
+
+  // Loading skeleton while the author's post uploads (optimistic placeholder).
+  if (isOptimistic) {
+    const count = (msg as unknown as { pending_count?: number }).pending_count || 0;
+    const cols = Math.min(count || 1, 3);
+    return (
+      <article style={{ background: 'var(--bg-secondary)', borderRadius: 16, border: '1px solid var(--border-color)', overflow: 'hidden', maxWidth: 450, width: '100%', flexShrink: 0, opacity: 0.85 }}>
+        <div style={{ padding: '16px 20px 8px', display: 'flex', alignItems: 'center', gap: 12 }}>
+          {channelAvatar ? (
+            <img src={channelAvatar} alt="" style={{ width: 40, height: 40, borderRadius: 12, objectFit: 'cover' }} />
+          ) : (
+            <div style={{ width: 40, height: 40, borderRadius: 12, background: 'var(--bg-tertiary)' }} />
+          )}
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--text-primary)' }}>{guild.name}</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-secondary)' }}>
+              <div style={{ width: 12, height: 12, border: '2px solid var(--accent-primary)', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} />
+              Публикация…
+            </div>
+          </div>
+        </div>
+        {msg.content && <div style={{ padding: '0 20px 12px', color: 'var(--text-primary)', fontSize: 14, whiteSpace: 'pre-wrap' }}>{msg.content}</div>}
+        {count > 0 && (
+          <div style={{ display: 'grid', gridTemplateColumns: `repeat(${cols}, 1fr)`, gap: 3, padding: '0 3px 3px' }}>
+            {Array.from({ length: Math.min(count, 6) }).map((_, i) => (
+              <div key={i} style={{ aspectRatio: '1 / 1', background: 'var(--bg-tertiary)', animation: 'pulse 1.5s ease-in-out infinite' }} />
+            ))}
+          </div>
+        )}
+      </article>
+    );
+  }
 
   return (
     <article style={{
@@ -804,7 +851,7 @@ function ChannelSettingsModal({ guild, serverIP, onClose }: { guild: Guild; serv
 }
 
 export const PersonalChannelFeed: React.FC<{ style?: React.CSSProperties }> = ({ style }) => {
-  const { currentGuild, currentGuildChannel, guildMessages, currentServerIP, authToken, currentUser, customEmojis, guilds, joinGuild, sendGuildMessage, scheduleGuildMessage, updateGuild, leaveGuild, toggleGuildNotifications } = useApp();
+  const { currentGuild, currentGuildChannel, guildMessages, currentServerIP, authToken, currentUser, customEmojis, guilds, joinGuild, sendGuildMessage, scheduleGuildMessage, updateGuild, leaveGuild, toggleGuildNotifications, addOptimisticGuildPost, removeOptimisticGuildPost, resolveGuildPost } = useApp();
   const [subscribing, setSubscribing] = useState(false);
   const [confirmLeave, setConfirmLeave] = useState(false);
 
@@ -968,20 +1015,56 @@ export const PersonalChannelFeed: React.FC<{ style?: React.CSSProperties }> = ({
     return atts;
   };
 
+  // Post over HTTP (reliable) rather than the chat WS, which can be stale-OPEN
+  // after uploads and silently drop the frame — the reason attachment-heavy
+  // posts sometimes never appeared. Persists synchronously and broadcasts.
+  const postToChannel = async (text: string, attachmentIds: string[]): Promise<import('../types').GuildMessage | null> => {
+    if (!currentGuild || !currentGuildChannel) return null;
+    const res = await fetch(
+      `${currentServerIP}/api/guilds/${currentGuild.id}/channels/${currentGuildChannel.id}/messages/send/`,
+      {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${authToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: text, attachment_ids: attachmentIds, reply_to_id: null }),
+      },
+    );
+    return res.ok ? await res.json() : null;
+  };
+
   const handleSend = async () => {
     if (!input.trim() && files.length === 0) return;
     if (!currentGuild || !currentGuildChannel) return;
     setSending(true);
     try {
-      const uploaded = await uploadFiles(files);
-      const attachmentIds = uploaded.map(a => a.id);
-      sendGuildMessage(input.trim(), undefined, attachmentIds.length ? attachmentIds : undefined, uploaded.length ? uploaded : undefined);
+      const text = input.trim();
+      const localFiles = [...files];
       setInput('');
       setFiles([]);
       clearDraft(channelId);
-    } finally {
-      setSending(false);
-    }
+      if (localFiles.length === 0) {
+        await postToChannel(text, []);
+      } else {
+        // Immediate skeleton so the author sees the post is uploading.
+        const optId = addOptimisticGuildPost(text, localFiles.length);
+        try {
+          const uploaded = await uploadFiles(localFiles);
+          const ids = uploaded.map(a => a.id);
+          // Too many attachments for one post — split into batches of 15 (the
+          // first post carries the text). Add each real post straight from the
+          // response so the author sees it even if the WS bridge missed them.
+          const reals: import('../types').GuildMessage[] = [];
+          for (let i = 0; i < ids.length; i += 15) {
+            const real = await postToChannel(i === 0 ? text : '', ids.slice(i, i + 15));
+            if (real) reals.push(real);
+          }
+          resolveGuildPost(optId, reals);
+        } catch (e) {
+          removeOptimisticGuildPost(optId);
+          throw e;
+        }
+      }
+    } catch (e) { reportError(e); }
+    finally { setSending(false); }
   };
 
   // Schedule the current draft to post after a delay (handled server-side).
@@ -1142,10 +1225,22 @@ export const PersonalChannelFeed: React.FC<{ style?: React.CSSProperties }> = ({
           )}
 
           {files.length > 0 && (
-            <div style={{ display: 'flex', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
-              {files.map((f, i) => (
-                <PendingThumb key={i} file={f} onRemove={() => persistFiles(prev => prev.filter((_, idx) => idx !== i))} />
-              ))}
+            <div style={{ marginBottom: 8 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{files.length}</span>
+                {files.length > 1 && (
+                  <button onClick={() => persistFiles(() => [])} title="Очистить" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 12, padding: 2 }}>
+                    <Trash2 size={13} />
+                  </button>
+                )}
+              </div>
+              <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 4 }}>
+                {files.map((f, i) => (
+                  <div key={i} style={{ flexShrink: 0 }}>
+                    <PendingThumb file={f} onRemove={() => persistFiles(prev => prev.filter((_, idx) => idx !== i))} />
+                  </div>
+                ))}
+              </div>
             </div>
           )}
           {scheduledNote && (

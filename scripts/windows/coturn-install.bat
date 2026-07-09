@@ -10,8 +10,8 @@ setlocal
 
 set "PUBLIC_IP=89.208.74.21"
 set "REALM=bottomweb.ru"
-set "TURN_USER=ionikuser"
-set "TURN_PASS=ionikturn123"
+set "TURN_USER=sferauser"
+set "TURN_PASS=sferaturn123"
 set "MIN_PORT=35000"
 set "MAX_PORT=35004"
 set "CERT_PATH=/mnt/d/nginx-1.29.8/ssl/fullchain.pem"

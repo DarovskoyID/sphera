@@ -585,7 +585,7 @@ input[type="range"] {
 
 
 /* Data export skeleton */
-@keyframes ionik-skeleton-shimmer {
+@keyframes sfera-skeleton-shimmer {
   0% { background-position: -400px 0; }
   100% { background-position: 400px 0; }
 }
@@ -599,5 +599,5 @@ input[type="range"] {
     var(--border-color) 37%,
     var(--bg-tertiary) 63%);
   background-size: 400px 100%;
-  animation: ionik-skeleton-shimmer 1.4s ease-in-out infinite;
+  animation: sfera-skeleton-shimmer 1.4s ease-in-out infinite;
 }

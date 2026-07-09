@@ -6,7 +6,7 @@
   <img src="https://img.shields.io/badge/Supabase-Backend-3FCF8E?style=for-the-badge&logo=supabase&logoColor=white" />
 </p>
 
-# ⚡ Ionik
+# ⚡ Сфера
 
 **Real-time messenger with guilds, voice calls, and rich chat features** — inspired by Discord, built with React + TypeScript.
 
@@ -37,8 +37,8 @@
 
 ```bash
 # Clone the repository
-git clone https://github.com/DarovskoyID/ionik-all.git
-cd ionik-all
+git clone https://github.com/DarovskoyID/sfera-all.git
+cd sfera-all
 
 # Install dependencies
 npm install
