@@ -244,7 +244,7 @@ CORS_ALLOW_HEADERS = [
     'user-agent',
     'x-csrftoken',
     'x-requested-with',
-    'x-sfera-client',
+    'x-ionik-client',
 ]
 CORS_ALLOW_CREDENTIALS = True
 

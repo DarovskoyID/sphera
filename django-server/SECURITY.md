@@ -47,7 +47,7 @@ post comments, and encrypted attachment files with the current primary key.
 ## WebSocket auth
 
 The web client sends JWTs through the `Sec-WebSocket-Protocol` handshake
-(`sfera.jwt`, then the token), so tokens no longer appear in WebSocket URLs.
+(`ionik.jwt`, then the token), so tokens no longer appear in WebSocket URLs.
 The Django Channels middleware and Rust ws-gateway reject the old
 `?token=<jwt>` query parameter. The Rust gateway also calls Django
 `/api/ws/authorize/` before accepting a socket so a valid JWT is not enough to

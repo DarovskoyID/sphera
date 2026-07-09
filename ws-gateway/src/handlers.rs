@@ -18,7 +18,7 @@ use crate::metrics;
 fn token_from_headers(headers: &HeaderMap) -> Option<String> {
     let raw = headers.get("sec-websocket-protocol")?.to_str().ok()?;
     let protocols: Vec<&str> = raw.split(',').map(str::trim).collect();
-    let idx = protocols.iter().position(|p| *p == "sfera.jwt")?;
+    let idx = protocols.iter().position(|p| *p == "ionik.jwt")?;
     protocols.get(idx + 1).map(|token| token.to_string())
 }
 
@@ -26,7 +26,7 @@ async fn authorize_ws(state: &AppState, token: &str, payload: Value) -> bool {
     match state.http_client
         .post(&state.django_authz_url)
         .bearer_auth(token)
-        .header("X-Sfera-Client", "1")
+        .header("X-Ionik-Client", "1")
         .json(&payload)
         .send()
         .await
@@ -63,7 +63,7 @@ pub async fn chat_ws(
         return StatusCode::FORBIDDEN.into_response();
     }
 
-    ws.protocols(["sfera.jwt"])
+    ws.protocols(["ionik.jwt"])
         .on_upgrade(move |socket| handle_chat(socket, state, conversation_id, claims.user_id))
 }
 
@@ -238,7 +238,7 @@ pub async fn guild_ws(
         return StatusCode::FORBIDDEN.into_response();
     }
 
-    ws.protocols(["sfera.jwt"])
+    ws.protocols(["ionik.jwt"])
         .on_upgrade(move |socket| handle_guild(socket, state, guild_id, channel_id, claims.user_id))
 }
 

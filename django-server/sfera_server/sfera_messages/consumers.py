@@ -15,7 +15,7 @@ from sfera_auth.models import User, BlockedUser
 from .voice_state import _voice_channels
 from sfera_server.metrics import inc as _metrics_inc
 
-WS_AUTH_SUBPROTOCOL = 'sfera.jwt'
+WS_AUTH_SUBPROTOCOL = 'ionik.jwt'
 
 
 def _accepted_subprotocol(scope):

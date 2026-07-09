@@ -54,7 +54,7 @@ GUILD_PREFIX = '[LT] '
 DEFAULT_PASSWORD = 'loadtest123'
 
 # AppOnlyMiddleware блокирует HTTP-запросы без этого заголовка.
-CLIENT_HEADER = {'X-Sfera-Client': '1'}
+CLIENT_HEADER = {'X-Ionik-Client': '1'}
 
 # TURN/STUN по умолчанию — совпадают с src/config/network.ts
 DEFAULT_TURN_PORT = 3478
@@ -713,8 +713,8 @@ class Command(BaseCommand):
                     pc_a.addTrack(_BlackVideo())
                     pc_b.addTrack(_BlackVideo())
 
-                ws_a = await websockets.connect(sig_url, ssl=ssl_ctx, max_size=None, subprotocols=['sfera.jwt', a_tok])
-                ws_b = await websockets.connect(sig_url, ssl=ssl_ctx, max_size=None, subprotocols=['sfera.jwt', b_tok])
+                ws_a = await websockets.connect(sig_url, ssl=ssl_ctx, max_size=None, subprotocols=['ionik.jwt', a_tok])
+                ws_b = await websockets.connect(sig_url, ssl=ssl_ctx, max_size=None, subprotocols=['ionik.jwt', b_tok])
 
                 # A → offer (setLocalDescription соберёт ICE, включая relay-кандидаты TURN)
                 await pc_a.setLocalDescription(await pc_a.createOffer())
@@ -993,7 +993,7 @@ class Command(BaseCommand):
                 async with websockets.connect(
                         f'{sig_base}/ws/signaling/',
                         ssl=ssl_ctx, open_timeout=20, close_timeout=3,
-                        subprotocols=['sfera.jwt', token]) as ws:
+                        subprotocols=['ionik.jwt', token]) as ws:
                     end = time.time() + duration
                     while time.time() < end:
                         try:
@@ -1029,7 +1029,7 @@ class Command(BaseCommand):
                 ws = await websockets.connect(url,
                                               ssl=ssl_ctx, max_size=None,
                                               open_timeout=20, close_timeout=3,
-                                              subprotocols=['sfera.jwt', tokens[uname]])
+                                              subprotocols=['ionik.jwt', tokens[uname]])
                 conns[i] = ws
                 drains.append(asyncio.ensure_future(_drain(ws)))
                 return ws

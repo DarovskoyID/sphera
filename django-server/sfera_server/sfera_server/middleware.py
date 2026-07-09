@@ -9,7 +9,7 @@ from sfera_auth.models import User
 class AppOnlyMiddleware:
     """
     Blocks direct browser access to the server.
-    Every HTTP request must carry the custom header X-Sfera-Client: 1.
+    Every HTTP request must carry the custom header X-Ionik-Client: 1.
     CORS pre-flight OPTIONS requests are allowed through so the browser
     can negotiate the custom header before the real request is sent.
     WebSocket connections are handled by ASGI/Channels and are not
@@ -25,7 +25,7 @@ class AppOnlyMiddleware:
             and not request.path.startswith('/media/')
             and not request.path.startswith('/status-')
             and not request.path.startswith('/metrics')
-            and request.headers.get('X-Sfera-Client') != '1'
+            and request.headers.get('X-Ionik-Client') != '1'
         ):
             return HttpResponse()
         return self.get_response(request)
@@ -65,7 +65,7 @@ def get_user_from_token(token_str):
 def _token_from_subprotocols(scope):
     protocols = scope.get('subprotocols') or []
     try:
-        marker_index = protocols.index('sfera.jwt')
+        marker_index = protocols.index('ionik.jwt')
     except ValueError:
         return None
     if marker_index + 1 < len(protocols):
@@ -74,7 +74,7 @@ def _token_from_subprotocols(scope):
 
 
 class JWTAuthMiddleware(BaseMiddleware):
-    """Authenticate WebSocket connections via the sfera.jwt subprotocol."""
+    """Authenticate WebSocket connections via the ionik.jwt subprotocol."""
 
     async def __call__(self, scope, receive, send):
         token = _token_from_subprotocols(scope)

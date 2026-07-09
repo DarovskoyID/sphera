@@ -10,7 +10,7 @@ import { deviceQuery } from '../utils/device';
 import { toUserMessage, readResponse, setErrorLang } from '../utils/errorManager';
 
 
-// ── Inject X-Sfera-Client header into every fetch ────────────────────────────
+// ── Inject X-Ionik-Client header into every fetch ────────────────────────────
 // Prevents direct browser access to the server (the server rejects requests
 // without this header, returning an empty 200 response instead).
 const _origFetch = window.fetch.bind(window);
@@ -43,7 +43,7 @@ function withBearerAuth(init: RequestInit | undefined, token: string): RequestIn
 ) => {
   const headers = new Headers(input instanceof Request ? input.headers : undefined);
   new Headers(init?.headers as HeadersInit | undefined).forEach((value, key) => headers.set(key, value));
-  headers.set('X-Sfera-Client', '1');
+  headers.set('X-Ionik-Client', '1');
   const nextInit = { credentials: 'include' as RequestCredentials, ...init, headers };
   return _origFetch(input, nextInit).then(async (res) => {
     const url = getFetchUrl(input);
@@ -73,7 +73,7 @@ function jwtExpiresSoon(token: string, skewSeconds = 60): boolean {
 }
 
 function wsProtocols(token: string): string[] {
-  return ['sfera.jwt', token];
+  return ['ionik.jwt', token];
 }
 
 // ── Global error interception ────────────────────────────────────────────────
@@ -406,7 +406,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     refreshPromiseRef.current = _origFetch(`${currentServerIPRef.current}/api/auth/refresh/`, {
       method: 'POST',
       credentials: 'include',
-      headers: { 'Content-Type': 'application/json', 'X-Sfera-Client': '1' },
+      headers: { 'Content-Type': 'application/json', 'X-Ionik-Client': '1' },
     })
       .then(async (res) => {
         if (!res.ok) return null;
@@ -459,7 +459,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     _origFetch(`${currentServerIPRef.current}/api/auth/logout/`, {
       method: 'POST',
       credentials: 'include',
-      headers: { 'X-Sfera-Client': '1' },
+      headers: { 'X-Ionik-Client': '1' },
     }).catch(() => undefined);
     localStorage.removeItem(AUTH_TOKEN_KEY);
     setState(prev => ({ ...prev, authToken: '', currentUser: null, friends: [], pendingRequests: [], sentRequests: [], userIDonServer: '', currentChat: '' }));
@@ -987,7 +987,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
           if (cancelled) return;
           try {
             const res = await fetch(pollUrl, {
-              headers: { Authorization: `Bearer ${state.authToken}`, 'X-Sfera-Client': '1' },
+              headers: { Authorization: `Bearer ${state.authToken}`, 'X-Ionik-Client': '1' },
               cache: 'no-store',
             });
             if (!res.ok || cancelled) return;

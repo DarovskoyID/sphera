@@ -4,7 +4,7 @@ from channels.db import database_sync_to_async
 from django.db.models import Q
 from asgiref.sync import sync_to_async
 
-WS_AUTH_SUBPROTOCOL = 'sfera.jwt'
+WS_AUTH_SUBPROTOCOL = 'ionik.jwt'
 
 
 def _accepted_subprotocol(scope):
