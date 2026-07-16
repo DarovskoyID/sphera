@@ -1680,7 +1680,7 @@ const MessagesContainer: React.FC<{
                 </React.Fragment>
               );
             }
-            const isFirstInGroup = showDate || !prev || String(prev.author.id) !== String(msg.author.id) || prev.message_type === 'call';
+            const isFirstInGroup = showDate || !prev || String(prev.author?.id) !== String(msg.author?.id) || prev.message_type === 'call';
             return (
               <React.Fragment key={msg.id || `tmp-${i}`}>
                 {dateSep}

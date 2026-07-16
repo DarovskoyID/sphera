@@ -931,6 +931,9 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
                 ),
               }));
             } else {
+              // Drop frames that aren't a message (see the guild handler): an
+              // author-less object in the list crashes the renderer.
+              if (!data || typeof data !== 'object' || !data.id || !data.author) return;
               const msg: ChatMessage = enrichCallMessage(data);
               // Notify + ping for messages from the other party (not our own echo).
               const fromSelf = String(msg.author?.id) === String(state.userIDonServer);
@@ -1775,7 +1778,11 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
           },
         }));
       } else {
-        // Regular chat message — replace matching optimistic or append (skip exact duplicate)
+        // Regular chat message — replace matching optimistic or append (skip exact duplicate).
+        // Anything that isn't shaped like a message is dropped: letting a stray
+        // frame through puts an author-less object in the list and the renderer
+        // dies on msg.author.id, taking the whole chat down.
+        if (!data || typeof data !== 'object' || !data.id || !data.author) return;
         const msg: GuildMessage = data;
         // Desktop notification / sound for server messages and mentions.
         const self = selfRef.current;

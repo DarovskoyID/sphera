@@ -2181,8 +2181,21 @@ def _guild_rich_payload(msg, caption):
 
 
 def _broadcast(group, event):
+    """For update events (poll/todo/location): both transports carry the event
+    dict as-is, same as reaction_update."""
     async_to_sync(get_channel_layer().group_send)(group, event)
     _gw_broadcast(group, event)
+
+
+def _broadcast_message(group, msg_payload):
+    """For a brand-new message the two transports differ, and mixing them up
+    corrupts the client's message list: the channel layer takes a wrapped event
+    (the consumer re-sends event['message']), while gateway clients must get the
+    raw payload. Same convention as send_message / guild_channel_send."""
+    async_to_sync(get_channel_layer().group_send)(
+        group, {'type': 'chat_message', 'message': msg_payload}
+    )
+    _gw_broadcast(group, msg_payload)
 
 
 @api_view(['POST'])
@@ -2217,7 +2230,7 @@ def conversation_rich_send(request, conversation_id):
     msg.save()
 
     msg_payload = _dm_rich_payload(msg, caption)
-    _broadcast(f'chat_{conversation_id}', {'type': 'chat_message', 'message': msg_payload})
+    _broadcast_message(f'chat_{conversation_id}', msg_payload)
 
     notification = {
         'type': 'new_message_notification',
@@ -2266,7 +2279,7 @@ def guild_channel_rich_send(request, guild_id, channel_id):
     msg.save()
 
     msg_payload = _guild_rich_payload(msg, caption)
-    _broadcast(f'guild_channel_{channel_id}', {'type': 'chat_message', 'message': msg_payload})
+    _broadcast_message(f'guild_channel_{channel_id}', msg_payload)
     return Response(msg_payload, status=status.HTTP_201_CREATED)
 
 

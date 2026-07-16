@@ -820,7 +820,7 @@ export const GuildChatMain: React.FC = () => {
             const prev = guildMessages[i - 1];
             const showDate = shouldShowDateSeparator(msg, prev);
             const dateSep = showDate ? <DateSeparator key={`date-${msg.id || i}`} label={formatDate(msg.created_at)} /> : null;
-            const isFirstInGroup = showDate || !prev || String(prev.author.id) !== String(msg.author.id);
+            const isFirstInGroup = showDate || !prev || String(prev.author?.id) !== String(msg.author?.id);
             return (
               <React.Fragment key={msg.id || `tmp-${i}`}>
                 {dateSep}
