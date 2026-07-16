@@ -374,7 +374,7 @@ const GuildMessageRow = React.memo(({ msg, isOwn, isFirstInGroup, onContextMenu,
           {msg.attachments?.map(att => (
             <AttachmentView key={att.id} att={att} />
           ))}
-          {!msg.content && (msg.attachments?.length ?? 0) > 0 && (
+          {!msg.content && ((msg.attachments?.length ?? 0) > 0 || isRichMsg(msg)) && (
             <span className="message-timestamp message-timestamp-standalone">
               {time}
             </span>

@@ -1500,7 +1500,10 @@ const MessageRow = React.memo(({ msg, isOwn, isFirstInGroup, onContextMenu, onRe
               </>
             );
           })()}
-          {!msg.content && !msg.attachments?.length && (
+          {/* Placeholder for a message whose media is still uploading: no text,
+              no attachments yet. Rich messages (poll/checklist/contact/location)
+              are legitimately text- and attachment-less, so they must not get it. */}
+          {!msg.content && !msg.attachments?.length && !isRichMsg(msg) && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderRadius: 16, background: 'var(--bg-secondary)', maxWidth: 240, animation: 'pulse 1.5s ease-in-out infinite' }}>
               <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'var(--border-color)', flexShrink: 0 }} />
               <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -1509,7 +1512,7 @@ const MessageRow = React.memo(({ msg, isOwn, isFirstInGroup, onContextMenu, onRe
               </div>
             </div>
           )}
-          {!msg.content && (msg.attachments?.length ?? 0) > 0 && (
+          {!msg.content && ((msg.attachments?.length ?? 0) > 0 || isRichMsg(msg)) && (
             <span className="message-timestamp message-timestamp-standalone">
               {time}
               {isOwn && <ReadReceipt msg={msg} />}

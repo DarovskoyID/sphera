@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { BarChart3, Check, CheckSquare, MapPin, MessageSquare, Phone, Radio, Square, User as UserIcon } from 'lucide-react';
 import { useTranslation } from '../i18n/useTranslation';
 import type {
@@ -23,8 +23,25 @@ function latToTileY(lat: number, z: number) {
   return ((1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2) * 2 ** z;
 }
 
+const MAP_MAX_WIDTH = 320;
+
 function MapPreview({ lat, lng, zoom = 15, height = 160 }: { lat: number; lng: number; zoom?: number; height?: number }) {
-  const width = 320;
+  // The tile layout is centred on the point, so it must be computed from the
+  // width the box actually gets. Assuming a fixed width would leave the pin
+  // (at left:50%) offset from the real coordinates on narrow screens.
+  const boxRef = useRef<HTMLDivElement>(null);
+  const [width, setWidth] = useState(MAP_MAX_WIDTH);
+  useLayoutEffect(() => {
+    const el = boxRef.current;
+    if (!el) return;
+    const measure = () => setWidth(el.clientWidth || MAP_MAX_WIDTH);
+    measure();
+    if (typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
   const tiles = useMemo(() => {
     const n = 2 ** zoom;
     const originX = lngToTileX(lng, zoom) * TILE - width / 2;
@@ -43,12 +60,13 @@ function MapPreview({ lat, lng, zoom = 15, height = 160 }: { lat: number; lng: n
       }
     }
     return out;
-  }, [lat, lng, zoom, height]);
+  }, [lat, lng, zoom, height, width]);
 
   return (
     <div
+      ref={boxRef}
       style={{
-        position: 'relative', width: '100%', maxWidth: width, height, overflow: 'hidden',
+        position: 'relative', width: '100%', maxWidth: MAP_MAX_WIDTH, height, overflow: 'hidden',
         borderRadius: 10, background: 'var(--bg-tertiary, #2b2d31)',
       }}
     >
