@@ -1325,17 +1325,29 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     const firstMsg = state.chatMessages[0];
     if (!convoId || !firstMsg?.id) return false;
     try {
+      // Send the timestamp too: if the anchor message has since been deleted the
+      // server can still resolve the cursor from it instead of giving up.
       const older: ChatMessage[] = await apiGet(
-        `/api/conversations/${convoId}/messages/?before=${firstMsg.id}&limit=50`,
+        `/api/conversations/${convoId}/messages/?before=${firstMsg.id}`
+        + `&before_ts=${encodeURIComponent(firstMsg.created_at)}&limit=50`,
         state.authToken,
         state.currentServerIP
       );
       if (older.length === 0) return false;
       const enriched = older.map(enrichCallMessage);
-      setState(prev => ({
-        ...prev,
-        chatMessages: [...enriched, ...prev.chatMessages],
-      }));
+      setState(prev => {
+        // Dedupe + sort: prepending blindly is what scrambled the history when
+        // the server answered an unresolvable cursor with the newest page.
+        const have = new Set(prev.chatMessages.map(m => String(m.id)));
+        const fresh = enriched.filter(m => !have.has(String(m.id)));
+        if (!fresh.length) return prev;
+        return {
+          ...prev,
+          chatMessages: [...fresh, ...prev.chatMessages].sort(
+            (a, b) => a.created_at.localeCompare(b.created_at)
+          ),
+        };
+      });
       return true;
     } catch (e) {
       reportError(e);
@@ -2742,11 +2754,24 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     if (!firstMsg) return false;
     try {
       const older: GuildMessage[] = await apiGet(
-        `/api/guilds/${state.currentGuild.id}/channels/${state.currentGuildChannel.id}/messages/?before=${firstMsg.id}&limit=50`,
+        `/api/guilds/${state.currentGuild.id}/channels/${state.currentGuildChannel.id}/messages/`
+        + `?before=${firstMsg.id}&before_ts=${encodeURIComponent(firstMsg.created_at)}&limit=50`,
         state.authToken, state.currentServerIP
       );
       if (older.length === 0) return false;
-      setState(prev => ({ ...prev, guildMessages: [...older, ...prev.guildMessages] }));
+      setState(prev => {
+        // Same guard as the DM loader: dedupe + sort so a bad page can never
+        // scramble the channel history.
+        const have = new Set(prev.guildMessages.map(m => String(m.id)));
+        const fresh = older.filter(m => !have.has(String(m.id)));
+        if (!fresh.length) return prev;
+        return {
+          ...prev,
+          guildMessages: [...fresh, ...prev.guildMessages].sort(
+            (a, b) => a.created_at.localeCompare(b.created_at)
+          ),
+        };
+      });
       return true;
     } catch (e) { reportError(e); return false; }
   }, [state.currentGuild, state.currentGuildChannel, state.guildMessages, state.authToken, state.currentServerIP, apiGet]);

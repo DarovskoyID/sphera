@@ -12,6 +12,7 @@ from django.db import transaction
 from django.db.models import Q, Count
 from django.http import HttpResponse
 from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -241,6 +242,35 @@ def conversation_delete(request, conversation_id):
     return Response(status=status.HTTP_204_NO_CONTENT)
 
 
+class _CursorUnresolved:
+    """Sentinel: a pagination cursor was requested but could not be resolved."""
+
+
+_CURSOR_UNRESOLVED = _CursorUnresolved()
+
+
+def _pagination_cutoff(manager, before_id, before_ts):
+    """Resolve the `created_at` cutoff for a "load older" page.
+
+    The anchor message can be gone (deleted while the client still lists it), so
+    clients also send `before_ts`. Returns None when no cursor was asked for, a
+    datetime to filter by, or _CURSOR_UNRESOLVED when a cursor was requested but
+    neither the anchor nor a usable timestamp resolved it — callers must NOT fall
+    back to the newest page in that case.
+    """
+    if not before_id and not before_ts:
+        return None
+    if before_id:
+        anchor = manager.filter(id=before_id).only('created_at').first()
+        if anchor:
+            return anchor.created_at
+    if before_ts:
+        parsed = parse_datetime(before_ts)
+        if parsed:
+            return parsed
+    return _CURSOR_UNRESOLVED
+
+
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def message_list(request, conversation_id):
@@ -251,14 +281,18 @@ def message_list(request, conversation_id):
 
     limit = min(int(request.GET.get('limit', 50)), 200)
     before_id = request.GET.get('before')
+    before_ts = request.GET.get('before_ts')
 
     qs = convo.messages.select_related('author', 'reply_to', 'reply_to__author').prefetch_related('attachments', 'todo_checks__user').order_by('-created_at')
-    if before_id:
-        try:
-            anchor = convo.messages.get(id=before_id)
-            qs = qs.filter(created_at__lt=anchor.created_at)
-        except convo.messages.model.DoesNotExist:
-            pass
+    cutoff = _pagination_cutoff(convo.messages, before_id, before_ts)
+    if cutoff is _CURSOR_UNRESOLVED:
+        # The client asked for a page older than a cursor we can't resolve (the
+        # anchor message was deleted). Falling through without the filter would
+        # return the NEWEST page, which the client prepends to the top of its
+        # history — scrambling the order. Report "no older messages" instead.
+        return Response([])
+    if cutoff is not None:
+        qs = qs.filter(created_at__lt=cutoff)
     messages = list(qs[:limit])
     messages.reverse()
 
@@ -1348,13 +1382,15 @@ def guild_channel_messages(request, guild_id, channel_id):
 
     limit = min(int(request.GET.get('limit', 50)), 200)
     before_id = request.GET.get('before')
+    before_ts = request.GET.get('before_ts')
     qs = ch.messages.select_related('author', 'reply_to', 'reply_to__author').prefetch_related('attachments', 'reactions', 'views', 'comments', 'poll_votes__user', 'todo_checks__user').order_by('-created_at')
-    if before_id:
-        try:
-            anchor = ch.messages.get(id=before_id)
-            qs = qs.filter(created_at__lt=anchor.created_at)
-        except ch.messages.model.DoesNotExist:
-            pass
+    cutoff = _pagination_cutoff(ch.messages, before_id, before_ts)
+    if cutoff is _CURSOR_UNRESOLVED:
+        # See message_list: never answer an "older than X" request with the
+        # newest page — the client prepends it and the history order breaks.
+        return Response([])
+    if cutoff is not None:
+        qs = qs.filter(created_at__lt=cutoff)
     msgs = list(qs[:limit])
     msgs.reverse()
 
