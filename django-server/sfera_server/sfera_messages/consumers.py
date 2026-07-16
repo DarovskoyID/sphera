@@ -258,6 +258,20 @@ class ChatConsumer(AsyncWebsocketConsumer):
             'is_pinned': event['is_pinned'],
         }))
 
+    async def todo_update(self, event):
+        await self.send(text_data=ujson.dumps({
+            'type': 'todo_update',
+            'message_id': event['message_id'],
+            'todo': event['todo'],
+        }))
+
+    async def location_update(self, event):
+        await self.send(text_data=ujson.dumps({
+            'type': 'location_update',
+            'message_id': event['message_id'],
+            'location': event['location'],
+        }))
+
     async def conversation_deleted(self, event):
         await self.send(text_data=ujson.dumps({
             'type': 'conversation_deleted',
@@ -830,6 +844,17 @@ class GuildChannelConsumer(AsyncWebsocketConsumer):
 
     async def reaction_update(self, event):
         await self.send(text_data=ujson.dumps({'type': 'reaction_update', 'message_id': event['message_id'], 'reactions': event['reactions']}))
+
+    async def poll_update(self, event):
+        # `poll` carries no per-user flags (see rich.poll_view) — each client keeps
+        # its own selection locally, so one payload is safe to fan out.
+        await self.send(text_data=ujson.dumps({'type': 'poll_update', 'message_id': event['message_id'], 'poll': event['poll']}))
+
+    async def todo_update(self, event):
+        await self.send(text_data=ujson.dumps({'type': 'todo_update', 'message_id': event['message_id'], 'todo': event['todo']}))
+
+    async def location_update(self, event):
+        await self.send(text_data=ujson.dumps({'type': 'location_update', 'message_id': event['message_id'], 'location': event['location']}))
 
     async def comment_added(self, event):
         await self.send(text_data=ujson.dumps({'type': 'comment_added', 'message_id': event['message_id'], 'comment': event['comment']}))

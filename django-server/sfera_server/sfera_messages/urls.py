@@ -16,6 +16,11 @@ urlpatterns = [
     path('messages/<uuid:message_id>/', views.delete_message),
     path('messages/<uuid:message_id>/pin/', views.pin_message),
     path('messages/<uuid:message_id>/report/', views.report_message),
+
+    # Rich messages in DMs (checklist / contact / location)
+    path('conversations/<uuid:conversation_id>/rich/', views.conversation_rich_send),
+    path('messages/<uuid:message_id>/todo/toggle/', views.dm_todo_toggle),
+    path('messages/<uuid:message_id>/location/', views.dm_location_update),
     path('scheduled/<uuid:scheduled_id>/', views.cancel_scheduled_message),
 
     # Guilds (servers)
@@ -37,6 +42,13 @@ urlpatterns = [
     path('guilds/<uuid:guild_id>/messages/<uuid:message_id>/', views.guild_message_delete),
     path('guilds/<uuid:guild_id>/messages/<uuid:message_id>/pin/', views.guild_message_pin),
     path('guilds/<uuid:guild_id>/messages/<uuid:message_id>/reactions/', views.guild_message_reaction),
+
+    # Rich messages in guild channels (poll / checklist / contact / location)
+    path('guilds/<uuid:guild_id>/channels/<uuid:channel_id>/rich/', views.guild_channel_rich_send),
+    path('guilds/<uuid:guild_id>/messages/<uuid:message_id>/poll/vote/', views.guild_poll_vote),
+    path('guilds/<uuid:guild_id>/messages/<uuid:message_id>/poll/close/', views.guild_poll_close),
+    path('guilds/<uuid:guild_id>/messages/<uuid:message_id>/todo/toggle/', views.guild_todo_toggle),
+    path('guilds/<uuid:guild_id>/messages/<uuid:message_id>/location/', views.guild_location_update),
     path('guilds/<uuid:guild_id>/messages/<uuid:message_id>/view/', views.guild_message_view),
     path('search/messages/', views.search_messages_view),
     path('guilds/<uuid:guild_id>/messages/<uuid:message_id>/comments/', views.guild_message_comments),

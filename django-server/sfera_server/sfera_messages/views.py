@@ -8,6 +8,7 @@ import threading
 from datetime import timedelta
 from django.conf import settings
 from django.core.files.base import ContentFile
+from django.db import transaction
 from django.db.models import Q, Count
 from django.http import HttpResponse
 from django.utils import timezone
@@ -17,9 +18,12 @@ from rest_framework.response import Response
 from rest_framework import status
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
-from .models import Conversation, Message, Attachment, MessageReport, MessagePin, ScheduledMessage, Guild, GuildMembership, GuildChannel, GuildCategory, GuildMessage, GuildAttachment, GuildScheduledMessage, GuildEmoji, GuildSticker, GuildSound, GuildRole, GuildMemberRole, GuildInvite, GuildAuditLog, GuildMessageReaction, GuildMessageView, GuildPostComment
+from .models import Conversation, Message, Attachment, MessageReport, MessagePin, ScheduledMessage, Guild, GuildMembership, GuildChannel, GuildCategory, GuildMessage, GuildAttachment, GuildScheduledMessage, GuildEmoji, GuildSticker, GuildSound, GuildRole, GuildMemberRole, GuildInvite, GuildAuditLog, GuildMessageReaction, GuildMessageView, GuildPostComment, GuildPollVote, TodoCheck, GuildTodoCheck
+from .models import MESSAGE_TYPE_POLL, MESSAGE_TYPE_TODO, MESSAGE_TYPE_CONTACT, MESSAGE_TYPE_LOCATION
 from .serializers import ConversationSerializer, MessageSerializer, AttachmentSerializer
 from .encryption import encrypt_bytes, decrypt_bytes, encrypt_text
+from . import rich as rich_msg
+from .rich import RichError, rich_fields, poll_view, todo_view, location_view
 from sfera_auth.models import BlockedUser
 from .voice_state import _voice_channels
 
@@ -248,7 +252,7 @@ def message_list(request, conversation_id):
     limit = min(int(request.GET.get('limit', 50)), 200)
     before_id = request.GET.get('before')
 
-    qs = convo.messages.select_related('author', 'reply_to', 'reply_to__author').prefetch_related('attachments').order_by('-created_at')
+    qs = convo.messages.select_related('author', 'reply_to', 'reply_to__author').prefetch_related('attachments', 'todo_checks__user').order_by('-created_at')
     if before_id:
         try:
             anchor = convo.messages.get(id=before_id)
@@ -1344,7 +1348,7 @@ def guild_channel_messages(request, guild_id, channel_id):
 
     limit = min(int(request.GET.get('limit', 50)), 200)
     before_id = request.GET.get('before')
-    qs = ch.messages.select_related('author', 'reply_to', 'reply_to__author').prefetch_related('attachments', 'reactions', 'views', 'comments').order_by('-created_at')
+    qs = ch.messages.select_related('author', 'reply_to', 'reply_to__author').prefetch_related('attachments', 'reactions', 'views', 'comments', 'poll_votes__user', 'todo_checks__user').order_by('-created_at')
     if before_id:
         try:
             anchor = ch.messages.get(id=before_id)
@@ -1385,6 +1389,7 @@ def guild_channel_messages(request, guild_id, channel_id):
             'reactions': _aggregate_reactions(m.reactions.all(), request.user),
             'views': len(m.views.all()),
             'comments_count': len(m.comments.all()),
+            **rich_fields(m, request.user),
         }
 
     return Response([serialize(m) for m in msgs])
@@ -2102,3 +2107,383 @@ def turn_credentials(request):
         },
     ]
     return Response({'iceServers': ice_servers, 'node': host})
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Rich messages: polls (guild only), todo checklists, contacts, locations
+# ══════════════════════════════════════════════════════════════════════════════
+
+# Polls are deliberately guild-only; DMs get everything else.
+DM_RICH_TYPES = (MESSAGE_TYPE_TODO, MESSAGE_TYPE_CONTACT, MESSAGE_TYPE_LOCATION)
+GUILD_RICH_TYPES = (MESSAGE_TYPE_POLL,) + DM_RICH_TYPES
+
+_RICH_PREVIEW = {
+    MESSAGE_TYPE_POLL: '\U0001F4CA Опрос',
+    MESSAGE_TYPE_TODO: '✅ Список дел',
+    MESSAGE_TYPE_CONTACT: '\U0001F464 Контакт',
+    MESSAGE_TYPE_LOCATION: '\U0001F4CD Геопозиция',
+}
+
+
+def _build_rich(kind, data):
+    """Returns (payload, live_until). Raises RichError on bad input."""
+    if kind == MESSAGE_TYPE_POLL:
+        return rich_msg.build_poll(data), None
+    if kind == MESSAGE_TYPE_TODO:
+        return rich_msg.build_todo(data), None
+    if kind == MESSAGE_TYPE_CONTACT:
+        from django.contrib.auth import get_user_model
+        return rich_msg.build_contact(data, get_user_model()), None
+    if kind == MESSAGE_TYPE_LOCATION:
+        return rich_msg.build_location(data)
+    raise RichError('unsupported message type')
+
+
+def _author_brief(u):
+    return {
+        'id': str(u.id),
+        'username': u.username,
+        'nickname': getattr(u, 'nickname', '') or '',
+        'avatar': u.avatar.url if getattr(u, 'avatar', None) else '',
+        'status': getattr(u, 'status', 'online'),
+    }
+
+
+def _dm_rich_payload(msg, caption):
+    # Shape must match send_message() so the client renders it in the same list.
+    return {
+        'id': str(msg.id),
+        'author': _author_brief(msg.author),
+        'content': caption,
+        'created_at': msg.created_at.isoformat(),
+        'attachments': [],
+        'reply_to': None,
+        'is_pinned': False,
+        **rich_fields(msg, None),
+    }
+
+
+def _guild_rich_payload(msg, caption):
+    # Shape must match guild_channel_send().
+    return {
+        'id': str(msg.id),
+        'author': _author_brief(msg.author),
+        'content': caption,
+        'created_at': msg.created_at.isoformat(),
+        'is_pinned': False,
+        'reply_to': None,
+        'attachments': [],
+        'reactions': [],
+        'views': 0,
+        'comments_count': 0,
+        **rich_fields(msg, None),
+    }
+
+
+def _broadcast(group, event):
+    async_to_sync(get_channel_layer().group_send)(group, event)
+    _gw_broadcast(group, event)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def conversation_rich_send(request, conversation_id):
+    """Create a checklist / contact / location message in a DM."""
+    try:
+        convo = Conversation.objects.get(id=conversation_id, participants=request.user)
+    except Conversation.DoesNotExist:
+        return Response({'error': 'not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    if BlockedUser.objects.filter(
+        Q(blocker=request.user, blocked__in=convo.participants.exclude(id=request.user.id)) |
+        Q(blocked=request.user, blocker__in=convo.participants.exclude(id=request.user.id))
+    ).exists():
+        return Response({'error': 'blocked'}, status=status.HTTP_403_FORBIDDEN)
+
+    kind = (request.data.get('type') or '').strip()
+    if kind not in DM_RICH_TYPES:
+        return Response({'error': 'unsupported type for a direct message'}, status=status.HTTP_400_BAD_REQUEST)
+    try:
+        payload, live_until = _build_rich(kind, request.data.get('payload') or {})
+    except RichError as exc:
+        return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+    caption = (request.data.get('content') or '').strip()[:2000]
+    msg = Message(
+        conversation=convo, author=request.user, message_type=kind,
+        live_until=live_until, encrypted_content=encrypt_text(caption),
+    )
+    msg.payload = payload
+    msg.save()
+
+    msg_payload = _dm_rich_payload(msg, caption)
+    _broadcast(f'chat_{conversation_id}', {'type': 'chat_message', 'message': msg_payload})
+
+    notification = {
+        'type': 'new_message_notification',
+        'sender_id': str(request.user.id),
+        'sender_name': (getattr(request.user, 'nickname', '') or request.user.username),
+        'content': caption or _RICH_PREVIEW.get(kind, ''),
+    }
+    channel_layer = get_channel_layer()
+    for pid in convo.participants.exclude(id=request.user.id).values_list('id', flat=True):
+        async_to_sync(channel_layer.group_send)(
+            f'user_{pid}', {'type': 'new.message.notification', 'data': notification}
+        )
+    return Response(msg_payload, status=status.HTTP_201_CREATED)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def guild_channel_rich_send(request, guild_id, channel_id):
+    """Create a poll / checklist / contact / location message in a guild channel."""
+    try:
+        guild = Guild.objects.get(id=guild_id)
+        channel = GuildChannel.objects.get(id=channel_id, guild=guild)
+        membership = GuildMembership.objects.get(guild=guild, user=request.user)
+    except (Guild.DoesNotExist, GuildChannel.DoesNotExist, GuildMembership.DoesNotExist):
+        return Response({'error': 'not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    if guild.is_personal_channel and guild.owner_id != request.user.id:
+        return Response({'error': 'only the channel owner can post'}, status=status.HTTP_403_FORBIDDEN)
+    if membership.muted_until and membership.muted_until > timezone.now():
+        return Response({'error': 'you are muted'}, status=status.HTTP_403_FORBIDDEN)
+
+    kind = (request.data.get('type') or '').strip()
+    if kind not in GUILD_RICH_TYPES:
+        return Response({'error': 'unsupported message type'}, status=status.HTTP_400_BAD_REQUEST)
+    try:
+        payload, live_until = _build_rich(kind, request.data.get('payload') or {})
+    except RichError as exc:
+        return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+    caption = (request.data.get('content') or '').strip()[:2000]
+    msg = GuildMessage(
+        channel=channel, author=request.user, message_type=kind,
+        live_until=live_until, encrypted_content=encrypt_text(caption),
+    )
+    msg.payload = payload
+    msg.save()
+
+    msg_payload = _guild_rich_payload(msg, caption)
+    _broadcast(f'guild_channel_{channel_id}', {'type': 'chat_message', 'message': msg_payload})
+    return Response(msg_payload, status=status.HTTP_201_CREATED)
+
+
+# ── Poll interaction ────────────────────────────────────────────────────────
+
+def _get_guild_poll(request, guild_id, message_id):
+    guild = Guild.objects.get(id=guild_id)
+    GuildMembership.objects.get(guild=guild, user=request.user)
+    msg = GuildMessage.objects.get(
+        id=message_id, channel__guild=guild, message_type=MESSAGE_TYPE_POLL
+    )
+    return guild, msg
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def guild_poll_vote(request, guild_id, message_id):
+    """Set this user's vote(s). An empty option_ids list retracts the vote."""
+    try:
+        guild, msg = _get_guild_poll(request, guild_id, message_id)
+    except (Guild.DoesNotExist, GuildMembership.DoesNotExist, GuildMessage.DoesNotExist):
+        return Response({'error': 'not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    poll = msg.payload
+    if bool(poll.get('closed')) or rich_msg._poll_expired(poll):
+        return Response({'error': 'poll is closed'}, status=status.HTTP_409_CONFLICT)
+
+    option_ids = request.data.get('option_ids')
+    if not isinstance(option_ids, list):
+        return Response({'error': 'option_ids must be a list'}, status=status.HTTP_400_BAD_REQUEST)
+
+    valid = {o['id'] for o in poll.get('options', [])}
+    chosen = list(dict.fromkeys([o for o in option_ids if o in valid]))
+    if option_ids and not chosen:
+        return Response({'error': 'invalid options'}, status=status.HTTP_400_BAD_REQUEST)
+    if not poll.get('multiple') and len(chosen) > 1:
+        return Response({'error': 'this poll allows a single choice'}, status=status.HTTP_400_BAD_REQUEST)
+
+    with transaction.atomic():
+        GuildPollVote.objects.filter(message=msg, user=request.user).delete()
+        if chosen:
+            GuildPollVote.objects.bulk_create(
+                [GuildPollVote(message=msg, user=request.user, option_id=o) for o in chosen]
+            )
+
+    msg = GuildMessage.objects.prefetch_related('poll_votes__user').get(id=msg.id)
+    _broadcast(
+        f'guild_channel_{msg.channel_id}',
+        {'type': 'poll_update', 'message_id': str(message_id), 'poll': poll_view(msg, None)},
+    )
+    return Response({'poll': poll_view(msg, request.user)})
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def guild_poll_close(request, guild_id, message_id):
+    try:
+        guild, msg = _get_guild_poll(request, guild_id, message_id)
+        membership = GuildMembership.objects.get(guild=guild, user=request.user)
+    except (Guild.DoesNotExist, GuildMembership.DoesNotExist, GuildMessage.DoesNotExist):
+        return Response({'error': 'not found'}, status=status.HTTP_404_NOT_FOUND)
+    if msg.author_id != request.user.id and membership.role not in ('owner', 'admin'):
+        return Response({'error': 'forbidden'}, status=status.HTTP_403_FORBIDDEN)
+
+    payload = msg.payload
+    payload['closed'] = True
+    msg.payload = payload
+    msg.save(update_fields=['encrypted_payload'])
+
+    msg = GuildMessage.objects.prefetch_related('poll_votes__user').get(id=msg.id)
+    _broadcast(
+        f'guild_channel_{msg.channel_id}',
+        {'type': 'poll_update', 'message_id': str(message_id), 'poll': poll_view(msg, None)},
+    )
+    return Response({'poll': poll_view(msg, request.user)})
+
+
+# ── Checklist interaction ───────────────────────────────────────────────────
+
+def _toggle_todo_item(msg, check_model, user, item_id):
+    """Shared tick state: one row per item. Returns True when the item is now done."""
+    valid = {i['id'] for i in msg.payload.get('items', [])}
+    if item_id not in valid:
+        raise RichError('unknown item')
+    with transaction.atomic():
+        existing = check_model.objects.select_for_update().filter(
+            message=msg, item_id=item_id
+        ).first()
+        if existing:
+            existing.delete()
+            return False
+        check_model.objects.create(message=msg, item_id=item_id, user=user)
+        return True
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def dm_todo_toggle(request, message_id):
+    try:
+        msg = Message.objects.get(
+            id=message_id, conversation__participants=request.user, message_type=MESSAGE_TYPE_TODO
+        )
+    except Message.DoesNotExist:
+        return Response({'error': 'not found'}, status=status.HTTP_404_NOT_FOUND)
+    try:
+        _toggle_todo_item(msg, TodoCheck, request.user, request.data.get('item_id'))
+    except RichError as exc:
+        return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+    view = todo_view(Message.objects.prefetch_related('todo_checks__user').get(id=msg.id))
+    _broadcast(
+        f'chat_{msg.conversation_id}',
+        {'type': 'todo_update', 'message_id': str(message_id), 'todo': view},
+    )
+    return Response({'todo': view})
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def guild_todo_toggle(request, guild_id, message_id):
+    try:
+        guild = Guild.objects.get(id=guild_id)
+        GuildMembership.objects.get(guild=guild, user=request.user)
+        msg = GuildMessage.objects.get(
+            id=message_id, channel__guild=guild, message_type=MESSAGE_TYPE_TODO
+        )
+    except (Guild.DoesNotExist, GuildMembership.DoesNotExist, GuildMessage.DoesNotExist):
+        return Response({'error': 'not found'}, status=status.HTTP_404_NOT_FOUND)
+    try:
+        _toggle_todo_item(msg, GuildTodoCheck, request.user, request.data.get('item_id'))
+    except RichError as exc:
+        return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+    view = todo_view(GuildMessage.objects.prefetch_related('todo_checks__user').get(id=msg.id))
+    _broadcast(
+        f'guild_channel_{msg.channel_id}',
+        {'type': 'todo_update', 'message_id': str(message_id), 'todo': view},
+    )
+    return Response({'todo': view})
+
+
+# ── Live location ───────────────────────────────────────────────────────────
+
+def _apply_location_update(msg, data, stop=False):
+    payload = msg.payload
+    if stop:
+        payload['live'] = False
+        msg.live_until = timezone.now()
+        msg.payload = payload
+        msg.save(update_fields=['encrypted_payload', 'live_until'])
+        return payload
+    if not msg.live_until or msg.live_until <= timezone.now():
+        raise RichError('live sharing has ended')
+    try:
+        lat = float(data.get('lat'))
+        lng = float(data.get('lng'))
+    except (TypeError, ValueError):
+        raise RichError('lat and lng are required')
+    if not (-90 <= lat <= 90) or not (-180 <= lng <= 180):
+        raise RichError('coordinates out of range')
+    payload.update({
+        'lat': round(lat, 6),
+        'lng': round(lng, 6),
+        'updated_at': timezone.now().isoformat(),
+    })
+    msg.payload = payload
+    msg.save(update_fields=['encrypted_payload'])
+    return payload
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def dm_location_update(request, message_id):
+    """Push a new position for a live-location message, or stop sharing."""
+    try:
+        msg = Message.objects.get(
+            id=message_id, conversation__participants=request.user,
+            message_type=MESSAGE_TYPE_LOCATION,
+        )
+    except Message.DoesNotExist:
+        return Response({'error': 'not found'}, status=status.HTTP_404_NOT_FOUND)
+    if msg.author_id != request.user.id:
+        return Response({'error': 'forbidden'}, status=status.HTTP_403_FORBIDDEN)
+    try:
+        _apply_location_update(msg, request.data, stop=bool(request.data.get('stop')))
+    except RichError as exc:
+        return Response({'error': str(exc)}, status=status.HTTP_409_CONFLICT)
+
+    view = location_view(msg)
+    _broadcast(
+        f'chat_{msg.conversation_id}',
+        {'type': 'location_update', 'message_id': str(message_id), 'location': view},
+    )
+    return Response({'location': view})
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def guild_location_update(request, guild_id, message_id):
+    try:
+        guild = Guild.objects.get(id=guild_id)
+        GuildMembership.objects.get(guild=guild, user=request.user)
+        msg = GuildMessage.objects.get(
+            id=message_id, channel__guild=guild, message_type=MESSAGE_TYPE_LOCATION
+        )
+    except (Guild.DoesNotExist, GuildMembership.DoesNotExist, GuildMessage.DoesNotExist):
+        return Response({'error': 'not found'}, status=status.HTTP_404_NOT_FOUND)
+    if msg.author_id != request.user.id:
+        return Response({'error': 'forbidden'}, status=status.HTTP_403_FORBIDDEN)
+    try:
+        _apply_location_update(msg, request.data, stop=bool(request.data.get('stop')))
+    except RichError as exc:
+        return Response({'error': str(exc)}, status=status.HTTP_409_CONFLICT)
+
+    view = location_view(msg)
+    _broadcast(
+        f'guild_channel_{msg.channel_id}',
+        {'type': 'location_update', 'message_id': str(message_id), 'location': view},
+    )
+    return Response({'location': view})

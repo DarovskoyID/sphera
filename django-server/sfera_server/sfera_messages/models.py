@@ -1,7 +1,54 @@
+import json
 import uuid
 from django.db import models
 from django.conf import settings
 from sfera_messages.encryption import encrypt_text, decrypt_text
+
+# Rich message kinds. 'text' is the plain message every existing row already is.
+MESSAGE_TYPE_TEXT = 'text'
+MESSAGE_TYPE_POLL = 'poll'
+MESSAGE_TYPE_TODO = 'todo'
+MESSAGE_TYPE_CONTACT = 'contact'
+MESSAGE_TYPE_LOCATION = 'location'
+MESSAGE_TYPE_CHOICES = [
+    (MESSAGE_TYPE_TEXT, 'Text'),
+    (MESSAGE_TYPE_POLL, 'Poll'),
+    (MESSAGE_TYPE_TODO, 'Todo'),
+    (MESSAGE_TYPE_CONTACT, 'Contact'),
+    (MESSAGE_TYPE_LOCATION, 'Location'),
+]
+
+
+class RichPayloadMixin(models.Model):
+    """Structured body for non-text messages (poll/todo/contact/location).
+
+    The payload is encrypted at rest like message content, because it can hold
+    personal data (a shared phone number, GPS coordinates). `live_until` is kept
+    as a real column so live-location expiry stays queryable.
+    """
+    message_type = models.CharField(
+        max_length=16, choices=MESSAGE_TYPE_CHOICES, default=MESSAGE_TYPE_TEXT, db_index=True
+    )
+    encrypted_payload = models.TextField(blank=True, default='')
+    live_until = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        abstract = True
+
+    @property
+    def payload(self):
+        if not self.encrypted_payload:
+            return {}
+        try:
+            return json.loads(decrypt_text(self.encrypted_payload))
+        except (ValueError, TypeError):
+            return {}
+
+    @payload.setter
+    def payload(self, value):
+        self.encrypted_payload = (
+            encrypt_text(json.dumps(value, ensure_ascii=False)) if value else ''
+        )
 
 
 class Conversation(models.Model):
@@ -27,7 +74,7 @@ class ConversationParticipant(models.Model):
         unique_together = ('conversation', 'user')
 
 
-class Message(models.Model):
+class Message(RichPayloadMixin):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     conversation = models.ForeignKey(Conversation, on_delete=models.CASCADE, related_name='messages')
     author = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='sent_messages')
@@ -190,7 +237,7 @@ class GuildChannel(models.Model):
         return f'#{self.name} ({self.guild.name})'
 
 
-class GuildMessage(models.Model):
+class GuildMessage(RichPayloadMixin):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     channel = models.ForeignKey(GuildChannel, on_delete=models.CASCADE, related_name='messages')
     author = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='guild_messages')
@@ -393,6 +440,44 @@ class GuildMessageView(models.Model):
 
     class Meta:
         unique_together = ('message', 'user')
+
+
+class GuildPollVote(models.Model):
+    """One row per (voter, chosen option). Polls live in guild channels only."""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    message = models.ForeignKey(GuildMessage, on_delete=models.CASCADE, related_name='poll_votes')
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='+')
+    option_id = models.CharField(max_length=32)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('message', 'user', 'option_id')
+
+
+class TodoCheck(models.Model):
+    """A ticked checklist item in a DM. Shared state: one row per item, and it
+    records who ticked it (unique on message+item, not per user)."""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    message = models.ForeignKey(Message, on_delete=models.CASCADE, related_name='todo_checks')
+    item_id = models.CharField(max_length=32)
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='+')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('message', 'item_id')
+
+
+class GuildTodoCheck(models.Model):
+    """A ticked checklist item in a guild channel. Same shared-state semantics as
+    TodoCheck."""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    message = models.ForeignKey(GuildMessage, on_delete=models.CASCADE, related_name='todo_checks')
+    item_id = models.CharField(max_length=32)
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='+')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('message', 'item_id')
 
 
 class GuildPostComment(models.Model):

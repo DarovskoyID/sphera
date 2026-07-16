@@ -53,6 +53,67 @@ export interface CallInfo {
   video?: boolean;
 }
 
+// ── Rich messages (polls / checklists / contacts / locations) ────────────────
+export type RichMessageType = 'poll' | 'todo' | 'contact' | 'location';
+
+export interface RichUserBrief {
+  id: string;
+  username: string;
+  nickname: string;
+  avatar: string;
+}
+
+export interface PollOption {
+  id: string;
+  text: string;
+  count: number;
+  /** This client's own selection. Absent from WS broadcasts — kept locally. */
+  me: boolean;
+  voters: RichUserBrief[];
+}
+
+export interface PollPayload {
+  question: string;
+  options: PollOption[];
+  multiple: boolean;
+  anonymous: boolean;
+  closed: boolean;
+  closes_at?: string | null;
+  total_votes: number;
+  total_voters: number;
+  voted: boolean;
+}
+
+export interface TodoItem {
+  id: string;
+  text: string;
+  done: boolean;
+  done_by: RichUserBrief | null;
+  done_at: string | null;
+}
+
+export interface TodoPayload {
+  title: string;
+  items: TodoItem[];
+  done_count: number;
+  total: number;
+}
+
+export type ContactPayload =
+  | { kind: 'user'; user_id: string; username: string; nickname: string; avatar: string }
+  | { kind: 'manual'; name: string; phone: string };
+
+export interface LocationPayload {
+  lat: number;
+  lng: number;
+  label?: string;
+  live: boolean;
+  live_until: string | null;
+  updated_at: string;
+}
+
+export type RichPayload = PollPayload | TodoPayload | ContactPayload | LocationPayload;
+
 export interface ChatMessage {
   id: string;
   author: {
@@ -74,8 +135,11 @@ export interface ChatMessage {
   is_pinned?: boolean;
   delivered_at?: string | null;
   read_at?: string | null;
-  message_type?: 'text' | 'call';
+  // 'call' is synthesised client-side from the message content (see
+  // enrichCallMessage); the rest come from the server.
+  message_type?: 'text' | 'call' | RichMessageType;
   call_info?: CallInfo;
+  payload?: RichPayload | null;
 }
 
 export interface ServerChannel {
@@ -226,6 +290,8 @@ export interface GuildMessage {
   reactions?: MessageReaction[];
   views?: number;
   comments_count?: number;
+  message_type?: 'text' | RichMessageType;
+  payload?: RichPayload | null;
 }
 
 export interface PostComment {

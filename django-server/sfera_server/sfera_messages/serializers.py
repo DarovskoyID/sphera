@@ -1,5 +1,6 @@
 from rest_framework import serializers
-from .models import Conversation, Message, Attachment
+from .models import Conversation, Message, Attachment, MESSAGE_TYPE_TEXT
+from .rich import rich_fields
 from sfera_auth.serializers import UserSerializer
 
 
@@ -30,16 +31,25 @@ class MessageSerializer(serializers.ModelSerializer):
     attachments = AttachmentSerializer(many=True, read_only=True)
     reply_to = ReplyPreviewSerializer(read_only=True)
     is_pinned = serializers.SerializerMethodField()
+    message_type = serializers.CharField(read_only=True)
+    payload = serializers.SerializerMethodField()
 
     class Meta:
         model = Message
-        fields = ['id', 'author', 'content', 'attachments', 'reply_to', 'is_pinned', 'created_at', 'delivered_at', 'read_at']
+        fields = ['id', 'author', 'content', 'attachments', 'reply_to', 'is_pinned', 'created_at', 'delivered_at', 'read_at', 'message_type', 'payload']
 
     def get_is_pinned(self, obj):
         pinned_ids = self.context.get('pinned_ids')
         if pinned_ids is not None:
             return obj.id in pinned_ids
         return False
+
+    def get_payload(self, obj):
+        # Plain text is the overwhelming majority — skip the work entirely.
+        if (obj.message_type or MESSAGE_TYPE_TEXT) == MESSAGE_TYPE_TEXT:
+            return None
+        request = self.context.get('request')
+        return rich_fields(obj, getattr(request, 'user', None))['payload']
 
 
 class ConversationSerializer(serializers.ModelSerializer):
