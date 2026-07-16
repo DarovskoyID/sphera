@@ -1,11 +1,46 @@
 import React, { useState, useEffect, useRef, useCallback, useLayoutEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { Phone, PhoneOff, PhoneIncoming, PhoneMissed, Video, Search, Menu, ArrowLeft, Plus, Send, FileText, FileImage, FileVideo, FileAudio, File, Download, X, MoreHorizontal, Reply, Copy, Trash2, Flag, Pin, Ban, Check, CheckCheck, ChevronUp, ChevronDown, Mic, Circle, Play, Square, Pause } from 'lucide-react';
+import { Phone, PhoneOff, PhoneIncoming, PhoneMissed, Video, Search, Menu, ArrowLeft, Plus, Send, FileText, FileImage, FileVideo, FileAudio, File, Download, X, MoreHorizontal, Reply, Copy, Trash2, Flag, Pin, Ban, Check, CheckCheck, ChevronUp, ChevronDown, Mic, Circle, Play, Square, Pause, CheckSquare, MapPin, User as UserIcon } from 'lucide-react';
 import type { ChatAttachment, ChatMessage as ChatMessageType } from '../types';
 import { useApp, reportError } from '../context/AppContext';
 import { Settings } from './Settings';
 import { CallWindow } from './CallWindow';
 import { useTranslation } from '../i18n/useTranslation';
+import { RichMessage } from './RichMessage';
+import { RichComposer } from './RichComposer';
+import type { RichMessageType, RichPayload } from '../types';
+
+// ── Rich messages (checklist / contact / location). Polls are guild-only. ────
+const DM_RICH_KINDS: readonly string[] = ['todo', 'contact', 'location'];
+
+function isRichMsg(msg: ChatMessageType): boolean {
+  return !!msg.payload && !!msg.message_type && DM_RICH_KINDS.includes(msg.message_type);
+}
+
+const DmRichCard: React.FC<{
+  msg: ChatMessageType;
+  isOwn: boolean;
+  showAuthor: boolean;
+  displayName: string;
+}> = ({ msg, isOwn, showAuthor, displayName }) => {
+  const { chatConversationId, toggleTodoItem, pushLiveLocation, setCurrentChat } = useApp();
+  if (!chatConversationId) return null;
+  const scope = { kind: 'dm' as const, conversationId: chatConversationId };
+  const id = String(msg.id);
+  return (
+    <div style={{ position: 'relative' }}>
+      {showAuthor && <div className="message-author-bubble">{displayName}</div>}
+      <RichMessage
+        type={msg.message_type as RichMessageType}
+        payload={msg.payload as RichPayload}
+        isOwn={isOwn}
+        onToggleTodo={(itemId) => { void toggleTodoItem(scope, id, itemId); }}
+        onStopLive={() => { void pushLiveLocation(scope, id, { stop: true }); }}
+        onMessageContact={(userId) => setCurrentChat(userId)}
+      />
+    </div>
+  );
+};
 import { MessageText } from './EmojiPicker';
 import { UnifiedPicker } from './StickerGifPicker';
 import type { CustomEmoji } from '../types';
@@ -1451,6 +1486,9 @@ const MessageRow = React.memo(({ msg, isOwn, isFirstInGroup, onContextMenu, onRe
               </div>
             </div>
           )}
+          {isRichMsg(msg) && (
+            <DmRichCard msg={msg} isOwn={isOwn} showAuthor={isFirstInGroup && !msg.content} displayName={displayName} />
+          )}
           {(() => {
             const atts = msg.attachments ?? [];
             const media = atts.filter(isGalleryMedia);
@@ -1687,9 +1725,11 @@ type RecordMode = 'idle' | 'voice' | 'video';
 type RecordState = 'idle' | 'recording' | 'preview';
 
 const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: () => void; onScheduled: (item: ScheduledItem) => void }> = ({ replyTo, onCancelReply, onScheduled }) => {
-  const { sendChatMessage, chatConversationId, currentServerIP, authToken, scheduleMessage } = useApp();
+  const { sendChatMessage, chatConversationId, currentServerIP, authToken, scheduleMessage, sendRichMessage, friends } = useApp();
   const tr = useTranslation();
   const [message, setMessage] = useState('');
+  const [attachMenu, setAttachMenu] = useState(false);
+  const [richType, setRichType] = useState<RichMessageType | null>(null);
   const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
   const [limitWarning, setLimitWarning] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -2150,9 +2190,51 @@ const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: (
       <div style={{ display: 'flex', gap : 8, alignItems: 'flex-end', width: '100%', position: 'relative' }}>
         <input ref={fileInputRef} type="file" multiple style={{ display: 'none' }} onChange={handleFileSelect} />
         <div className="composer-bar">
-          <button className="composer-icon-btn" title={tr('chat_attachment')} onClick={() => fileInputRef.current?.click()} disabled={uploading || pendingFiles.length >= MAX_FILES}>
+          <button className="composer-icon-btn" title={tr('chat_attachment')} onClick={() => setAttachMenu(v => !v)} disabled={uploading}>
             <Plus size={20} />
           </button>
+          {attachMenu && (
+            <>
+              <div style={{ position: 'fixed', inset: 0, zIndex: 40 }} onClick={() => setAttachMenu(false)} />
+              <div style={{
+                position: 'absolute', bottom: '100%', left: 0, marginBottom: 8, zIndex: 41,
+                background: 'var(--bg-secondary, #2b2d31)', borderRadius: 10, padding: 5, minWidth: 190,
+                border: '1px solid var(--border-color, rgba(255,255,255,.1))',
+                boxShadow: '0 8px 24px rgba(0,0,0,.35)',
+              }}>
+                {([
+                  { key: 'file', icon: <Plus size={16} />, label: tr('chat_attachment'), run: () => fileInputRef.current?.click() },
+                  { key: 'todo', icon: <CheckSquare size={16} />, label: tr('attach_todo'), run: () => setRichType('todo') },
+                  { key: 'contact', icon: <UserIcon size={16} />, label: tr('attach_contact'), run: () => setRichType('contact') },
+                  { key: 'location', icon: <MapPin size={16} />, label: tr('attach_location'), run: () => setRichType('location') },
+                ] as const).map(item => (
+                  <button
+                    key={item.key}
+                    onClick={() => { setAttachMenu(false); item.run(); }}
+                    disabled={item.key === 'file' && pendingFiles.length >= MAX_FILES}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 9, width: '100%', padding: '8px 10px',
+                      borderRadius: 7, border: 'none', background: 'transparent', cursor: 'pointer',
+                      color: 'var(--text-primary)', fontSize: 14, textAlign: 'left',
+                    }}
+                  >
+                    {item.icon}{item.label}
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+          {richType && chatConversationId && (
+            <RichComposer
+              type={richType}
+              contacts={friends}
+              onCancel={() => setRichType(null)}
+              onSubmit={async (type, payload) => {
+                await sendRichMessage({ kind: 'dm', conversationId: chatConversationId }, type, payload);
+                setRichType(null);
+              }}
+            />
+          )}
           <textarea
             ref={composerInputRef}
             rows={1}

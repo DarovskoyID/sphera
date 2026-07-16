@@ -1,6 +1,12 @@
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback, type ReactNode } from 'react';
 import type { AppState, ViewType, MobilePanel, ServerUser, PendingRequest, ChatMessage, Guild, GuildChannel, GuildMessage, GuildRole, GuildEmoji, GuildSticker, GuildSound, GuildInviteData, GuildAuditLogEntry } from '../types';
 import type { CustomEmoji } from '../types';
+import type { LocationPayload, PollPayload, RichMessageType } from '../types';
+
+/** Where a rich message lives: a DM conversation or a guild channel. */
+export type RichScope =
+  | { kind: 'dm'; conversationId: string }
+  | { kind: 'guild'; guildId: string; channelId: string };
 import { loadSelectedServer, wsUrlFor } from '../config/network';
 import { saveNotifPrefs, getNotifPrefs, showDesktopNotification, showCallNotification, playMessageSound, ensureNotificationPermission } from '../utils/notifications';
 import { saveA11yPrefs, announce as announceA11y, type A11yPrefs } from '../utils/accessibility';
@@ -240,6 +246,11 @@ interface AppContextType extends AppState {
   createGuild: (name: string, description?: string) => Promise<Guild | null>;
   createPersonalChannel: (name: string, description?: string) => Promise<Guild | null>;
   toggleReaction: (guildId: string, messageId: string, emoji: string) => Promise<void>;
+  sendRichMessage: (scope: RichScope, type: RichMessageType, payload: Record<string, unknown>) => Promise<void>;
+  votePoll: (guildId: string, messageId: string, optionIds: string[]) => Promise<void>;
+  closePoll: (guildId: string, messageId: string) => Promise<void>;
+  toggleTodoItem: (scope: RichScope, messageId: string, itemId: string) => Promise<void>;
+  pushLiveLocation: (scope: RichScope, messageId: string, body: { lat?: number; lng?: number; stop?: boolean }) => Promise<void>;
   registerMessageView: (guildId: string, messageId: string) => Promise<void>;
   loadPostComments: (guildId: string, messageId: string) => Promise<import('../types').PostComment[]>;
   addPostComment: (guildId: string, messageId: string, content: string) => Promise<import('../types').PostComment | null>;
@@ -903,6 +914,20 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
                         ? { ...m, read_at: ts, delivered_at: m.delivered_at || ts }
                         : { ...m, delivered_at: ts })
                     : m
+                ),
+              }));
+            } else if (data.type === 'todo_update') {
+              setState(prev => ({
+                ...prev,
+                chatMessages: prev.chatMessages.map(m =>
+                  String(m.id) === String(data.message_id) ? { ...m, payload: data.todo } : m
+                ),
+              }));
+            } else if (data.type === 'location_update') {
+              setState(prev => ({
+                ...prev,
+                chatMessages: prev.chatMessages.map(m =>
+                  String(m.id) === String(data.message_id) ? { ...m, payload: data.location } : m
                 ),
               }));
             } else {
@@ -1586,6 +1611,30 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
         setState(prev => ({ ...prev, guildMessages: prev.guildMessages.map(m => m.id === data.id ? { ...m, is_pinned: data.is_pinned } : m) }));
       } else if (data.type === 'reaction_update') {
         setState(prev => ({ ...prev, guildMessages: prev.guildMessages.map(m => m.id === data.message_id ? { ...m, reactions: data.reactions } : m) }));
+      } else if (data.type === 'poll_update') {
+        setState(prev => ({
+          ...prev,
+          guildMessages: prev.guildMessages.map(m => {
+            if (String(m.id) !== String(data.message_id)) return m;
+            // The broadcast deliberately carries no personal flags (see
+            // rich.poll_view) — keep this client's own selection.
+            const mine = m.payload as PollPayload | undefined;
+            const next = data.poll as PollPayload;
+            const byId = new Map((mine?.options ?? []).map(o => [o.id, o.me]));
+            return {
+              ...m,
+              payload: {
+                ...next,
+                options: next.options.map(o => ({ ...o, me: byId.get(o.id) ?? false })),
+                voted: mine?.voted ?? false,
+              },
+            };
+          }),
+        }));
+      } else if (data.type === 'todo_update') {
+        setState(prev => ({ ...prev, guildMessages: prev.guildMessages.map(m => String(m.id) === String(data.message_id) ? { ...m, payload: data.todo } : m) }));
+      } else if (data.type === 'location_update') {
+        setState(prev => ({ ...prev, guildMessages: prev.guildMessages.map(m => String(m.id) === String(data.message_id) ? { ...m, payload: data.location } : m) }));
       } else if (data.type === 'comment_added') {
         setState(prev => ({ ...prev, guildMessages: prev.guildMessages.map(m => String(m.id) === String(data.message_id) ? { ...m, comments_count: (m.comments_count ?? 0) + 1 } : m) }));
         postCommentHandler.current?.({ type: 'added', messageId: String(data.message_id), comment: data.comment });
@@ -1999,6 +2048,143 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       // once the user has 3 reactions, so this only guards a desynced UI.
     } catch (e) { reportError(e); }
   }, [state.authToken, state.currentServerIP]);
+
+  // ── Rich messages: polls / checklists / contacts / locations ───────────────
+
+  const richHeaders = useCallback(() => ({
+    Authorization: `Bearer ${state.authToken}`,
+    'Content-Type': 'application/json',
+  }), [state.authToken]);
+
+  const richUrl = useCallback((scope: RichScope, suffix: string) => (
+    scope.kind === 'dm'
+      ? `${state.currentServerIP}/api/conversations/${scope.conversationId}/${suffix}`
+      : `${state.currentServerIP}/api/guilds/${scope.guildId}/channels/${scope.channelId}/${suffix}`
+  ), [state.currentServerIP]);
+
+  const richMsgUrl = useCallback((scope: RichScope, messageId: string, suffix: string) => (
+    scope.kind === 'dm'
+      ? `${state.currentServerIP}/api/messages/${messageId}/${suffix}`
+      : `${state.currentServerIP}/api/guilds/${scope.guildId}/messages/${messageId}/${suffix}`
+  ), [state.currentServerIP]);
+
+  const failed = async (res: Response) => {
+    const data = await res.json().catch(() => ({} as { error?: string }));
+    return new Error(data.error || `HTTP ${res.status}`);
+  };
+
+  /** Creates the message; it then arrives over the chat WS, so nothing is
+   *  inserted locally here (that would duplicate it). Throws on rejection so
+   *  the composer can surface the reason. */
+  const sendRichMessage = useCallback(async (
+    scope: RichScope, type: RichMessageType, payload: Record<string, unknown>,
+  ): Promise<void> => {
+    const res = await fetch(richUrl(scope, 'rich/'), {
+      method: 'POST',
+      headers: richHeaders(),
+      body: JSON.stringify({ type, payload }),
+    });
+    if (!res.ok) throw await failed(res);
+  }, [richHeaders, richUrl]);
+
+  const votePoll = useCallback(async (
+    guildId: string, messageId: string, optionIds: string[],
+  ): Promise<void> => {
+    try {
+      const res = await fetch(`${state.currentServerIP}/api/guilds/${guildId}/messages/${messageId}/poll/vote/`, {
+        method: 'POST', headers: richHeaders(), body: JSON.stringify({ option_ids: optionIds }),
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      // This response is authoritative for us: it carries our own me/voted.
+      setState(prev => ({
+        ...prev,
+        guildMessages: prev.guildMessages.map(m =>
+          String(m.id) === String(messageId) ? { ...m, payload: data.poll as PollPayload } : m
+        ),
+      }));
+    } catch (e) { reportError(e); }
+  }, [richHeaders, state.currentServerIP]);
+
+  const closePoll = useCallback(async (guildId: string, messageId: string): Promise<void> => {
+    try {
+      const res = await fetch(`${state.currentServerIP}/api/guilds/${guildId}/messages/${messageId}/poll/close/`, {
+        method: 'POST', headers: richHeaders(),
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      setState(prev => ({
+        ...prev,
+        guildMessages: prev.guildMessages.map(m =>
+          String(m.id) === String(messageId) ? { ...m, payload: data.poll as PollPayload } : m
+        ),
+      }));
+    } catch (e) { reportError(e); }
+  }, [richHeaders, state.currentServerIP]);
+
+  const toggleTodoItem = useCallback(async (
+    scope: RichScope, messageId: string, itemId: string,
+  ): Promise<void> => {
+    try {
+      // The WS broadcast carries the authoritative list for everyone, us included.
+      await fetch(richMsgUrl(scope, messageId, 'todo/toggle/'), {
+        method: 'POST', headers: richHeaders(), body: JSON.stringify({ item_id: itemId }),
+      });
+    } catch (e) { reportError(e); }
+  }, [richHeaders, richMsgUrl]);
+
+  const pushLiveLocation = useCallback(async (
+    scope: RichScope, messageId: string, body: { lat?: number; lng?: number; stop?: boolean },
+  ): Promise<void> => {
+    try {
+      await fetch(richMsgUrl(scope, messageId, 'location/'), {
+        method: 'POST', headers: richHeaders(), body: JSON.stringify(body),
+      });
+    } catch (e) { reportError(e); }
+  }, [richHeaders, richMsgUrl]);
+
+  // While any of our own live-location shares is running, push the current
+  // position periodically; the server fans it out and expires it at live_until.
+  const liveTargets = useRef<{ scope: RichScope; id: string }[]>([]);
+  useEffect(() => {
+    const now = Date.now();
+    const isMineAndLive = (m: { id: string; message_type?: string; payload?: unknown; author?: { id: string } }) => {
+      if (m.message_type !== 'location') return false;
+      const p = m.payload as LocationPayload | undefined;
+      return !!p?.live && !!p.live_until && new Date(p.live_until).getTime() > now
+        && String(m.author?.id) === String(state.userIDonServer);
+    };
+    const next: { scope: RichScope; id: string }[] = [];
+    if (state.chatConversationId) {
+      for (const m of state.chatMessages) {
+        if (isMineAndLive(m)) next.push({ scope: { kind: 'dm', conversationId: state.chatConversationId }, id: String(m.id) });
+      }
+    }
+    if (state.currentGuild && state.currentGuildChannel) {
+      for (const m of state.guildMessages) {
+        if (isMineAndLive(m)) {
+          next.push({ scope: { kind: 'guild', guildId: state.currentGuild.id, channelId: state.currentGuildChannel.id }, id: String(m.id) });
+        }
+      }
+    }
+    liveTargets.current = next;
+  }, [state.chatMessages, state.guildMessages, state.chatConversationId, state.currentGuild, state.currentGuildChannel, state.userIDonServer]);
+
+  useEffect(() => {
+    if (!navigator.geolocation) return;
+    const timer = setInterval(() => {
+      const targets = liveTargets.current;
+      if (!targets.length) return;
+      navigator.geolocation.getCurrentPosition(
+        (pos) => targets.forEach(t => {
+          void pushLiveLocation(t.scope, t.id, { lat: pos.coords.latitude, lng: pos.coords.longitude });
+        }),
+        () => { /* a dropped fix just means no update this tick */ },
+        { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 },
+      );
+    }, 20000);
+    return () => clearInterval(timer);
+  }, [pushLiveLocation]);
 
   const registerMessageView = useCallback(async (guildId: string, messageId: string): Promise<void> => {
     try {
@@ -2932,6 +3118,11 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       createGuild,
       createPersonalChannel,
       toggleReaction,
+      sendRichMessage,
+      votePoll,
+      closePoll,
+      toggleTodoItem,
+      pushLiveLocation,
       registerMessageView,
       loadPostComments,
       addPostComment,

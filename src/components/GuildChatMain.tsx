@@ -1,5 +1,8 @@
 import React, { useEffect, useRef, useState, useCallback, useLayoutEffect, useMemo } from 'react';
-import { Hash, Send, Pin, Trash2, CornerUpLeft, Plus, MoreHorizontal, X, Download, FileText, FileImage, FileVideo, FileAudio, File, ChevronLeft, ChevronDown, Reply, Copy, Flag, Clock, Ban, UserX, VolumeX, Volume1, User } from 'lucide-react';
+import { Hash, Send, Pin, Trash2, CornerUpLeft, Plus, MoreHorizontal, X, Download, FileText, FileImage, FileVideo, FileAudio, File, ChevronLeft, ChevronDown, Reply, Copy, Flag, Clock, Ban, UserX, VolumeX, Volume1, User, BarChart3, CheckSquare, MapPin } from 'lucide-react';
+import { RichMessage } from './RichMessage';
+import { RichComposer } from './RichComposer';
+import type { RichMessageType, RichPayload } from '../types';
 import { useApp, reportError } from '../context/AppContext';
 import { useTranslation } from '../i18n/useTranslation';
 import { MessageText } from './EmojiPicker';
@@ -231,6 +234,47 @@ const GuildMessageContextMenu: React.FC<{
   );
 };
 
+// ── Rich messages (poll / checklist / contact / location) ───────────────────
+const GUILD_RICH_KINDS: readonly string[] = ['poll', 'todo', 'contact', 'location'];
+
+function isRichMsg(msg: GuildMessage): boolean {
+  return !!msg.payload && !!msg.message_type && GUILD_RICH_KINDS.includes(msg.message_type);
+}
+
+const GuildRichCard: React.FC<{
+  msg: GuildMessage;
+  isOwn: boolean;
+  showAuthor: boolean;
+  displayName: string;
+  onProfileClick: (author: GuildMessage['author']) => void;
+}> = ({ msg, isOwn, showAuthor, displayName, onProfileClick }) => {
+  const { currentGuild, currentGuildChannel, votePoll, closePoll, toggleTodoItem, pushLiveLocation, setCurrentChat } = useApp();
+  if (!currentGuild || !currentGuildChannel) return null;
+  const scope = { kind: 'guild' as const, guildId: currentGuild.id, channelId: currentGuildChannel.id };
+  const id = String(msg.id);
+  const canManage = isOwn || currentGuild.my_role === 'owner' || currentGuild.my_role === 'admin';
+  return (
+    <div style={{ position: 'relative' }}>
+      {showAuthor && (
+        <div className="message-author-bubble" onClick={() => onProfileClick(msg.author)} style={{ cursor: 'pointer' }}>
+          {displayName}
+        </div>
+      )}
+      <RichMessage
+        type={msg.message_type as RichMessageType}
+        payload={msg.payload as RichPayload}
+        isOwn={isOwn}
+        canManage={canManage}
+        onVote={(ids) => { void votePoll(currentGuild.id, id, ids); }}
+        onClosePoll={() => { void closePoll(currentGuild.id, id); }}
+        onToggleTodo={(itemId) => { void toggleTodoItem(scope, id, itemId); }}
+        onStopLive={() => { void pushLiveLocation(scope, id, { stop: true }); }}
+        onMessageContact={(userId) => setCurrentChat(userId)}
+      />
+    </div>
+  );
+};
+
 const GuildMessageRow = React.memo(({ msg, isOwn, isFirstInGroup, onContextMenu, onReply, onProfileClick, customEmojis, members, highlight }: {
   msg: GuildMessage;
   isOwn: boolean;
@@ -318,6 +362,15 @@ const GuildMessageRow = React.memo(({ msg, isOwn, isFirstInGroup, onContextMenu,
               </div>
             </div>
           )}
+          {isRichMsg(msg) && (
+            <GuildRichCard
+              msg={msg}
+              isOwn={isOwn}
+              showAuthor={isFirstInGroup && !msg.content}
+              displayName={displayName}
+              onProfileClick={onProfileClick}
+            />
+          )}
           {msg.attachments?.map(att => (
             <AttachmentView key={att.id} att={att} />
           ))}
@@ -338,7 +391,7 @@ export const GuildChatMain: React.FC = () => {
     sendGuildMessage, scheduleGuildMessage, loadOlderGuildMessages,
     userIDonServer, currentServerIP, authToken,
     setMobileActivePanel, deleteGuildMessage, pinGuildMessage, customEmojis,
-    kickMember, blockUser, loadGuildRoles,
+    kickMember, blockUser, loadGuildRoles, sendRichMessage, friends,
   } = useApp();
   const tr = useTranslation();
 
@@ -358,6 +411,8 @@ export const GuildChatMain: React.FC = () => {
   const [hasMore, setHasMore] = useState(true);
   const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
   const [uploading, setUploading] = useState(false);
+  const [attachMenu, setAttachMenu] = useState(false);
+  const [richType, setRichType] = useState<RichMessageType | null>(null);
   const [showPicker, setShowPicker] = useState(false);
   const [scheduledItems, setScheduledItems] = useState<ScheduledItem[]>([]);
   const [limitWarning, setLimitWarning] = useState(false);
@@ -875,9 +930,55 @@ export const GuildChatMain: React.FC = () => {
         <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', width: '100%', position: 'relative' }}>
           <input ref={fileInputRef} type="file" multiple style={{ display: 'none' }} onChange={handleFileSelect} />
           <div className="composer-bar" style={{ opacity: isMuted ? 0.6 : 1 }}>
-            <button className="composer-icon-btn" title={tr('guild_add_attachment')} onClick={() => fileInputRef.current?.click()} disabled={uploading || pendingFiles.length >= MAX_FILES || isMuted}>
+            <button className="composer-icon-btn" title={tr('guild_add_attachment')} onClick={() => setAttachMenu(v => !v)} disabled={uploading || isMuted}>
               <Plus size={20} />
             </button>
+            {attachMenu && (
+              <>
+                <div style={{ position: 'fixed', inset: 0, zIndex: 40 }} onClick={() => setAttachMenu(false)} />
+                <div style={{
+                  position: 'absolute', bottom: '100%', left: 0, marginBottom: 8, zIndex: 41,
+                  background: 'var(--bg-secondary, #2b2d31)', borderRadius: 10, padding: 5, minWidth: 190,
+                  border: '1px solid var(--border-color, rgba(255,255,255,.1))',
+                  boxShadow: '0 8px 24px rgba(0,0,0,.35)',
+                }}>
+                  {([
+                    { key: 'file', icon: <Plus size={16} />, label: tr('guild_add_attachment'), run: () => fileInputRef.current?.click() },
+                    { key: 'poll', icon: <BarChart3 size={16} />, label: tr('attach_poll'), run: () => setRichType('poll') },
+                    { key: 'todo', icon: <CheckSquare size={16} />, label: tr('attach_todo'), run: () => setRichType('todo') },
+                    { key: 'contact', icon: <User size={16} />, label: tr('attach_contact'), run: () => setRichType('contact') },
+                    { key: 'location', icon: <MapPin size={16} />, label: tr('attach_location'), run: () => setRichType('location') },
+                  ] as const).map(item => (
+                    <button
+                      key={item.key}
+                      onClick={() => { setAttachMenu(false); item.run(); }}
+                      disabled={item.key === 'file' && pendingFiles.length >= MAX_FILES}
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: 9, width: '100%', padding: '8px 10px',
+                        borderRadius: 7, border: 'none', background: 'transparent', cursor: 'pointer',
+                        color: 'var(--text-primary)', fontSize: 14, textAlign: 'left',
+                      }}
+                    >
+                      {item.icon}{item.label}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+            {richType && currentGuild && currentGuildChannel && (
+              <RichComposer
+                type={richType}
+                contacts={friends}
+                onCancel={() => setRichType(null)}
+                onSubmit={async (type, payload) => {
+                  await sendRichMessage(
+                    { kind: 'guild', guildId: currentGuild.id, channelId: currentGuildChannel.id },
+                    type, payload,
+                  );
+                  setRichType(null);
+                }}
+              />
+            )}
             <textarea
               className="composer-input"
               placeholder={isMuted
