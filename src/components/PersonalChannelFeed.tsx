@@ -461,7 +461,7 @@ function postIsRich(msg: import('../types').GuildMessage): boolean {
 
 function PostCard({ msg, guild, serverIP }: { msg: import('../types').GuildMessage; guild: Guild; serverIP: string }) {
   const { toggleReaction, registerMessageView, deleteGuildMessage, currentUser, customEmojis,
-    currentGuildChannel, votePoll, closePoll, toggleTodoItem, pushLiveLocation, setCurrentChat } = useApp();
+    currentGuildChannel, votePoll, closePoll, toggleTodoItem, pushLiveLocation, setCurrentChat, fetchPollVoters } = useApp();
   const [showReactions, setShowReactions] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [showComments, setShowComments] = useState(false);
@@ -573,6 +573,7 @@ function PostCard({ msg, guild, serverIP }: { msg: import('../types').GuildMessa
             canManage={!!currentUser && (String(msg.author?.id) === String(currentUser.id) || guild.owner_id === currentUser.id)}
             onVote={(ids) => { void votePoll(guild.id, String(msg.id), ids); }}
             onClosePoll={() => { void closePoll(guild.id, String(msg.id)); }}
+            onFetchVoters={(optionId, offset, limit) => fetchPollVoters(guild.id, String(msg.id), optionId, offset, limit)}
             onToggleTodo={
               (!!currentUser && (String(msg.author?.id) === String(currentUser.id) || guild.owner_id === currentUser.id))
                 ? (itemId) => { if (currentGuildChannel) void toggleTodoItem({ kind: 'guild', guildId: guild.id, channelId: currentGuildChannel.id }, String(msg.id), itemId); }

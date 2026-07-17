@@ -46,6 +46,7 @@ urlpatterns = [
     # Rich messages in guild channels (poll / checklist / contact / location)
     path('guilds/<uuid:guild_id>/channels/<uuid:channel_id>/rich/', views.guild_channel_rich_send),
     path('guilds/<uuid:guild_id>/messages/<uuid:message_id>/poll/vote/', views.guild_poll_vote),
+    path('guilds/<uuid:guild_id>/messages/<uuid:message_id>/poll/voters/', views.guild_poll_voters),
     path('guilds/<uuid:guild_id>/messages/<uuid:message_id>/poll/close/', views.guild_poll_close),
     path('guilds/<uuid:guild_id>/messages/<uuid:message_id>/todo/toggle/', views.guild_todo_toggle),
     path('guilds/<uuid:guild_id>/messages/<uuid:message_id>/location/', views.guild_location_update),

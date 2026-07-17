@@ -711,6 +711,7 @@ export const ru: Translations = {
   poll_single: 'Опрос',
   poll_anonymous: 'анонимно',
   poll_votes_count: 'Проголосовало',
+  poll_show_more: 'Показать ещё',
   poll_close: 'Завершить опрос',
   todo_new: 'Новый список дел',
   todo_title: 'Список дел',

@@ -2369,6 +2369,40 @@ def guild_poll_vote(request, guild_id, message_id):
     return Response({'poll': poll_view(msg, request.user)})
 
 
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def guild_poll_voters(request, guild_id, message_id):
+    """Paginated full voter list for one option. Backs the "show all" view when a
+    poll has more voters than the inline preview embedded in the payload."""
+    try:
+        guild, msg = _get_guild_poll(request, guild_id, message_id)
+    except (Guild.DoesNotExist, GuildMembership.DoesNotExist, GuildMessage.DoesNotExist):
+        return Response({'error': 'not found'}, status=status.HTTP_404_NOT_FOUND)
+    if msg.payload.get('anonymous'):
+        return Response({'error': 'anonymous poll'}, status=status.HTTP_403_FORBIDDEN)
+
+    option_id = request.GET.get('option', '')
+    if option_id not in {o['id'] for o in msg.payload.get('options', [])}:
+        return Response({'error': 'unknown option'}, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        offset = max(0, int(request.GET.get('offset', 0)))
+    except (TypeError, ValueError):
+        offset = 0
+    limit = min(max(1, int(request.GET.get('limit', 50) or 50)), 100)
+
+    base = GuildPollVote.objects.filter(message=msg, option_id=option_id)
+    total = base.count()
+    rows = base.select_related('user').order_by('created_at')[offset:offset + limit]
+    voters = [{
+        'id': str(v.user.id),
+        'username': v.user.username,
+        'nickname': getattr(v.user, 'nickname', '') or '',
+        'avatar': v.user.avatar.url if getattr(v.user, 'avatar', None) else '',
+    } for v in rows]
+    return Response({'voters': voters, 'total': total, 'offset': offset, 'limit': limit})
+
+
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def guild_poll_close(request, guild_id, message_id):

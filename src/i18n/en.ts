@@ -739,6 +739,7 @@ export const en = {
   poll_single: 'Poll',
   poll_anonymous: 'anonymous',
   poll_votes_count: 'Voted',
+  poll_show_more: 'Show more',
   poll_close: 'Close poll',
   todo_new: 'New checklist',
   todo_title: 'Checklist',

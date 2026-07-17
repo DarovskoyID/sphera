@@ -1,12 +1,14 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { BarChart3, Check, CheckSquare, MapPin, MessageSquare, Phone, Radio, Square, User as UserIcon } from 'lucide-react';
+import { BarChart3, Check, CheckSquare, MapPin, MessageSquare, Phone, Radio, Square, User as UserIcon, X } from 'lucide-react';
 import { useTranslation } from '../i18n/useTranslation';
 import type {
   ContactPayload,
   LocationPayload,
+  PollOption,
   PollPayload,
   RichMessageType,
   RichPayload,
+  RichUserBrief,
   TodoPayload,
 } from '../types';
 
@@ -116,15 +118,87 @@ const headStyle: React.CSSProperties = {
 };
 
 // ── Poll ─────────────────────────────────────────────────────────────────────
-function PollCard({ poll, canManage, onVote, onClose }: {
+function Avatar({ v, size = 16 }: { v: RichUserBrief; size?: number }) {
+  return v.avatar
+    ? <img src={v.avatar} alt="" style={{ width: size, height: size, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />
+    : <span style={{ width: size, height: size, borderRadius: '50%', background: 'var(--accent-primary)', color: '#fff', fontSize: size * 0.55, fontWeight: 700, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+        {(v.nickname || v.username).slice(0, 1).toUpperCase()}
+      </span>;
+}
+
+// Modal listing every voter for one option, loaded in pages.
+function VotersModal({ option, onClose, onFetch }: {
+  option: PollOption;
+  onClose: () => void;
+  onFetch: (optionId: string, offset: number, limit: number) => Promise<{ voters: RichUserBrief[]; total: number }>;
+}) {
+  const tr = useTranslation();
+  const PAGE = 50;
+  const [voters, setVoters] = useState<RichUserBrief[]>([]);
+  const [total, setTotal] = useState(option.count);
+  const [loading, setLoading] = useState(false);
+
+  const loadMore = async () => {
+    if (loading) return;
+    setLoading(true);
+    try {
+      const r = await onFetch(option.id, voters.length, PAGE);
+      setVoters((prev) => {
+        const seen = new Set(prev.map((v) => v.id));
+        return [...prev, ...r.voters.filter((v) => !seen.has(v.id))];
+      });
+      setTotal(r.total);
+    } finally {
+      setLoading(false);
+    }
+  };
+  useEffect(() => { void loadMore(); /* first page */ }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, zIndex: 1100, background: 'rgba(0,0,0,.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }} onClick={onClose}>
+      <div style={{ width: '100%', maxWidth: 380, maxHeight: '80vh', display: 'flex', flexDirection: 'column', background: 'var(--bg-secondary, #2b2d31)', borderRadius: 14, border: '1px solid var(--border-color, rgba(255,255,255,.1))' }} onClick={(e) => e.stopPropagation()}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '14px 16px', borderBottom: '1px solid var(--border-color, rgba(255,255,255,.08))' }}>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{option.text}</div>
+            <div style={{ fontSize: 12, color: 'var(--text-muted, #949ba4)' }}>{tr('poll_votes_count')}: {total}</div>
+          </div>
+          <button onClick={onClose} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted, #949ba4)' }}><X size={18} /></button>
+        </div>
+        <div style={{ overflowY: 'auto', padding: 8 }}>
+          {voters.map((v) => (
+            <div key={v.id} style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '7px 8px' }}>
+              <Avatar v={v} size={30} />
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 14, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{v.nickname || v.username}</div>
+                <div style={{ fontSize: 11, color: 'var(--text-muted, #949ba4)' }}>@{v.username}</div>
+              </div>
+            </div>
+          ))}
+          {voters.length < total && (
+            <button onClick={() => void loadMore()} disabled={loading} style={{ width: '100%', padding: 9, marginTop: 4, borderRadius: 8, border: '1px solid var(--border-color, rgba(255,255,255,.12))', background: 'transparent', color: 'var(--accent-primary)', cursor: 'pointer', fontSize: 13 }}>
+              {loading ? tr('common_sending') : tr('poll_show_more')}
+            </button>
+          )}
+          {!voters.length && loading && (
+            <div style={{ padding: 16, textAlign: 'center', color: 'var(--text-muted, #949ba4)', fontSize: 13 }}>…</div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PollCard({ poll, canManage, onVote, onClose, onFetchVoters }: {
   poll: PollPayload;
   canManage: boolean;
   onVote?: (ids: string[]) => void;
   onClose?: () => void;
+  onFetchVoters?: (optionId: string, offset: number, limit: number) => Promise<{ voters: RichUserBrief[]; total: number }>;
 }) {
   const tr = useTranslation();
   const total = poll.options.reduce((s, o) => s + o.count, 0);
   const showResults = poll.closed || poll.voted;
+  const [votersOf, setVotersOf] = useState<PollOption | null>(null);
 
   const pick = (id: string) => {
     if (poll.closed || !onVote) return;
@@ -148,70 +222,77 @@ function PollCard({ poll, canManage, onVote, onClose }: {
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
         {poll.options.map((o) => {
           const pct = total ? Math.round((o.count / total) * 100) : 0;
+          const hidden = o.count - o.voters.length; // voters beyond the inline preview
           return (
-            <button
-              key={o.id}
-              onClick={() => pick(o.id)}
-              disabled={poll.closed}
-              title={!poll.anonymous && o.voters.length ? o.voters.map((v) => v.nickname || v.username).join(', ') : undefined}
-              style={{
-                position: 'relative', textAlign: 'left', padding: '8px 10px', borderRadius: 8,
-                border: `1px solid ${o.me ? 'var(--accent-primary)' : 'var(--border-color, rgba(255,255,255,.1))'}`,
-                background: 'var(--bg-tertiary, #1e1f22)', color: 'var(--text-primary)',
-                cursor: poll.closed ? 'default' : 'pointer', overflow: 'hidden',
-              }}
-            >
-              {showResults && (
-                <span
+            <div key={o.id}>
+              <button
+                onClick={() => pick(o.id)}
+                disabled={poll.closed}
+                style={{
+                  position: 'relative', textAlign: 'left', width: '100%', padding: '8px 10px', borderRadius: 8,
+                  border: `1px solid ${o.me ? 'var(--accent-primary)' : 'var(--border-color, rgba(255,255,255,.1))'}`,
+                  background: 'var(--bg-tertiary, #1e1f22)', color: 'var(--text-primary)',
+                  cursor: poll.closed ? 'default' : 'pointer', overflow: 'hidden',
+                }}
+              >
+                {showResults && (
+                  <span
+                    style={{
+                      position: 'absolute', inset: 0, width: `${pct}%`,
+                      background: 'var(--accent-primary)', opacity: o.me ? 0.28 : 0.14,
+                      transition: 'width .3s ease',
+                    }}
+                  />
+                )}
+                <span style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span
+                    style={{
+                      width: 15, height: 15, flexShrink: 0,
+                      borderRadius: poll.multiple ? 4 : '50%',
+                      border: `2px solid ${o.me ? 'var(--accent-primary)' : 'var(--text-muted, #949ba4)'}`,
+                      background: o.me ? 'var(--accent-primary)' : 'transparent',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    }}
+                  >
+                    {o.me && <Check size={10} color="#fff" strokeWidth={4} />}
+                  </span>
+                  <span style={{ flex: 1, minWidth: 0, wordBreak: 'break-word' }}>{o.text}</span>
+                  {showResults && (
+                    <span style={{ fontSize: 12, color: 'var(--text-muted, #949ba4)', flexShrink: 0 }}>
+                      {pct}% · {o.count}
+                    </span>
+                  )}
+                </span>
+              </button>
+              {showResults && !poll.anonymous && o.voters.length > 0 && (
+                <button
+                  onClick={() => onFetchVoters && setVotersOf(o)}
+                  title={o.voters.map((v) => v.nickname || v.username).join(', ')}
                   style={{
-                    position: 'absolute', inset: 0, width: `${pct}%`,
-                    background: 'var(--accent-primary)', opacity: o.me ? 0.28 : 0.14,
-                    transition: 'width .3s ease',
-                  }}
-                />
-              )}
-              <span style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span
-                  style={{
-                    width: 15, height: 15, flexShrink: 0,
-                    borderRadius: poll.multiple ? 4 : '50%',
-                    border: `2px solid ${o.me ? 'var(--accent-primary)' : 'var(--text-muted, #949ba4)'}`,
-                    background: o.me ? 'var(--accent-primary)' : 'transparent',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    display: 'flex', alignItems: 'center', gap: 6, marginTop: 5, marginLeft: 23,
+                    padding: '2px 8px 2px 2px', border: 'none', borderRadius: 999,
+                    background: 'transparent', cursor: onFetchVoters ? 'pointer' : 'default',
+                    color: 'var(--text-muted, #949ba4)', fontSize: 11,
                   }}
                 >
-                  {o.me && <Check size={10} color="#fff" strokeWidth={4} />}
-                </span>
-                <span style={{ flex: 1, minWidth: 0, wordBreak: 'break-word' }}>{o.text}</span>
-                {showResults && (
-                  <span style={{ fontSize: 12, color: 'var(--text-muted, #949ba4)', flexShrink: 0 }}>
-                    {pct}% · {o.count}
+                  <span style={{ display: 'inline-flex' }}>
+                    {o.voters.slice(0, 5).map((v, i) => (
+                      <span key={v.id} style={{ marginLeft: i ? -6 : 0, border: '2px solid var(--bg-secondary, #2b2d31)', borderRadius: '50%', display: 'inline-flex' }}>
+                        <Avatar v={v} size={18} />
+                      </span>
+                    ))}
                   </span>
-                )}
-              </span>
-              {showResults && !poll.anonymous && o.voters.length > 0 && (
-                <span style={{ position: 'relative', display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 6, paddingLeft: 23 }}>
-                  {o.voters.map((v) => (
-                    <span
-                      key={v.id}
-                      style={{
-                        display: 'inline-flex', alignItems: 'center', gap: 4, padding: '1px 6px 1px 1px',
-                        borderRadius: 999, background: 'var(--bg-secondary, #2b2d31)',
-                        fontSize: 11, color: 'var(--text-muted, #949ba4)',
-                      }}
-                    >
-                      {v.avatar
-                        ? <img src={v.avatar} alt="" style={{ width: 16, height: 16, borderRadius: '50%', objectFit: 'cover' }} />
-                        : <span style={{ width: 16, height: 16, borderRadius: '50%', background: 'var(--accent-primary)', color: '#fff', fontSize: 9, fontWeight: 700, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>{(v.nickname || v.username).slice(0, 1).toUpperCase()}</span>}
-                      {v.nickname || v.username}
-                    </span>
-                  ))}
-                </span>
+                  {hidden > 0 ? `+${hidden}` : (o.voters.length === 1 ? (o.voters[0].nickname || o.voters[0].username) : '')}
+                </button>
               )}
-            </button>
+            </div>
           );
         })}
       </div>
+
+      {votersOf && onFetchVoters && (
+        <VotersModal option={votersOf} onFetch={onFetchVoters} onClose={() => setVotersOf(null)} />
+      )}
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 9, fontSize: 12, color: 'var(--text-muted, #949ba4)' }}>
         <span>{tr('poll_votes_count')}: {poll.total_voters}</span>
@@ -408,6 +489,7 @@ export interface RichMessageProps {
   canManage?: boolean;
   onVote?: (optionIds: string[]) => void;
   onClosePoll?: () => void;
+  onFetchVoters?: (optionId: string, offset: number, limit: number) => Promise<{ voters: RichUserBrief[]; total: number }>;
   onToggleTodo?: (itemId: string) => void;
   onStopLive?: () => void;
   onMessageContact?: (userId: string) => void;
@@ -418,7 +500,7 @@ export function RichMessage(props: RichMessageProps) {
   if (!payload) return null;
   switch (type) {
     case 'poll':
-      return <PollCard poll={payload as PollPayload} canManage={canManage || isOwn} onVote={props.onVote} onClose={props.onClosePoll} />;
+      return <PollCard poll={payload as PollPayload} canManage={canManage || isOwn} onVote={props.onVote} onClose={props.onClosePoll} onFetchVoters={props.onFetchVoters} />;
     case 'todo':
       return <TodoCard todo={payload as TodoPayload} onToggle={props.onToggleTodo} />;
     case 'contact':

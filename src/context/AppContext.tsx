@@ -249,6 +249,7 @@ interface AppContextType extends AppState {
   sendRichMessage: (scope: RichScope, type: RichMessageType, payload: Record<string, unknown>) => Promise<void>;
   votePoll: (guildId: string, messageId: string, optionIds: string[]) => Promise<void>;
   closePoll: (guildId: string, messageId: string) => Promise<void>;
+  fetchPollVoters: (guildId: string, messageId: string, optionId: string, offset?: number, limit?: number) => Promise<{ voters: import('../types').RichUserBrief[]; total: number }>;
   toggleTodoItem: (scope: RichScope, messageId: string, itemId: string) => Promise<void>;
   pushLiveLocation: (scope: RichScope, messageId: string, body: { lat?: number; lng?: number; stop?: boolean }) => Promise<void>;
   registerMessageView: (guildId: string, messageId: string) => Promise<void>;
@@ -2125,6 +2126,18 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     } catch (e) { reportError(e); }
   }, [richHeaders, state.currentServerIP]);
 
+  const fetchPollVoters = useCallback(async (
+    guildId: string, messageId: string, optionId: string, offset = 0, limit = 50,
+  ): Promise<{ voters: import('../types').RichUserBrief[]; total: number }> => {
+    const res = await fetch(
+      `${state.currentServerIP}/api/guilds/${guildId}/messages/${messageId}/poll/voters/`
+      + `?option=${encodeURIComponent(optionId)}&offset=${offset}&limit=${limit}`,
+      { headers: { Authorization: `Bearer ${state.authToken}` } },
+    );
+    if (!res.ok) return { voters: [], total: 0 };
+    return res.json();
+  }, [state.authToken, state.currentServerIP]);
+
   const closePoll = useCallback(async (guildId: string, messageId: string): Promise<void> => {
     try {
       const res = await fetch(`${state.currentServerIP}/api/guilds/${guildId}/messages/${messageId}/poll/close/`, {
@@ -3153,6 +3166,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       sendRichMessage,
       votePoll,
       closePoll,
+      fetchPollVoters,
       toggleTodoItem,
       pushLiveLocation,
       registerMessageView,

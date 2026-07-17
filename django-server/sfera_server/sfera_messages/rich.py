@@ -187,12 +187,18 @@ def _poll_expired(payload):
     return bool(dt and dt <= timezone.now())
 
 
+# A non-anonymous poll embeds only the first few voters per option; the rest are
+# fetched on demand (poll_voters endpoint). Keeps the payload — and every WS
+# broadcast — bounded no matter how many thousands of votes come in.
+VOTERS_PREVIEW = 8
+
+
 def poll_view(msg, user=None):
     """`user=None` yields a broadcast-safe view: the personal `me`/`voted` flags
     are then always false, so one payload can be fanned out to every client
     without leaking the voter's own selection onto everyone else."""
     payload = msg.payload
-    votes = list(msg.poll_votes.all())
+    votes = sorted(msg.poll_votes.all(), key=lambda v: v.created_at)
 
     counts = defaultdict(int)
     mine = set()
@@ -202,7 +208,8 @@ def poll_view(msg, user=None):
         counts[v.option_id] += 1
         if user is not None and v.user_id == user.id:
             mine.add(v.option_id)
-        if not anonymous:
+        # Only keep a bounded preview per option (votes come ordered by creation).
+        if not anonymous and len(voters[v.option_id]) < VOTERS_PREVIEW:
             voters[v.option_id].append(_user_brief(v.user))
 
     options = [

@@ -248,7 +248,7 @@ const GuildRichCard: React.FC<{
   displayName: string;
   onProfileClick: (author: GuildMessage['author']) => void;
 }> = ({ msg, isOwn, showAuthor, displayName, onProfileClick }) => {
-  const { currentGuild, currentGuildChannel, votePoll, closePoll, toggleTodoItem, pushLiveLocation, setCurrentChat } = useApp();
+  const { currentGuild, currentGuildChannel, votePoll, closePoll, toggleTodoItem, pushLiveLocation, setCurrentChat, fetchPollVoters } = useApp();
   if (!currentGuild || !currentGuildChannel) return null;
   const scope = { kind: 'guild' as const, guildId: currentGuild.id, channelId: currentGuildChannel.id };
   const id = String(msg.id);
@@ -267,6 +267,7 @@ const GuildRichCard: React.FC<{
         canManage={canManage}
         onVote={(ids) => { void votePoll(currentGuild.id, id, ids); }}
         onClosePoll={() => { void closePoll(currentGuild.id, id); }}
+        onFetchVoters={(optionId, offset, limit) => fetchPollVoters(currentGuild.id, id, optionId, offset, limit)}
         onToggleTodo={canManage ? (itemId) => { void toggleTodoItem(scope, id, itemId); } : undefined}
         onStopLive={() => { void pushLiveLocation(scope, id, { stop: true }); }}
         onMessageContact={(userId) => setCurrentChat(userId)}
