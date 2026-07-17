@@ -573,7 +573,11 @@ function PostCard({ msg, guild, serverIP }: { msg: import('../types').GuildMessa
             canManage={!!currentUser && (String(msg.author?.id) === String(currentUser.id) || guild.owner_id === currentUser.id)}
             onVote={(ids) => { void votePoll(guild.id, String(msg.id), ids); }}
             onClosePoll={() => { void closePoll(guild.id, String(msg.id)); }}
-            onToggleTodo={(itemId) => { if (currentGuildChannel) void toggleTodoItem({ kind: 'guild', guildId: guild.id, channelId: currentGuildChannel.id }, String(msg.id), itemId); }}
+            onToggleTodo={
+              (!!currentUser && (String(msg.author?.id) === String(currentUser.id) || guild.owner_id === currentUser.id))
+                ? (itemId) => { if (currentGuildChannel) void toggleTodoItem({ kind: 'guild', guildId: guild.id, channelId: currentGuildChannel.id }, String(msg.id), itemId); }
+                : undefined
+            }
             onStopLive={() => { if (currentGuildChannel) void pushLiveLocation({ kind: 'guild', guildId: guild.id, channelId: currentGuildChannel.id }, String(msg.id), { stop: true }); }}
             onMessageContact={(userId) => setCurrentChat(userId)}
           />

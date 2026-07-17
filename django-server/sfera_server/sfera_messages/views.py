@@ -2438,12 +2438,16 @@ def dm_todo_toggle(request, message_id):
 def guild_todo_toggle(request, guild_id, message_id):
     try:
         guild = Guild.objects.get(id=guild_id)
-        GuildMembership.objects.get(guild=guild, user=request.user)
+        membership = GuildMembership.objects.get(guild=guild, user=request.user)
         msg = GuildMessage.objects.get(
             id=message_id, channel__guild=guild, message_type=MESSAGE_TYPE_TODO
         )
     except (Guild.DoesNotExist, GuildMembership.DoesNotExist, GuildMessage.DoesNotExist):
         return Response({'error': 'not found'}, status=status.HTTP_404_NOT_FOUND)
+    # A channel post is broadcast content: readers only view it. Ticking items is
+    # limited to the post's author and the channel's moderators (owner/admin).
+    if msg.author_id != request.user.id and membership.role not in ('owner', 'admin'):
+        return Response({'error': 'forbidden'}, status=status.HTTP_403_FORBIDDEN)
     try:
         _toggle_todo_item(msg, GuildTodoCheck, request.user, request.data.get('item_id'))
     except RichError as exc:

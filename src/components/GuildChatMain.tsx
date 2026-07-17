@@ -267,7 +267,7 @@ const GuildRichCard: React.FC<{
         canManage={canManage}
         onVote={(ids) => { void votePoll(currentGuild.id, id, ids); }}
         onClosePoll={() => { void closePoll(currentGuild.id, id); }}
-        onToggleTodo={(itemId) => { void toggleTodoItem(scope, id, itemId); }}
+        onToggleTodo={canManage ? (itemId) => { void toggleTodoItem(scope, id, itemId); } : undefined}
         onStopLive={() => { void pushLiveLocation(scope, id, { stop: true }); }}
         onMessageContact={(userId) => setCurrentChat(userId)}
       />

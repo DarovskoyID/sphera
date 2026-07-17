@@ -213,6 +213,8 @@ function PollCard({ poll, canManage, onVote, onClose }: {
 function TodoCard({ todo, onToggle }: { todo: TodoPayload; onToggle?: (id: string) => void }) {
   const tr = useTranslation();
   const pct = todo.total ? Math.round((todo.done_count / todo.total) * 100) : 0;
+  // `onToggle` absent ⇒ read-only (e.g. a reader viewing a channel post).
+  const interactive = !!onToggle;
   return (
     <div style={cardStyle}>
       <div style={headStyle}>
