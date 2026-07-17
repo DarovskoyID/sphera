@@ -244,7 +244,11 @@ function TodoCard({ todo, onToggle }: { todo: TodoPayload; onToggle?: (id: strin
           >
             {it.done
               ? <Check size={15} style={{ flexShrink: 0, marginTop: 2, color: 'var(--accent-primary)' }} />
-              : <Square size={15} style={{ flexShrink: 0, marginTop: 2, color: 'var(--text-muted, #949ba4)' }} />}
+              : interactive
+                // The square reads as "tickable" — only show it to someone who can
+                // actually tick. Readers just get an aligned blank.
+                ? <Square size={15} style={{ flexShrink: 0, marginTop: 2, color: 'var(--text-muted, #949ba4)' }} />
+                : <span style={{ width: 15, flexShrink: 0 }} />}
             <span
               style={{
                 flex: 1, minWidth: 0, wordBreak: 'break-word',
