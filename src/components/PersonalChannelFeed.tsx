@@ -1,5 +1,8 @@
 import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
-import { Send, Plus, X, FileText, Camera, Mic, Circle, Music, Square, ChevronLeft, ChevronRight, Image as ImageIcon, Eye, MessageCircle, Trash2, Settings, MoreVertical, Bell, BellOff, LogOut, SmilePlus, Smile, Play, Pause } from 'lucide-react';
+import { RichComposer } from './RichComposer';
+import { RichMessage } from './RichMessage';
+import type { RichMessageType, RichPayload } from '../types';
+import { Send, Plus, X, FileText, Camera, Mic, Circle, Music, Square, ChevronLeft, ChevronRight, Image as ImageIcon, Eye, MessageCircle, Trash2, Settings, MoreVertical, Bell, BellOff, LogOut, SmilePlus, Smile, Play, Pause, BarChart3, CheckSquare, MapPin, User } from 'lucide-react';
 import { EmojiPicker } from './EmojiPicker';
 import { UnifiedPicker } from './StickerGifPicker';
 import { useApp, reportError } from '../context/AppContext';
@@ -451,8 +454,14 @@ function CommentsModal({ guild, messageId, serverIP, onClose }: { guild: Guild; 
   );
 }
 
+const POST_RICH_KINDS: readonly string[] = ['poll', 'todo', 'contact', 'location'];
+function postIsRich(msg: import('../types').GuildMessage): boolean {
+  return !!msg.payload && !!msg.message_type && POST_RICH_KINDS.includes(msg.message_type);
+}
+
 function PostCard({ msg, guild, serverIP }: { msg: import('../types').GuildMessage; guild: Guild; serverIP: string }) {
-  const { toggleReaction, registerMessageView, deleteGuildMessage, currentUser, customEmojis } = useApp();
+  const { toggleReaction, registerMessageView, deleteGuildMessage, currentUser, customEmojis,
+    currentGuildChannel, votePoll, closePoll, toggleTodoItem, pushLiveLocation, setCurrentChat } = useApp();
   const [showReactions, setShowReactions] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [showComments, setShowComments] = useState(false);
@@ -553,6 +562,23 @@ function PostCard({ msg, guild, serverIP }: { msg: import('../types').GuildMessa
           <MessageText text={msg.content} customEmojis={customEmojis} />
         </div>
       ) : null}
+
+      {/* Rich post (poll / checklist / contact / location) */}
+      {postIsRich(msg) && (
+        <div style={{ padding: '12px 20px 0' }}>
+          <RichMessage
+            type={msg.message_type as RichMessageType}
+            payload={msg.payload as RichPayload}
+            isOwn={!!currentUser && String(msg.author?.id) === String(currentUser.id)}
+            canManage={!!currentUser && (String(msg.author?.id) === String(currentUser.id) || guild.owner_id === currentUser.id)}
+            onVote={(ids) => { void votePoll(guild.id, String(msg.id), ids); }}
+            onClosePoll={() => { void closePoll(guild.id, String(msg.id)); }}
+            onToggleTodo={(itemId) => { if (currentGuildChannel) void toggleTodoItem({ kind: 'guild', guildId: guild.id, channelId: currentGuildChannel.id }, String(msg.id), itemId); }}
+            onStopLive={() => { if (currentGuildChannel) void pushLiveLocation({ kind: 'guild', guildId: guild.id, channelId: currentGuildChannel.id }, String(msg.id), { stop: true }); }}
+            onMessageContact={(userId) => setCurrentChat(userId)}
+          />
+        </div>
+      )}
 
       {/* Hashtags written by the author — searchable */}
       {(() => {
@@ -851,7 +877,9 @@ function ChannelSettingsModal({ guild, serverIP, onClose }: { guild: Guild; serv
 }
 
 export const PersonalChannelFeed: React.FC<{ style?: React.CSSProperties }> = ({ style }) => {
-  const { currentGuild, currentGuildChannel, guildMessages, currentServerIP, authToken, currentUser, customEmojis, guilds, joinGuild, sendGuildMessage, scheduleGuildMessage, updateGuild, leaveGuild, toggleGuildNotifications, addOptimisticGuildPost, removeOptimisticGuildPost, resolveGuildPost } = useApp();
+  const { currentGuild, currentGuildChannel, guildMessages, currentServerIP, authToken, currentUser, customEmojis, guilds, joinGuild, sendGuildMessage, scheduleGuildMessage, updateGuild, leaveGuild, toggleGuildNotifications, addOptimisticGuildPost, removeOptimisticGuildPost, resolveGuildPost, sendRichMessage, friends } = useApp();
+  const [attachMenu, setAttachMenu] = useState(false);
+  const [richType, setRichType] = useState<RichMessageType | null>(null);
   const [subscribing, setSubscribing] = useState(false);
   const [confirmLeave, setConfirmLeave] = useState(false);
 
@@ -1265,9 +1293,54 @@ export const PersonalChannelFeed: React.FC<{ style?: React.CSSProperties }> = ({
           <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', position: 'relative' }}>
             {/* Single rounded input bar holding the textarea + inline action icons */}
             <div className="composer-bar">
-              <button className="composer-icon-btn" onClick={() => fileInputRef.current?.click()} disabled={!!recording} title="Прикрепить файл">
+              <button className="composer-icon-btn" onClick={() => setAttachMenu(v => !v)} disabled={!!recording} title="Добавить">
                 <Plus size={20} />
               </button>
+              {attachMenu && (
+                <>
+                  <div style={{ position: 'fixed', inset: 0, zIndex: 40 }} onClick={() => setAttachMenu(false)} />
+                  <div style={{
+                    position: 'absolute', bottom: '100%', left: 0, marginBottom: 8, zIndex: 41,
+                    background: 'var(--bg-secondary, #2b2d31)', borderRadius: 10, padding: 5, minWidth: 190,
+                    border: '1px solid var(--border-color, rgba(255,255,255,.1))',
+                    boxShadow: '0 8px 24px rgba(0,0,0,.35)',
+                  }}>
+                    {([
+                      { key: 'file', icon: <Plus size={16} />, label: 'Файл', run: () => fileInputRef.current?.click() },
+                      { key: 'poll', icon: <BarChart3 size={16} />, label: 'Опрос', run: () => setRichType('poll') },
+                      { key: 'todo', icon: <CheckSquare size={16} />, label: 'Список дел', run: () => setRichType('todo') },
+                      { key: 'contact', icon: <User size={16} />, label: 'Контакт', run: () => setRichType('contact') },
+                      { key: 'location', icon: <MapPin size={16} />, label: 'Геопозиция', run: () => setRichType('location') },
+                    ] as const).map(item => (
+                      <button
+                        key={item.key}
+                        onClick={() => { setAttachMenu(false); item.run(); }}
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: 9, width: '100%', padding: '8px 10px',
+                          borderRadius: 7, border: 'none', background: 'transparent', cursor: 'pointer',
+                          color: 'var(--text-primary)', fontSize: 14, textAlign: 'left',
+                        }}
+                      >
+                        {item.icon}{item.label}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+              {richType && currentGuild && currentGuildChannel && (
+                <RichComposer
+                  type={richType}
+                  contacts={friends}
+                  onCancel={() => setRichType(null)}
+                  onSubmit={async (type, payload) => {
+                    await sendRichMessage(
+                      { kind: 'guild', guildId: currentGuild.id, channelId: currentGuildChannel.id },
+                      type, payload,
+                    );
+                    setRichType(null);
+                  }}
+                />
+              )}
               <textarea
                 ref={textareaRef}
                 className="composer-input"
