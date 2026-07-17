@@ -189,6 +189,25 @@ function PollCard({ poll, canManage, onVote, onClose }: {
                   </span>
                 )}
               </span>
+              {showResults && !poll.anonymous && o.voters.length > 0 && (
+                <span style={{ position: 'relative', display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 6, paddingLeft: 23 }}>
+                  {o.voters.map((v) => (
+                    <span
+                      key={v.id}
+                      style={{
+                        display: 'inline-flex', alignItems: 'center', gap: 4, padding: '1px 6px 1px 1px',
+                        borderRadius: 999, background: 'var(--bg-secondary, #2b2d31)',
+                        fontSize: 11, color: 'var(--text-muted, #949ba4)',
+                      }}
+                    >
+                      {v.avatar
+                        ? <img src={v.avatar} alt="" style={{ width: 16, height: 16, borderRadius: '50%', objectFit: 'cover' }} />
+                        : <span style={{ width: 16, height: 16, borderRadius: '50%', background: 'var(--accent-primary)', color: '#fff', fontSize: 9, fontWeight: 700, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>{(v.nickname || v.username).slice(0, 1).toUpperCase()}</span>}
+                      {v.nickname || v.username}
+                    </span>
+                  ))}
+                </span>
+              )}
             </button>
           );
         })}
