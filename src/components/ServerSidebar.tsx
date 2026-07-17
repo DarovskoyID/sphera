@@ -144,6 +144,7 @@ function JoinGuildModal({ onClose, channel = false }: { onClose: () => void; cha
 }
 
 function GuildIcon({ guild, active, onClick, serverIP }: { guild: Guild; active: boolean; onClick: () => void; serverIP: string }) {
+  const tr = useTranslation();
   const initials = guild.name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
   const iconUrl = guild.icon ? (guild.icon.startsWith('http') ? guild.icon : `${serverIP}${guild.icon}`) : null;
   const isChannel = guild.is_personal_channel;
@@ -152,7 +153,7 @@ function GuildIcon({ guild, active, onClick, serverIP }: { guild: Guild; active:
       <button
         className={`server-icon ${active ? 'active' : ''}`}
         onClick={onClick}
-        title={isChannel ? `${guild.name} (канал)` : guild.name}
+        title={isChannel ? `${guild.name} (${tr('pcf_channel')})` : guild.name}
         style={isChannel ? { borderRadius: 12 } : undefined}
       >
         {iconUrl ? (
@@ -163,7 +164,7 @@ function GuildIcon({ guild, active, onClick, serverIP }: { guild: Guild; active:
       </button>
       {isChannel && (
         <span
-          title="Личный канал"
+          title={tr('pcf_personal_channel')}
           style={{
             position: 'absolute', bottom: -2, right: -2, width: 16, height: 16, borderRadius: '50%',
             background: 'var(--accent-primary)', border: '2px solid var(--bg-secondary)',
@@ -371,7 +372,7 @@ export const ServerSidebar: React.FC = () => {
               </button>
             ) : (
               <button className="context-menu-item" style={{ color: '#ef4444' }} onClick={() => { setGuildMenu(null); setConfirmLeave(g); }}>
-                <LogOut size={14} /> {g.is_personal_channel ? 'Покинуть канал' : tr('guild_leave_server')}
+                <LogOut size={14} /> {g.is_personal_channel ? tr('pcf_leave_channel') : tr('guild_leave_server')}
               </button>
             )}
           </div>
@@ -384,10 +385,10 @@ export const ServerSidebar: React.FC = () => {
         const ownsChannel = isOwner && g.is_personal_channel;
         return (
           <ConfirmModal
-            title={ownsChannel ? tr('guild_delete_channel') : (g.is_personal_channel ? 'Покинуть канал' : tr('guild_leave_server'))}
+            title={ownsChannel ? tr('guild_delete_channel') : (g.is_personal_channel ? tr('pcf_leave_channel') : tr('guild_leave_server'))}
             message={ownsChannel
-              ? `Удалить «${g.name}»? Действие необратимо.`
-              : `Покинуть «${g.name}»?`}
+              ? `${tr('pcf_delete')} «${g.name}»? ${tr('pcf_irreversible')}`
+              : `${tr('pcf_leave')} «${g.name}»?`}
             confirmLabel={ownsChannel ? tr('guild_delete_channel') : tr('guild_leave_server')}
             cancelLabel={tr('cancel')}
             onCancel={() => setConfirmLeave(null)}

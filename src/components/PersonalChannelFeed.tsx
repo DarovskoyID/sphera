@@ -6,6 +6,7 @@ import { Send, Plus, X, FileText, Camera, Mic, Circle, Music, Square, ChevronLef
 import { EmojiPicker } from './EmojiPicker';
 import { UnifiedPicker } from './StickerGifPicker';
 import { useApp, reportError } from '../context/AppContext';
+import { useTranslation } from '../i18n/useTranslation';
 import { MessageText } from './EmojiPicker';
 import { getDraftText, setDraftText, getDraftFiles, setDraftFiles, clearDraft } from '../utils/drafts';
 import { pickRecorderFormat, mediaUnsupportedReason, describeMediaError } from '../utils/recording';
@@ -18,6 +19,7 @@ const QUICK_REACTIONS = ['👍', '❤️', '🔥', '😂', '😮', '👏', '🎉
 // Thumbnail for a pending attachment in the composer. Images show a preview;
 // voice notes and video circles are playable so the author can review before posting.
 const PendingThumb: React.FC<{ file: File; onRemove: () => void }> = ({ file, onRemove }) => {
+  const tr = useTranslation();
   const url = useMemo(() => URL.createObjectURL(file), [file]);
   useEffect(() => () => URL.revokeObjectURL(url), [url]);
   const [playing, setPlaying] = useState(false);
@@ -62,7 +64,7 @@ const PendingThumb: React.FC<{ file: File; onRemove: () => void }> = ({ file, on
           <audio ref={el => { mediaRef.current = el; }} src={url} onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} onEnded={() => setPlaying(false)} />
           <button onClick={toggle} style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', padding: 4 }}>
             {playing ? <Pause size={22} color="var(--accent-primary)" /> : <Play size={22} style={{ marginLeft: 2 }} />}
-            <span style={{ maxWidth: 72, fontSize: 10, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{isVoice ? 'Голосовое' : file.name}</span>
+            <span style={{ maxWidth: 72, fontSize: 10, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{isVoice ? tr('pcf_voice') : file.name}</span>
           </button>
         </>
       )}
@@ -75,13 +77,13 @@ const PendingThumb: React.FC<{ file: File; onRemove: () => void }> = ({ file, on
   );
 };
 
-function formatDate(iso: string) {
+function formatDate(iso: string, tr: (k: string) => string) {
   const d = new Date(iso);
   const now = new Date();
   const diff = now.getTime() - d.getTime();
-  if (diff < 60000) return 'только что';
-  if (diff < 3600000) return `${Math.floor(diff / 60000)} мин назад`;
-  if (diff < 86400000) return `${Math.floor(diff / 3600000)} ч назад`;
+  if (diff < 60000) return tr('time_just_now');
+  if (diff < 3600000) return `${Math.floor(diff / 60000)} ${tr('time_min_ago')}`;
+  if (diff < 86400000) return `${Math.floor(diff / 3600000)} ${tr('time_hour_ago')}`;
   return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: d.getFullYear() !== now.getFullYear() ? 'numeric' : undefined });
 }
 
@@ -318,6 +320,7 @@ function PhotoGallery({ images, serverIP }: { images: Att[]; serverIP: string })
 }
 
 function AttachmentBlock({ att }: { att: { id: string; filename: string; content_type: string; file_size: number; url: string } }) {
+  const tr = useTranslation();
   const { currentServerIP } = useApp();
   // players prefix currentServerIP internally, so they get the raw path
   const rawUrl = att.url; // e.g. /api/guild-attachments/{id}/
@@ -330,7 +333,7 @@ function AttachmentBlock({ att }: { att: { id: string; filename: string; content
       <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-tertiary)', fontWeight: 600 }}>
           <Music size={13} />
-          {isVoiceNote(att) ? 'Голосовое сообщение' : `Аудиофайл · ${att.filename}`}
+          {isVoiceNote(att) ? tr('pcf_voice_message') : `${tr('pcf_audio_file')} · ${att.filename}`}
         </div>
         <VoiceMessagePlayer url={rawUrl} />
       </div>
@@ -349,6 +352,7 @@ function AttachmentBlock({ att }: { att: { id: string; filename: string; content
 }
 
 function CommentsModal({ guild, messageId, serverIP, onClose }: { guild: Guild; messageId: string; serverIP: string; onClose: () => void }) {
+  const tr = useTranslation();
   const { loadPostComments, addPostComment, deletePostComment, currentUser, postCommentHandler } = useApp();
   const [comments, setComments] = useState<import('../types').PostComment[]>([]);
   const [loading, setLoading] = useState(true);
@@ -403,7 +407,7 @@ function CommentsModal({ guild, messageId, serverIP, onClose }: { guild: Guild; 
         {/* Header */}
         <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
           <MessageCircle size={18} style={{ color: 'var(--accent-primary)' }} />
-          <span style={{ fontWeight: 700, fontSize: 15, flex: 1, color: 'var(--text-primary)' }}>Комментарии {comments.length > 0 ? `· ${comments.length}` : ''}</span>
+          <span style={{ fontWeight: 700, fontSize: 15, flex: 1, color: 'var(--text-primary)' }}>{tr('pcf_comments')} {comments.length > 0 ? `· ${comments.length}` : ''}</span>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', padding: 4 }}><X size={18} /></button>
         </div>
 
@@ -412,7 +416,7 @@ function CommentsModal({ guild, messageId, serverIP, onClose }: { guild: Guild; 
           {loading ? (
             <div style={{ display: 'flex', justifyContent: 'center', padding: 30 }}><Spinner /></div>
           ) : comments.length === 0 ? (
-            <div style={{ textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13, padding: '30px 10px' }}>Пока нет комментариев</div>
+            <div style={{ textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13, padding: '30px 10px' }}>{tr('pcf_no_comments')}</div>
           ) : comments.map(c => {
             const av = c.author.avatar ? (c.author.avatar.startsWith('http') ? c.author.avatar : serverIP + c.author.avatar) : '';
             const canDelete = currentUser && c.author.id === currentUser.id;
@@ -440,14 +444,14 @@ function CommentsModal({ guild, messageId, serverIP, onClose }: { guild: Guild; 
               value={input}
               onChange={e => setInput(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); send(); } }}
-              placeholder="Написать комментарий..."
+              placeholder={tr('pcf_write_comment')}
               autoFocus
               style={{ flex: 1, padding: '10px 14px', borderRadius: 20, border: '1px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: 14, outline: 'none' }}
             />
             <button onClick={send} disabled={!input.trim() || sending} style={{ background: 'var(--accent-primary)', border: 'none', borderRadius: '50%', width: 40, height: 40, cursor: 'pointer', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, opacity: !input.trim() || sending ? 0.5 : 1 }}><Send size={16} /></button>
           </div>
         ) : (
-          <div style={{ padding: 14, borderTop: '1px solid var(--border-color)', textAlign: 'center', fontSize: 13, color: 'var(--text-tertiary)', flexShrink: 0 }}>Комментарии отключены</div>
+          <div style={{ padding: 14, borderTop: '1px solid var(--border-color)', textAlign: 'center', fontSize: 13, color: 'var(--text-tertiary)', flexShrink: 0 }}>{tr('pcf_comments_disabled')}</div>
         )}
       </div>
     </div>
@@ -460,6 +464,7 @@ function postIsRich(msg: import('../types').GuildMessage): boolean {
 }
 
 function PostCard({ msg, guild, serverIP }: { msg: import('../types').GuildMessage; guild: Guild; serverIP: string }) {
+  const tr = useTranslation();
   const { toggleReaction, registerMessageView, deleteGuildMessage, currentUser, customEmojis,
     currentGuildChannel, votePoll, closePoll, toggleTodoItem, pushLiveLocation, setCurrentChat, fetchPollVoters } = useApp();
   const [showReactions, setShowReactions] = useState(false);
@@ -504,7 +509,7 @@ function PostCard({ msg, guild, serverIP }: { msg: import('../types').GuildMessa
             <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--text-primary)' }}>{guild.name}</div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-secondary)' }}>
               <div style={{ width: 12, height: 12, border: '2px solid var(--accent-primary)', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} />
-              Публикация…
+              {tr('pcf_publishing')}
             </div>
           </div>
         </div>
@@ -541,12 +546,12 @@ function PostCard({ msg, guild, serverIP }: { msg: import('../types').GuildMessa
         )}
         <div style={{ flex: 1 }}>
           <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--text-primary)' }}>{guild.name}</div>
-          <div style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>{formatDate(msg.created_at)}</div>
+          <div style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>{formatDate(msg.created_at, tr as (k: string) => string)}</div>
         </div>
         {isOwner && !isOptimistic && (
           <button
             onClick={() => setConfirmDeletePost(true)}
-            title="Удалить пост"
+            title={tr('pcf_delete_post')}
             style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-tertiary)', padding: 6, borderRadius: 6, display: 'flex' }}
             onMouseEnter={e => (e.currentTarget.style.color = '#ed4245')}
             onMouseLeave={e => (e.currentTarget.style.color = 'var(--text-tertiary)')}
@@ -657,7 +662,7 @@ function PostCard({ msg, guild, serverIP }: { msg: import('../types').GuildMessa
             <button
               ref={emojiBtnRef}
               onClick={() => { setShowReactions(false); setShowEmojiPicker(true); }}
-              title="Все эмодзи"
+              title={tr('pcf_all_emoji')}
               style={{ background: 'var(--bg-tertiary)', border: 'none', cursor: 'pointer', borderRadius: '50%', width: 28, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-secondary)', marginLeft: 2 }}
             >
               <SmilePlus size={16} />
@@ -692,7 +697,7 @@ function PostCard({ msg, guild, serverIP }: { msg: import('../types').GuildMessa
           onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
         >
           <MessageCircle size={16} />
-          {msg.comments_count ? `Комментарии · ${msg.comments_count}` : 'Комментировать'}
+          {msg.comments_count ? `${tr('pcf_comments')} · ${msg.comments_count}` : tr('pcf_comment_action')}
         </button>
       )}
 
@@ -700,10 +705,10 @@ function PostCard({ msg, guild, serverIP }: { msg: import('../types').GuildMessa
 
       {confirmDeletePost && (
         <ConfirmModal
-          title="Удалить пост"
-          message="Вы уверены, что хотите удалить этот пост? Это действие необратимо."
-          confirmLabel="Удалить"
-          cancelLabel="Отмена"
+          title={tr('pcf_delete_post')}
+          message={tr('pcf_delete_post_confirm')}
+          confirmLabel={tr('pcf_delete')}
+          cancelLabel={tr('cancel')}
           onConfirm={() => { deleteGuildMessage(msg.id); setConfirmDeletePost(false); }}
           onCancel={() => setConfirmDeletePost(false)}
         />
@@ -727,6 +732,7 @@ function Toggle({ on, onChange }: { on: boolean; onChange: (v: boolean) => void 
 }
 
 function ChannelSettingsModal({ guild, serverIP, onClose }: { guild: Guild; serverIP: string; onClose: () => void }) {
+  const tr = useTranslation();
   const { updateGuild, deleteGuild } = useApp();
   const [comments, setComments] = useState(guild.comments_enabled);
   const [discoverable, setDiscoverable] = useState(guild.is_discoverable);
@@ -766,7 +772,7 @@ function ChannelSettingsModal({ guild, serverIP, onClose }: { guild: Guild; serv
     const ok = await deleteGuild(guild.id, deletePassword);
     setDeleting(false);
     if (ok) onClose();
-    else setDeleteError('Неверный пароль');
+    else setDeleteError(tr('pcf_wrong_password'));
   };
 
   const changePhoto = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -791,7 +797,7 @@ function ChannelSettingsModal({ guild, serverIP, onClose }: { guild: Guild; serv
       <div onClick={e => e.stopPropagation()} style={{ width: '100%', maxWidth: 420, background: 'var(--bg-primary)', borderRadius: 16, border: '1px solid var(--border-color)', overflow: 'hidden' }}>
         <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: 8 }}>
           <Settings size={18} style={{ color: 'var(--accent-primary)' }} />
-          <span style={{ fontWeight: 700, fontSize: 15, flex: 1, color: 'var(--text-primary)' }}>Настройки канала</span>
+          <span style={{ fontWeight: 700, fontSize: 15, flex: 1, color: 'var(--text-primary)' }}>{tr('pcf_channel_settings')}</span>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', padding: 4 }}><X size={18} /></button>
         </div>
         <div style={{ padding: '8px 18px 18px' }}>
@@ -801,24 +807,24 @@ function ChannelSettingsModal({ guild, serverIP, onClose }: { guild: Guild; serv
               {channelAvatar ? <img src={channelAvatar} alt="" style={{ width: 80, height: 80, objectFit: 'cover' }} /> : guild.name[0]?.toUpperCase()}
               <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Camera size={22} color="#fff" /></div>
             </div>
-            <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>Нажмите, чтобы сменить фото</span>
+            <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>{tr('pcf_change_photo')}</span>
             <input ref={photoInputRef} type="file" hidden accept="image/*" onChange={changePhoto} />
           </div>
 
-          <input value={name} onChange={e => setName(e.target.value)} placeholder="Название канала" maxLength={100}
+          <input value={name} onChange={e => setName(e.target.value)} placeholder={tr('pcf_channel_name')} maxLength={100}
             style={{ width: '100%', boxSizing: 'border-box', padding: '10px 14px', borderRadius: 10, border: '1px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: 14, outline: 'none', marginBottom: 4 }} />
 
-          <Row label="Комментарии" hint="Подписчики смогут комментировать посты">
+          <Row label={tr('pcf_comments')} hint={tr('pcf_comments_hint')}>
             <Toggle on={comments} onChange={setComments} />
           </Row>
-          <Row label="Показывать в поиске" hint="Канал виден в глобальном поиске">
+          <Row label={tr('pcf_discoverable')} hint={tr('pcf_discoverable_hint')}>
             <Toggle on={discoverable} onChange={setDiscoverable} />
           </Row>
 
           {/* Tags */}
           <div style={{ padding: '12px 0', borderBottom: '1px solid var(--border-color)' }}>
-            <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 2 }}>Теги</div>
-            <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginBottom: 8 }}>Помогают находить канал в поиске (до 10)</div>
+            <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 2 }}>{tr('pcf_tags')}</div>
+            <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginBottom: 8 }}>{tr('pcf_tags_hint')}</div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
               {tags.map(t => (
                 <span key={t} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: 12, background: 'rgba(88,101,242,0.15)', color: 'var(--accent-primary)', fontSize: 12, fontWeight: 600 }}>
@@ -838,7 +844,7 @@ function ChannelSettingsModal({ guild, serverIP, onClose }: { guild: Guild; serv
                 }}
                 onKeyDown={e => { if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); addTag(); } }}
                 onBlur={() => addTag()}
-                placeholder="Добавить тег (пробел или Enter)"
+                placeholder={tr('pcf_tag_placeholder')}
                 maxLength={24}
                 style={{ width: '100%', boxSizing: 'border-box', padding: '8px 12px', borderRadius: 8, border: '1px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: 13, outline: 'none' }}
               />
@@ -846,31 +852,31 @@ function ChannelSettingsModal({ guild, serverIP, onClose }: { guild: Guild; serv
           </div>
 
           <button onClick={save} disabled={saving} style={{ width: '100%', marginTop: 16, padding: '11px', borderRadius: 10, border: 'none', background: 'var(--accent-primary)', color: '#fff', fontWeight: 600, fontSize: 14, cursor: 'pointer', opacity: saving ? 0.6 : 1 }}>
-            {saving ? 'Сохранение…' : 'Сохранить'}
+            {saving ? tr('pcf_saving') : tr('pcf_save')}
           </button>
 
           {/* Danger zone — delete channel */}
           {!showDelete ? (
             <button onClick={() => setShowDelete(true)} style={{ width: '100%', marginTop: 10, padding: '11px', borderRadius: 10, border: '1px solid rgba(237,66,69,0.4)', background: 'transparent', color: '#ed4245', fontWeight: 600, fontSize: 14, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-              <Trash2 size={15} /> Удалить канал
+              <Trash2 size={15} /> {tr('guild_delete_channel')}
             </button>
           ) : (
             <div style={{ marginTop: 10, padding: 12, borderRadius: 10, border: '1px solid rgba(237,66,69,0.4)', background: 'rgba(237,66,69,0.06)' }}>
-              <div style={{ fontSize: 13, color: 'var(--text-primary)', marginBottom: 8 }}>Введите пароль для подтверждения удаления. Это действие необратимо.</div>
+              <div style={{ fontSize: 13, color: 'var(--text-primary)', marginBottom: 8 }}>{tr('pcf_delete_channel_hint')}</div>
               <input
                 type="password"
                 value={deletePassword}
                 onChange={e => { setDeletePassword(e.target.value); setDeleteError(''); }}
                 onKeyDown={e => { if (e.key === 'Enter') confirmDelete(); }}
-                placeholder="Пароль"
+                placeholder={tr('pcf_password')}
                 autoFocus
                 style={{ width: '100%', boxSizing: 'border-box', padding: '9px 12px', borderRadius: 8, border: `1px solid ${deleteError ? '#ed4245' : 'var(--border-color)'}`, background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: 14, outline: 'none' }}
               />
               {deleteError && <div style={{ color: '#ed4245', fontSize: 12, marginTop: 6 }}>{deleteError}</div>}
               <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-                <button onClick={() => { setShowDelete(false); setDeletePassword(''); setDeleteError(''); }} style={{ flex: 1, padding: '9px', borderRadius: 8, border: '1px solid var(--border-color)', background: 'transparent', color: 'var(--text-primary)', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>Отмена</button>
+                <button onClick={() => { setShowDelete(false); setDeletePassword(''); setDeleteError(''); }} style={{ flex: 1, padding: '9px', borderRadius: 8, border: '1px solid var(--border-color)', background: 'transparent', color: 'var(--text-primary)', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>{tr('cancel')}</button>
                 <button onClick={confirmDelete} disabled={!deletePassword || deleting} style={{ flex: 1, padding: '9px', borderRadius: 8, border: 'none', background: '#ed4245', color: '#fff', fontWeight: 600, fontSize: 13, cursor: 'pointer', opacity: !deletePassword || deleting ? 0.6 : 1 }}>
-                  {deleting ? 'Удаление…' : 'Удалить'}
+                  {deleting ? tr('pcf_deleting') : tr('pcf_delete')}
                 </button>
               </div>
             </div>
@@ -882,6 +888,7 @@ function ChannelSettingsModal({ guild, serverIP, onClose }: { guild: Guild; serv
 }
 
 export const PersonalChannelFeed: React.FC<{ style?: React.CSSProperties }> = ({ style }) => {
+  const tr = useTranslation();
   const { currentGuild, currentGuildChannel, guildMessages, currentServerIP, authToken, currentUser, customEmojis, guilds, joinGuild, sendGuildMessage, scheduleGuildMessage, updateGuild, leaveGuild, toggleGuildNotifications, addOptimisticGuildPost, removeOptimisticGuildPost, resolveGuildPost, sendRichMessage, friends } = useApp();
   const [attachMenu, setAttachMenu] = useState(false);
   const [richType, setRichType] = useState<RichMessageType | null>(null);
@@ -1114,7 +1121,7 @@ export const PersonalChannelFeed: React.FC<{ style?: React.CSSProperties }> = ({
         setFiles([]);
         clearDraft(channelId);
         const when = new Date(result.send_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-        setScheduledNote(`Пост запланирован на ${when}`);
+        setScheduledNote(`${tr('pcf_scheduled_for')} ${when}`);
         setTimeout(() => setScheduledNote(null), 4000);
       }
     } finally {
@@ -1147,7 +1154,7 @@ export const PersonalChannelFeed: React.FC<{ style?: React.CSSProperties }> = ({
       }}>
         <div
           onClick={() => { if (isOwner) avatarInputRef.current?.click(); }}
-          title={isOwner ? 'Изменить аватар канала' : undefined}
+          title={isOwner ? tr('pcf_change_avatar') : undefined}
           style={{
             position: 'relative', width: 40, height: 40, borderRadius: 12,
             background: 'linear-gradient(135deg, var(--accent-primary), #7c3aed)',
@@ -1178,12 +1185,12 @@ export const PersonalChannelFeed: React.FC<{ style?: React.CSSProperties }> = ({
           {currentGuild.description && <div style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>{currentGuild.description}</div>}
         </div>
         {isOwner ? (
-          <button onClick={() => setShowSettings(true)} title="Настройки канала" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', padding: 8, borderRadius: 8, display: 'flex' }}>
+          <button onClick={() => setShowSettings(true)} title={tr('pcf_channel_settings')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', padding: 8, borderRadius: 8, display: 'flex' }}>
             <Settings size={20} />
           </button>
         ) : (
           <div style={{ position: 'relative' }}>
-            <button onClick={() => setShowMemberMenu(v => !v)} title="Меню" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', padding: 8, borderRadius: 8, display: 'flex' }}>
+            <button onClick={() => setShowMemberMenu(v => !v)} title={tr('pcf_menu')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', padding: 8, borderRadius: 8, display: 'flex' }}>
               <MoreVertical size={20} />
             </button>
             {showMemberMenu && (
@@ -1201,7 +1208,7 @@ export const PersonalChannelFeed: React.FC<{ style?: React.CSSProperties }> = ({
                     onMouseLeave={e => (e.currentTarget.style.background = 'none')}
                   >
                     {currentGuild.my_notifications_muted ? <Bell size={16} /> : <BellOff size={16} />}
-                    {currentGuild.my_notifications_muted ? 'Включить уведомления' : 'Отключить уведомления'}
+                    {currentGuild.my_notifications_muted ? tr('guild_notifications_on') : tr('guild_notifications_off')}
                   </button>
                   <button
                     onClick={() => { setShowMemberMenu(false); setConfirmLeave(true); }}
@@ -1210,7 +1217,7 @@ export const PersonalChannelFeed: React.FC<{ style?: React.CSSProperties }> = ({
                     onMouseLeave={e => (e.currentTarget.style.background = 'none')}
                   >
                     <LogOut size={16} />
-                    Покинуть канал
+                    {tr('pcf_leave_channel')}
                   </button>
                 </div>
               </>
@@ -1229,8 +1236,8 @@ export const PersonalChannelFeed: React.FC<{ style?: React.CSSProperties }> = ({
         {guildMessages.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--text-tertiary)' }}>
             <div style={{ fontSize: 40, marginBottom: 12 }}>📝</div>
-            <div style={{ fontSize: 15, fontWeight: 600 }}>Пока нет постов</div>
-            {isOwner && <div style={{ fontSize: 13, marginTop: 4 }}>Напишите первый пост ниже</div>}
+            <div style={{ fontSize: 15, fontWeight: 600 }}>{tr('pcf_no_posts')}</div>
+            {isOwner && <div style={{ fontSize: 13, marginTop: 4 }}>{tr('pcf_write_first')}</div>}
           </div>
         ) : (
           guildMessages.map(msg => (
@@ -1250,10 +1257,10 @@ export const PersonalChannelFeed: React.FC<{ style?: React.CSSProperties }> = ({
               )}
               <div style={{ width: 10, height: 10, borderRadius: '50%', background: '#ed4245', animation: 'recpulse 1s infinite' }} />
               <span style={{ flex: 1, fontSize: 13, color: 'var(--text-primary)', fontWeight: 600 }}>
-                {recording === 'video' ? 'Запись кружочка' : 'Запись голосового'} · {fmtDur(recDuration)}
+                {recording === 'video' ? tr('pcf_recording_circle') : tr('pcf_recording_voice')} · {fmtDur(recDuration)}
               </span>
-              <button onClick={cancelRecording} title="Отмена" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-tertiary)', padding: 6 }}><X size={18} /></button>
-              <button onClick={stopRecording} title="Готово" style={{ background: 'var(--accent-primary)', border: 'none', cursor: 'pointer', color: '#fff', borderRadius: 8, padding: '6px 8px', display: 'flex', alignItems: 'center' }}><Square size={16} /></button>
+              <button onClick={cancelRecording} title={tr('cancel')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-tertiary)', padding: 6 }}><X size={18} /></button>
+              <button onClick={stopRecording} title={tr('pcf_done')} style={{ background: 'var(--accent-primary)', border: 'none', cursor: 'pointer', color: '#fff', borderRadius: 8, padding: '6px 8px', display: 'flex', alignItems: 'center' }}><Square size={16} /></button>
             </div>
           )}
 
@@ -1262,7 +1269,7 @@ export const PersonalChannelFeed: React.FC<{ style?: React.CSSProperties }> = ({
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
                 <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{files.length}</span>
                 {files.length > 1 && (
-                  <button onClick={() => persistFiles(() => [])} title="Очистить" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 12, padding: 2 }}>
+                  <button onClick={() => persistFiles(() => [])} title={tr('pcf_clear')} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 12, padding: 2 }}>
                     <Trash2 size={13} />
                   </button>
                 )}
@@ -1298,7 +1305,7 @@ export const PersonalChannelFeed: React.FC<{ style?: React.CSSProperties }> = ({
           <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', position: 'relative' }}>
             {/* Single rounded input bar holding the textarea + inline action icons */}
             <div className="composer-bar">
-              <button className="composer-icon-btn" onClick={() => setAttachMenu(v => !v)} disabled={!!recording} title="Добавить">
+              <button className="composer-icon-btn" onClick={() => setAttachMenu(v => !v)} disabled={!!recording} title={tr('pcf_add')}>
                 <Plus size={20} />
               </button>
               {attachMenu && (
@@ -1311,11 +1318,11 @@ export const PersonalChannelFeed: React.FC<{ style?: React.CSSProperties }> = ({
                     boxShadow: '0 8px 24px rgba(0,0,0,.35)',
                   }}>
                     {([
-                      { key: 'file', icon: <Plus size={16} />, label: 'Файл', run: () => fileInputRef.current?.click() },
-                      { key: 'poll', icon: <BarChart3 size={16} />, label: 'Опрос', run: () => setRichType('poll') },
-                      { key: 'todo', icon: <CheckSquare size={16} />, label: 'Список дел', run: () => setRichType('todo') },
-                      { key: 'contact', icon: <User size={16} />, label: 'Контакт', run: () => setRichType('contact') },
-                      { key: 'location', icon: <MapPin size={16} />, label: 'Геопозиция', run: () => setRichType('location') },
+                      { key: 'file', icon: <Plus size={16} />, label: tr('attach_file'), run: () => fileInputRef.current?.click() },
+                      { key: 'poll', icon: <BarChart3 size={16} />, label: tr('attach_poll'), run: () => setRichType('poll') },
+                      { key: 'todo', icon: <CheckSquare size={16} />, label: tr('attach_todo'), run: () => setRichType('todo') },
+                      { key: 'contact', icon: <User size={16} />, label: tr('attach_contact'), run: () => setRichType('contact') },
+                      { key: 'location', icon: <MapPin size={16} />, label: tr('attach_location'), run: () => setRichType('location') },
                     ] as const).map(item => (
                       <button
                         key={item.key}
@@ -1352,14 +1359,14 @@ export const PersonalChannelFeed: React.FC<{ style?: React.CSSProperties }> = ({
                 value={input}
                 onChange={e => persistInput(e.target.value)}
                 onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
-                placeholder="Напишите пост..."
+                placeholder={tr('pcf_write_post')}
                 rows={1}
               />
-              <button className="composer-icon-btn" onClick={() => recording === 'voice' ? stopRecording() : startRecording('voice')} disabled={recording === 'video'} title="Голосовое сообщение"
+              <button className="composer-icon-btn" onClick={() => recording === 'voice' ? stopRecording() : startRecording('voice')} disabled={recording === 'video'} title={tr('pcf_voice_message')}
                 style={recording === 'voice' ? { color: '#ed4245' } : undefined}>
                 <Mic size={19} />
               </button>
-              <button className="composer-icon-btn" onClick={() => recording === 'video' ? stopRecording() : startRecording('video')} disabled={recording === 'voice'} title="Видео-кружочек"
+              <button className="composer-icon-btn" onClick={() => recording === 'video' ? stopRecording() : startRecording('video')} disabled={recording === 'voice'} title={tr('pcf_video_circle')}
                 style={recording === 'video' ? { color: '#ed4245' } : undefined}>
                 <Circle size={19} />
               </button>
@@ -1368,7 +1375,7 @@ export const PersonalChannelFeed: React.FC<{ style?: React.CSSProperties }> = ({
                 className={`composer-icon-btn ${showPicker ? 'active' : ''}`}
                 onClick={() => setShowPicker(v => !v)}
                 disabled={!!recording}
-                title="Эмодзи, стикеры, отложенная отправка">
+                title={tr('pcf_picker_title')}>
                 <Smile size={19} />
               </button>
             </div>
@@ -1387,9 +1394,9 @@ export const PersonalChannelFeed: React.FC<{ style?: React.CSSProperties }> = ({
               className="composer-send-btn"
               onClick={handleSend}
               disabled={sending || (!input.trim() && files.length === 0)}
-              title="Опубликовать"
+              title={tr('pcf_publish')}
             >
-              <Send size={16} /> Пост
+              <Send size={16} /> {tr('pcf_post')}
             </button>
           </div>
         </div>
@@ -1411,17 +1418,17 @@ export const PersonalChannelFeed: React.FC<{ style?: React.CSSProperties }> = ({
             {subscribing
               ? <div style={{ width: 16, height: 16, border: '2px solid rgba(255,255,255,0.3)', borderTopColor: '#fff', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} />
               : <SmilePlus size={18} />}
-            {subscribing ? 'Подписка...' : 'Подписаться на канал'}
+            {subscribing ? tr('pcf_subscribing') : tr('pcf_subscribe')}
           </button>
         </div>
       )}
 
       {confirmLeave && (
         <ConfirmModal
-          title="Покинуть канал"
-          message={`Вы уверены, что хотите отписаться от канала «${currentGuild.name}»?`}
-          confirmLabel="Покинуть"
-          cancelLabel="Отмена"
+          title={tr('pcf_leave_channel')}
+          message={`${tr('pcf_unsub_confirm')} «${currentGuild.name}»?`}
+          confirmLabel={tr('pcf_leave')}
+          cancelLabel={tr('cancel')}
           onConfirm={() => { leaveGuild(currentGuild.id); setConfirmLeave(false); }}
           onCancel={() => setConfirmLeave(false)}
         />

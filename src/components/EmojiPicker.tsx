@@ -532,11 +532,12 @@ const mentionStyle: React.CSSProperties = { background: 'rgba(88,101,242,0.3)', 
 const inlineCodeStyle: React.CSSProperties = { background: 'var(--bg-tertiary, rgba(0,0,0,0.3))', borderRadius: 4, padding: '1px 5px', fontFamily: 'monospace', fontSize: '0.9em' };
 
 const Spoiler: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const tr = useTranslation();
   const [revealed, setRevealed] = useState(false);
   return (
     <span
       onClick={e => { e.stopPropagation(); setRevealed(true); }}
-      title={revealed ? undefined : 'Нажмите, чтобы показать'}
+      title={revealed ? undefined : tr('spoiler_reveal')}
       style={{
         background: revealed ? 'rgba(128,128,128,0.18)' : 'var(--text-primary)',
         color: revealed ? 'inherit' : 'transparent',
@@ -582,6 +583,7 @@ function highlightCode(code: string): React.ReactNode[] {
 }
 
 const CodeBlock: React.FC<{ code: string }> = ({ code }) => {
+  const tr = useTranslation();
   const [copied, setCopied] = useState(false);
   const copy = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -599,7 +601,7 @@ const CodeBlock: React.FC<{ code: string }> = ({ code }) => {
             color: copied ? '#3ba55d' : 'rgba(255,255,255,0.7)', cursor: 'pointer', fontWeight: 600, flexShrink: 0,
           }}
         >
-          {copied ? 'Скопировано' : 'Копировать'}
+          {copied ? tr('code_copied') : tr('code_copy')}
         </button>
       </div>
       <pre style={{ margin: 0, padding: '12px 14px', overflowX: 'auto', fontFamily: 'monospace', fontSize: 13, lineHeight: 1.5, color: '#e3e5e8', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>

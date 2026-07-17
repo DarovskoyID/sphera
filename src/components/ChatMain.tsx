@@ -1036,9 +1036,9 @@ const MediaLightbox: React.FC<{
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,0.9)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       <div onClick={(e) => e.stopPropagation()} style={{ position: 'absolute', top: 16, right: 16, display: 'flex', gap: 8, alignItems: 'center' }}>
         <span style={{ color: '#fff', fontSize: 13, opacity: 0.8, marginRight: 4 }}>{index + 1} / {items.length}</span>
-        <button style={topBtn} title="Скачать" onClick={() => downloadAuthed(currentServerIP, authToken, att.url, att.filename)}><Download size={16} /></button>
-        {items.length > 1 && <button style={topBtn} title="Скачать все" onClick={onDownloadAll}><Download size={16} /> {items.length}</button>}
-        <button style={topBtn} title="Закрыть" onClick={onClose}><X size={18} /></button>
+        <button style={topBtn} title={tr('gallery_download')} onClick={() => downloadAuthed(currentServerIP, authToken, att.url, att.filename)}><Download size={16} /></button>
+        {items.length > 1 && <button style={topBtn} title={tr('gallery_download_all')} onClick={onDownloadAll}><Download size={16} /> {items.length}</button>}
+        <button style={topBtn} title={tr('gallery_close')} onClick={onClose}><X size={18} /></button>
       </div>
       {items.length > 1 && <button style={{ ...navBtn, left: 16 }} onClick={(e) => { e.stopPropagation(); go(-1); }}>‹</button>}
       <div onClick={(e) => e.stopPropagation()} style={{ maxWidth: '90vw', maxHeight: '85vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -1076,9 +1076,9 @@ const MediaGallery: React.FC<{ items: ChatAttachment[] }> = ({ items }) => {
       <button
         onClick={downloadAll}
         style={{ marginTop: 6, display: 'inline-flex', alignItems: 'center', gap: 6, background: 'var(--bg-secondary)', border: 'none', borderRadius: 8, padding: '6px 12px', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 12 }}
-        title="Скачать все"
+        title={tr('gallery_download_all')}
       >
-        <Download size={14} /> Скачать все ({items.length})
+        <Download size={14} /> {tr('gallery_download_all')} ({items.length})
       </button>
       {lightbox !== null && (
         <MediaLightbox items={items} index={lightbox} onIndex={setLightbox} onClose={() => setLightbox(null)} onDownloadAll={downloadAll} />
