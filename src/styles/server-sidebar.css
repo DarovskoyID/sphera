@@ -91,7 +91,10 @@
     rgba(88, 101, 242, 0.3) 100%
   );
   color: white;
-  transform: translateY(-3px) scale(1.05);
+  /* Scale only — no translateY. A lift shifts the icon out from under the
+     cursor at its edge, so hover toggles on/off and the icon jitters. Scale
+     grows symmetrically from the centre and keeps the pointer inside. */
+  transform: scale(1.08);
   box-shadow:
     0 8px 24px rgba(88, 101, 242, 0.3),
     inset 0 1px 0 rgba(255, 255, 255, 0.2);

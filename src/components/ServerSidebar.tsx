@@ -1,7 +1,8 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useMemo } from 'react';
-import { Settings, Home, Plus, LogIn, X, Compass, Rss } from 'lucide-react';
+import { Settings, Home, Plus, LogIn, X, Compass, Rss, LogOut, Trash2 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { useTranslation } from '../i18n/useTranslation';
+import ConfirmModal from './ConfirmModal';
 import type { Guild } from '../types';
 
 function CreateGuildModal({ onClose }: { onClose: () => void }) {
@@ -177,8 +178,21 @@ function GuildIcon({ guild, active, onClick, serverIP }: { guild: Guild; active:
 }
 
 export const ServerSidebar: React.FC = () => {
-  const { currentServer, setCurrentServer, isMobileSidebarOpen, guilds, currentGuild, selectGuild, currentServerIP } = useApp();
+  const { currentServer, setCurrentServer, isMobileSidebarOpen, guilds, currentGuild, selectGuild, currentServerIP, leaveGuild, deleteGuild, currentUser } = useApp();
   const tr = useTranslation();
+  // Right-click a server icon (desktop) → context menu → leave / delete.
+  const [guildMenu, setGuildMenu] = useState<{ guild: Guild; x: number; y: number } | null>(null);
+  const [confirmLeave, setConfirmLeave] = useState<Guild | null>(null);
+  const guildMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!guildMenu) return;
+    const close = (e: MouseEvent) => {
+      if (guildMenuRef.current && !guildMenuRef.current.contains(e.target as Node)) setGuildMenu(null);
+    };
+    document.addEventListener('mousedown', close);
+    return () => document.removeEventListener('mousedown', close);
+  }, [guildMenu]);
   const [showCreate, setShowCreate] = useState(false);
   const [showJoin, setShowJoin] = useState(false);
   const [showJoinChannel, setShowJoinChannel] = useState(false);
@@ -287,6 +301,7 @@ export const ServerSidebar: React.FC = () => {
                 onDragLeave={() => setOverId(prev => prev === String(guild.id) ? null : prev)}
                 onDrop={e => { e.preventDefault(); dropOnGuild(String(guild.id)); }}
                 onDragEnd={() => { setDragId(null); setOverId(null); }}
+                onContextMenu={e => { e.preventDefault(); setGuildMenu({ guild, x: e.clientX, y: e.clientY }); }}
                 style={{
                   cursor: 'grab',
                   opacity: dragId === String(guild.id) ? 0.4 : 1,
@@ -339,6 +354,52 @@ export const ServerSidebar: React.FC = () => {
           </button>
         </div>
       )}
+
+      {guildMenu && (() => {
+        const g = guildMenu.guild;
+        const isOwner = !!currentUser && String(g.owner_id) === String(currentUser.id);
+        const ownsChannel = isOwner && g.is_personal_channel;
+        return (
+          <div
+            ref={guildMenuRef}
+            className="context-menu"
+            style={{ position: 'fixed', left: Math.min(guildMenu.x, window.innerWidth - 200), top: Math.min(guildMenu.y, window.innerHeight - 80), minWidth: 180, zIndex: 9999 }}
+          >
+            {ownsChannel ? (
+              <button className="context-menu-item" style={{ color: '#ef4444' }} onClick={() => { setGuildMenu(null); setConfirmLeave(g); }}>
+                <Trash2 size={14} /> {tr('guild_delete_channel')}
+              </button>
+            ) : (
+              <button className="context-menu-item" style={{ color: '#ef4444' }} onClick={() => { setGuildMenu(null); setConfirmLeave(g); }}>
+                <LogOut size={14} /> {g.is_personal_channel ? 'Покинуть канал' : tr('guild_leave_server')}
+              </button>
+            )}
+          </div>
+        );
+      })()}
+
+      {confirmLeave && (() => {
+        const g = confirmLeave;
+        const isOwner = !!currentUser && String(g.owner_id) === String(currentUser.id);
+        const ownsChannel = isOwner && g.is_personal_channel;
+        return (
+          <ConfirmModal
+            title={ownsChannel ? tr('guild_delete_channel') : (g.is_personal_channel ? 'Покинуть канал' : tr('guild_leave_server'))}
+            message={ownsChannel
+              ? `Удалить «${g.name}»? Действие необратимо.`
+              : `Покинуть «${g.name}»?`}
+            confirmLabel={ownsChannel ? tr('guild_delete_channel') : tr('guild_leave_server')}
+            cancelLabel={tr('cancel')}
+            onCancel={() => setConfirmLeave(null)}
+            onConfirm={async () => {
+              const target = g;
+              setConfirmLeave(null);
+              if (ownsChannel) { await deleteGuild(target.id); }
+              else { await leaveGuild(target.id); }
+            }}
+          />
+        );
+      })()}
 
       {showCreate && <CreateGuildModal onClose={() => setShowCreate(false)} />}
       {showCreateChannel && <CreatePersonalChannelModal onClose={() => setShowCreateChannel(false)} />}
