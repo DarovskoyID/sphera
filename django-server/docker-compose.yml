@@ -113,6 +113,7 @@
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.retention.time=30d'
       - '--web.enable-lifecycle'
+      - '--web.enable-admin-api'
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped

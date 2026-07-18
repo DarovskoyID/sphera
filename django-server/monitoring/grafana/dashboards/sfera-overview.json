@@ -1379,36 +1379,6 @@
       }
     },
     {
-      "title": "🚀 Что нового в Сфере / What's new",
-      "type": "row",
-      "gridPos": {
-        "h": 1,
-        "w": 24,
-        "x": 0,
-        "y": 62
-      },
-      "collapsed": false,
-      "panels": []
-    },
-    {
-      "title": "",
-      "type": "text",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${datasource}"
-      },
-      "gridPos": {
-        "h": 7,
-        "w": 24,
-        "x": 0,
-        "y": 63
-      },
-      "options": {
-        "mode": "markdown",
-        "content": "### Новые фичи\n- **Опросы** в каналах серверов (голоса, кто за что, до 1000+ голосов с пагинацией)\n- **Списки дел** (чеклисты) в личных сообщениях и каналах; в постах отмечает только автор/модератор\n- **Контакты** (профиль Сферы или имя+телефон) и **геопозиция** с превью карты и **live-трансляцией**\n- **Личный дневник** — приватное пространство: текст, медиа, задачи, код, гео, контакты; поиск и ручные теги\n- **Папки серверов** (drag-and-drop, синхрон между устройствами) и раздел **«Инструменты от разработчика»**\n- **Таблицы** в разметке: `| A | B |` (первая строка — заголовок)\n- Инфраструктура: медиа отдаётся статикой через nginx; исправлены аватары, порядок истории, счётчик непрочитанных\n"
-      }
-    },
-    {
       "title": "📊 Общая нагрузка / Total load",
       "type": "row",
       "gridPos": {
@@ -1582,7 +1552,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "max(100 * (rate(sfera_http_requests_total[1m]) + rate(sfera_ws_messages_received_total[1m]) + rate(sfera_ws_messages_sent_total[1m])) / ${max_ops}, max(sfera_cpu_percent, sfera_memory_percent))"
+          "expr": "(scalar(max({__name__=~\"sfera_cpu_percent|sfera_memory_percent\"}))) + ((scalar((sum(rate(sfera_http_requests_total[1m]))+sum(rate(sfera_ws_messages_received_total[1m]))+sum(rate(sfera_ws_messages_sent_total[1m])))*100/${max_ops})) - (scalar(max({__name__=~\"sfera_cpu_percent|sfera_memory_percent\"}))) > bool 0) * ((scalar((sum(rate(sfera_http_requests_total[1m]))+sum(rate(sfera_ws_messages_received_total[1m]))+sum(rate(sfera_ws_messages_sent_total[1m])))*100/${max_ops})) - (scalar(max({__name__=~\"sfera_cpu_percent|sfera_memory_percent\"}))))"
         }
       ]
     },
@@ -1622,22 +1592,22 @@
       },
       "targets": [
         {
-          "expr": "max(sfera_cpu_percent, sfera_memory_percent)",
-          "legendFormat": "resource %",
           "refId": "A",
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
-          }
+          },
+          "expr": "max({__name__=~\"sfera_cpu_percent|sfera_memory_percent\"})",
+          "legendFormat": "resource %"
         },
         {
-          "expr": "100 * (rate(sfera_http_requests_total[1m]) + rate(sfera_ws_messages_received_total[1m]) + rate(sfera_ws_messages_sent_total[1m])) / ${max_ops}",
-          "legendFormat": "throughput %",
           "refId": "B",
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
-          }
+          },
+          "expr": "(sum(rate(sfera_http_requests_total[1m]))+sum(rate(sfera_ws_messages_received_total[1m]))+sum(rate(sfera_ws_messages_sent_total[1m])))*100/${max_ops}",
+          "legendFormat": "throughput %"
         }
       ]
     },
