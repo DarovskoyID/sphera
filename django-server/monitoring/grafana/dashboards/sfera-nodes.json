@@ -26,6 +26,17 @@
         "hide": 0
       },
       {
+        "name": "max_ops",
+        "label": "Макс. операций/сек",
+        "type": "constant",
+        "query": "500",
+        "current": {
+          "text": "500",
+          "value": "500"
+        },
+        "hide": 0
+      },
+      {
         "name": "instance",
         "label": "Нода / node",
         "type": "query",
@@ -75,6 +86,234 @@
     },
     {
       "id": 102,
+      "title": "Общая нагрузка (операций/сек)",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 16,
+        "x": 0,
+        "y": 1
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 16,
+            "lineWidth": 2,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "(sum(rate(sfera_http_requests_total{instance=~\"$instance\"}[1m]))+sum(rate(sfera_ws_messages_received_total{instance=~\"$instance\"}[1m]))+sum(rate(sfera_ws_messages_sent_total{instance=~\"$instance\"}[1m])))",
+          "legendFormat": "ops/s"
+        }
+      ]
+    },
+    {
+      "id": 103,
+      "title": "Сейчас, операций/сек",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 1
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 200
+              },
+              {
+                "color": "red",
+                "value": 500
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "(sum(rate(sfera_http_requests_total{instance=~\"$instance\"}[1m]))+sum(rate(sfera_ws_messages_received_total{instance=~\"$instance\"}[1m]))+sum(rate(sfera_ws_messages_sent_total{instance=~\"$instance\"}[1m])))"
+        }
+      ]
+    },
+    {
+      "id": 104,
+      "title": "Загрузка относительно максимума (%) · может превышать 100%",
+      "type": "gauge",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 8,
+        "x": 0,
+        "y": 9
+      },
+      "description": "Общая нагрузка к номинальной ёмкости ($max_ops оп/сек), но не ниже загрузки CPU/памяти. Свыше 100% = перегруз.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 130,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 70
+              },
+              {
+                "color": "orange",
+                "value": 90
+              },
+              {
+                "color": "red",
+                "value": 100
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showThresholdMarkers": true,
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "(scalar(max({__name__=~\"sfera_cpu_percent|sfera_memory_percent\",instance=~\"$instance\"}))) + ((scalar((sum(rate(sfera_http_requests_total{instance=~\"$instance\"}[1m]))+sum(rate(sfera_ws_messages_received_total{instance=~\"$instance\"}[1m]))+sum(rate(sfera_ws_messages_sent_total{instance=~\"$instance\"}[1m])))*100/${max_ops})) - (scalar(max({__name__=~\"sfera_cpu_percent|sfera_memory_percent\",instance=~\"$instance\"}))) > bool 0) * ((scalar((sum(rate(sfera_http_requests_total{instance=~\"$instance\"}[1m]))+sum(rate(sfera_ws_messages_received_total{instance=~\"$instance\"}[1m]))+sum(rate(sfera_ws_messages_sent_total{instance=~\"$instance\"}[1m])))*100/${max_ops})) - (scalar(max({__name__=~\"sfera_cpu_percent|sfera_memory_percent\",instance=~\"$instance\"}))))"
+        }
+      ]
+    },
+    {
+      "id": 105,
+      "title": "Разбивка загрузки по компонентам",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 16,
+        "x": 8,
+        "y": 9
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 16,
+            "lineWidth": 2,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "max({__name__=~\"sfera_cpu_percent|sfera_memory_percent\",instance=~\"$instance\"})",
+          "legendFormat": "resource %"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "(sum(rate(sfera_http_requests_total{instance=~\"$instance\"}[1m]))+sum(rate(sfera_ws_messages_received_total{instance=~\"$instance\"}[1m]))+sum(rate(sfera_ws_messages_sent_total{instance=~\"$instance\"}[1m])))*100/${max_ops}",
+          "legendFormat": "throughput %"
+        }
+      ]
+    },
+    {
+      "id": 106,
       "title": "CPU %",
       "type": "gauge",
       "datasource": {
@@ -85,7 +324,7 @@
         "h": 7,
         "w": 8,
         "x": 0,
-        "y": 1
+        "y": 18
       },
       "fieldConfig": {
         "defaults": {
@@ -134,7 +373,7 @@
       ]
     },
     {
-      "id": 103,
+      "id": 107,
       "title": "Память %",
       "type": "gauge",
       "datasource": {
@@ -145,7 +384,7 @@
         "h": 7,
         "w": 8,
         "x": 8,
-        "y": 1
+        "y": 18
       },
       "fieldConfig": {
         "defaults": {
@@ -194,7 +433,7 @@
       ]
     },
     {
-      "id": 104,
+      "id": 108,
       "title": "Диск %",
       "type": "gauge",
       "datasource": {
@@ -205,7 +444,7 @@
         "h": 7,
         "w": 8,
         "x": 16,
-        "y": 1
+        "y": 18
       },
       "fieldConfig": {
         "defaults": {
@@ -254,7 +493,7 @@
       ]
     },
     {
-      "id": 105,
+      "id": 109,
       "title": "Аптайм",
       "type": "stat",
       "datasource": {
@@ -265,7 +504,7 @@
         "h": 5,
         "w": 6,
         "x": 0,
-        "y": 8
+        "y": 25
       },
       "fieldConfig": {
         "defaults": {
@@ -298,7 +537,7 @@
       ]
     },
     {
-      "id": 106,
+      "id": 110,
       "title": "RSS память",
       "type": "stat",
       "datasource": {
@@ -309,7 +548,7 @@
         "h": 5,
         "w": 6,
         "x": 6,
-        "y": 8
+        "y": 25
       },
       "fieldConfig": {
         "defaults": {
@@ -342,7 +581,7 @@
       ]
     },
     {
-      "id": 107,
+      "id": 111,
       "title": "Потоки",
       "type": "stat",
       "datasource": {
@@ -353,7 +592,7 @@
         "h": 5,
         "w": 6,
         "x": 12,
-        "y": 8
+        "y": 25
       },
       "fieldConfig": {
         "defaults": {
@@ -386,7 +625,7 @@
       ]
     },
     {
-      "id": 108,
+      "id": 112,
       "title": "Онлайн юзеров",
       "type": "stat",
       "datasource": {
@@ -397,7 +636,7 @@
         "h": 5,
         "w": 6,
         "x": 18,
-        "y": 8
+        "y": 25
       },
       "fieldConfig": {
         "defaults": {
@@ -430,7 +669,7 @@
       ]
     },
     {
-      "id": 109,
+      "id": 113,
       "title": "Активных звонков ЛС",
       "type": "stat",
       "datasource": {
@@ -441,7 +680,7 @@
         "h": 5,
         "w": 8,
         "x": 0,
-        "y": 13
+        "y": 30
       },
       "fieldConfig": {
         "defaults": {
@@ -474,7 +713,7 @@
       ]
     },
     {
-      "id": 110,
+      "id": 114,
       "title": "Голос: каналов",
       "type": "stat",
       "datasource": {
@@ -485,7 +724,7 @@
         "h": 5,
         "w": 8,
         "x": 8,
-        "y": 13
+        "y": 30
       },
       "fieldConfig": {
         "defaults": {
@@ -518,7 +757,7 @@
       ]
     },
     {
-      "id": 111,
+      "id": 115,
       "title": "Голос: юзеров",
       "type": "stat",
       "datasource": {
@@ -529,7 +768,7 @@
         "h": 5,
         "w": 8,
         "x": 16,
-        "y": 13
+        "y": 30
       },
       "fieldConfig": {
         "defaults": {
@@ -562,7 +801,7 @@
       ]
     },
     {
-      "id": 112,
+      "id": 116,
       "title": "БД",
       "type": "stat",
       "datasource": {
@@ -573,7 +812,7 @@
         "h": 5,
         "w": 8,
         "x": 0,
-        "y": 18
+        "y": 35
       },
       "fieldConfig": {
         "defaults": {
@@ -634,7 +873,7 @@
       ]
     },
     {
-      "id": 113,
+      "id": 117,
       "title": "Redis",
       "type": "stat",
       "datasource": {
@@ -645,7 +884,7 @@
         "h": 5,
         "w": 8,
         "x": 8,
-        "y": 18
+        "y": 35
       },
       "fieldConfig": {
         "defaults": {
@@ -706,7 +945,7 @@
       ]
     },
     {
-      "id": 114,
+      "id": 118,
       "title": "Kafka",
       "type": "stat",
       "datasource": {
@@ -717,7 +956,7 @@
         "h": 5,
         "w": 8,
         "x": 16,
-        "y": 18
+        "y": 35
       },
       "fieldConfig": {
         "defaults": {
@@ -778,7 +1017,7 @@
       ]
     },
     {
-      "id": 115,
+      "id": 119,
       "title": "HTTP запросов/сек",
       "type": "timeseries",
       "datasource": {
@@ -789,7 +1028,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 23
+        "y": 40
       },
       "fieldConfig": {
         "defaults": {
@@ -834,7 +1073,7 @@
       ]
     },
     {
-      "id": 116,
+      "id": 120,
       "title": "Задержка HTTP (ms)",
       "type": "timeseries",
       "datasource": {
@@ -845,7 +1084,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 23
+        "y": 40
       },
       "fieldConfig": {
         "defaults": {
@@ -899,7 +1138,7 @@
       ]
     },
     {
-      "id": 117,
+      "id": 121,
       "title": "WS сообщений/сек",
       "type": "timeseries",
       "datasource": {
@@ -910,7 +1149,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 31
+        "y": 48
       },
       "fieldConfig": {
         "defaults": {
@@ -955,7 +1194,7 @@
       ]
     },
     {
-      "id": 118,
+      "id": 122,
       "title": "WS-подключения",
       "type": "timeseries",
       "datasource": {
@@ -966,7 +1205,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 31
+        "y": 48
       },
       "fieldConfig": {
         "defaults": {
@@ -1002,7 +1241,7 @@
       ]
     },
     {
-      "id": 119,
+      "id": 123,
       "title": "Строк в БД по таблицам",
       "type": "bargauge",
       "datasource": {
@@ -1013,7 +1252,7 @@
         "h": 10,
         "w": 24,
         "x": 0,
-        "y": 39
+        "y": 56
       },
       "fieldConfig": {
         "defaults": {
@@ -1051,7 +1290,7 @@
       ]
     },
     {
-      "id": 120,
+      "id": 124,
       "title": "Серверов",
       "type": "stat",
       "datasource": {
@@ -1062,7 +1301,7 @@
         "h": 5,
         "w": 6,
         "x": 0,
-        "y": 49
+        "y": 66
       },
       "fieldConfig": {
         "defaults": {
@@ -1095,7 +1334,7 @@
       ]
     },
     {
-      "id": 121,
+      "id": 125,
       "title": "Личных каналов",
       "type": "stat",
       "datasource": {
@@ -1106,7 +1345,7 @@
         "h": 5,
         "w": 6,
         "x": 6,
-        "y": 49
+        "y": 66
       },
       "fieldConfig": {
         "defaults": {
@@ -1139,7 +1378,7 @@
       ]
     },
     {
-      "id": 122,
+      "id": 126,
       "title": "Каналов серверов",
       "type": "stat",
       "datasource": {
@@ -1150,7 +1389,7 @@
         "h": 5,
         "w": 6,
         "x": 12,
-        "y": 49
+        "y": 66
       },
       "fieldConfig": {
         "defaults": {
@@ -1183,7 +1422,7 @@
       ]
     },
     {
-      "id": 123,
+      "id": 127,
       "title": "Сообщений серв.",
       "type": "stat",
       "datasource": {
@@ -1194,7 +1433,7 @@
         "h": 5,
         "w": 6,
         "x": 18,
-        "y": 49
+        "y": 66
       },
       "fieldConfig": {
         "defaults": {
@@ -1227,7 +1466,7 @@
       ]
     },
     {
-      "id": 124,
+      "id": 128,
       "title": "Сообщений ЛС",
       "type": "stat",
       "datasource": {
@@ -1238,7 +1477,7 @@
         "h": 5,
         "w": 6,
         "x": 0,
-        "y": 54
+        "y": 71
       },
       "fieldConfig": {
         "defaults": {
@@ -1271,7 +1510,7 @@
       ]
     },
     {
-      "id": 125,
+      "id": 129,
       "title": "Комментариев",
       "type": "stat",
       "datasource": {
@@ -1282,7 +1521,7 @@
         "h": 5,
         "w": 6,
         "x": 6,
-        "y": 54
+        "y": 71
       },
       "fieldConfig": {
         "defaults": {
@@ -1315,7 +1554,7 @@
       ]
     },
     {
-      "id": 126,
+      "id": 130,
       "title": "Реакций",
       "type": "stat",
       "datasource": {
@@ -1326,7 +1565,7 @@
         "h": 5,
         "w": 6,
         "x": 12,
-        "y": 54
+        "y": 71
       },
       "fieldConfig": {
         "defaults": {
@@ -1359,7 +1598,7 @@
       ]
     },
     {
-      "id": 127,
+      "id": 131,
       "title": "Пользователей",
       "type": "stat",
       "datasource": {
@@ -1370,7 +1609,7 @@
         "h": 5,
         "w": 6,
         "x": 18,
-        "y": 54
+        "y": 71
       },
       "fieldConfig": {
         "defaults": {
@@ -1403,7 +1642,7 @@
       ]
     },
     {
-      "id": 128,
+      "id": 132,
       "title": "Redis: память",
       "type": "timeseries",
       "datasource": {
@@ -1414,7 +1653,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 59
+        "y": 76
       },
       "fieldConfig": {
         "defaults": {
@@ -1450,7 +1689,7 @@
       ]
     },
     {
-      "id": 129,
+      "id": 133,
       "title": "Рост контента (строк со временем)",
       "type": "timeseries",
       "datasource": {
@@ -1461,7 +1700,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 59
+        "y": 76
       },
       "fieldConfig": {
         "defaults": {
@@ -1533,7 +1772,7 @@
       ]
     },
     {
-      "id": 130,
+      "id": 134,
       "title": "Gateway: сообщений In/сек",
       "type": "timeseries",
       "datasource": {
@@ -1544,7 +1783,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 67
+        "y": 84
       },
       "fieldConfig": {
         "defaults": {
@@ -1589,7 +1828,7 @@
       ]
     },
     {
-      "id": 131,
+      "id": 135,
       "title": "Gateway: сообщений Out/сек",
       "type": "timeseries",
       "datasource": {
@@ -1600,7 +1839,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 67
+        "y": 84
       },
       "fieldConfig": {
         "defaults": {
@@ -1636,7 +1875,7 @@
       ]
     },
     {
-      "id": 132,
+      "id": 136,
       "title": "Gateway: активных WS",
       "type": "timeseries",
       "datasource": {
@@ -1647,7 +1886,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 75
+        "y": 92
       },
       "fieldConfig": {
         "defaults": {
@@ -1683,7 +1922,7 @@
       ]
     },
     {
-      "id": 133,
+      "id": 137,
       "title": "Gateway: Redis fanout/сек",
       "type": "timeseries",
       "datasource": {
@@ -1694,7 +1933,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 75
+        "y": 92
       },
       "fieldConfig": {
         "defaults": {
