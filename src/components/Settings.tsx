@@ -374,7 +374,9 @@ const ProfileSettings: React.FC = () => {
       const res = await fetch(`${currentServerIP}/api/auth/me/update/`, { method: 'PATCH', headers: { 'Authorization': `Bearer ${authToken}` }, body: fd });
       if (!res.ok) throw new Error('Failed');
       const updatedUser = await res.json();
-      const avatarUrl = updatedUser.avatar ? `${currentServerIP}${updatedUser.avatar}` : (currentUser?.avatar || '');
+      const avatarUrl = updatedUser.avatar
+        ? (updatedUser.avatar.startsWith('http') ? updatedUser.avatar : `${currentServerIP}${updatedUser.avatar}`)
+        : (currentUser?.avatar || '');
       setCurrentUser({ ...updatedUser, avatar: avatarUrl });
       setMsg({ text: tr('sp_saved'), type: 'ok' }); setAvatarFile(null);
     } catch { setMsg({ text: tr('sp_save_fail'), type: 'err' }); }
@@ -458,15 +460,17 @@ const ProfileSettings: React.FC = () => {
 
       <div style={card}>
         <h3 style={sectionH3}><Shield size={16} style={{ verticalAlign: 'middle', marginRight: 8 }} />{tr('sp_change_password')}</h3>
-        <div style={{ marginBottom: 12 }}>
-          <div style={fieldLabel}>{tr('sp_current_password')}</div>
-          <input type="password" style={fieldInput} value={oldPw} onChange={e => setOldPw(e.target.value)} />
-        </div>
-        <div style={{ marginBottom: 16 }}>
-          <div style={fieldLabel}>{tr('sp_new_password')}</div>
-          <input type="password" style={fieldInput} value={newPw} onChange={e => setNewPw(e.target.value)} />
-        </div>
-        <button type="button" style={btnPrimary} onClick={handleChangePassword}>{tr('sp_change_password')}</button>
+        <form onSubmit={e => { e.preventDefault(); handleChangePassword(); }}>
+          <div style={{ marginBottom: 12 }}>
+            <div style={fieldLabel}>{tr('sp_current_password')}</div>
+            <input type="password" autoComplete="current-password" style={fieldInput} value={oldPw} onChange={e => setOldPw(e.target.value)} />
+          </div>
+          <div style={{ marginBottom: 16 }}>
+            <div style={fieldLabel}>{tr('sp_new_password')}</div>
+            <input type="password" autoComplete="new-password" style={fieldInput} value={newPw} onChange={e => setNewPw(e.target.value)} />
+          </div>
+          <button type="submit" style={btnPrimary}>{tr('sp_change_password')}</button>
+        </form>
         {pwMsg && <div style={statusMsg(pwMsg.type)}>{pwMsg.text}</div>}
       </div>
 
@@ -531,14 +535,16 @@ const DeleteAccount: React.FC = () => {
             <p style={{ margin: '0 0 16px', color: 'var(--text-secondary)', fontSize: 14 }}>
               {tr('sd_confirm')}
             </p>
-            <div style={{ marginBottom: 12 }}>
-              <div style={fieldLabel}>{tr('sd_username')}</div>
-              <input type="text" value={username} onChange={e => { setUsername(e.target.value); setError(''); }} placeholder={tr('sd_username_placeholder')} style={{ ...fieldInput, boxSizing: 'border-box' as const }} />
-            </div>
-            <div style={{ marginBottom: 16 }}>
-              <div style={fieldLabel}>{tr('sd_password')}</div>
-              <input type="password" value={password} onChange={e => { setPassword(e.target.value); setError(''); }} placeholder={tr('sd_password_placeholder')} style={{ ...fieldInput, boxSizing: 'border-box' as const }} />
-            </div>
+            <form onSubmit={e => { e.preventDefault(); handleDelete(); }}>
+              <div style={{ marginBottom: 12 }}>
+                <div style={fieldLabel}>{tr('sd_username')}</div>
+                <input type="text" autoComplete="username" value={username} onChange={e => { setUsername(e.target.value); setError(''); }} placeholder={tr('sd_username_placeholder')} style={{ ...fieldInput, boxSizing: 'border-box' as const }} />
+              </div>
+              <div style={{ marginBottom: 16 }}>
+                <div style={fieldLabel}>{tr('sd_password')}</div>
+                <input type="password" autoComplete="current-password" value={password} onChange={e => { setPassword(e.target.value); setError(''); }} placeholder={tr('sd_password_placeholder')} style={{ ...fieldInput, boxSizing: 'border-box' as const }} />
+              </div>
+            </form>
             {error && <div style={{ color: '#ef4444', fontSize: 13, marginBottom: 12 }}>{error}</div>}
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
               <button onClick={() => { setShow(false); setUsername(''); setPassword(''); setError(''); }} style={{ ...btnSecondary }}>{tr('cancel')}</button>

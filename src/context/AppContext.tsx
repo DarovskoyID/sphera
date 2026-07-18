@@ -1494,7 +1494,9 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
         }
         if (data.type === 'profile_update' && data.user) {
           const u = data.user;
-          const avatarUrl = u.avatar ? `${currentServerIP}${u.avatar}` : '';
+          // The server already returns an absolute avatar URL — only prepend the
+          // host for a relative path, or it doubles into a broken URL.
+          const avatarUrl = u.avatar ? (u.avatar.startsWith('http') ? u.avatar : `${currentServerIP}${u.avatar}`) : '';
           setState(prev => {
             const updatedUser = { ...u, avatar: avatarUrl };
             return {
