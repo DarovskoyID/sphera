@@ -842,4 +842,13 @@ export const en = {
   diary_delete: 'Delete personal diary',
   diary_delete_hint: 'This permanently deletes your diary and everything in it. Enter your password to confirm.',
   folder_drag_out_hint: 'Drag a server out of the folder to remove it',
+  diary_private_note: 'Private — only you',
+  diary_search: 'Search notes and tags…',
+  diary_empty: 'Your diary is empty',
+  diary_empty_hint: 'Write your first note below',
+  diary_nothing_found: 'Nothing found',
+  diary_write: 'Write a note… (Markdown & code supported)',
+  diary_add_tag: 'add a tag for search…',
+  diary_save: 'Save (Ctrl+Enter)',
+  diary_delete_entry: 'Delete this note? This cannot be undone.',
 } as const;

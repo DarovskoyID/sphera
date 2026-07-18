@@ -814,4 +814,13 @@ export const ru: Translations = {
   diary_delete: 'Удалить личный дневник',
   diary_delete_hint: 'Личный дневник и всё его содержимое будут удалены навсегда. Введите пароль для подтверждения.',
   folder_drag_out_hint: 'Перетащите сервер из папки, чтобы убрать его',
+  diary_private_note: 'Приватно — только вы',
+  diary_search: 'Поиск по записям и тегам…',
+  diary_empty: 'Дневник пуст',
+  diary_empty_hint: 'Напишите первую запись ниже',
+  diary_nothing_found: 'Ничего не найдено',
+  diary_write: 'Напишите заметку… (поддерживается Markdown и код)',
+  diary_add_tag: 'добавьте тег для поиска…',
+  diary_save: 'Сохранить (Ctrl+Enter)',
+  diary_delete_entry: 'Удалить эту запись? Это действие необратимо.',
 };

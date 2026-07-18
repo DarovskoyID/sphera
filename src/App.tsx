@@ -12,6 +12,7 @@ import { CallWindow } from './components/CallWindow';
 import { GuildVoiceRoom } from './components/GuildVoiceRoom';
 import { ExploreServers } from './components/ExploreServers';
 import { PersonalChannelFeed } from './components/PersonalChannelFeed';
+import { DiaryView } from './components/DiaryView';
 import { Volume2, PhoneOff } from 'lucide-react';
 import { applyA11y } from './utils/accessibility';
 import { applyDisplayPrefs } from './utils/displayPrefs';
@@ -260,6 +261,8 @@ function AppContent() {
       <ServerSidebar />
       {inExplore ? (
         <ExploreServers style={{ gridColumn: '2 / -1' }} />
+      ) : inGuild && currentGuild?.is_private ? (
+        <DiaryView style={{ gridColumn: '2 / -1' }} />
       ) : inGuild && currentGuild?.is_personal_channel ? (
         <PersonalChannelFeed style={{ gridColumn: '2 / -1' }} />
       ) : inGuild ? (

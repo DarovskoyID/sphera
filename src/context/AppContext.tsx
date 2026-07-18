@@ -248,7 +248,7 @@ interface AppContextType extends AppState {
   createPersonalNotes: (name: string) => Promise<Guild | null>;
   saveLayout: (layout: import('../types').LayoutEntry[]) => void;
   toggleReaction: (guildId: string, messageId: string, emoji: string) => Promise<void>;
-  sendRichMessage: (scope: RichScope, type: RichMessageType, payload: Record<string, unknown>) => Promise<void>;
+  sendRichMessage: (scope: RichScope, type: RichMessageType, payload: Record<string, unknown>, tags?: string[]) => Promise<void>;
   votePoll: (guildId: string, messageId: string, optionIds: string[]) => Promise<void>;
   closePoll: (guildId: string, messageId: string) => Promise<void>;
   fetchPollVoters: (guildId: string, messageId: string, optionId: string, offset?: number, limit?: number) => Promise<{ voters: import('../types').RichUserBrief[]; total: number }>;
@@ -2141,12 +2141,12 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
    *  inserted locally here (that would duplicate it). Throws on rejection so
    *  the composer can surface the reason. */
   const sendRichMessage = useCallback(async (
-    scope: RichScope, type: RichMessageType, payload: Record<string, unknown>,
+    scope: RichScope, type: RichMessageType, payload: Record<string, unknown>, tags?: string[],
   ): Promise<void> => {
     const res = await fetch(richUrl(scope, 'rich/'), {
       method: 'POST',
       headers: richHeaders(),
-      body: JSON.stringify({ type, payload }),
+      body: JSON.stringify({ type, payload, tags: tags || [] }),
     });
     if (!res.ok) throw await failed(res);
   }, [richHeaders, richUrl]);

@@ -1376,6 +1376,24 @@ def guild_category_delete(request, guild_id, category_id):
     return Response(status=status.HTTP_204_NO_CONTENT)
 
 
+def _clean_tags(raw):
+    """Manual, user-supplied tags: short, de-duplicated, capped."""
+    if not isinstance(raw, list):
+        return []
+    out, seen = [], set()
+    for t in raw:
+        if not isinstance(t, str):
+            continue
+        t = t.strip().lstrip('#')[:30]
+        key = t.casefold()
+        if t and key not in seen:
+            seen.add(key)
+            out.append(t)
+        if len(out) >= 15:
+            break
+    return out
+
+
 def _aggregate_reactions(reactions_qs, current_user):
     from collections import defaultdict
     grouped = defaultdict(lambda: {'count': 0, 'me': False})
@@ -1443,6 +1461,7 @@ def guild_channel_messages(request, guild_id, channel_id):
             'reactions': _aggregate_reactions(m.reactions.all(), request.user),
             'views': len(m.views.all()),
             'comments_count': len(m.comments.all()),
+            'tags': m.tags or [],
             **rich_fields(m, request.user),
         }
 
@@ -1471,6 +1490,7 @@ def guild_channel_send(request, guild_id, channel_id):
     content = (request.data.get('content') or '').strip()
     attachment_ids = request.data.get('attachment_ids', [])
     reply_to_id = request.data.get('reply_to_id')
+    tags = _clean_tags(request.data.get('tags'))
 
     reply_to = None
     if reply_to_id:
@@ -1488,7 +1508,7 @@ def guild_channel_send(request, guild_id, channel_id):
 
     msg = GuildMessage.objects.create(
         channel=channel, author=request.user,
-        encrypted_content=encrypt_text(content), reply_to=reply_to,
+        encrypted_content=encrypt_text(content), reply_to=reply_to, tags=tags,
     )
     if ids:
         _claim_guild_attachments(channel, request.user, ids, msg)
@@ -1503,6 +1523,7 @@ def guild_channel_send(request, guild_id, channel_id):
         'content': content,
         'created_at': msg.created_at.isoformat(),
         'is_pinned': False,
+        'tags': tags,
         'reply_to': {
             'id': str(reply_to.id), 'content': reply_to.content,
             'author': {'id': str(reply_to.author.id), 'username': reply_to.author.username},
@@ -2230,6 +2251,7 @@ def _guild_rich_payload(msg, caption):
         'reactions': [],
         'views': 0,
         'comments_count': 0,
+        'tags': getattr(msg, 'tags', []) or [],
         **rich_fields(msg, None),
     }
 
@@ -2328,6 +2350,7 @@ def guild_channel_rich_send(request, guild_id, channel_id):
     msg = GuildMessage(
         channel=channel, author=request.user, message_type=kind,
         live_until=live_until, encrypted_content=encrypt_text(caption),
+        tags=_clean_tags(request.data.get('tags')),
     )
     msg.payload = payload
     msg.save()

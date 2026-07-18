@@ -294,6 +294,7 @@ export interface GuildMessage {
   comments_count?: number;
   message_type?: 'text' | RichMessageType;
   payload?: RichPayload | null;
+  tags?: string[];
 }
 
 export interface PostComment {

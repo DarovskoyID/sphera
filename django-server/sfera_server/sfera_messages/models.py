@@ -258,6 +258,8 @@ class GuildChannel(models.Model):
 class GuildMessage(RichPayloadMixin):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     channel = models.ForeignKey(GuildChannel, on_delete=models.CASCADE, related_name='messages')
+    # Manual tags for search (used by the private diary). Not derived from content.
+    tags = models.JSONField(default=list, blank=True)
     author = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='guild_messages')
     encrypted_content = models.TextField()
     reply_to = models.ForeignKey('self', null=True, blank=True, on_delete=models.SET_NULL, related_name='replies')
