@@ -19,7 +19,7 @@ from rest_framework.response import Response
 from rest_framework import status
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
-from .models import Conversation, Message, Attachment, MessageReport, MessagePin, ScheduledMessage, Guild, GuildMembership, GuildChannel, GuildCategory, GuildMessage, GuildAttachment, GuildScheduledMessage, GuildEmoji, GuildSticker, GuildSound, GuildRole, GuildMemberRole, GuildInvite, GuildAuditLog, GuildMessageReaction, GuildMessageView, GuildPostComment, GuildPollVote, TodoCheck, GuildTodoCheck
+from .models import Conversation, Message, Attachment, MessageReport, MessagePin, ScheduledMessage, Guild, GuildMembership, GuildChannel, GuildCategory, GuildMessage, GuildAttachment, GuildScheduledMessage, GuildEmoji, GuildSticker, GuildSound, GuildRole, GuildMemberRole, GuildInvite, GuildAuditLog, GuildMessageReaction, GuildMessageView, GuildPostComment, GuildPollVote, TodoCheck, GuildTodoCheck, UserServerLayout
 from .models import MESSAGE_TYPE_POLL, MESSAGE_TYPE_TODO, MESSAGE_TYPE_CONTACT, MESSAGE_TYPE_LOCATION
 from .serializers import ConversationSerializer, MessageSerializer, AttachmentSerializer
 from .encryption import encrypt_bytes, decrypt_bytes, encrypt_text
@@ -32,6 +32,7 @@ MAX_UPLOAD_SIZE = 50 * 1024 * 1024  # 50 MB
 MAX_ATTACHMENTS_PER_MESSAGE = 15
 # Per-account caps.
 MAX_PERSONAL_CHANNELS = 3   # personal channels a user may own
+MAX_PRIVATE_NOTES = 5       # private diaries a user may own
 MAX_SERVERS = 5             # (non-personal) servers a user may belong to
 
 
@@ -719,6 +720,8 @@ def _guild_data(guild, user):
         'require_2fa': guild.require_2fa,
         'is_discoverable': guild.is_discoverable,
         'is_personal_channel': guild.is_personal_channel,
+        'is_official': guild.is_official,
+        'is_private': guild.is_private,
         'comments_enabled': guild.comments_enabled,
         'my_role': membership.role if membership else '',
         'my_muted_until': membership.muted_until.isoformat() if membership and membership.muted_until and membership.muted_until > timezone.now() else None,
@@ -741,10 +744,18 @@ def guild_list_create(request):
     name = request.data.get('name', '').strip()
     if not name:
         return Response({'error': 'name required'}, status=status.HTTP_400_BAD_REQUEST)
-    is_personal = bool(request.data.get('is_personal_channel', False))
+    is_private = bool(request.data.get('is_private', False))
+    # A private diary is a personal channel that is owner-only and never listed.
+    is_personal = bool(request.data.get('is_personal_channel', False)) or is_private
     # Per-account limits.
-    if is_personal:
-        if Guild.objects.filter(owner=request.user, is_personal_channel=True).count() >= MAX_PERSONAL_CHANNELS:
+    if is_private:
+        if Guild.objects.filter(owner=request.user, is_private=True).count() >= MAX_PRIVATE_NOTES:
+            return Response(
+                {'error': 'limit reached', 'detail': f'Можно создать не более {MAX_PRIVATE_NOTES} личных дневников'},
+                status=status.HTTP_409_CONFLICT,
+            )
+    elif is_personal:
+        if Guild.objects.filter(owner=request.user, is_personal_channel=True, is_private=False).count() >= MAX_PERSONAL_CHANNELS:
             return Response(
                 {'error': 'limit reached', 'detail': f'Можно создать не более {MAX_PERSONAL_CHANNELS} личных каналов'},
                 status=status.HTTP_409_CONFLICT,
@@ -758,6 +769,7 @@ def guild_list_create(request):
     guild = Guild.objects.create(
         name=name, description=request.data.get('description', ''),
         owner=request.user, is_personal_channel=is_personal,
+        is_private=is_private, is_discoverable=not is_private,
     )
     GuildMembership.objects.create(guild=guild, user=request.user, role='owner')
     if is_personal:
@@ -823,10 +835,11 @@ def guild_explore(request):
 
     # Fetch only the columns we serialize — avoids hauling full rows from a huge table.
     base = (
-        Guild.objects.filter(is_discoverable=True)
+        Guild.objects.filter(is_discoverable=True, is_private=False)
+        # Official servers first, then by popularity.
         .annotate(member_count=Count('memberships'))
-        .order_by('-member_count')
-        .only('id', 'name', 'description', 'icon', 'banner', 'invite_code', 'tags', 'tag', 'is_personal_channel')
+        .order_by('-is_official', '-member_count')
+        .only('id', 'name', 'description', 'icon', 'banner', 'invite_code', 'tags', 'tag', 'is_personal_channel', 'is_official')
     )
 
     def serialize(g):
@@ -840,6 +853,7 @@ def guild_explore(request):
             'invite_code': g.invite_code,
             'tags': g.tags or [],
             'is_personal_channel': g.is_personal_channel,
+            'is_official': g.is_official,
         }
 
     mine = {str(i) for i in my_guild_ids}
@@ -853,7 +867,7 @@ def guild_explore(request):
 
     # ── No query → cached popular list (dominates traffic) ───────────────────
     if not search:
-        cache_key = 'guild_explore_popular_v2'
+        cache_key = 'guild_explore_popular_v3'
         cached = cache.get(cache_key)
         if cached is None:
             cached = [serialize(g) for g in base[:100]]
@@ -862,7 +876,7 @@ def guild_explore(request):
 
     # ── Search → cache results per normalized query (shared via Redis) ───────
     norm = ' '.join(search.lower().split())
-    cache_key = f'guild_explore_q:{norm}'
+    cache_key = f'guild_explore_q_v3:{norm}'
     cached = cache.get(cache_key)
     if cached is not None:
         return Response(with_membership(cached))
@@ -1059,6 +1073,10 @@ def guild_join(request):
             guild = Guild.objects.get(invite_code=invite_code)
         except Guild.DoesNotExist:
             return Response({'error': 'invalid invite code'}, status=status.HTTP_404_NOT_FOUND)
+
+    # A private diary belongs to its owner alone — it can never be joined.
+    if guild.is_private:
+        return Response({'error': 'this space is private'}, status=status.HTTP_403_FORBIDDEN)
 
     # Check if any current member has blocked the joiner or vice versa
     member_ids = GuildMembership.objects.filter(guild=guild).values_list('user_id', flat=True)
@@ -2574,3 +2592,46 @@ def guild_location_update(request, guild_id, message_id):
         {'type': 'location_update', 'message_id': str(message_id), 'location': view},
     )
     return Response({'location': view})
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Server-bar layout (ordering + folders), synced per user
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _sanitize_layout(raw):
+    """Keep only well-formed entries. The client owns the exact shape; we just
+    guard types/sizes so a bad payload can't bloat or break storage."""
+    if not isinstance(raw, list):
+        return []
+    out = []
+    for e in raw[:500]:
+        if not isinstance(e, dict):
+            continue
+        kind = e.get('kind')
+        if kind == 'guild':
+            gid = e.get('id')
+            if isinstance(gid, str) and gid:
+                out.append({'kind': 'guild', 'id': gid[:64]})
+        elif kind == 'folder':
+            items = e.get('items')
+            if not isinstance(items, list):
+                items = []
+            out.append({
+                'kind': 'folder',
+                'id': str(e.get('id') or '')[:64],
+                'name': str(e.get('name') or '')[:60],
+                'color': str(e.get('color') or '')[:16],
+                'items': [str(i)[:64] for i in items[:200] if isinstance(i, (str, int))],
+            })
+    return out
+
+
+@api_view(['GET', 'PUT'])
+@permission_classes([IsAuthenticated])
+def server_layout(request):
+    if request.method == 'GET':
+        row = UserServerLayout.objects.filter(user=request.user).first()
+        return Response({'layout': row.layout if row else []})
+    layout = _sanitize_layout(request.data.get('layout'))
+    UserServerLayout.objects.update_or_create(user=request.user, defaults={'layout': layout})
+    return Response({'layout': layout})

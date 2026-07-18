@@ -169,6 +169,10 @@ class Guild(models.Model):
     is_discoverable = models.BooleanField(default=True)
     is_personal_channel = models.BooleanField(default=False)
     comments_enabled = models.BooleanField(default=True)
+    # Official server featured in Explore ("Sfera от разработчиков").
+    is_official = models.BooleanField(default=False, db_index=True)
+    # Private personal diary: owner-only, never discoverable, can't be joined.
+    is_private = models.BooleanField(default=False)
 
     class Meta:
         indexes = [
@@ -184,6 +188,20 @@ class Guild(models.Model):
 
     def __str__(self):
         return self.name
+
+
+class UserServerLayout(models.Model):
+    """Per-user layout of the server bar: ordering + folders. Stored as an opaque
+    JSON list of entries so the client owns the shape; the server just persists it
+    and syncs it across the user's devices.
+
+    entry = {"kind": "guild", "id": "<uuid>"}
+          | {"kind": "folder", "id": "f_x", "name": "...", "color": "#..",
+             "items": ["<guild uuid>", ...]}
+    """
+    user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='server_layout')
+    layout = models.JSONField(default=list, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
 
 class GuildMembership(models.Model):

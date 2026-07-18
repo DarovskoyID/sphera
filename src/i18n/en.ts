@@ -833,4 +833,10 @@ export const en = {
   code_copy: 'Copy',
   pcf_channel: 'channel',
   pcf_personal_channel: 'Personal channel',
+  folder_new: 'New folder',
+  folder_untitled: 'Folder',
+  folder_remove_from: 'Remove from folder',
+  folder_name: 'Folder name',
+  folder_ungroup: 'Ungroup',
+  pcf_diary: 'Personal diary',
 } as const;

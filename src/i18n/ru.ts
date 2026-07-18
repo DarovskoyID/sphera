@@ -805,4 +805,10 @@ export const ru: Translations = {
   code_copy: 'Копировать',
   pcf_channel: 'канал',
   pcf_personal_channel: 'Личный канал',
+  folder_new: 'Новая папка',
+  folder_untitled: 'Папка',
+  folder_remove_from: 'Убрать из папки',
+  folder_name: 'Название папки',
+  folder_ungroup: 'Разгруппировать',
+  pcf_diary: 'Личный дневник',
 };

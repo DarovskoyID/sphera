@@ -23,6 +23,9 @@ urlpatterns = [
     path('messages/<uuid:message_id>/location/', views.dm_location_update),
     path('scheduled/<uuid:scheduled_id>/', views.cancel_scheduled_message),
 
+    # Server-bar layout (ordering + folders), synced per user
+    path('server-layout/', views.server_layout),
+
     # Guilds (servers)
     path('guilds/', views.guild_list_create),
     path('guilds/explore/', views.guild_explore),

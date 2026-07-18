@@ -245,6 +245,8 @@ interface AppContextType extends AppState {
   loadGuildAuditLog: (guildId: string) => Promise<GuildAuditLogEntry[]>;
   createGuild: (name: string, description?: string) => Promise<Guild | null>;
   createPersonalChannel: (name: string, description?: string) => Promise<Guild | null>;
+  createPersonalNotes: (name: string) => Promise<Guild | null>;
+  saveLayout: (layout: import('../types').LayoutEntry[]) => void;
   toggleReaction: (guildId: string, messageId: string, emoji: string) => Promise<void>;
   sendRichMessage: (scope: RichScope, type: RichMessageType, payload: Record<string, unknown>) => Promise<void>;
   votePoll: (guildId: string, messageId: string, optionIds: string[]) => Promise<void>;
@@ -347,6 +349,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       chatBlockedByOther: false,
       customEmojis: [],
       guilds: [],
+      serverLayout: [],
       currentGuild: null,
       currentGuildChannel: null,
       guildMessages: [],
@@ -2050,6 +2053,47 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     } catch (e) { reportError(e); return null; }
   }, [state.authToken, state.currentServerIP, apiPost]);
 
+  // ── Server-bar layout (ordering + folders), synced per user ────────────────
+  const layoutSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const persistLayout = useCallback((layout: import('../types').LayoutEntry[]) => {
+    if (layoutSaveTimer.current) clearTimeout(layoutSaveTimer.current);
+    const token = state.authToken, ip = state.currentServerIP;
+    layoutSaveTimer.current = setTimeout(() => {
+      fetch(`${ip}/api/server-layout/`, {
+        method: 'PUT',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ layout }),
+      }).catch(() => { /* best-effort; local state already updated */ });
+    }, 500);
+  }, [state.authToken, state.currentServerIP]);
+
+  const saveLayout = useCallback((layout: import('../types').LayoutEntry[]) => {
+    setState(prev => ({ ...prev, serverLayout: layout }));
+    persistLayout(layout);
+  }, [persistLayout]);
+
+  const prependToLayout = useCallback((guildId: string) => {
+    setState(prev => {
+      const without = (prev.serverLayout || []).filter(
+        e => !(e.kind === 'guild' && e.id === guildId)
+      );
+      const next: import('../types').LayoutEntry[] = [{ kind: 'guild', id: guildId }, ...without];
+      persistLayout(next);
+      return { ...prev, serverLayout: next };
+    });
+  }, [persistLayout]);
+
+  // A private diary — a personal channel only its owner can see. Prepended to the
+  // server bar layout so it lands at the top (the rest of ordering is user-driven).
+  const createPersonalNotes = useCallback(async (name: string): Promise<Guild | null> => {
+    try {
+      const guild: Guild = await apiPost('/api/guilds/', state.authToken, state.currentServerIP, { name, is_private: true });
+      setState(prev => ({ ...prev, guilds: [...prev.guilds, guild] }));
+      prependToLayout(String(guild.id));
+      return guild;
+    } catch (e) { reportError(e); return null; }
+  }, [state.authToken, state.currentServerIP, apiPost, prependToLayout]);
+
   const toggleReaction = useCallback(async (guildId: string, messageId: string, emoji: string): Promise<void> => {
     try {
       const res = await fetch(`${state.currentServerIP}/api/guilds/${guildId}/messages/${messageId}/reactions/`, {
@@ -2903,6 +2947,12 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
         setState(prev => ({ ...prev, guilds }));
       })
       .catch(reportError);
+    // Load the saved server-bar layout (folders + ordering) for this user.
+    apiGet('/api/server-layout/', state.authToken, state.currentServerIP)
+      .then((r: { layout: import('../types').LayoutEntry[] }) => {
+        setState(prev => ({ ...prev, serverLayout: Array.isArray(r?.layout) ? r.layout : [] }));
+      })
+      .catch(() => { /* non-fatal: bar falls back to default order */ });
   }, [state.authToken]);
 
   const sendSignal = (data: any) => {
@@ -3060,6 +3110,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
         chatBlockedByOther: false,
         customEmojis: [],
         guilds: [],
+        serverLayout: [],
         currentGuild: null,
         currentGuildChannel: null,
         guildMessages: [],
@@ -3162,6 +3213,8 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       loadGuildAuditLog,
       createGuild,
       createPersonalChannel,
+      createPersonalNotes,
+      saveLayout,
       toggleReaction,
       sendRichMessage,
       votePoll,

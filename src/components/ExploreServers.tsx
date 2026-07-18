@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Search, Users, ArrowRight, Compass, Globe, Gamepad2, Music, Code, BookOpen, Palette, Trophy, MessageCircle, Sparkles, Newspaper, Check } from 'lucide-react';
+import { Search, Users, ArrowRight, Compass, Globe, Gamepad2, Music, Code, BookOpen, Palette, Trophy, MessageCircle, Sparkles, Newspaper, Check, BadgeCheck, NotebookPen, X } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { useTranslation } from '../i18n/useTranslation';
 
@@ -14,6 +14,7 @@ interface ExploreGuild {
   tags: string[];
   is_personal_channel?: boolean;
   is_member?: boolean;
+  is_official?: boolean;
 }
 
 const CATEGORIES = [
@@ -38,7 +39,10 @@ interface MessageResult {
 }
 
 export const ExploreServers: React.FC<{ style?: React.CSSProperties }> = ({ style }) => {
-  const { currentServerIP, authToken, joinGuild, previewGuild, selectGuild, guilds } = useApp();
+  const { currentServerIP, authToken, joinGuild, previewGuild, selectGuild, guilds, createPersonalNotes } = useApp();
+  const [showNotes, setShowNotes] = useState(false);
+  const [notesName, setNotesName] = useState('');
+  const [notesBusy, setNotesBusy] = useState(false);
   const tr = useTranslation();
   const [search, setSearch] = useState('');
   const [results, setResults] = useState<ExploreGuild[]>([]);
@@ -197,6 +201,11 @@ export const ExploreServers: React.FC<{ style?: React.CSSProperties }> = ({ styl
             }}>
               {g.name}
             </span>
+            {g.is_official && (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 10, padding: '1px 6px', borderRadius: 8, fontWeight: 700, flexShrink: 0, background: 'rgba(88,101,242,0.18)', color: 'var(--accent-primary)' }}>
+                <BadgeCheck size={11} /> {isRu ? 'официальный' : 'official'}
+              </span>
+            )}
             <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 8, fontWeight: 600, flexShrink: 0, background: isChannel ? 'rgba(88,101,242,0.15)' : 'rgba(59,165,93,0.15)', color: isChannel ? 'var(--accent-primary)' : '#3ba55d' }}>
               {isChannel ? (isRu ? 'канал' : 'channel') : (isRu ? 'сервер' : 'server')}
             </span>
@@ -283,6 +292,44 @@ export const ExploreServers: React.FC<{ style?: React.CSSProperties }> = ({ styl
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'var(--bg-primary)', ...style }}>
+      {showNotes && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,0,0,.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }} onClick={() => setShowNotes(false)}>
+          <div style={{ width: '100%', maxWidth: 400, background: 'var(--bg-secondary)', borderRadius: 14, padding: 18, border: '1px solid var(--border-color)' }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+              <NotebookPen size={18} style={{ color: 'var(--accent-primary)' }} />
+              <h3 style={{ margin: 0, fontSize: 16, color: 'var(--text-primary)', flex: 1 }}>{isRu ? 'Личный дневник' : 'Personal diary'}</h3>
+              <button onClick={() => setShowNotes(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted, #949ba4)' }}><X size={18} /></button>
+            </div>
+            <p style={{ margin: '0 0 14px', fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+              {isRu ? 'Приватное пространство только для вас: текст, медиа, списки задач, код, геопозиции и контакты — как заметки для себя.' : 'A private space just for you: text, media, checklists, code, locations and contacts — notes to self.'}
+            </p>
+            <input
+              className="input-field"
+              autoFocus
+              placeholder={isRu ? 'Название дневника' : 'Diary name'}
+              value={notesName}
+              maxLength={100}
+              onChange={e => setNotesName(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') (document.getElementById('notes-create-btn') as HTMLButtonElement)?.click(); }}
+              style={{ width: '100%', padding: '9px 11px', borderRadius: 8, fontSize: 14, border: '1px solid var(--border-color)', background: 'var(--bg-tertiary)', color: 'var(--text-primary)', outline: 'none', boxSizing: 'border-box' }}
+            />
+            <button
+              id="notes-create-btn"
+              disabled={notesBusy || !notesName.trim()}
+              onClick={async () => {
+                setNotesBusy(true);
+                const g = await createPersonalNotes(notesName.trim());
+                setNotesBusy(false);
+                if (g) { setShowNotes(false); setNotesName(''); selectGuild(g); }
+              }}
+              style={{ width: '100%', marginTop: 12, padding: '10px', borderRadius: 8, border: 'none', background: 'var(--accent-primary)', color: '#fff', fontWeight: 600, fontSize: 14, cursor: 'pointer', opacity: (notesBusy || !notesName.trim()) ? 0.6 : 1 }}
+            >
+              {notesBusy ? (isRu ? 'Создание…' : 'Creating…') : (isRu ? 'Создать' : 'Create')}
+            </button>
+          </div>
+        </div>
+      )}
+
       <style>{`
         @keyframes spin { to { transform: rotate(360deg) } }
         @keyframes float1 { 0%,100% { transform: translateY(0) rotate(0deg); } 50% { transform: translateY(-12px) rotate(5deg); } }
@@ -317,9 +364,20 @@ export const ExploreServers: React.FC<{ style?: React.CSSProperties }> = ({ styl
                 {tr('explore_title')}
               </h1>
             </div>
-            <p style={{ margin: '0 0 24px', fontSize: 14, color: 'rgba(255,255,255,0.6)', lineHeight: 1.5 }}>
+            <p style={{ margin: '0 0 16px', fontSize: 14, color: 'rgba(255,255,255,0.6)', lineHeight: 1.5 }}>
               {tr('explore_subtitle')}
             </p>
+            <button
+              onClick={() => setShowNotes(true)}
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: 8, marginBottom: 20,
+                padding: '9px 16px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.18)',
+                background: 'rgba(255,255,255,0.08)', backdropFilter: 'blur(10px)',
+                color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer',
+              }}
+            >
+              <NotebookPen size={16} /> {isRu ? 'Создать личный дневник' : 'Create personal diary'}
+            </button>
             <div style={{ position: 'relative', maxWidth: 420 }}>
               <Search size={16} style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', color: 'rgba(255,255,255,0.7)', zIndex: 1 }} />
               <input

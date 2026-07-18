@@ -208,6 +208,8 @@ export interface Guild {
   require_2fa: boolean;
   is_discoverable: boolean;
   is_personal_channel: boolean;
+  is_official?: boolean;
+  is_private?: boolean;
   comments_enabled: boolean;
   my_role: GuildMemberRole;
   my_muted_until: string | null;
@@ -306,6 +308,11 @@ export interface PostComment {
   created_at: string;
 }
 
+// Server-bar layout (ordering + folders), synced per user via /api/server-layout/.
+export type LayoutEntry =
+  | { kind: 'guild'; id: string }
+  | { kind: 'folder'; id: string; name: string; color?: string; items: string[] };
+
 export type ViewType = 'home' | 'server' | 'settings';
 
 export type MobilePanel = 'chat-list' | 'chat-view' | 'guild-channels' | 'guild-chat' | 'guild-members';
@@ -358,6 +365,7 @@ export interface AppState {
   chatBlockedByOther: boolean;
   customEmojis: CustomEmoji[];
   guilds: Guild[];
+  serverLayout: LayoutEntry[];
   currentGuild: Guild | null;
   currentGuildChannel: GuildChannel | null;
   guildMessages: GuildMessage[];
