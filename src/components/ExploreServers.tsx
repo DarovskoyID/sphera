@@ -389,6 +389,19 @@ export const ExploreServers: React.FC<{ style?: React.CSSProperties }> = ({ styl
             <h3 style={{ margin: '0 0 14px', fontSize: 13, fontWeight: 700, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
               {isRu ? 'Инструменты от разработчика' : 'Developer tools'}
             </h3>
+            {guilds.some(g => g.is_private) ? (
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: 12, padding: 16, borderRadius: 12,
+                background: 'var(--bg-secondary)', border: '1px dashed var(--border-color)',
+              }}>
+                <NotebookPen size={20} style={{ color: 'var(--text-tertiary)', flexShrink: 0 }} />
+                <div style={{ fontSize: 13, color: 'var(--text-tertiary)', lineHeight: 1.4 }}>
+                  {isRu
+                    ? 'Все инструменты уже добавлены. Ваш личный дневник — в списке серверов слева. Новые инструменты появятся здесь.'
+                    : 'All tools are already added. Your personal diary is in the server list on the left. New tools will appear here.'}
+                </div>
+              </div>
+            ) : (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(230px, 1fr))', gap: 10 }}>
               {!guilds.some(g => g.is_private) && (
                 <div
@@ -411,6 +424,7 @@ export const ExploreServers: React.FC<{ style?: React.CSSProperties }> = ({ styl
                 </div>
               )}
             </div>
+            )}
           </div>
         )}
 
