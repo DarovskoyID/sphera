@@ -143,35 +143,46 @@ function JoinGuildModal({ onClose, channel = false }: { onClose: () => void; cha
   );
 }
 
+// A lively, name-derived gradient so icon-less servers still look distinct and fun.
+function nameGradient(name: string): string {
+  const h = Math.abs((name.charCodeAt(0) || 65) * 47 + (name.charCodeAt(1) || 0) * 13) % 360;
+  return `linear-gradient(135deg, hsl(${h},72%,58%), hsl(${(h + 40) % 360},70%,48%))`;
+}
+
 function GuildIcon({ guild, active, onClick, serverIP }: { guild: Guild; active: boolean; onClick: () => void; serverIP: string }) {
   const tr = useTranslation();
-  const initials = guild.name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
-  const iconUrl = guild.icon ? (guild.icon.startsWith('http') ? guild.icon : `${serverIP}${guild.icon}`) : null;
+  const [broken, setBroken] = useState(false);
+  const initials = guild.name.split(' ').filter(Boolean).map(w => w[0]).join('').slice(0, 2).toUpperCase() || guild.name.slice(0, 2).toUpperCase();
+  const iconUrl = guild.icon && !broken ? (guild.icon.startsWith('http') ? guild.icon : `${serverIP}${guild.icon}`) : null;
   const isChannel = guild.is_personal_channel;
+  const isDiary = guild.is_private;
+  // Servers = softer squircle, channels/diary = rounder — a simple, modern look.
+  const radius = isChannel ? 14 : 16;
   return (
     <div style={{ position: 'relative', display: 'flex' }}>
       <button
         className={`server-icon ${active ? 'active' : ''}`}
         onClick={onClick}
-        title={isChannel ? `${guild.name} (${tr('pcf_channel')})` : guild.name}
-        style={isChannel ? { borderRadius: 12 } : undefined}
+        title={isDiary ? `${guild.name} (${tr('pcf_diary')})` : isChannel ? `${guild.name} (${tr('pcf_channel')})` : guild.name}
+        style={{ borderRadius: radius, padding: 0, overflow: 'hidden', background: iconUrl ? 'var(--bg-tertiary)' : nameGradient(guild.name), border: 'none' }}
       >
         {iconUrl ? (
-          <img src={iconUrl} alt={guild.name} style={{ width: 36, height: 36, borderRadius: isChannel ? 12 : '50%', objectFit: 'cover' }} />
+          <img src={iconUrl} alt={guild.name} onError={() => setBroken(true)} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
         ) : (
-          <span style={{ fontSize: 13, fontWeight: 700, letterSpacing: 0.5 }}>{initials}</span>
+          <span style={{ fontSize: 15, fontWeight: 800, letterSpacing: 0.3, color: '#fff', textShadow: '0 1px 2px rgba(0,0,0,.25)' }}>{initials}</span>
         )}
       </button>
       {isChannel && (
         <span
-          title={guild.is_private ? tr('pcf_diary') : tr('pcf_personal_channel')}
+          title={isDiary ? tr('pcf_diary') : tr('pcf_personal_channel')}
           style={{
-            position: 'absolute', bottom: -2, right: -2, width: 16, height: 16, borderRadius: '50%',
-            background: guild.is_private ? '#a855f7' : 'var(--accent-primary)', border: '2px solid var(--bg-secondary)',
+            position: 'absolute', bottom: -3, right: -3, width: 17, height: 17, borderRadius: '50%',
+            background: isDiary ? '#a855f7' : 'var(--accent-primary)', border: '2.5px solid var(--bg-secondary)',
             display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none',
+            boxShadow: '0 1px 4px rgba(0,0,0,.3)',
           }}
         >
-          {guild.is_private ? <NotebookPen size={8} color="#fff" /> : <Rss size={8} color="#fff" />}
+          {isDiary ? <NotebookPen size={8.5} color="#fff" /> : <Rss size={8.5} color="#fff" />}
         </span>
       )}
     </div>
@@ -484,9 +495,10 @@ export const ServerSidebar: React.FC = () => {
                 >
                   <span style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2, width: 34, height: 34 }}>
                     {f.guilds.slice(0, 4).map(g => (
-                      g.icon
-                        ? <img key={g.id} src={g.icon.startsWith('http') ? g.icon : `${currentServerIP}${g.icon}`} alt="" style={{ width: '100%', height: '100%', borderRadius: 5, objectFit: 'cover' }} />
-                        : <span key={g.id} style={{ width: '100%', height: '100%', borderRadius: 5, background: 'var(--accent-primary)', color: '#fff', fontSize: 9, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{g.name[0]?.toUpperCase()}</span>
+                      <span key={g.id} style={{ position: 'relative', width: '100%', height: '100%', borderRadius: 5, overflow: 'hidden', background: nameGradient(g.name), color: '#fff', fontSize: 9, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        {g.name[0]?.toUpperCase()}
+                        {g.icon && <img src={g.icon.startsWith('http') ? g.icon : `${currentServerIP}${g.icon}`} alt="" onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />}
+                      </span>
                     ))}
                   </span>
                 </button>
@@ -565,14 +577,17 @@ export const ServerSidebar: React.FC = () => {
             <p style={{ margin: '0 0 14px', color: 'var(--text-secondary)', fontSize: 13, lineHeight: 1.5 }}>
               {tr('diary_delete_hint')}
             </p>
-            <input
-              type="password"
-              autoFocus
-              value={diaryPwd}
-              onChange={e => { setDiaryPwd(e.target.value); setDiaryErr(''); }}
-              placeholder={tr('pcf_password')}
-              style={{ width: '100%', padding: '9px 11px', borderRadius: 8, fontSize: 14, border: `1px solid ${diaryErr ? '#ef4444' : 'var(--border-color)'}`, background: 'var(--bg-tertiary)', color: 'var(--text-primary)', outline: 'none', boxSizing: 'border-box' }}
-            />
+            <form onSubmit={e => e.preventDefault()}>
+              <input
+                type="password"
+                autoFocus
+                autoComplete="current-password"
+                value={diaryPwd}
+                onChange={e => { setDiaryPwd(e.target.value); setDiaryErr(''); }}
+                placeholder={tr('pcf_password')}
+                style={{ width: '100%', padding: '9px 11px', borderRadius: 8, fontSize: 14, border: `1px solid ${diaryErr ? '#ef4444' : 'var(--border-color)'}`, background: 'var(--bg-tertiary)', color: 'var(--text-primary)', outline: 'none', boxSizing: 'border-box' }}
+              />
+            </form>
             {diaryErr && <div style={{ color: '#ef4444', fontSize: 12, marginTop: 6 }}>{diaryErr}</div>}
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 16 }}>
               <button onClick={() => { setConfirmDiary(null); setDiaryPwd(''); setDiaryErr(''); }} style={{ padding: '8px 18px', background: 'var(--bg-tertiary)', color: 'var(--text-primary)', border: '1px solid var(--border-color)', borderRadius: 8, fontSize: 14, cursor: 'pointer' }}>{tr('cancel')}</button>
