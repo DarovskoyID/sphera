@@ -1918,6 +1918,6 @@
   },
   "timepicker": {},
   "timezone": "utc",
-  "title": "Sfera Overview",
+  "title": "Sfera — Все ноды (сумма по кластеру)",
   "uid": "sfera-overview"
 }
