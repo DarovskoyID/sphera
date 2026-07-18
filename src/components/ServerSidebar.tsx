@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback } from 'react';
-import { Settings, Home, Plus, LogIn, X, Compass, Rss, LogOut, Trash2, Folder, FolderPlus, FolderMinus, NotebookPen } from 'lucide-react';
+import { Settings, Home, Plus, LogIn, X, Compass, Rss, LogOut, Trash2, Folder, FolderMinus, NotebookPen } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { useTranslation } from '../i18n/useTranslation';
 import ConfirmModal from './ConfirmModal';
@@ -188,6 +188,10 @@ export const ServerSidebar: React.FC = () => {
   // Right-click a server icon (desktop) → context menu → leave / delete.
   const [guildMenu, setGuildMenu] = useState<{ guild: Guild; x: number; y: number } | null>(null);
   const [confirmLeave, setConfirmLeave] = useState<Guild | null>(null);
+  const [confirmDiary, setConfirmDiary] = useState<Guild | null>(null);
+  const [diaryPwd, setDiaryPwd] = useState('');
+  const [diaryErr, setDiaryErr] = useState('');
+  const [diaryBusy, setDiaryBusy] = useState(false);
   const guildMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -211,7 +215,7 @@ export const ServerSidebar: React.FC = () => {
   // serverLayout. Drag reorders top-level items; folders are created/edited via
   // the right-click menu.
   const [dragKey, setDragKey] = useState<string | null>(null);   // 'g:<id>' or 'f:<id>'
-  const [overKey, setOverKey] = useState<string | null>(null);
+  const [dropInfo, setDropInfo] = useState<{ key: string; mode: 'before' | 'after' | 'into' } | null>(null);
   const [openFolder, setOpenFolder] = useState<string | null>(null);
   const folderPopupRef = useRef<HTMLDivElement>(null);
 
@@ -252,49 +256,96 @@ export const ServerSidebar: React.FC = () => {
 
   const keyOf = (it: RenderItem) => it.type === 'guild' ? `g:${it.guild.id}` : `f:${it.folder.id}`;
 
-  const reorder = (targetKey: string) => {
-    const src = dragKey;
-    setDragKey(null); setOverKey(null);
-    if (!src || src === targetKey) return;
-    const items = [...renderItems];
-    const from = items.findIndex(it => keyOf(it) === src);
-    const to = items.findIndex(it => keyOf(it) === targetKey);
-    if (from < 0 || to < 0) return;
-    items.splice(to, 0, items.splice(from, 1)[0]);
-    saveLayout(toLayout(items));
-  };
-
   const newFolderId = () => `f_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 
-  const moveGuildToFolder = (guildId: string, folderId: string | 'new') => {
-    let items = renderItems
-      .map(it => it.type === 'folder'
-        ? { ...it, folder: { ...it.folder, guilds: it.folder.guilds.filter(g => String(g.id) !== guildId) } }
-        : it)
-      .filter(it => it.type !== 'folder' || it.folder.guilds.length > 0);
-    const g = guildById.get(guildId);
-    if (!g) return;
-    items = items.filter(it => !(it.type === 'guild' && String(it.guild.id) === guildId));
-    if (folderId === 'new') {
-      items.push({ type: 'folder', folder: { id: newFolderId(), name: '', guilds: [g] } });
-    } else {
-      const f = items.find(it => it.type === 'folder' && it.folder.id === folderId) as Extract<RenderItem, { type: 'folder' }> | undefined;
-      if (f) f.folder.guilds.push(g);
-      else items.push({ type: 'folder', folder: { id: folderId, name: '', guilds: [g] } });
+  const draggedGuild = (): Guild | null =>
+    dragKey && dragKey.startsWith('g:') ? (guildById.get(dragKey.slice(2)) || null) : null;
+
+  // Pull a guild out of wherever it lives; returns the rest (empty folders dropped)
+  // plus the guild. Used by every drag op so a guild can freely move between the
+  // top level and folders.
+  const extractGuild = (items: RenderItem[], guildId: string): [RenderItem[], Guild | null] => {
+    let g: Guild | null = null;
+    const out: RenderItem[] = [];
+    for (const it of items) {
+      if (it.type === 'guild') {
+        if (String(it.guild.id) === guildId) { g = it.guild; continue; }
+        out.push(it);
+      } else {
+        const inner = it.folder.guilds.filter(x => { if (String(x.id) === guildId) { g = x; return false; } return true; });
+        if (inner.length) out.push({ type: 'folder', folder: { ...it.folder, guilds: inner } });
+      }
     }
+    return [out, g];
+  };
+
+  // Where a drop lands: near an edge → reorder; over the middle of a server/folder
+  // → merge into a folder (never for a diary, and never onto a diary).
+  const computeMode = (targetItem: RenderItem, e: React.DragEvent): 'before' | 'after' | 'into' => {
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const y = e.clientY - rect.top; const h = rect.height || 1;
+    const dg = draggedGuild();
+    const draggingServer = !!dragKey?.startsWith('g:');
+    const draggedIsDiary = !!dg?.is_private;
+    const targetIsDiary = targetItem.type === 'guild' && !!targetItem.guild.is_private;
+    const canInto = draggingServer && !draggedIsDiary && !targetIsDiary && dragKey !== keyOf(targetItem);
+    if (canInto && y > h * 0.28 && y < h * 0.72) return 'into';
+    return y < h / 2 ? 'before' : 'after';
+  };
+
+  const applyDrop = (targetItem: RenderItem) => {
+    const info = dropInfo; const dk = dragKey;
+    setDragKey(null); setDropInfo(null);
+    if (!dk || !info) return;
+    const targetKey = keyOf(targetItem);
+    if (dk === targetKey && info.mode === 'into') return;
+
+    // Folders only reorder among the top level.
+    if (dk.startsWith('f:')) {
+      const items = [...renderItems];
+      const from = items.findIndex(it => keyOf(it) === dk);
+      if (from < 0) return;
+      const [moved] = items.splice(from, 1);
+      const to = items.findIndex(it => keyOf(it) === targetKey);
+      if (to < 0) { items.push(moved); } else { items.splice(info.mode === 'after' ? to + 1 : to, 0, moved); }
+      saveLayout(toLayout(items)); return;
+    }
+
+    const guildId = dk.slice(2);
+    const [base, g] = extractGuild(renderItems, guildId);
+    if (!g) return;
+
+    if (info.mode === 'into') {
+      if (targetItem.type === 'folder') {
+        saveLayout(toLayout(base.map(it => it.type === 'folder' && it.folder.id === targetItem.folder.id
+          ? { ...it, folder: { ...it.folder, guilds: [...it.folder.guilds, g] } } : it)));
+        return;
+      }
+      // Onto a server → make a folder from the two, in the target's slot.
+      const idx = base.findIndex(it => keyOf(it) === targetKey);
+      if (idx < 0) return;
+      const target = base[idx] as Extract<RenderItem, { type: 'guild' }>;
+      const items = [...base];
+      items.splice(idx, 1, { type: 'folder', folder: { id: newFolderId(), name: '', guilds: [target.guild, g] } });
+      saveLayout(toLayout(items)); return;
+    }
+
+    // before/after → drop as a top-level item (this is also how a guild is pulled
+    // out of a folder: reorder it next to a top-level item).
+    const items = [...base];
+    const idx = items.findIndex(it => keyOf(it) === targetKey);
+    if (idx < 0) items.push({ type: 'guild', guild: g });
+    else items.splice(info.mode === 'after' ? idx + 1 : idx, 0, { type: 'guild', guild: g });
     saveLayout(toLayout(items));
   };
 
-  const removeGuildFromFolder = (guildId: string) => {
-    const g = guildById.get(guildId);
+  // Dropped on empty bar space → pull the guild out to the end of the top level.
+  const dropToTopLevel = () => {
+    const dk = dragKey; setDragKey(null); setDropInfo(null);
+    if (!dk || !dk.startsWith('g:')) return;
+    const [base, g] = extractGuild(renderItems, dk.slice(2));
     if (!g) return;
-    const items = renderItems
-      .map(it => it.type === 'folder'
-        ? { ...it, folder: { ...it.folder, guilds: it.folder.guilds.filter(x => String(x.id) !== guildId) } }
-        : it)
-      .filter(it => it.type !== 'folder' || it.folder.guilds.length > 0);
-    items.push({ type: 'guild', guild: g });
-    saveLayout(toLayout(items));
+    saveLayout(toLayout([...base, { type: 'guild', guild: g }]));
   };
 
   const renameFolder = (folderId: string, name: string) => {
@@ -312,11 +363,6 @@ export const ServerSidebar: React.FC = () => {
     setOpenFolder(null);
     saveLayout(toLayout(items));
   };
-
-  const folderOf = (guildId: string) =>
-    (renderItems.find(it => it.type === 'folder' && it.folder.guilds.some(g => String(g.id) === guildId)) as Extract<RenderItem, { type: 'folder' }> | undefined)?.folder;
-
-  const allFolders = renderItems.filter(it => it.type === 'folder') as Extract<RenderItem, { type: 'folder' }>[];
 
   useEffect(() => {
     if (!openFolder) return;
@@ -382,23 +428,33 @@ export const ServerSidebar: React.FC = () => {
           </button>
 
           {/* Scrollable guild list */}
-          <div className="server-guild-scroll">
+          <div
+            className="server-guild-scroll"
+            onDragOver={e => { if (dragKey?.startsWith('g:')) e.preventDefault(); }}
+            onDrop={e => { e.preventDefault(); dropToTopLevel(); }}
+          >
             {renderItems.map(item => {
               const k = keyOf(item);
+              const isInto = dropInfo?.key === k && dropInfo.mode === 'into';
+              const isBefore = dropInfo?.key === k && dropInfo.mode === 'before';
+              const isAfter = dropInfo?.key === k && dropInfo.mode === 'after';
               const wrap = (children: React.ReactNode) => (
                 <div
                   key={k}
                   draggable
                   onDragStart={e => { setDragKey(k); e.dataTransfer.effectAllowed = 'move'; }}
-                  onDragOver={e => { e.preventDefault(); if (dragKey && dragKey !== k) setOverKey(k); }}
-                  onDragLeave={() => setOverKey(prev => prev === k ? null : prev)}
-                  onDrop={e => { e.preventDefault(); reorder(k); }}
-                  onDragEnd={() => { setDragKey(null); setOverKey(null); }}
+                  onDragOver={e => { e.preventDefault(); e.stopPropagation(); if (dragKey && dragKey !== k) setDropInfo({ key: k, mode: computeMode(item, e) }); }}
+                  onDragLeave={() => setDropInfo(prev => prev?.key === k ? null : prev)}
+                  onDrop={e => { e.preventDefault(); e.stopPropagation(); applyDrop(item); }}
+                  onDragEnd={() => { setDragKey(null); setDropInfo(null); }}
                   style={{
                     cursor: 'grab',
                     opacity: dragKey === k ? 0.4 : 1,
-                    borderTop: overKey === k ? '2px solid var(--accent-primary)' : '2px solid transparent',
-                    borderRadius: 4,
+                    borderTop: isBefore ? '2px solid var(--accent-primary)' : '2px solid transparent',
+                    borderBottom: isAfter ? '2px solid var(--accent-primary)' : '2px solid transparent',
+                    borderRadius: 8,
+                    boxShadow: isInto ? '0 0 0 2px var(--accent-primary)' : 'none',
+                    transition: 'box-shadow .12s',
                   }}
                 >
                   {children}
@@ -477,31 +533,19 @@ export const ServerSidebar: React.FC = () => {
       {guildMenu && (() => {
         const g = guildMenu.guild;
         const isOwner = !!currentUser && String(g.owner_id) === String(currentUser.id);
-        const ownsChannel = isOwner && g.is_personal_channel;
+        const isDiary = isOwner && !!g.is_private;
+        const ownsChannel = isOwner && g.is_personal_channel && !g.is_private;
         return (
           <div
             ref={guildMenuRef}
             className="context-menu"
-            style={{ position: 'fixed', left: Math.min(guildMenu.x, window.innerWidth - 210), top: Math.min(guildMenu.y, window.innerHeight - 260), minWidth: 190, zIndex: 9999 }}
+            style={{ position: 'fixed', left: Math.min(guildMenu.x, window.innerWidth - 210), top: Math.min(guildMenu.y, window.innerHeight - 120), minWidth: 190, zIndex: 9999 }}
           >
-            {folderOf(String(g.id)) ? (
-              <button className="context-menu-item" onClick={() => { setGuildMenu(null); removeGuildFromFolder(String(g.id)); }}>
-                <FolderMinus size={14} /> {tr('folder_remove_from')}
+            {isDiary ? (
+              <button className="context-menu-item" style={{ color: '#ef4444' }} onClick={() => { setGuildMenu(null); setConfirmDiary(g); }}>
+                <Trash2 size={14} /> {tr('diary_delete')}
               </button>
-            ) : (
-              <>
-                <button className="context-menu-item" onClick={() => { setGuildMenu(null); moveGuildToFolder(String(g.id), 'new'); }}>
-                  <FolderPlus size={14} /> {tr('folder_new')}
-                </button>
-                {allFolders.map(fit => (
-                  <button key={fit.folder.id} className="context-menu-item" onClick={() => { setGuildMenu(null); moveGuildToFolder(String(g.id), fit.folder.id); }}>
-                    <Folder size={14} /> {fit.folder.name || tr('folder_untitled')}
-                  </button>
-                ))}
-              </>
-            )}
-            <div style={{ height: 1, background: 'var(--border-color)', margin: '4px 0' }} />
-            {ownsChannel ? (
+            ) : ownsChannel ? (
               <button className="context-menu-item" style={{ color: '#ef4444' }} onClick={() => { setGuildMenu(null); setConfirmLeave(g); }}>
                 <Trash2 size={14} /> {tr('guild_delete_channel')}
               </button>
@@ -514,10 +558,46 @@ export const ServerSidebar: React.FC = () => {
         );
       })()}
 
+      {confirmDiary && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 9000, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }} onClick={() => { setConfirmDiary(null); setDiaryPwd(''); setDiaryErr(''); }}>
+          <div style={{ background: 'var(--bg-secondary)', borderRadius: 12, padding: 22, maxWidth: 380, width: '100%', border: '1px solid var(--border-color)' }} onClick={e => e.stopPropagation()}>
+            <h3 style={{ margin: '0 0 8px', color: 'var(--text-primary)', fontSize: 17, fontWeight: 700 }}>{tr('diary_delete')}</h3>
+            <p style={{ margin: '0 0 14px', color: 'var(--text-secondary)', fontSize: 13, lineHeight: 1.5 }}>
+              {tr('diary_delete_hint')}
+            </p>
+            <input
+              type="password"
+              autoFocus
+              value={diaryPwd}
+              onChange={e => { setDiaryPwd(e.target.value); setDiaryErr(''); }}
+              placeholder={tr('pcf_password')}
+              style={{ width: '100%', padding: '9px 11px', borderRadius: 8, fontSize: 14, border: `1px solid ${diaryErr ? '#ef4444' : 'var(--border-color)'}`, background: 'var(--bg-tertiary)', color: 'var(--text-primary)', outline: 'none', boxSizing: 'border-box' }}
+            />
+            {diaryErr && <div style={{ color: '#ef4444', fontSize: 12, marginTop: 6 }}>{diaryErr}</div>}
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 16 }}>
+              <button onClick={() => { setConfirmDiary(null); setDiaryPwd(''); setDiaryErr(''); }} style={{ padding: '8px 18px', background: 'var(--bg-tertiary)', color: 'var(--text-primary)', border: '1px solid var(--border-color)', borderRadius: 8, fontSize: 14, cursor: 'pointer' }}>{tr('cancel')}</button>
+              <button
+                disabled={diaryBusy || !diaryPwd}
+                onClick={async () => {
+                  setDiaryBusy(true);
+                  const ok = await deleteGuild(confirmDiary.id, diaryPwd);
+                  setDiaryBusy(false);
+                  if (ok) { setConfirmDiary(null); setDiaryPwd(''); setDiaryErr(''); }
+                  else setDiaryErr(tr('pcf_wrong_password'));
+                }}
+                style={{ padding: '8px 18px', background: '#ef4444', color: '#fff', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer', opacity: (diaryBusy || !diaryPwd) ? 0.6 : 1 }}
+              >
+                {diaryBusy ? tr('pcf_deleting') : tr('pcf_delete')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {confirmLeave && (() => {
         const g = confirmLeave;
         const isOwner = !!currentUser && String(g.owner_id) === String(currentUser.id);
-        const ownsChannel = isOwner && g.is_personal_channel;
+        const ownsChannel = isOwner && g.is_personal_channel && !g.is_private;
         return (
           <ConfirmModal
             title={ownsChannel ? tr('guild_delete_channel') : (g.is_personal_channel ? tr('pcf_leave_channel') : tr('guild_leave_server'))}
@@ -567,7 +647,13 @@ export const ServerSidebar: React.FC = () => {
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, 56px)', gap: 10, justifyContent: 'start' }}>
               {f.folder.guilds.map(g => (
-                <div key={g.id} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+                <div
+                  key={g.id}
+                  draggable
+                  onDragStart={e => { setDragKey(`g:${g.id}`); e.dataTransfer.effectAllowed = 'move'; setOpenFolder(null); }}
+                  onDragEnd={() => { setDragKey(null); setDropInfo(null); }}
+                  style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, cursor: 'grab' }}
+                >
                   <div onContextMenu={e => { e.preventDefault(); setOpenFolder(null); setGuildMenu({ guild: g, x: e.clientX, y: e.clientY }); }}>
                     <GuildIcon
                       guild={g}
@@ -579,6 +665,7 @@ export const ServerSidebar: React.FC = () => {
                   <span style={{ fontSize: 10, color: 'var(--text-tertiary)', maxWidth: 56, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textAlign: 'center' }}>{g.name}</span>
                 </div>
               ))}
+              <div style={{ gridColumn: '1 / -1', fontSize: 11, color: 'var(--text-tertiary)', paddingTop: 4 }}>{tr('folder_drag_out_hint')}</div>
             </div>
           </div>
         );

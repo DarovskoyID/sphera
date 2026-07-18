@@ -32,7 +32,7 @@ MAX_UPLOAD_SIZE = 50 * 1024 * 1024  # 50 MB
 MAX_ATTACHMENTS_PER_MESSAGE = 15
 # Per-account caps.
 MAX_PERSONAL_CHANNELS = 3   # personal channels a user may own
-MAX_PRIVATE_NOTES = 5       # private diaries a user may own
+MAX_PRIVATE_NOTES = 1       # a user may own exactly one private diary
 MAX_SERVERS = 5             # (non-personal) servers a user may belong to
 
 
@@ -751,7 +751,7 @@ def guild_list_create(request):
     if is_private:
         if Guild.objects.filter(owner=request.user, is_private=True).count() >= MAX_PRIVATE_NOTES:
             return Response(
-                {'error': 'limit reached', 'detail': f'Можно создать не более {MAX_PRIVATE_NOTES} личных дневников'},
+                {'error': 'limit reached', 'detail': 'Личный дневник может быть только один'},
                 status=status.HTTP_409_CONFLICT,
             )
     elif is_personal:

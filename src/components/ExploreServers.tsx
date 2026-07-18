@@ -367,6 +367,7 @@ export const ExploreServers: React.FC<{ style?: React.CSSProperties }> = ({ styl
             <p style={{ margin: '0 0 16px', fontSize: 14, color: 'rgba(255,255,255,0.6)', lineHeight: 1.5 }}>
               {tr('explore_subtitle')}
             </p>
+            {!guilds.some(g => g.is_private) && (
             <button
               onClick={() => setShowNotes(true)}
               style={{
@@ -378,6 +379,7 @@ export const ExploreServers: React.FC<{ style?: React.CSSProperties }> = ({ styl
             >
               <NotebookPen size={16} /> {isRu ? 'Создать личный дневник' : 'Create personal diary'}
             </button>
+            )}
             <div style={{ position: 'relative', maxWidth: 420 }}>
               <Search size={16} style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', color: 'rgba(255,255,255,0.7)', zIndex: 1 }} />
               <input

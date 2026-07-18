@@ -839,4 +839,7 @@ export const en = {
   folder_name: 'Folder name',
   folder_ungroup: 'Ungroup',
   pcf_diary: 'Personal diary',
+  diary_delete: 'Delete personal diary',
+  diary_delete_hint: 'This permanently deletes your diary and everything in it. Enter your password to confirm.',
+  folder_drag_out_hint: 'Drag a server out of the folder to remove it',
 } as const;
