@@ -823,4 +823,5 @@ export const ru: Translations = {
   diary_add_tag: 'добавьте тег для поиска…',
   diary_save: 'Сохранить (Ctrl+Enter)',
   diary_delete_entry: 'Удалить эту запись? Это действие необратимо.',
+  diary_tag_hint: 'Enter или запятая — добавить',
 };

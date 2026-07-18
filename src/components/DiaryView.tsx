@@ -75,6 +75,7 @@ export const DiaryView: React.FC<{ style?: React.CSSProperties }> = ({ style }) 
   const [tagDraft, setTagDraft] = useState('');
   const [sending, setSending] = useState(false);
   const [attachMenu, setAttachMenu] = useState(false);
+  const [showTag, setShowTag] = useState(false);
   const [richType, setRichType] = useState<RichMessageType | null>(null);
   const [confirmDel, setConfirmDel] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -265,7 +266,7 @@ export const DiaryView: React.FC<{ style?: React.CSSProperties }> = ({ style }) 
                 </div>
               </>
             )}
-            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 6, background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 12, padding: '6px 10px' }}>
+            <div style={{ flex: 1, minWidth: 0, background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 12, padding: '9px 12px' }}>
               <textarea
                 ref={taRef}
                 value={text}
@@ -275,17 +276,34 @@ export const DiaryView: React.FC<{ style?: React.CSSProperties }> = ({ style }) 
                 rows={1}
                 style={{ resize: 'none', minHeight: 22, maxHeight: 160, overflowY: 'auto', border: 'none', background: 'transparent', color: 'var(--text-primary)', fontSize: 14, lineHeight: 1.45, outline: 'none', width: '100%', fontFamily: 'inherit', display: 'block' }}
               />
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, borderTop: '1px solid var(--border-color)', paddingTop: 5 }}>
-                <Tag size={13} style={{ color: 'var(--text-tertiary)', flexShrink: 0 }} />
-                <input
-                  value={tagDraft}
-                  onChange={e => setTagDraft(e.target.value)}
-                  onKeyDown={e => { if ((e.key === 'Enter' || e.key === ',' || e.key === ' ') && tagDraft.trim()) { e.preventDefault(); addTag(tagDraft); } else if (e.key === 'Backspace' && !tagDraft && tags.length) { setTags(prev => prev.slice(0, -1)); } }}
-                  placeholder={tr('diary_add_tag')}
-                  style={{ flex: 1, minWidth: 0, border: 'none', background: 'transparent', color: 'var(--text-secondary)', fontSize: 12, outline: 'none' }}
-                />
-              </div>
             </div>
+            {/* Tag button — opens a compact input so the tag field is never in the way. */}
+            <button onClick={() => setShowTag(v => !v)} title={tr('diary_add_tag')} style={{ position: 'relative', background: showTag ? 'rgba(139,92,246,0.18)' : 'var(--bg-secondary)', border: `1px solid ${showTag ? '#a855f7' : 'var(--border-color)'}`, borderRadius: 10, width: 40, height: 40, flexShrink: 0, cursor: 'pointer', color: showTag ? '#a855f7' : 'var(--text-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <Tag size={18} />
+              {tags.length > 0 && <span style={{ position: 'absolute', top: -5, right: -5, minWidth: 16, height: 16, padding: '0 4px', borderRadius: 8, background: '#a855f7', color: '#fff', fontSize: 10, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{tags.length}</span>}
+            </button>
+            {showTag && (
+              <>
+                <div style={{ position: 'fixed', inset: 0, zIndex: 40 }} onClick={() => setShowTag(false)} />
+                <div style={{ position: 'absolute', bottom: '100%', right: 52, marginBottom: 8, zIndex: 41, width: 240, background: 'var(--bg-secondary)', borderRadius: 10, padding: 10, border: '1px solid var(--border-color)', boxShadow: '0 8px 24px rgba(0,0,0,.35)' }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: .3, textTransform: 'uppercase', color: 'var(--text-muted, #949ba4)', marginBottom: 6 }}>{tr('pcf_tags')}</div>
+                  {tags.length > 0 && (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+                      <TagChips tags={tags} onRemove={t => setTags(prev => prev.filter(x => x !== t))} />
+                    </div>
+                  )}
+                  <input
+                    autoFocus
+                    value={tagDraft}
+                    onChange={e => setTagDraft(e.target.value)}
+                    onKeyDown={e => { if ((e.key === 'Enter' || e.key === ',') && tagDraft.trim()) { e.preventDefault(); addTag(tagDraft); } else if (e.key === 'Backspace' && !tagDraft && tags.length) { setTags(prev => prev.slice(0, -1)); } }}
+                    placeholder={tr('diary_add_tag')}
+                    style={{ width: '100%', padding: '7px 9px', borderRadius: 8, border: '1px solid var(--border-color)', background: 'var(--bg-tertiary)', color: 'var(--text-primary)', fontSize: 13, outline: 'none', boxSizing: 'border-box' }}
+                  />
+                  <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 5 }}>{tr('diary_tag_hint')}</div>
+                </div>
+              </>
+            )}
             <button onClick={() => void post()} disabled={sending || (!text.trim() && files.length === 0)} title={tr('diary_save')} style={{ background: 'var(--accent-primary)', border: 'none', borderRadius: 10, width: 44, height: 40, flexShrink: 0, cursor: 'pointer', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: (sending || (!text.trim() && files.length === 0)) ? 0.6 : 1 }}>
               <Send size={17} />
             </button>
