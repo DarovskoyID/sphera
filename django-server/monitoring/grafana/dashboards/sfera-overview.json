@@ -590,7 +590,7 @@
       }
     },
     {
-      "title": "Infrastructure Status",
+      "title": "БД: нод подключено",
       "type": "stat",
       "gridPos": {
         "h": 4,
@@ -626,27 +626,56 @@
                 "value": 1
               }
             ]
+          },
+          "unit": "short",
+          "color": {
+            "mode": "thresholds"
           }
         }
       },
       "targets": [
         {
-          "expr": "min(sfera_db_connected)",
-          "legendFormat": "Database",
           "refId": "A",
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
-          }
+          },
+          "expr": "sum(sfera_db_connected)",
+          "legendFormat": "вкл",
+          "instant": true
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "count(sfera_db_connected)",
+          "legendFormat": "всего",
+          "instant": true
         }
       ],
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
+      },
+      "description": "Сколько нод кластера имеют это подключение (вкл / всего).",
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "textMode": "value_and_name",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
       }
     },
     {
-      "title": "Redis Status",
+      "title": "Redis: нод подключено",
       "type": "stat",
       "gridPos": {
         "h": 4,
@@ -682,27 +711,56 @@
                 "value": 1
               }
             ]
+          },
+          "unit": "short",
+          "color": {
+            "mode": "thresholds"
           }
         }
       },
       "targets": [
         {
-          "expr": "min(sfera_redis_connected)",
-          "legendFormat": "Redis",
           "refId": "A",
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
-          }
+          },
+          "expr": "sum(sfera_redis_connected)",
+          "legendFormat": "вкл",
+          "instant": true
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "count(sfera_redis_connected)",
+          "legendFormat": "всего",
+          "instant": true
         }
       ],
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
+      },
+      "description": "Сколько нод кластера имеют это подключение (вкл / всего).",
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "textMode": "value_and_name",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
       }
     },
     {
-      "title": "Kafka Status",
+      "title": "Kafka: нод подключено",
       "type": "stat",
       "gridPos": {
         "h": 4,
@@ -738,23 +796,52 @@
                 "value": 1
               }
             ]
+          },
+          "unit": "short",
+          "color": {
+            "mode": "thresholds"
           }
         }
       },
       "targets": [
         {
-          "expr": "min(sfera_kafka_connected)",
-          "legendFormat": "Kafka",
           "refId": "A",
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
-          }
+          },
+          "expr": "sum(sfera_kafka_connected)",
+          "legendFormat": "вкл",
+          "instant": true
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "count(sfera_kafka_connected)",
+          "legendFormat": "всего",
+          "instant": true
         }
       ],
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
+      },
+      "description": "Сколько нод кластера имеют это подключение (вкл / всего).",
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "textMode": "value_and_name",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
       }
     },
     {
