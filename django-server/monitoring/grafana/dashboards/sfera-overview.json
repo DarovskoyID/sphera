@@ -29,10 +29,10 @@
         "name": "max_ops",
         "label": "Макс. операций/сек",
         "type": "constant",
-        "query": "40",
+        "query": "50",
         "current": {
-          "text": "40",
-          "value": "40"
+          "text": "50",
+          "value": "50"
         },
         "hide": 0
       },

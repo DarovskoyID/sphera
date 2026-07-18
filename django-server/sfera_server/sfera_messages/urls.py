@@ -1,11 +1,32 @@
+from functools import wraps
+
+from asgiref.sync import sync_to_async
 from django.urls import path
 from . import views
 
+
+def par(view):
+    """Run a hot sync DRF view in asgiref's thread pool instead of the single
+    thread-sensitive ASGI thread, so requests to it process concurrently.
+
+    Django wraps plain sync views with sync_to_async(thread_sensitive=True) →
+    they all serialize on one thread (throughput ≈ 1/latency). Returning a
+    coroutine here makes Django await it directly; the DRF view then runs in a
+    genuine worker thread (thread_sensitive=False) exactly like under WSGI —
+    concurrency is bounded by the pool (~cpu+4), keeping DB connections in check.
+    Only apply to hot, self-contained read/write endpoints."""
+    @wraps(view)
+    async def _wrapped(request, *args, **kwargs):
+        return await sync_to_async(view, thread_sensitive=False)(request, *args, **kwargs)
+    _wrapped.csrf_exempt = getattr(view, 'csrf_exempt', True)
+    return _wrapped
+
+
 urlpatterns = [
-    path('conversations/', views.conversation_list),
+    path('conversations/', par(views.conversation_list)),
     path('conversations/create/', views.conversation_create),
-    path('conversations/<uuid:conversation_id>/messages/', views.message_list),
-    path('conversations/<uuid:conversation_id>/messages/send/', views.send_message),
+    path('conversations/<uuid:conversation_id>/messages/', par(views.message_list)),
+    path('conversations/<uuid:conversation_id>/messages/send/', par(views.send_message)),
     path('conversations/<uuid:conversation_id>/delete/', views.conversation_delete),
     path('conversations/<uuid:conversation_id>/upload/', views.upload_attachment),
     path('conversations/<uuid:conversation_id>/schedule/', views.schedule_message),
@@ -18,7 +39,7 @@ urlpatterns = [
     path('messages/<uuid:message_id>/report/', views.report_message),
 
     # Rich messages in DMs (checklist / contact / location)
-    path('conversations/<uuid:conversation_id>/rich/', views.conversation_rich_send),
+    path('conversations/<uuid:conversation_id>/rich/', par(views.conversation_rich_send)),
     path('messages/<uuid:message_id>/todo/toggle/', views.dm_todo_toggle),
     path('messages/<uuid:message_id>/location/', views.dm_location_update),
     path('scheduled/<uuid:scheduled_id>/', views.cancel_scheduled_message),
@@ -27,7 +48,7 @@ urlpatterns = [
     path('server-layout/', views.server_layout),
 
     # Guilds (servers)
-    path('guilds/', views.guild_list_create),
+    path('guilds/', par(views.guild_list_create)),
     path('guilds/explore/', views.guild_explore),
     path('guilds/join/', views.guild_join),
     path('guilds/<uuid:guild_id>/', views.guild_detail),
@@ -40,27 +61,27 @@ urlpatterns = [
     path('guilds/<uuid:guild_id>/notifications/', views.guild_toggle_notifications),
     path('guilds/<uuid:guild_id>/channels/', views.guild_channel_list_create),
     path('guilds/<uuid:guild_id>/channels/<uuid:channel_id>/', views.guild_channel_detail),
-    path('guilds/<uuid:guild_id>/channels/<uuid:channel_id>/messages/', views.guild_channel_messages),
-    path('guilds/<uuid:guild_id>/channels/<uuid:channel_id>/messages/send/', views.guild_channel_send),
+    path('guilds/<uuid:guild_id>/channels/<uuid:channel_id>/messages/', par(views.guild_channel_messages)),
+    path('guilds/<uuid:guild_id>/channels/<uuid:channel_id>/messages/send/', par(views.guild_channel_send)),
     path('guilds/<uuid:guild_id>/messages/<uuid:message_id>/', views.guild_message_delete),
     path('guilds/<uuid:guild_id>/messages/<uuid:message_id>/pin/', views.guild_message_pin),
-    path('guilds/<uuid:guild_id>/messages/<uuid:message_id>/reactions/', views.guild_message_reaction),
+    path('guilds/<uuid:guild_id>/messages/<uuid:message_id>/reactions/', par(views.guild_message_reaction)),
 
     # Rich messages in guild channels (poll / checklist / contact / location)
-    path('guilds/<uuid:guild_id>/channels/<uuid:channel_id>/rich/', views.guild_channel_rich_send),
-    path('guilds/<uuid:guild_id>/messages/<uuid:message_id>/poll/vote/', views.guild_poll_vote),
+    path('guilds/<uuid:guild_id>/channels/<uuid:channel_id>/rich/', par(views.guild_channel_rich_send)),
+    path('guilds/<uuid:guild_id>/messages/<uuid:message_id>/poll/vote/', par(views.guild_poll_vote)),
     path('guilds/<uuid:guild_id>/messages/<uuid:message_id>/poll/voters/', views.guild_poll_voters),
     path('guilds/<uuid:guild_id>/messages/<uuid:message_id>/poll/close/', views.guild_poll_close),
-    path('guilds/<uuid:guild_id>/messages/<uuid:message_id>/todo/toggle/', views.guild_todo_toggle),
+    path('guilds/<uuid:guild_id>/messages/<uuid:message_id>/todo/toggle/', par(views.guild_todo_toggle)),
     path('guilds/<uuid:guild_id>/messages/<uuid:message_id>/location/', views.guild_location_update),
-    path('guilds/<uuid:guild_id>/messages/<uuid:message_id>/view/', views.guild_message_view),
+    path('guilds/<uuid:guild_id>/messages/<uuid:message_id>/view/', par(views.guild_message_view)),
     path('search/messages/', views.search_messages_view),
-    path('guilds/<uuid:guild_id>/messages/<uuid:message_id>/comments/', views.guild_message_comments),
+    path('guilds/<uuid:guild_id>/messages/<uuid:message_id>/comments/', par(views.guild_message_comments)),
     path('guilds/<uuid:guild_id>/comments/<uuid:comment_id>/', views.guild_comment_delete),
     path('guilds/<uuid:guild_id>/channels/<uuid:channel_id>/upload/', views.guild_upload_attachment),
     path('guilds/<uuid:guild_id>/channels/<uuid:channel_id>/schedule/', views.guild_schedule_message),
     path('guild-attachments/<uuid:attachment_id>/', views.guild_download_attachment),
-    path('guilds/<uuid:guild_id>/voice-presence/', views.guild_voice_presence),
+    path('guilds/<uuid:guild_id>/voice-presence/', par(views.guild_voice_presence)),
     path('guilds/<uuid:guild_id>/emojis/', views.guild_emojis),
     path('guilds/<uuid:guild_id>/emojis/<uuid:emoji_id>/', views.guild_emoji_delete),
     path('guilds/<uuid:guild_id>/stickers/', views.guild_stickers),

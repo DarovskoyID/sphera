@@ -61,6 +61,56 @@ def _gw_broadcast(channel, message):
         _gw_redis_conn.publish(channel, json.dumps(message))
     except Exception:
         _gw_redis_conn = None
+
+
+# Realtime fanout is best-effort and must NOT block the HTTP request: the channel
+# layer group_send does a Redis round-trip and, under ASGI, sync views serialize
+# on one thread, so doing it inline caps write throughput. We offload it to a
+# small background pool and return immediately.
+from concurrent.futures import ThreadPoolExecutor as _ThreadPoolExecutor
+_FANOUT_POOL = _ThreadPoolExecutor(max_workers=4, thread_name_prefix='fanout')
+
+
+def _do_fanout(group, channel_event, gw_payload):
+    try:
+        async_to_sync(get_channel_layer().group_send)(group, channel_event)
+    except Exception:
+        pass
+    if gw_payload is not None:
+        _gw_broadcast(group, gw_payload)
+
+
+def _fanout(group, channel_event, gw_payload):
+    """Fire-and-forget realtime fanout (channel layer + gateway) off the request
+    thread. channel_event is the wrapped event the Channels consumer expects;
+    gw_payload is the raw payload the Rust gateway clients expect (pass None to
+    skip the gateway leg)."""
+    try:
+        _FANOUT_POOL.submit(_do_fanout, group, channel_event, gw_payload)
+    except Exception:
+        _do_fanout(group, channel_event, gw_payload)
+
+
+def _fanout_user_notifs(user_ids, notification):
+    """Fire-and-forget per-user notification fanout (a Redis round-trip each),
+    off the request thread."""
+    def _run():
+        cl = get_channel_layer()
+        for uid in user_ids:
+            try:
+                async_to_sync(cl.group_send)(
+                    f'user_{uid}', {'type': 'new.message.notification', 'data': notification}
+                )
+            except Exception:
+                pass
+    if not user_ids:
+        return
+    try:
+        _FANOUT_POOL.submit(_run)
+    except Exception:
+        _run()
+
+
 BLOCKED_UPLOAD_TYPES = {
     'application/javascript',
     'application/x-javascript',
@@ -391,12 +441,7 @@ def send_message(request, conversation_id):
         'is_pinned': False,
     }
 
-    channel_layer = get_channel_layer()
-    async_to_sync(channel_layer.group_send)(
-        f'chat_{conversation_id}',
-        {'type': 'chat_message', 'message': msg_payload},
-    )
-    _gw_broadcast(f'chat_{conversation_id}', msg_payload)
+    _fanout(f'chat_{conversation_id}', {'type': 'chat_message', 'message': msg_payload}, msg_payload)
 
     sender_name = user_data.get('nickname') or user_data.get('username', '')
     notif_content = content if content else ('\U0001f4ce Attachment' if attachment_ids else '')
@@ -409,11 +454,7 @@ def send_message(request, conversation_id):
     other_ids = list(
         convo.participants.exclude(id=request.user.id).values_list('id', flat=True)
     )
-    for pid in other_ids:
-        async_to_sync(channel_layer.group_send)(
-            f'user_{pid}',
-            {'type': 'new.message.notification', 'data': notification},
-        )
+    _fanout_user_notifs(other_ids, notification)
 
     return Response(msg_payload, status=status.HTTP_201_CREATED)
 
@@ -1549,13 +1590,9 @@ def guild_channel_send(request, guild_id, channel_id):
         'views': 0,
         'comments_count': 0,
     }
-    async_to_sync(get_channel_layer().group_send)(
-        f'guild_channel_{channel_id}',
-        {'type': 'chat_message', 'message': payload},
-    )
     # Gateway clients receive the raw message payload (the consumer's chat_message
-    # handler sends event['message'] as-is).
-    _gw_broadcast(f'guild_channel_{channel_id}', payload)
+    # handler sends event['message'] as-is); offloaded so the write returns fast.
+    _fanout(f'guild_channel_{channel_id}', {'type': 'chat_message', 'message': payload}, payload)
     return Response(payload, status=status.HTTP_201_CREATED)
 
 
@@ -2055,10 +2092,8 @@ def guild_message_reaction(request, guild_id, message_id):
         added = True
 
     reactions = _aggregate_reactions(msg.reactions.all(), request.user)
-    channel_layer = get_channel_layer()
     evt = {'type': 'reaction_update', 'message_id': str(message_id), 'reactions': reactions}
-    async_to_sync(channel_layer.group_send)(f'guild_channel_{msg.channel_id}', evt)
-    _gw_broadcast(f'guild_channel_{msg.channel_id}', evt)
+    _fanout(f'guild_channel_{msg.channel_id}', evt, evt)
     return Response({'added': added, 'reactions': reactions})
 
 
@@ -2117,11 +2152,9 @@ def guild_message_comments(request, guild_id, message_id):
     comment.content = content[:2000]
     comment.save()
     comment_payload = _comment_data(comment)
-    # Real-time: notify everyone viewing the channel/feed.
-    channel_layer = get_channel_layer()
+    # Real-time: notify everyone viewing the channel/feed (offloaded).
     evt = {'type': 'comment_added', 'message_id': str(msg.id), 'comment': comment_payload}
-    async_to_sync(channel_layer.group_send)(f'guild_channel_{msg.channel_id}', evt)
-    _gw_broadcast(f'guild_channel_{msg.channel_id}', evt)
+    _fanout(f'guild_channel_{msg.channel_id}', evt, evt)
     return Response(comment_payload, status=status.HTTP_201_CREATED)
 
 
@@ -2268,8 +2301,7 @@ def _guild_rich_payload(msg, caption):
 def _broadcast(group, event):
     """For update events (poll/todo/location): both transports carry the event
     dict as-is, same as reaction_update."""
-    async_to_sync(get_channel_layer().group_send)(group, event)
-    _gw_broadcast(group, event)
+    _fanout(group, event, event)
 
 
 def _broadcast_message(group, msg_payload):
@@ -2277,10 +2309,7 @@ def _broadcast_message(group, msg_payload):
     corrupts the client's message list: the channel layer takes a wrapped event
     (the consumer re-sends event['message']), while gateway clients must get the
     raw payload. Same convention as send_message / guild_channel_send."""
-    async_to_sync(get_channel_layer().group_send)(
-        group, {'type': 'chat_message', 'message': msg_payload}
-    )
-    _gw_broadcast(group, msg_payload)
+    _fanout(group, {'type': 'chat_message', 'message': msg_payload}, msg_payload)
 
 
 @api_view(['POST'])
