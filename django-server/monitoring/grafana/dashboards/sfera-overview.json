@@ -76,7 +76,7 @@
         "uid": "${datasource}"
       },
       "gridPos": {
-        "h": 5,
+        "h": 6,
         "w": 6,
         "x": 0,
         "y": 1
@@ -136,7 +136,7 @@
         "uid": "${datasource}"
       },
       "gridPos": {
-        "h": 5,
+        "h": 6,
         "w": 6,
         "x": 6,
         "y": 1
@@ -196,7 +196,7 @@
         "uid": "${datasource}"
       },
       "gridPos": {
-        "h": 5,
+        "h": 6,
         "w": 6,
         "x": 12,
         "y": 1
@@ -256,10 +256,10 @@
         "uid": "${datasource}"
       },
       "gridPos": {
-        "h": 4,
+        "h": 5,
         "w": 6,
         "x": 0,
-        "y": 6
+        "y": 7
       },
       "fieldConfig": {
         "defaults": {
@@ -300,10 +300,10 @@
         "uid": "${datasource}"
       },
       "gridPos": {
-        "h": 4,
+        "h": 5,
         "w": 6,
         "x": 6,
-        "y": 6
+        "y": 7
       },
       "fieldConfig": {
         "defaults": {
@@ -344,10 +344,10 @@
         "uid": "${datasource}"
       },
       "gridPos": {
-        "h": 4,
+        "h": 5,
         "w": 6,
         "x": 12,
-        "y": 6
+        "y": 7
       },
       "fieldConfig": {
         "defaults": {
@@ -388,7 +388,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 10
+        "y": 12
       },
       "panels": []
     },
@@ -404,7 +404,7 @@
         "h": 7,
         "w": 8,
         "x": 0,
-        "y": 11
+        "y": 13
       },
       "fieldConfig": {
         "defaults": {
@@ -460,7 +460,7 @@
         "h": 7,
         "w": 8,
         "x": 8,
-        "y": 11
+        "y": 13
       },
       "fieldConfig": {
         "defaults": {
@@ -525,7 +525,7 @@
         "h": 7,
         "w": 8,
         "x": 16,
-        "y": 11
+        "y": 13
       },
       "fieldConfig": {
         "defaults": {
@@ -581,7 +581,7 @@
         "h": 7,
         "w": 12,
         "x": 0,
-        "y": 18
+        "y": 20
       },
       "fieldConfig": {
         "defaults": {
@@ -625,7 +625,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 25
+        "y": 27
       },
       "panels": []
     },
@@ -638,10 +638,10 @@
         "uid": "${datasource}"
       },
       "gridPos": {
-        "h": 4,
+        "h": 5,
         "w": 6,
         "x": 0,
-        "y": 26
+        "y": 28
       },
       "fieldConfig": {
         "defaults": {
@@ -682,10 +682,10 @@
         "uid": "${datasource}"
       },
       "gridPos": {
-        "h": 4,
+        "h": 5,
         "w": 6,
         "x": 6,
-        "y": 26
+        "y": 28
       },
       "fieldConfig": {
         "defaults": {
@@ -726,10 +726,10 @@
         "uid": "${datasource}"
       },
       "gridPos": {
-        "h": 4,
+        "h": 5,
         "w": 6,
         "x": 12,
-        "y": 26
+        "y": 28
       },
       "fieldConfig": {
         "defaults": {
@@ -770,10 +770,10 @@
         "uid": "${datasource}"
       },
       "gridPos": {
-        "h": 4,
+        "h": 5,
         "w": 6,
         "x": 18,
-        "y": 26
+        "y": 28
       },
       "fieldConfig": {
         "defaults": {
@@ -814,10 +814,10 @@
         "uid": "${datasource}"
       },
       "gridPos": {
-        "h": 4,
+        "h": 5,
         "w": 8,
         "x": 0,
-        "y": 30
+        "y": 33
       },
       "fieldConfig": {
         "defaults": {
@@ -882,10 +882,10 @@
         "uid": "${datasource}"
       },
       "gridPos": {
-        "h": 4,
+        "h": 5,
         "w": 8,
         "x": 8,
-        "y": 30
+        "y": 33
       },
       "fieldConfig": {
         "defaults": {
@@ -950,10 +950,10 @@
         "uid": "${datasource}"
       },
       "gridPos": {
-        "h": 4,
+        "h": 5,
         "w": 8,
         "x": 16,
-        "y": 30
+        "y": 33
       },
       "fieldConfig": {
         "defaults": {
@@ -1018,39 +1018,44 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 34
+        "y": 38
       },
       "panels": []
     },
     {
       "id": 122,
       "title": "Строк в БД по таблицам",
-      "type": "barchart",
+      "type": "bargauge",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
       },
       "gridPos": {
-        "h": 8,
+        "h": 10,
         "w": 12,
         "x": 0,
-        "y": 35
+        "y": 39
       },
       "fieldConfig": {
         "defaults": {
           "unit": "short",
           "color": {
-            "mode": "palette-classic"
+            "mode": "continuous-GrYlRd"
           }
         },
         "overrides": []
       },
       "options": {
         "orientation": "horizontal",
+        "displayMode": "gradient",
+        "showUnfilled": true,
+        "valueMode": "color",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
-          ]
+          ],
+          "fields": "",
+          "values": false
         }
       },
       "targets": [
@@ -1061,7 +1066,8 @@
             "uid": "${datasource}"
           },
           "expr": "max by (table) (sfera_db_rows)",
-          "legendFormat": "{{table}}"
+          "legendFormat": "{{table}}",
+          "instant": true
         }
       ]
     },
@@ -1077,7 +1083,7 @@
         "h": 7,
         "w": 12,
         "x": 0,
-        "y": 43
+        "y": 49
       },
       "fieldConfig": {
         "defaults": {
@@ -1124,7 +1130,7 @@
         "h": 7,
         "w": 24,
         "x": 0,
-        "y": 50
+        "y": 56
       },
       "fieldConfig": {
         "defaults": {
@@ -1204,7 +1210,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 57
+        "y": 63
       },
       "panels": []
     },
@@ -1220,7 +1226,7 @@
         "h": 7,
         "w": 12,
         "x": 0,
-        "y": 58
+        "y": 64
       },
       "fieldConfig": {
         "defaults": {
@@ -1276,7 +1282,7 @@
         "h": 7,
         "w": 12,
         "x": 12,
-        "y": 58
+        "y": 64
       },
       "fieldConfig": {
         "defaults": {
@@ -1323,7 +1329,7 @@
         "h": 7,
         "w": 12,
         "x": 0,
-        "y": 65
+        "y": 71
       },
       "fieldConfig": {
         "defaults": {
@@ -1370,7 +1376,7 @@
         "h": 7,
         "w": 12,
         "x": 12,
-        "y": 65
+        "y": 71
       },
       "fieldConfig": {
         "defaults": {
