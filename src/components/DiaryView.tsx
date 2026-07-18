@@ -86,16 +86,16 @@ export const DiaryView: React.FC<{ style?: React.CSSProperties }> = ({ style }) 
     const el = taRef.current;
     if (!el) return;
     el.style.height = 'auto';
-    el.style.height = Math.min(el.scrollHeight, 160) + 'px';
+    el.style.height = Math.min(el.scrollHeight, 134) + 'px';
   }, [text]);
 
   const gid = currentGuild?.id;
   const cid = currentGuildChannel?.id;
   const scope = gid && cid ? { kind: 'guild' as const, guildId: gid, channelId: cid } : null;
 
-  // Entries newest-first for a journal feel.
+  // Oldest first → newest at the bottom, like a journal / chat.
   const entries = useMemo(() => {
-    const list = [...guildMessages].sort((a, b) => b.created_at.localeCompare(a.created_at));
+    const list = [...guildMessages].sort((a, b) => a.created_at.localeCompare(b.created_at));
     const q = query.trim().toLowerCase();
     if (!q) return list;
     const bare = q.replace(/^#/, '');
@@ -104,6 +104,13 @@ export const DiaryView: React.FC<{ style?: React.CSSProperties }> = ({ style }) 
       (m.tags || []).some(t => t.toLowerCase().includes(bare))
     );
   }, [guildMessages, query]);
+
+  // Keep the newest entry in view (initial load + when a new one arrives).
+  const scrollRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [guildMessages.length]);
 
   const addTag = (raw: string) => {
     const t = raw.trim().replace(/^#/, '').slice(0, 30);
@@ -175,7 +182,7 @@ export const DiaryView: React.FC<{ style?: React.CSSProperties }> = ({ style }) 
       </div>
 
       {/* Timeline */}
-      <div style={{ flex: 1, overflowY: 'auto', padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: 14, alignItems: 'center' }}>
+      <div ref={scrollRef} style={{ flex: 1, overflowY: 'auto', padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: 14, alignItems: 'center' }}>
         {entries.length === 0 && (
           <div style={{ marginTop: 60, color: 'var(--text-tertiary)', textAlign: 'center' }}>
             <NotebookPen size={40} style={{ opacity: 0.4, marginBottom: 10 }} />
@@ -251,60 +258,62 @@ export const DiaryView: React.FC<{ style?: React.CSSProperties }> = ({ style }) 
           )}
           <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, position: 'relative' }}>
             <input ref={fileRef} type="file" multiple hidden accept="image/*,video/*,audio/*" onChange={e => { if (e.target.files) setFiles(prev => [...prev, ...Array.from(e.target.files!)]); e.target.value = ''; }} />
-            <button onClick={() => setAttachMenu(v => !v)} title={tr('pcf_add')} style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 10, width: 40, height: 40, flexShrink: 0, cursor: 'pointer', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <Plus size={20} />
-            </button>
-            {attachMenu && (
-              <>
-                <div style={{ position: 'fixed', inset: 0, zIndex: 40 }} onClick={() => setAttachMenu(false)} />
-                <div style={{ position: 'absolute', bottom: '100%', left: 0, marginBottom: 8, zIndex: 41, background: 'var(--bg-secondary)', borderRadius: 10, padding: 5, minWidth: 190, border: '1px solid var(--border-color)', boxShadow: '0 8px 24px rgba(0,0,0,.35)' }}>
-                  {attachItems.map(it => (
-                    <button key={it.key} onClick={() => { setAttachMenu(false); it.run(); }} style={{ display: 'flex', alignItems: 'center', gap: 9, width: '100%', padding: '8px 10px', borderRadius: 7, border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--text-primary)', fontSize: 14, textAlign: 'left' }}>
-                      {it.icon}{it.label}
-                    </button>
-                  ))}
-                </div>
-              </>
-            )}
-            <div style={{ flex: 1, minWidth: 0, background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 12, padding: '9px 12px' }}>
+            <div className="composer-bar">
+              <button className="composer-icon-btn" title={tr('pcf_add')} onClick={() => setAttachMenu(v => !v)}>
+                <Plus size={20} />
+              </button>
+              {attachMenu && (
+                <>
+                  <div style={{ position: 'fixed', inset: 0, zIndex: 40 }} onClick={() => setAttachMenu(false)} />
+                  <div style={{ position: 'absolute', bottom: '100%', left: 0, marginBottom: 8, zIndex: 41, background: 'var(--bg-secondary)', borderRadius: 10, padding: 5, minWidth: 190, border: '1px solid var(--border-color)', boxShadow: '0 8px 24px rgba(0,0,0,.35)' }}>
+                    {attachItems.map(it => (
+                      <button key={it.key} onClick={() => { setAttachMenu(false); it.run(); }} style={{ display: 'flex', alignItems: 'center', gap: 9, width: '100%', padding: '8px 10px', borderRadius: 7, border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--text-primary)', fontSize: 14, textAlign: 'left' }}>
+                        {it.icon}{it.label}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
               <textarea
                 ref={taRef}
+                className="composer-input"
                 value={text}
                 onChange={e => setText(e.target.value)}
                 onKeyDown={e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); void post(); } }}
                 placeholder={tr('diary_write')}
                 rows={1}
-                style={{ resize: 'none', minHeight: 22, maxHeight: 160, overflowY: 'auto', border: 'none', background: 'transparent', color: 'var(--text-primary)', fontSize: 14, lineHeight: 1.45, outline: 'none', width: '100%', fontFamily: 'inherit', display: 'block' }}
               />
+              <button className="composer-icon-btn" title={tr('diary_add_tag')} onClick={() => setShowTag(v => !v)} style={{ position: 'relative', color: showTag ? '#a855f7' : undefined }}>
+                <Tag size={19} />
+                {tags.length > 0 && <span style={{ position: 'absolute', top: 0, right: 0, minWidth: 15, height: 15, padding: '0 3px', borderRadius: 8, background: '#a855f7', color: '#fff', fontSize: 9, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{tags.length}</span>}
+              </button>
+              {showTag && (
+                <>
+                  <div style={{ position: 'fixed', inset: 0, zIndex: 40 }} onClick={() => { if (tagDraft.trim()) addTag(tagDraft); setShowTag(false); }} />
+                  <div style={{ position: 'absolute', bottom: '100%', right: 0, marginBottom: 10, zIndex: 41, width: 240, background: 'var(--bg-secondary)', borderRadius: 10, padding: 10, border: '1px solid var(--border-color)', boxShadow: '0 8px 24px rgba(0,0,0,.35)' }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: .3, textTransform: 'uppercase', color: 'var(--text-muted, #949ba4)', marginBottom: 6 }}>{tr('pcf_tags')}</div>
+                    {tags.length > 0 && (
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+                        <TagChips tags={tags} onRemove={t => setTags(prev => prev.filter(x => x !== t))} />
+                      </div>
+                    )}
+                    <input
+                      autoFocus
+                      value={tagDraft}
+                      onChange={e => setTagDraft(e.target.value)}
+                      // No physical Enter on mobile — a space commits the tag, and
+                      // whatever's left is committed on blur / when the popover closes.
+                      onKeyDown={e => { if ((e.key === 'Enter' || e.key === ',' || e.key === ' ') && tagDraft.trim()) { e.preventDefault(); addTag(tagDraft); } else if (e.key === 'Backspace' && !tagDraft && tags.length) { setTags(prev => prev.slice(0, -1)); } }}
+                      onBlur={() => { if (tagDraft.trim()) addTag(tagDraft); }}
+                      placeholder={tr('diary_add_tag')}
+                      style={{ width: '100%', padding: '7px 9px', borderRadius: 8, border: '1px solid var(--border-color)', background: 'var(--bg-tertiary)', color: 'var(--text-primary)', fontSize: 13, outline: 'none', boxSizing: 'border-box' }}
+                    />
+                    <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 5 }}>{tr('diary_tag_hint')}</div>
+                  </div>
+                </>
+              )}
             </div>
-            {/* Tag button — opens a compact input so the tag field is never in the way. */}
-            <button onClick={() => setShowTag(v => !v)} title={tr('diary_add_tag')} style={{ position: 'relative', background: showTag ? 'rgba(139,92,246,0.18)' : 'var(--bg-secondary)', border: `1px solid ${showTag ? '#a855f7' : 'var(--border-color)'}`, borderRadius: 10, width: 40, height: 40, flexShrink: 0, cursor: 'pointer', color: showTag ? '#a855f7' : 'var(--text-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <Tag size={18} />
-              {tags.length > 0 && <span style={{ position: 'absolute', top: -5, right: -5, minWidth: 16, height: 16, padding: '0 4px', borderRadius: 8, background: '#a855f7', color: '#fff', fontSize: 10, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{tags.length}</span>}
-            </button>
-            {showTag && (
-              <>
-                <div style={{ position: 'fixed', inset: 0, zIndex: 40 }} onClick={() => setShowTag(false)} />
-                <div style={{ position: 'absolute', bottom: '100%', right: 52, marginBottom: 8, zIndex: 41, width: 240, background: 'var(--bg-secondary)', borderRadius: 10, padding: 10, border: '1px solid var(--border-color)', boxShadow: '0 8px 24px rgba(0,0,0,.35)' }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: .3, textTransform: 'uppercase', color: 'var(--text-muted, #949ba4)', marginBottom: 6 }}>{tr('pcf_tags')}</div>
-                  {tags.length > 0 && (
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
-                      <TagChips tags={tags} onRemove={t => setTags(prev => prev.filter(x => x !== t))} />
-                    </div>
-                  )}
-                  <input
-                    autoFocus
-                    value={tagDraft}
-                    onChange={e => setTagDraft(e.target.value)}
-                    onKeyDown={e => { if ((e.key === 'Enter' || e.key === ',') && tagDraft.trim()) { e.preventDefault(); addTag(tagDraft); } else if (e.key === 'Backspace' && !tagDraft && tags.length) { setTags(prev => prev.slice(0, -1)); } }}
-                    placeholder={tr('diary_add_tag')}
-                    style={{ width: '100%', padding: '7px 9px', borderRadius: 8, border: '1px solid var(--border-color)', background: 'var(--bg-tertiary)', color: 'var(--text-primary)', fontSize: 13, outline: 'none', boxSizing: 'border-box' }}
-                  />
-                  <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 5 }}>{tr('diary_tag_hint')}</div>
-                </div>
-              </>
-            )}
-            <button onClick={() => void post()} disabled={sending || (!text.trim() && files.length === 0)} title={tr('diary_save')} style={{ background: 'var(--accent-primary)', border: 'none', borderRadius: 10, width: 44, height: 40, flexShrink: 0, cursor: 'pointer', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: (sending || (!text.trim() && files.length === 0)) ? 0.6 : 1 }}>
+            <button className="composer-send-btn" onClick={() => void post()} disabled={sending || (!text.trim() && files.length === 0)} title={tr('diary_save')} style={{ padding: '0 16px', opacity: (sending || (!text.trim() && files.length === 0)) ? 0.6 : 1 }}>
               <Send size={17} />
             </button>
           </div>

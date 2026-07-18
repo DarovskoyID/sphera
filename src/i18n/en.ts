@@ -851,5 +851,5 @@ export const en = {
   diary_add_tag: 'add a tag for search…',
   diary_save: 'Save (Ctrl+Enter)',
   diary_delete_entry: 'Delete this note? This cannot be undone.',
-  diary_tag_hint: 'Enter or comma to add',
+  diary_tag_hint: 'Space, Enter or comma to add',
 } as const;
