@@ -60,8 +60,47 @@ except Exception:
     pass
 
 
+# Cumulative request/WS counters must be shared across Daphne worker processes
+# (each process has its own memory), otherwise /metrics on one worker only sees a
+# fraction of traffic. We keep the source of truth in Redis (INCR) and read the
+# global value at emit time; the local dict is a best-effort fallback.
+_redis_metrics = None
+_RKEY = 'sfera:m:'
+
+
+def _rconn():
+    global _redis_metrics
+    if _redis_metrics is None:
+        import redis as _redis
+        _redis_metrics = _redis.Redis.from_url(
+            os.environ.get('REDIS_URL', 'redis://127.0.0.1:6379/0'),
+            socket_connect_timeout=1, socket_timeout=1,
+        )
+    return _redis_metrics
+
+
+def _rinc(name, amount=1):
+    try:
+        _rconn().incrby(_RKEY + name, amount)
+    except Exception:
+        globals()['_redis_metrics'] = None
+
+
+def _cval(name):
+    """Global cumulative counter value across worker processes (Redis), falling
+    back to this process's local count if Redis is unreachable."""
+    try:
+        v = _rconn().get(_RKEY + name)
+        if v is not None:
+            return int(v)
+    except Exception:
+        globals()['_redis_metrics'] = None
+    return _counters.get(name, 0)
+
+
 def inc(name, amount=1):
     _counters[name] = _counters.get(name, 0) + amount
+    _rinc(name, amount)
 
 
 def observe(name, value):
@@ -576,9 +615,9 @@ def prometheus_metrics(request):
     gauge('sfera_disk_percent', sys_stats['disk']['percent'], 'Disk usage percent')
     gauge('sfera_uptime_seconds', int(time.time() - _counters['startup_time']), 'Server uptime')
 
-    # HTTP
-    counter('sfera_http_requests_total', _counters.get('http_requests_total', 0), 'Total HTTP requests')
-    counter('sfera_http_errors_5xx_total', _counters.get('http_errors_5xx', 0), 'Total 5xx errors')
+    # HTTP (cross-process totals from Redis)
+    counter('sfera_http_requests_total', _cval('http_requests_total'), 'Total HTTP requests')
+    counter('sfera_http_errors_5xx_total', _cval('http_errors_5xx'), 'Total 5xx errors')
 
     req_stats = _request_stats()
     if req_stats['count'] > 0:
@@ -586,10 +625,10 @@ def prometheus_metrics(request):
         gauge('sfera_http_latency_p95_ms', req_stats['latency']['p95_ms'], 'HTTP p95 latency ms')
         gauge('sfera_http_latency_p99_ms', req_stats['latency']['p99_ms'], 'HTTP p99 latency ms')
 
-    # WebSocket
-    counter('sfera_ws_connections_total', _counters.get('ws_connections_total', 0), 'Total WS connections')
-    counter('sfera_ws_messages_received_total', _counters.get('ws_messages_received', 0), 'Total WS messages received')
-    counter('sfera_ws_messages_sent_total', _counters.get('ws_messages_sent', 0), 'Total WS messages sent')
+    # WebSocket (cross-process totals from Redis)
+    counter('sfera_ws_connections_total', _cval('ws_connections_total'), 'Total WS connections')
+    counter('sfera_ws_messages_received_total', _cval('ws_messages_received'), 'Total WS messages received')
+    counter('sfera_ws_messages_sent_total', _cval('ws_messages_sent'), 'Total WS messages sent')
 
     ws = _ws_stats()
     gauge('sfera_voice_channels_active', ws['voice_channels_active'], 'Active voice channels')
