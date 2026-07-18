@@ -31,9 +31,11 @@ from .voice_state import _voice_channels
 MAX_UPLOAD_SIZE = 50 * 1024 * 1024  # 50 MB
 MAX_ATTACHMENTS_PER_MESSAGE = 15
 # Per-account caps.
-MAX_PERSONAL_CHANNELS = 3   # personal channels a user may own
+MAX_PERSONAL_CHANNELS = 3   # personal channels a user may CREATE (own)
 MAX_PRIVATE_NOTES = 1       # a user may own exactly one private diary
-MAX_SERVERS = 5             # (non-personal) servers a user may belong to
+MAX_OWNED_SERVERS = 5       # (non-personal) servers a user may CREATE (own)
+MAX_JOINED_SERVERS = 75     # (non-personal) servers a user may belong to
+MAX_JOINED_CHANNELS = 75    # personal channels a user may subscribe to
 
 
 _gw_redis_conn = None
@@ -761,9 +763,10 @@ def guild_list_create(request):
                 status=status.HTTP_409_CONFLICT,
             )
     else:
-        if GuildMembership.objects.filter(user=request.user, guild__is_personal_channel=False).count() >= MAX_SERVERS:
+        # Creating a server is limited by how many you OWN, not how many you're in.
+        if Guild.objects.filter(owner=request.user, is_personal_channel=False).count() >= MAX_OWNED_SERVERS:
             return Response(
-                {'error': 'limit reached', 'detail': f'Можно состоять максимум в {MAX_SERVERS} серверах'},
+                {'error': 'limit reached', 'detail': f'Можно создать не более {MAX_OWNED_SERVERS} серверов'},
                 status=status.HTTP_409_CONFLICT,
             )
     guild = Guild.objects.create(
@@ -1086,14 +1089,21 @@ def guild_join(request):
     if blocked_exists:
         return Response({'error': 'You cannot join this server'}, status=status.HTTP_403_FORBIDDEN)
 
-    # Cap the number of (non-personal) servers a user can belong to.
+    # Cap how many servers / channels a user can belong to (join, not create).
     already_member = GuildMembership.objects.filter(guild=guild, user=request.user).exists()
-    if not already_member and not guild.is_personal_channel:
-        if GuildMembership.objects.filter(user=request.user, guild__is_personal_channel=False).count() >= MAX_SERVERS:
-            return Response(
-                {'error': 'limit reached', 'detail': f'Можно состоять максимум в {MAX_SERVERS} серверах'},
-                status=status.HTTP_409_CONFLICT,
-            )
+    if not already_member:
+        if guild.is_personal_channel:
+            if GuildMembership.objects.filter(user=request.user, guild__is_personal_channel=True).count() >= MAX_JOINED_CHANNELS:
+                return Response(
+                    {'error': 'limit reached', 'detail': f'Можно подписаться максимум на {MAX_JOINED_CHANNELS} каналов'},
+                    status=status.HTTP_409_CONFLICT,
+                )
+        else:
+            if GuildMembership.objects.filter(user=request.user, guild__is_personal_channel=False).count() >= MAX_JOINED_SERVERS:
+                return Response(
+                    {'error': 'limit reached', 'detail': f'Можно состоять максимум в {MAX_JOINED_SERVERS} серверах'},
+                    status=status.HTTP_409_CONFLICT,
+                )
 
     membership, created = GuildMembership.objects.get_or_create(guild=guild, user=request.user, defaults={'role': 'member'})
     if custom_invite and created:
