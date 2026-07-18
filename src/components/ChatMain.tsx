@@ -1016,6 +1016,7 @@ const MediaLightbox: React.FC<{
   onClose: () => void;
   onDownloadAll: () => void;
 }> = ({ items, index, onIndex, onClose, onDownloadAll }) => {
+  const tr = useTranslation();
   const { authToken, currentServerIP } = useApp();
   const att = items[index];
   const blobUrl = useAuthObjectUrl(att.url);
@@ -1053,6 +1054,7 @@ const MediaLightbox: React.FC<{
 };
 
 const MediaGallery: React.FC<{ items: ChatAttachment[] }> = ({ items }) => {
+  const tr = useTranslation();
   const { authToken, currentServerIP } = useApp();
   const [lightbox, setLightbox] = useState<number | null>(null);
   const downloadAll = useCallback(async () => {
