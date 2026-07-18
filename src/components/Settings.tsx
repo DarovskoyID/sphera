@@ -1219,6 +1219,7 @@ const FormattingSettings: React.FC = () => {
     { syntax: '> цитата', example: '> Это цитата' },
     { syntax: '- пункт', example: '- Первый\n- Второй\n- Третий' },
     { syntax: '||спойлер||', example: '||скрытый текст||' },
+    { syntax: '| A | B |', example: '| Имя | Возраст |\n| Иван | 20 |\n| Аня | 25 |' },
   ];
   const labels: Record<string, string> = {
     '**текст**': isRu ? 'Жирный' : 'Bold',
@@ -1231,6 +1232,7 @@ const FormattingSettings: React.FC = () => {
     '> цитата': isRu ? 'Цитата' : 'Quote',
     '- пункт': isRu ? 'Маркированный список' : 'Bulleted list',
     '||спойлер||': isRu ? 'Скрытый текст (спойлер)' : 'Spoiler',
+    '| A | B |': isRu ? 'Таблица (первая строка — заголовок)' : 'Table (first row is the header)',
   };
 
   return (

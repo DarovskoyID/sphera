@@ -735,9 +735,53 @@ export function renderRichText(text: string, customEmojis: CustomEmoji[], member
       );
       continue;
     }
+    // Table: consecutive pipe-wrapped rows.  | Name | Age |
+    // The first row is the header; a separator row (| --- | --- |) is ignored.
+    if (/^\s*\|.*\|\s*$/.test(line) && (line.match(/\|/g) || []).length >= 2) {
+      const rows: string[][] = [];
+      while (i < lines.length && /^\s*\|.*\|\s*$/.test(lines[i]) && (lines[i].match(/\|/g) || []).length >= 2) {
+        const cells = lines[i].trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map(c => c.trim());
+        // Skip a markdown separator row like | --- | :---: |
+        if (!cells.every(c => c === '' || /^:?-{2,}:?$/.test(c))) rows.push(cells);
+        i++;
+      }
+      if (rows.length) {
+        const cols = Math.max(...rows.map(r => r.length));
+        blocks.push(
+          <div key={`b${start}`} style={{ overflowX: 'auto', margin: '4px 0', maxWidth: '100%' }}>
+            <table style={{ borderCollapse: 'collapse', fontSize: '0.95em' }}>
+              <tbody>
+                {rows.map((r, ri) => (
+                  <tr key={ri}>
+                    {Array.from({ length: cols }).map((_, ci) => {
+                      const isHead = ri === 0;
+                      const Cell = isHead ? 'th' : 'td';
+                      return (
+                        <Cell
+                          key={ci}
+                          style={{
+                            border: '1px solid var(--border-color)', padding: '5px 10px',
+                            textAlign: 'left', fontWeight: isHead ? 700 : 400,
+                            background: isHead ? 'var(--bg-tertiary)' : 'transparent',
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          {inline(r[ci] ?? '', `b${start}-${ri}-${ci}`)}
+                        </Cell>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        );
+        continue;
+      }
+    }
     // Normal text (group consecutive non-special lines, preserve newlines)
     const norm: string[] = [];
-    const isSpecial = (l: string) => l.trim().startsWith('```') || /^#\s+/.test(l) || /^>\s?/.test(l) || /^[-*]\s+/.test(l);
+    const isSpecial = (l: string) => l.trim().startsWith('```') || /^#\s+/.test(l) || /^>\s?/.test(l) || /^[-*]\s+/.test(l) || (/^\s*\|.*\|\s*$/.test(l) && (l.match(/\|/g) || []).length >= 2);
     while (i < lines.length && !isSpecial(lines[i])) { norm.push(lines[i]); i++; }
     blocks.push(<React.Fragment key={`b${start}`}>{inline(norm.join('\n'), `b${start}`)}</React.Fragment>);
   }
