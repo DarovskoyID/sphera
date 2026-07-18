@@ -27,6 +27,17 @@ function AuthMedia({ url, contentType, filename }: { url: string; contentType: s
   return <a href={blob} download={filename} style={{ color: 'var(--accent-primary)', fontSize: 13 }}>{filename}</a>;
 }
 
+function useIsMobile() {
+  const [m, setM] = useState(() => typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches);
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 768px)');
+    const h = (e: MediaQueryListEvent) => setM(e.matches);
+    mq.addEventListener('change', h);
+    return () => mq.removeEventListener('change', h);
+  }, []);
+  return m;
+}
+
 function entryDate(iso: string) {
   return new Date(iso).toLocaleString(undefined, { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
@@ -55,6 +66,7 @@ export const DiaryView: React.FC<{ style?: React.CSSProperties }> = ({ style }) 
     votePoll, closePoll, toggleTodoItem, pushLiveLocation, fetchPollVoters,
   } = useApp();
   const tr = useTranslation();
+  const isMobile = useIsMobile();
 
   const [query, setQuery] = useState('');
   const [text, setText] = useState('');
@@ -131,7 +143,7 @@ export const DiaryView: React.FC<{ style?: React.CSSProperties }> = ({ style }) 
   ] as const;
 
   return (
-    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'var(--bg-primary)', ...style }}>
+    <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'var(--bg-primary)', height: isMobile ? 'calc(100% - 60px)' : '100%', minHeight: 0, ...style }}>
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 20px', borderBottom: '1px solid var(--border-color)', flexShrink: 0 }}>
         <div style={{ width: 34, height: 34, borderRadius: 10, background: 'linear-gradient(135deg,#a855f7,#7c3aed)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
