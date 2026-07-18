@@ -435,6 +435,7 @@ export const GuildChatMain: React.FC = () => {
   const prevLenRef = useRef(0);
   const wasAtBottom = useRef(true);
   const loadingOlderRef = useRef(false);
+  const lastMsgIdRef = useRef<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pickerButtonRef = useRef<HTMLButtonElement>(null);
   const stickerSendGuard = useRef(false);
@@ -475,7 +476,14 @@ export const GuildChatMain: React.FC = () => {
     const added = guildMessages.length - prevLenRef.current;
     const shouldStickToBottom = wasAtBottom.current;
     prevLenRef.current = guildMessages.length;
-    if (added <= 0 || loadingOlderRef.current) return;
+
+    // Timing-proof "is this actually new?" check: only a changed tail id means a
+    // message arrived at the bottom. Prepended history (scroll-up load) grows the
+    // list without a new tail, so it must not bump the unread counter.
+    const lastId = guildMessages.length ? String(guildMessages[guildMessages.length - 1].id) : null;
+    const appendedAtBottom = lastId !== lastMsgIdRef.current;
+    lastMsgIdRef.current = lastId;
+    if (!appendedAtBottom || added <= 0) return;
 
     if (isInitialLoad || shouldStickToBottom) {
       requestAnimationFrame(() => {
@@ -496,6 +504,7 @@ export const GuildChatMain: React.FC = () => {
   useEffect(() => {
     setHasMore(true);
     prevLenRef.current = 0;
+    lastMsgIdRef.current = null;
     wasAtBottom.current = true;
     setAtBottom(true);
     setNewCount(0);

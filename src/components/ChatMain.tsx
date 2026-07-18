@@ -1540,6 +1540,7 @@ const MessagesContainer: React.FC<{
   const wasAtBottom = useRef(true);
   const loadingOlder = useRef(false);
   const prevLenRef = useRef(0);
+  const lastMsgIdRef = useRef<string | null>(null);
   const [ctxMenu, setCtxMenu] = useState<CtxMenu | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [highlightId, setHighlightId] = useState<string | null>(null);
@@ -1561,6 +1562,7 @@ const MessagesContainer: React.FC<{
   // bottom with no stale "new messages" count.
   useEffect(() => {
     prevLenRef.current = 0;
+    lastMsgIdRef.current = null;
     wasAtBottom.current = true;
     setAtBottom(true);
     setNewCount(0);
@@ -1588,7 +1590,15 @@ const MessagesContainer: React.FC<{
     const added = chatMessages.length - prevLenRef.current;
     const shouldStickToBottom = wasAtBottom.current;
     prevLenRef.current = chatMessages.length;
-    if (added <= 0 || loadingOlder.current) return; // older messages prepended, or a deletion
+
+    // Only a message that lands at the BOTTOM is "new". Detect that by the tail
+    // id changing — this is timing-proof, unlike the old loadingOlder flag which
+    // was already reset by the time this effect ran, so prepended history (a
+    // scroll-up load) got miscounted as dozens of unread messages.
+    const lastId = chatMessages.length ? String(chatMessages[chatMessages.length - 1].id) : null;
+    const appendedAtBottom = lastId !== lastMsgIdRef.current;
+    lastMsgIdRef.current = lastId;
+    if (!appendedAtBottom || added <= 0) return; // prepended history, deletion, or replace
 
     if (isInitialLoad || shouldStickToBottom) {
       requestAnimationFrame(() => {
