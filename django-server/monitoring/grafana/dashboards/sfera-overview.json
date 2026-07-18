@@ -278,7 +278,7 @@
       },
       "targets": [
         {
-          "expr": "rate(sfera_http_requests_total[1m])",
+          "expr": "sum(rate(sfera_http_requests_total[1m]))",
           "legendFormat": "requests/s",
           "refId": "A",
           "datasource": {
@@ -287,7 +287,7 @@
           }
         },
         {
-          "expr": "rate(sfera_http_errors_5xx_total[1m])",
+          "expr": "sum(rate(sfera_http_errors_5xx_total[1m]))",
           "legendFormat": "5xx errors/s",
           "refId": "B",
           "datasource": {
@@ -325,7 +325,7 @@
       },
       "targets": [
         {
-          "expr": "sfera_http_latency_p50_ms",
+          "expr": "avg(sfera_http_latency_p50_ms)",
           "legendFormat": "p50",
           "refId": "A",
           "datasource": {
@@ -334,7 +334,7 @@
           }
         },
         {
-          "expr": "sfera_http_latency_p95_ms",
+          "expr": "avg(sfera_http_latency_p95_ms)",
           "legendFormat": "p95",
           "refId": "B",
           "datasource": {
@@ -343,7 +343,7 @@
           }
         },
         {
-          "expr": "sfera_http_latency_p99_ms",
+          "expr": "avg(sfera_http_latency_p99_ms)",
           "legendFormat": "p99",
           "refId": "C",
           "datasource": {
@@ -380,7 +380,7 @@
       },
       "targets": [
         {
-          "expr": "rate(sfera_ws_messages_received_total[1m])",
+          "expr": "sum(rate(sfera_ws_messages_received_total[1m]))",
           "legendFormat": "received/s",
           "refId": "A",
           "datasource": {
@@ -389,7 +389,7 @@
           }
         },
         {
-          "expr": "rate(sfera_ws_messages_sent_total[1m])",
+          "expr": "sum(rate(sfera_ws_messages_sent_total[1m]))",
           "legendFormat": "sent/s",
           "refId": "B",
           "datasource": {
@@ -427,7 +427,7 @@
       },
       "targets": [
         {
-          "expr": "sfera_ws_connections_total",
+          "expr": "sum(sfera_ws_connections_total)",
           "legendFormat": "total connections",
           "refId": "A",
           "datasource": {
@@ -464,7 +464,7 @@
       },
       "targets": [
         {
-          "expr": "sfera_online_users",
+          "expr": "sum(sfera_online_users)",
           "legendFormat": "online",
           "refId": "A",
           "datasource": {
@@ -501,7 +501,7 @@
       },
       "targets": [
         {
-          "expr": "sfera_active_dm_calls",
+          "expr": "sum(sfera_active_dm_calls)",
           "legendFormat": "calls",
           "refId": "A",
           "datasource": {
@@ -538,7 +538,7 @@
       },
       "targets": [
         {
-          "expr": "sfera_voice_channels_active",
+          "expr": "sum(sfera_voice_channels_active)",
           "legendFormat": "channels",
           "refId": "A",
           "datasource": {
@@ -575,7 +575,7 @@
       },
       "targets": [
         {
-          "expr": "sfera_voice_users",
+          "expr": "sum(sfera_voice_users)",
           "legendFormat": "in voice",
           "refId": "A",
           "datasource": {
@@ -631,7 +631,7 @@
       },
       "targets": [
         {
-          "expr": "sfera_db_connected",
+          "expr": "min(sfera_db_connected)",
           "legendFormat": "Database",
           "refId": "A",
           "datasource": {
@@ -687,7 +687,7 @@
       },
       "targets": [
         {
-          "expr": "sfera_redis_connected",
+          "expr": "min(sfera_redis_connected)",
           "legendFormat": "Redis",
           "refId": "A",
           "datasource": {
@@ -743,7 +743,7 @@
       },
       "targets": [
         {
-          "expr": "sfera_kafka_connected",
+          "expr": "min(sfera_kafka_connected)",
           "legendFormat": "Kafka",
           "refId": "A",
           "datasource": {
