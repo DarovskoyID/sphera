@@ -847,7 +847,7 @@ export const en = {
   diary_empty: 'Your diary is empty',
   diary_empty_hint: 'Write your first note below',
   diary_nothing_found: 'Nothing found',
-  diary_write: 'Write a note… (Markdown & code supported)',
+  diary_write: 'Write a note…',
   diary_add_tag: 'add a tag for search…',
   diary_save: 'Save (Ctrl+Enter)',
   diary_delete_entry: 'Delete this note? This cannot be undone.',

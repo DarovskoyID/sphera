@@ -819,7 +819,7 @@ export const ru: Translations = {
   diary_empty: 'Дневник пуст',
   diary_empty_hint: 'Напишите первую запись ниже',
   diary_nothing_found: 'Ничего не найдено',
-  diary_write: 'Напишите заметку… (поддерживается Markdown и код)',
+  diary_write: 'Напишите заметку…',
   diary_add_tag: 'добавьте тег для поиска…',
   diary_save: 'Сохранить (Ctrl+Enter)',
   diary_delete_entry: 'Удалить эту запись? Это действие необратимо.',

@@ -80,6 +80,14 @@ export const DiaryView: React.FC<{ style?: React.CSSProperties }> = ({ style }) 
   const fileRef = useRef<HTMLInputElement>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
 
+  // Auto-grow the note field so it never shows an ugly inner scrollbar.
+  useEffect(() => {
+    const el = taRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = Math.min(el.scrollHeight, 160) + 'px';
+  }, [text]);
+
   const gid = currentGuild?.id;
   const cid = currentGuildChannel?.id;
   const scope = gid && cid ? { kind: 'guild' as const, guildId: gid, channelId: cid } : null;
@@ -265,7 +273,7 @@ export const DiaryView: React.FC<{ style?: React.CSSProperties }> = ({ style }) 
                 onKeyDown={e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); void post(); } }}
                 placeholder={tr('diary_write')}
                 rows={1}
-                style={{ resize: 'none', minHeight: 24, maxHeight: 200, border: 'none', background: 'transparent', color: 'var(--text-primary)', fontSize: 14, outline: 'none', width: '100%', fontFamily: 'inherit' }}
+                style={{ resize: 'none', minHeight: 22, maxHeight: 160, overflowY: 'auto', border: 'none', background: 'transparent', color: 'var(--text-primary)', fontSize: 14, lineHeight: 1.45, outline: 'none', width: '100%', fontFamily: 'inherit', display: 'block' }}
               />
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, borderTop: '1px solid var(--border-color)', paddingTop: 5 }}>
                 <Tag size={13} style={{ color: 'var(--text-tertiary)', flexShrink: 0 }} />
