@@ -836,9 +836,8 @@ def guild_explore(request):
     # Fetch only the columns we serialize — avoids hauling full rows from a huge table.
     base = (
         Guild.objects.filter(is_discoverable=True, is_private=False)
-        # Official servers first, then by popularity.
         .annotate(member_count=Count('memberships'))
-        .order_by('-is_official', '-member_count')
+        .order_by('-member_count')
         .only('id', 'name', 'description', 'icon', 'banner', 'invite_code', 'tags', 'tag', 'is_personal_channel', 'is_official')
     )
 
