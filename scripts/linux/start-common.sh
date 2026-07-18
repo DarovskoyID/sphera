@@ -210,12 +210,16 @@ server {
         proxy_set_header X-Forwarded-Proto https;
     }
 
+    # Encrypted chat attachments are served only via /api/attachments/ (auth +
+    # decryption) — never directly.
+    location /media/attachments/ { return 404; }
+    # Public media (icons, avatars, banners, emojis) as static files — Django does
+    # not serve media when DEBUG=0, so nginx must.
     location /media/ {
-        proxy_pass http://$DJANGO_PROXY_HOST:$DJANGO_PORT;
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto https;
+        alias $WEB_ROOT/media/;
+        expires 7d;
+        add_header Cache-Control "public";
+        access_log off;
     }
 
     # WebSocket идёт через балансировщик нагрузки (loadbalancer/ -> ws-gateway)
@@ -360,12 +364,12 @@ server {
         proxy_set_header X-Forwarded-Proto http;
     }
 
+    location /media/attachments/ { return 404; }
     location /media/ {
-        proxy_pass http://$DJANGO_PROXY_HOST:$DJANGO_PORT;
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto http;
+        alias $WEB_ROOT/media/;
+        expires 7d;
+        add_header Cache-Control "public";
+        access_log off;
     }
 
     # WebSocket идёт через балансировщик нагрузки (loadbalancer/ -> ws-gateway)
@@ -1005,8 +1009,20 @@ build_frontend() {
     npm run build
 
     sudo install -d -m 0755 "$WEB_ROOT"
-    sudo find "$WEB_ROOT" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+    # Wipe the old build but keep media/ in place.
+    sudo find "$WEB_ROOT" -mindepth 1 -maxdepth 1 -not -name media -exec rm -rf {} +
     sudo cp -a "$FRONTEND_DIR/dist/." "$WEB_ROOT/"
+
+    # Media must live under the web root: Django does not serve it when DEBUG=0,
+    # and nginx (unprivileged) often cannot read a project under /root. Keep the
+    # files in $WEB_ROOT/media and symlink so Django's MEDIA_ROOT still resolves.
+    sudo install -d -m 0755 "$WEB_ROOT/media"
+    if [ -d "$DJANGO_DIR/media" ] && [ ! -L "$DJANGO_DIR/media" ]; then
+        sudo cp -a "$DJANGO_DIR/media/." "$WEB_ROOT/media/" 2>/dev/null || true
+        sudo rm -rf "$DJANGO_DIR/media"
+    fi
+    [ -L "$DJANGO_DIR/media" ] || sudo ln -s "$WEB_ROOT/media" "$DJANGO_DIR/media"
+    sudo chmod -R o+rX "$WEB_ROOT/media"
     echo "      Frontend deployed to $WEB_ROOT"
 }
 
