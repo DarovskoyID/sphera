@@ -50,7 +50,7 @@
   },
   "panels": [
     {
-      "id": 1,
+      "id": 101,
       "title": "НОДА  $instance",
       "type": "row",
       "collapsed": false,
@@ -69,7 +69,7 @@
       "panels": []
     },
     {
-      "id": 2,
+      "id": 102,
       "title": "CPU %",
       "type": "gauge",
       "datasource": {
@@ -129,7 +129,7 @@
       ]
     },
     {
-      "id": 3,
+      "id": 103,
       "title": "Память %",
       "type": "gauge",
       "datasource": {
@@ -189,7 +189,7 @@
       ]
     },
     {
-      "id": 4,
+      "id": 104,
       "title": "Диск %",
       "type": "gauge",
       "datasource": {
@@ -249,16 +249,15 @@
       ]
     },
     {
-      "id": 5,
+      "id": 105,
       "title": "Аптайм",
       "type": "stat",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
       },
-      "description": "",
       "gridPos": {
-        "h": 5,
+        "h": 4,
         "w": 6,
         "x": 18,
         "y": 1
@@ -275,7 +274,6 @@
       "options": {
         "colorMode": "value",
         "graphMode": "area",
-        "justifyMode": "auto",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
@@ -295,17 +293,16 @@
       ]
     },
     {
-      "id": 6,
+      "id": 106,
       "title": "RSS память",
       "type": "stat",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
       },
-      "description": "",
       "gridPos": {
         "h": 4,
-        "w": 4,
+        "w": 6,
         "x": 0,
         "y": 6
       },
@@ -321,7 +318,6 @@
       "options": {
         "colorMode": "value",
         "graphMode": "area",
-        "justifyMode": "auto",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
@@ -341,18 +337,17 @@
       ]
     },
     {
-      "id": 7,
+      "id": 107,
       "title": "Потоки",
       "type": "stat",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
       },
-      "description": "",
       "gridPos": {
         "h": 4,
-        "w": 4,
-        "x": 4,
+        "w": 6,
+        "x": 6,
         "y": 6
       },
       "fieldConfig": {
@@ -367,7 +362,6 @@
       "options": {
         "colorMode": "value",
         "graphMode": "area",
-        "justifyMode": "auto",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
@@ -387,191 +381,7 @@
       ]
     },
     {
-      "id": 8,
-      "title": "Онлайн юзеров",
-      "type": "stat",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${datasource}"
-      },
-      "description": "",
-      "gridPos": {
-        "h": 4,
-        "w": 4,
-        "x": 8,
-        "y": 6
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "color": {
-            "mode": "palette-classic"
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ]
-        },
-        "textMode": "auto"
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "expr": "sfera_online_users{instance=\"$instance\"}"
-        }
-      ]
-    },
-    {
-      "id": 9,
-      "title": "Активных звонков ЛС",
-      "type": "stat",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${datasource}"
-      },
-      "description": "",
-      "gridPos": {
-        "h": 4,
-        "w": 4,
-        "x": 12,
-        "y": 6
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "color": {
-            "mode": "palette-classic"
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ]
-        },
-        "textMode": "auto"
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "expr": "sfera_active_dm_calls{instance=\"$instance\"}"
-        }
-      ]
-    },
-    {
-      "id": 10,
-      "title": "Голос: каналов",
-      "type": "stat",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${datasource}"
-      },
-      "description": "",
-      "gridPos": {
-        "h": 4,
-        "w": 4,
-        "x": 16,
-        "y": 6
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "color": {
-            "mode": "palette-classic"
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ]
-        },
-        "textMode": "auto"
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "expr": "sfera_voice_channels_active{instance=\"$instance\"}"
-        }
-      ]
-    },
-    {
-      "id": 11,
-      "title": "Голос: юзеров",
-      "type": "stat",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${datasource}"
-      },
-      "description": "",
-      "gridPos": {
-        "h": 4,
-        "w": 4,
-        "x": 20,
-        "y": 6
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "color": {
-            "mode": "palette-classic"
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ]
-        },
-        "textMode": "auto"
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "expr": "sfera_voice_users{instance=\"$instance\"}"
-        }
-      ]
-    },
-    {
-      "id": 12,
+      "id": 108,
       "title": "HTTP запросов/сек",
       "type": "timeseries",
       "datasource": {
@@ -627,7 +437,7 @@
       ]
     },
     {
-      "id": 13,
+      "id": 109,
       "title": "Задержка HTTP (ms)",
       "type": "timeseries",
       "datasource": {
@@ -692,7 +502,7 @@
       ]
     },
     {
-      "id": 14,
+      "id": 110,
       "title": "WS сообщений/сек",
       "type": "timeseries",
       "datasource": {
@@ -748,7 +558,7 @@
       ]
     },
     {
-      "id": 15,
+      "id": 111,
       "title": "WS-подключения",
       "type": "timeseries",
       "datasource": {
@@ -756,7 +566,7 @@
         "uid": "${datasource}"
       },
       "gridPos": {
-        "h": 6,
+        "h": 7,
         "w": 12,
         "x": 0,
         "y": 17
@@ -795,19 +605,194 @@
       ]
     },
     {
-      "id": 16,
+      "id": 112,
+      "title": "Онлайн юзеров",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 24
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sfera_online_users{instance=\"$instance\"}"
+        }
+      ]
+    },
+    {
+      "id": 113,
+      "title": "Активных звонков ЛС",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 24
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sfera_active_dm_calls{instance=\"$instance\"}"
+        }
+      ]
+    },
+    {
+      "id": 114,
+      "title": "Голос: каналов",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 24
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sfera_voice_channels_active{instance=\"$instance\"}"
+        }
+      ]
+    },
+    {
+      "id": 115,
+      "title": "Голос: юзеров",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 24
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sfera_voice_users{instance=\"$instance\"}"
+        }
+      ]
+    },
+    {
+      "id": 116,
       "title": "БД",
       "type": "stat",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
       },
-      "description": "1 = подключено",
       "gridPos": {
-        "h": 6,
-        "w": 4,
-        "x": 12,
-        "y": 17
+        "h": 4,
+        "w": 8,
+        "x": 0,
+        "y": 28
       },
       "fieldConfig": {
         "defaults": {
@@ -848,7 +833,6 @@
       "options": {
         "colorMode": "value",
         "graphMode": "none",
-        "justifyMode": "auto",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
@@ -869,19 +853,18 @@
       ]
     },
     {
-      "id": 17,
+      "id": 117,
       "title": "Redis",
       "type": "stat",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
       },
-      "description": "",
       "gridPos": {
-        "h": 6,
-        "w": 4,
-        "x": 16,
-        "y": 17
+        "h": 4,
+        "w": 8,
+        "x": 8,
+        "y": 28
       },
       "fieldConfig": {
         "defaults": {
@@ -922,7 +905,6 @@
       "options": {
         "colorMode": "value",
         "graphMode": "none",
-        "justifyMode": "auto",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
@@ -943,19 +925,18 @@
       ]
     },
     {
-      "id": 18,
+      "id": 118,
       "title": "Kafka",
       "type": "stat",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
       },
-      "description": "",
       "gridPos": {
-        "h": 6,
-        "w": 4,
-        "x": 20,
-        "y": 17
+        "h": 4,
+        "w": 8,
+        "x": 16,
+        "y": 28
       },
       "fieldConfig": {
         "defaults": {
@@ -996,7 +977,6 @@
       "options": {
         "colorMode": "value",
         "graphMode": "none",
-        "justifyMode": "auto",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
@@ -1013,6 +993,728 @@
           },
           "expr": "sfera_kafka_connected{instance=\"$instance\"}",
           "instant": true
+        }
+      ]
+    },
+    {
+      "id": 119,
+      "title": "Строк в БД по таблицам",
+      "type": "barchart",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 32
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "max by (table) (sfera_db_rows)",
+          "legendFormat": "{{table}}"
+        }
+      ]
+    },
+    {
+      "id": 120,
+      "title": "Redis: память",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 32
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 16,
+            "lineWidth": 2,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "max(sfera_redis_memory_bytes)",
+          "legendFormat": "redis mem"
+        }
+      ]
+    },
+    {
+      "id": 121,
+      "title": "Серверов",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 40
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "max(sfera_db_rows{table=\"guilds\"})"
+        }
+      ]
+    },
+    {
+      "id": 122,
+      "title": "Личных каналов",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 40
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "max(sfera_db_rows{table=\"personal_channels\"})"
+        }
+      ]
+    },
+    {
+      "id": 123,
+      "title": "Каналов серверов",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 40
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "max(sfera_db_rows{table=\"guild_channels\"})"
+        }
+      ]
+    },
+    {
+      "id": 124,
+      "title": "Сообщений серв.",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 40
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "max(sfera_db_rows{table=\"guild_messages\"})"
+        }
+      ]
+    },
+    {
+      "id": 125,
+      "title": "Сообщений ЛС",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 44
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "max(sfera_db_rows{table=\"dm_messages\"})"
+        }
+      ]
+    },
+    {
+      "id": 126,
+      "title": "Комментариев",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 44
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "max(sfera_db_rows{table=\"comments\"})"
+        }
+      ]
+    },
+    {
+      "id": 127,
+      "title": "Реакций",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 44
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "max(sfera_db_rows{table=\"reactions\"})"
+        }
+      ]
+    },
+    {
+      "id": 128,
+      "title": "Пользователей",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 44
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "max(sfera_db_rows{table=\"users\"})"
+        }
+      ]
+    },
+    {
+      "id": 129,
+      "title": "Рост контента (строк со временем)",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 24,
+        "x": 0,
+        "y": 48
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 16,
+            "lineWidth": 2,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "max by (table) (sfera_db_rows{table=\"guild_messages\"})",
+          "legendFormat": "guild_messages"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "max by (table) (sfera_db_rows{table=\"dm_messages\"})",
+          "legendFormat": "dm_messages"
+        },
+        {
+          "refId": "C",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "max by (table) (sfera_db_rows{table=\"comments\"})",
+          "legendFormat": "comments"
+        },
+        {
+          "refId": "D",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "max by (table) (sfera_db_rows{table=\"reactions\"})",
+          "legendFormat": "reactions"
+        },
+        {
+          "refId": "E",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "max by (table) (sfera_db_rows{table=\"personal_channels\"})",
+          "legendFormat": "personal_channels"
+        }
+      ]
+    },
+    {
+      "id": 130,
+      "title": "Gateway: сообщений In/сек",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 55
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 16,
+            "lineWidth": 2,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum(rate(wsgw_chat_messages_in_total[1m]))",
+          "legendFormat": "chat in/s"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum(rate(wsgw_guild_messages_in_total[1m]))",
+          "legendFormat": "guild in/s"
+        }
+      ]
+    },
+    {
+      "id": 131,
+      "title": "Gateway: сообщений Out/сек",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 55
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 16,
+            "lineWidth": 2,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum(rate(wsgw_messages_out_total[1m]))",
+          "legendFormat": "out/s"
+        }
+      ]
+    },
+    {
+      "id": 132,
+      "title": "Gateway: активных WS",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 62
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 16,
+            "lineWidth": 2,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum(wsgw_ws_active)",
+          "legendFormat": "ws active"
+        }
+      ]
+    },
+    {
+      "id": 133,
+      "title": "Gateway: Redis fanout/сек",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 62
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 16,
+            "lineWidth": 2,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum(rate(wsgw_redis_received_total[1m]))",
+          "legendFormat": "redis recv/s"
         }
       ]
     }
