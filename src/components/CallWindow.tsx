@@ -933,8 +933,10 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
   const isMobile = useIsMobile();
   // Mobile 1:1 video call: show the peer full-screen with our own camera as a
   // small picture-in-picture in the corner (instead of the side-by-side grid).
-  // Falls back to the grid while screen-sharing. Desktop is unchanged.
-  const mobilePip = isMobile && !inline && !isDemonstrationActive && !remoteScreenActive;
+  // Applies to both the inline (in-chat) and floating call — the .call-window
+  // CSS already makes it fill the screen on mobile. Falls back to the grid while
+  // screen-sharing. Desktop is unchanged.
+  const mobilePip = isMobile && !isDemonstrationActive && !remoteScreenActive;
 
   const videoFill: React.CSSProperties = { width: '100%', height: '100%', objectFit: 'contain', display: 'block' };
   const placeholderStyle: React.CSSProperties = {
@@ -942,7 +944,7 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
     justifyContent: 'center', gap: 8, width: '100%', height: '100%', background: 'var(--bg-tertiary)',
   };
 
-  const outerStyle: React.CSSProperties = (windowExpanded || (isMobile && !inline))
+  const outerStyle: React.CSSProperties = windowExpanded
     ? { position: 'fixed', inset: 0, width: '100vw', height: '100svh', zIndex: 9500, background: 'var(--bg-primary)', display: 'flex', flexDirection: 'column', paddingBottom: 'max(env(safe-area-inset-bottom), 24px)' }
     : inline
       ? { height: 420, background: 'var(--bg-primary)', display: 'flex', flexDirection: 'column' }
