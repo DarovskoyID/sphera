@@ -7,7 +7,7 @@ import { useTranslation } from '../i18n/useTranslation';
 import { languages, type LangCode } from '../i18n';
 import type { ServerUser } from '../types';
 import { saveNotifPrefs, ensureNotificationPermission } from '../utils/notifications';
-import { saveA11yPrefs } from '../utils/accessibility';
+import { saveA11yPrefs, getA11yPrefs, TEXT_SCALE_MIN, TEXT_SCALE_MAX } from '../utils/accessibility';
 import { saveDisplayPrefs } from '../utils/displayPrefs';
 import { setAllowScale } from '../utils/nativeBridge';
 import {
@@ -216,16 +216,16 @@ export const Settings: React.FC = () => {
   // Expose the WebView "allow scale" preference to the native shell.
   useEffect(() => { setAllowScale(s.allow_scale); }, [s.allow_scale]);
 
-  // Mirror + apply accessibility prefs live.
+  // Mirror + apply accessibility prefs live. (Text size is handled separately by
+  // its slider, which writes text_scale/large_text via saveA11yPrefs directly.)
   useEffect(() => {
     saveA11yPrefs({
       high_contrast: s.high_contrast,
       screen_reader: s.screen_reader,
       reduce_motion: s.reduce_motion,
-      large_text: s.large_text,
       keyboard_outlines: s.keyboard_outlines,
     });
-  }, [s.high_contrast, s.screen_reader, s.reduce_motion, s.large_text, s.keyboard_outlines]);
+  }, [s.high_contrast, s.screen_reader, s.reduce_motion, s.keyboard_outlines]);
 
   if (!currentSettingsPage || !loaded) return null;
 
@@ -1491,6 +1491,14 @@ const SpecialSettings: React.FC = () => {
   const tr = useTranslation();
   const isRu = tr('settings_formatting') === 'Подсказки';
   const help: React.CSSProperties = { fontSize: 12, color: 'var(--text-secondary)', margin: '0 0 14px 30px' };
+  const [textScale, setTextScale] = useState(() => getA11yPrefs().text_scale);
+  const onTextScale = (v: number) => {
+    const clamped = Math.min(TEXT_SCALE_MAX, Math.max(TEXT_SCALE_MIN, v));
+    setTextScale(clamped);
+    // Text size is a device-local visual pref; large_text is derived for the
+    // server sync so it still knows the UI is enlarged.
+    saveA11yPrefs({ text_scale: clamped, large_text: clamped > 1.001 });
+  };
   return (
   <section>
     <h1>{tr('sacc_title')}</h1>
@@ -1499,8 +1507,28 @@ const SpecialSettings: React.FC = () => {
     <h3 style={sectionH3}>{isRu ? 'Зрение' : 'Vision'}</h3>
     <Check label={tr('sacc_contrast')} field="high_contrast" />
     <p style={help}>{isRu ? 'Усиливает контраст текста и границ для слабовидящих.' : 'Boosts text and border contrast for low vision.'}</p>
-    <Check label={isRu ? 'Крупный текст' : 'Larger text'} field="large_text" />
-    <p style={help}>{isRu ? 'Увеличивает размер шрифта во всём приложении.' : 'Increases the font size across the whole app.'}</p>
+
+    <div style={{ margin: '4px 0 6px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+        <span>{isRu ? 'Размер шрифта' : 'Text size'}</span>
+        <span style={{ fontVariantNumeric: 'tabular-nums', color: 'var(--text-secondary)', minWidth: 44, textAlign: 'right' }}>
+          {Math.round(textScale * 100)}%
+        </span>
+      </div>
+      <input
+        type="range"
+        min={TEXT_SCALE_MIN}
+        max={TEXT_SCALE_MAX}
+        step={0.05}
+        value={textScale}
+        onChange={(e) => onTextScale(parseFloat(e.target.value))}
+        style={{ width: '100%', accentColor: 'var(--accent-primary, #2563eb)' }}
+        aria-label={isRu ? 'Размер шрифта' : 'Text size'}
+      />
+    </div>
+    <p style={help}>{isRu
+      ? 'Плавно увеличивает размер шрифта во всём приложении (100–150%). На телефоне текст по умолчанию немного крупнее.'
+      : 'Smoothly scales the font size across the whole app (100–150%). On phones text is a touch larger by default.'}</p>
 
     <div style={divider} />
 

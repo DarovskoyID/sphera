@@ -14,29 +14,54 @@
    into desktop mode (hiding mobile-only controls like the chat "back" button)
    while the JS still thinks it's mobile. Zooming <body> keeps the viewport —
    and therefore all breakpoints — intact. */
-html.a11y-large-text {
-  --a11y-zoom: 1.15;
+/* Unified UI scaling (font size). The app uses fixed px sizes, so `zoom` is the
+   only way to scale everything uniformly; --text-scale is driven by the "Text
+   size" slider (see accessibility.ts, default 1). On phones there is an extra
+   +5% base so mobile text is a touch larger out of the box. The two multiply
+   into --ui-zoom, applied once.
+
+   ALL of the zoom CSS is gated on `.ui-zoom-ok` (set by JS only when the browser
+   actually supports `zoom`). On browsers without zoom (older iOS/Firefox) we
+   apply nothing — text stays default size but the layout is NOT shifted, which
+   is what used to break on iPhone. Desktop at the default scale gets no rules at
+   all, so it stays pixel-identical. */
+:root {
+  --text-scale: 1;
+  --mobile-base: 1;
+  --ui-zoom: calc(var(--mobile-base) * var(--text-scale));
 }
 @media (max-width: 768px) {
-  /* Slightly smaller bump on mobile so layouts don't overflow. */
-  html.a11y-large-text {
-    --a11y-zoom: 1.1;
-  }
+  :root { --mobile-base: 1.05; }
 }
-html.a11y-large-text body {
-  zoom: var(--a11y-zoom);
+
+/* Slider raised above default — scale on every platform (zoom-capable only). */
+html.ui-zoom-ok.ui-textscale body {
+  zoom: var(--ui-zoom);
 }
-/* Counter the zoom on the full-screen root so the layout still fits the
-   viewport exactly (size / zoom, then ×zoom = 100vw/100dvh) instead of
-   overflowing off the right/bottom edges. */
-html.a11y-large-text #root {
-  width: calc(100vw / var(--a11y-zoom));
-  height: calc(100dvh / var(--a11y-zoom));
+html.ui-zoom-ok.ui-textscale #root {
+  width: calc(100vw / var(--ui-zoom));
+  height: calc(100dvh / var(--ui-zoom));
   overflow: hidden;
 }
-html.a11y-large-text .app-container {
+html.ui-zoom-ok.ui-textscale .app-container {
   width: 100%;
   height: 100%;
+}
+
+/* Mobile base +5% when the slider is at default (zoom-capable only). */
+@media (max-width: 768px) {
+  html.ui-zoom-ok:not(.ui-textscale) body {
+    zoom: var(--mobile-base);
+  }
+  html.ui-zoom-ok:not(.ui-textscale) #root {
+    width: calc(100vw / var(--mobile-base));
+    height: calc(100dvh / var(--mobile-base));
+    overflow: hidden;
+  }
+  html.ui-zoom-ok:not(.ui-textscale) .app-container {
+    width: 100%;
+    height: 100%;
+  }
 }
 
 /* --- Reduce motion: kill animations/transitions for vestibular comfort ---- */

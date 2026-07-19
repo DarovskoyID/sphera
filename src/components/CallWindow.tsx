@@ -6,6 +6,17 @@ import { getIceServers, getSelectedServerEntry, getResolvedTurn, fetchPoolIceSer
 
 // ── Module-level helpers (never redefined) ────────────────────────────────────
 
+function useIsMobile() {
+  const [mobile, setMobile] = useState(() => typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches);
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 768px)');
+    const handler = () => setMobile(mq.matches);
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  }, []);
+  return mobile;
+}
+
 const UserAvatar = ({ name, avatar, size = 80 }: { name: string; avatar: string; size?: number }) => (
   avatar ? (
     <img src={avatar} alt={name} style={{ width: size, height: size, borderRadius: '50%', objectFit: 'cover', border: '3px solid var(--accent-primary, #5865f2)' }} />
@@ -919,13 +930,19 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
     flexShrink: 0,
   });
 
+  const isMobile = useIsMobile();
+  // Mobile 1:1 video call: show the peer full-screen with our own camera as a
+  // small picture-in-picture in the corner (instead of the side-by-side grid).
+  // Falls back to the grid while screen-sharing. Desktop is unchanged.
+  const mobilePip = isMobile && !inline && !isDemonstrationActive && !remoteScreenActive;
+
   const videoFill: React.CSSProperties = { width: '100%', height: '100%', objectFit: 'contain', display: 'block' };
   const placeholderStyle: React.CSSProperties = {
     display: 'flex', flexDirection: 'column', alignItems: 'center',
     justifyContent: 'center', gap: 8, width: '100%', height: '100%', background: 'var(--bg-tertiary)',
   };
 
-  const outerStyle: React.CSSProperties = windowExpanded
+  const outerStyle: React.CSSProperties = (windowExpanded || (isMobile && !inline))
     ? { position: 'fixed', inset: 0, width: '100vw', height: '100svh', zIndex: 9500, background: 'var(--bg-primary)', display: 'flex', flexDirection: 'column', paddingBottom: 'max(env(safe-area-inset-bottom), 24px)' }
     : inline
       ? { height: 420, background: 'var(--bg-primary)', display: 'flex', flexDirection: 'column' }
@@ -1016,6 +1033,37 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
         </button>
       </div>
 
+      {/* Mobile 1:1: peer full-screen + own camera as corner PiP */}
+      {mobilePip ? (
+      <div style={{ flex: 1, position: 'relative', minHeight: 0, overflow: 'hidden', background: '#000' }}>
+        <video
+          ref={remoteVideoRef} autoPlay muted playsInline
+          style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', display: remoteVideoStatus !== 'off' ? 'block' : 'none' }}
+        />
+        <audio ref={remoteAudioRef} autoPlay playsInline style={{ display: 'none' }} />
+        {remoteVideoStatus === 'off' && (
+          <div style={{ ...placeholderStyle, position: 'absolute', inset: 0 }}>
+            <div style={isRinging ? { animation: 'call-pulse 1.5s ease-in-out infinite' } : undefined}>
+              <UserAvatar name={remoteName} avatar={remoteAvatar} size={72} />
+            </div>
+            <span style={{ color: 'var(--text-primary)', fontWeight: 600, fontSize: 15 }}>{remoteName}</span>
+            <span style={{ color: 'var(--text-secondary)', fontSize: 12 }}>
+              {isRinging ? (tr('call_ringing') || tr('call_calling_you')) : tr('call_video_off')}
+            </span>
+          </div>
+        )}
+        {/* Own camera — picture-in-picture, bottom-right */}
+        <div style={{ position: 'absolute', right: 12, bottom: 12, width: 100, height: 138, borderRadius: 12, overflow: 'hidden', background: 'var(--bg-tertiary)', border: '2px solid rgba(255,255,255,0.18)', boxShadow: '0 4px 16px rgba(0,0,0,0.45)', zIndex: 3 }}>
+          <video ref={cameraVideoRef} autoPlay muted playsInline style={{ width: '100%', height: '100%', objectFit: 'cover', display: isVideoActive ? 'block' : 'none' }} />
+          {!isVideoActive && (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', height: '100%' }}>
+              <UserAvatar name="Me" avatar="" size={34} />
+            </div>
+          )}
+        </div>
+      </div>
+      ) : (
+      <>
       {/* Video grid */}
       <div style={{ flex: 1, display: 'grid', gridTemplateColumns: `repeat(${cols}, 1fr)`, gridAutoRows: '1fr', gap: 3, padding: 3, minHeight: 0, overflow: 'hidden' }}>
         <Tile id="local" label={tr('call_you')} expandedTile={expandedTile} setExpandedTile={setExpandedTile}>
@@ -1060,6 +1108,8 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
           </Tile>
         )}
       </div>
+      </>
+      )}
 
       {/* Controls — pinned to bottom of call window, always visible above system bar */}
       <div style={{ paddingTop: 10, paddingBottom: '10px', width: '100%', display: 'flex', gap: 10, justifyContent: 'center', flexShrink: 0, background: 'var(--bg-secondary)', position: 'relative', zIndex: 5 }}>
