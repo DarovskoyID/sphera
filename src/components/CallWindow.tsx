@@ -937,8 +937,32 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
   // CSS already makes it fill the screen on mobile. Falls back to the grid while
   // screen-sharing. Desktop is unchanged.
   const mobilePip = isMobile && !isDemonstrationActive && !remoteScreenActive;
-  // Which stream fills the screen on mobile (tap the PiP / button to swap).
+  // Which stream fills the screen on mobile (tap the PiP to swap the views).
   const [pipSwapped, setPipSwapped] = useState(false);
+  // Front (user) / back (environment) phone camera. The button flips it by
+  // grabbing a new stream and hot-swapping the outgoing track (replaceTrack).
+  const [facingMode, setFacingMode] = useState<'user' | 'environment'>('user');
+  const switchCamera = async () => {
+    const next = facingMode === 'user' ? 'environment' : 'user';
+    try {
+      const newStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: next } }, audio: false });
+      const newTrack = newStream.getVideoTracks()[0];
+      if (!newTrack) return;
+      const pc = _call.pc;
+      const oldTrack = _call.cameraStream?.getVideoTracks()[0];
+      if (pc && oldTrack) {
+        const sender = pc.getSenders().find(s => s.track?.id === oldTrack.id);
+        if (sender) await sender.replaceTrack(newTrack);
+      }
+      _call.cameraStream?.getTracks().forEach(t => t.stop());
+      _call.cameraStream = newStream;
+      if (cameraVideoRef.current) {
+        cameraVideoRef.current.srcObject = newStream;
+        cameraVideoRef.current.play().catch(() => {});
+      }
+      setFacingMode(next);
+    } catch { /* this device may not have a second camera */ }
+  };
 
   const videoFill: React.CSSProperties = { width: '100%', height: '100%', objectFit: 'contain', display: 'block' };
   const placeholderStyle: React.CSSProperties = {
@@ -1082,14 +1106,17 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
               <UserAvatar name="Me" avatar="" size={bigRemote ? 34 : 72} />
             </div>
           )}
-          {/* Switch-camera button */}
-          <button
-            onClick={swap}
-            title={tr('call_switch_view') || 'Switch'}
-            style={{ position: 'absolute', top: 12, left: 12, zIndex: 5, width: 40, height: 40, borderRadius: '50%', border: 'none', background: 'rgba(0,0,0,0.45)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
-          >
-            <SwitchCamera size={20} />
-          </button>
+          {/* Flip phone camera (front ↔ back) — only meaningful while our
+              camera is on. Tapping the PiP itself swaps the two views. */}
+          {isVideoActive && (
+            <button
+              onClick={switchCamera}
+              title={tr('call_switch_camera')}
+              style={{ position: 'absolute', top: 12, left: 12, zIndex: 5, width: 40, height: 40, borderRadius: '50%', border: 'none', background: 'rgba(0,0,0,0.45)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
+            >
+              <SwitchCamera size={20} />
+            </button>
+          )}
         </div>
         );
       })() : (
