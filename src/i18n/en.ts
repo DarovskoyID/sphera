@@ -497,6 +497,7 @@ export const en = {
   call_you: 'You',
   call_restore: 'Restore window',
   call_maximize: 'Maximize call window',
+  call_switch_view: 'Switch view',
   call_tile_restore: 'Restore',
   call_tile_expand: 'Expand to full window',
   call_info: 'Connection info',

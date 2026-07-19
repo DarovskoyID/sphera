@@ -1,5 +1,5 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
-import { Maximize2, Minimize2, Info } from 'lucide-react';
+import { Maximize2, Minimize2, Info, SwitchCamera } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { useTranslation } from '../i18n/useTranslation';
 import { getIceServers, getSelectedServerEntry, getResolvedTurn, fetchPoolIceServers, pingServer, pingStun, API_BASE_URL, APP_HOST, type ServerEntry } from '../config/network';
@@ -937,6 +937,8 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
   // CSS already makes it fill the screen on mobile. Falls back to the grid while
   // screen-sharing. Desktop is unchanged.
   const mobilePip = isMobile && !isDemonstrationActive && !remoteScreenActive;
+  // Which stream fills the screen on mobile (tap the PiP / button to swap).
+  const [pipSwapped, setPipSwapped] = useState(false);
 
   const videoFill: React.CSSProperties = { width: '100%', height: '100%', objectFit: 'contain', display: 'block' };
   const placeholderStyle: React.CSSProperties = {
@@ -1035,36 +1037,62 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
         </button>
       </div>
 
-      {/* Mobile 1:1: peer full-screen + own camera as corner PiP */}
-      {mobilePip ? (
-      <div style={{ flex: 1, position: 'relative', minHeight: 0, overflow: 'hidden', background: '#000' }}>
-        <video
-          ref={remoteVideoRef} autoPlay muted playsInline
-          style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', display: remoteVideoStatus !== 'off' ? 'block' : 'none' }}
-        />
-        <audio ref={remoteAudioRef} autoPlay playsInline style={{ display: 'none' }} />
-        {remoteVideoStatus === 'off' && (
-          <div style={{ ...placeholderStyle, position: 'absolute', inset: 0 }}>
-            <div style={isRinging ? { animation: 'call-pulse 1.5s ease-in-out infinite' } : undefined}>
-              <UserAvatar name={remoteName} avatar={remoteAvatar} size={72} />
-            </div>
-            <span style={{ color: 'var(--text-primary)', fontWeight: 600, fontSize: 15 }}>{remoteName}</span>
-            <span style={{ color: 'var(--text-secondary)', fontSize: 12 }}>
-              {isRinging ? (tr('call_ringing') || tr('call_calling_you')) : tr('call_video_off')}
-            </span>
-          </div>
-        )}
-        {/* Own camera — picture-in-picture, bottom-right */}
-        <div style={{ position: 'absolute', right: 12, bottom: 12, width: 100, height: 138, borderRadius: 12, overflow: 'hidden', background: 'var(--bg-tertiary)', border: '2px solid rgba(255,255,255,0.18)', boxShadow: '0 4px 16px rgba(0,0,0,0.45)', zIndex: 3 }}>
-          <video ref={cameraVideoRef} autoPlay muted playsInline style={{ width: '100%', height: '100%', objectFit: 'cover', display: isVideoActive ? 'block' : 'none' }} />
-          {!isVideoActive && (
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', height: '100%' }}>
-              <UserAvatar name="Me" avatar="" size={34} />
+      {/* Mobile 1:1: one stream full-screen + the other as a corner PiP.
+          Tap the PiP (or the switch button) to swap which is full-screen. Both
+          <video> elements stay mounted (only their style changes) so their
+          srcObject / playback survive the swap. */}
+      {mobilePip ? (() => {
+        const bigRemote = !pipSwapped;
+        const swap = () => setPipSwapped(v => !v);
+        const fullVideo: React.CSSProperties = { position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' };
+        const pipVideo: React.CSSProperties = { position: 'absolute', right: 12, bottom: 12, width: 100, height: 138, objectFit: 'cover', borderRadius: 12, border: '2px solid rgba(255,255,255,0.18)', boxShadow: '0 4px 16px rgba(0,0,0,0.45)', background: '#000', zIndex: 3, cursor: 'pointer' };
+        const fullPh: React.CSSProperties = { ...placeholderStyle, position: 'absolute', inset: 0 };
+        const pipPh: React.CSSProperties = { position: 'absolute', right: 12, bottom: 12, width: 100, height: 138, borderRadius: 12, border: '2px solid rgba(255,255,255,0.18)', boxShadow: '0 4px 16px rgba(0,0,0,0.45)', background: 'var(--bg-tertiary)', zIndex: 3, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' };
+        const remoteOn = remoteVideoStatus !== 'off';
+        return (
+        <div style={{ flex: 1, position: 'relative', minHeight: 0, overflow: 'hidden', background: '#000' }}>
+          {/* Remote video — always mounted; full or PiP depending on swap */}
+          <video
+            ref={remoteVideoRef} autoPlay muted playsInline onClick={bigRemote ? undefined : swap}
+            style={{ ...(bigRemote ? fullVideo : pipVideo), display: remoteOn ? 'block' : 'none' }}
+          />
+          <audio ref={remoteAudioRef} autoPlay playsInline style={{ display: 'none' }} />
+          {/* Own camera — always mounted; PiP or full depending on swap */}
+          <video
+            ref={cameraVideoRef} autoPlay muted playsInline onClick={bigRemote ? swap : undefined}
+            style={{ ...(bigRemote ? pipVideo : fullVideo), display: isVideoActive ? 'block' : 'none' }}
+          />
+          {/* Remote placeholder (video off) */}
+          {!remoteOn && (
+            <div style={bigRemote ? fullPh : pipPh} onClick={bigRemote ? undefined : swap}>
+              <div style={isRinging ? { animation: 'call-pulse 1.5s ease-in-out infinite' } : undefined}>
+                <UserAvatar name={remoteName} avatar={remoteAvatar} size={bigRemote ? 72 : 34} />
+              </div>
+              {bigRemote && <>
+                <span style={{ color: 'var(--text-primary)', fontWeight: 600, fontSize: 15 }}>{remoteName}</span>
+                <span style={{ color: 'var(--text-secondary)', fontSize: 12 }}>
+                  {isRinging ? (tr('call_ringing') || tr('call_calling_you')) : tr('call_video_off')}
+                </span>
+              </>}
             </div>
           )}
+          {/* Own placeholder (camera off) */}
+          {!isVideoActive && (
+            <div style={bigRemote ? pipPh : fullPh} onClick={bigRemote ? swap : undefined}>
+              <UserAvatar name="Me" avatar="" size={bigRemote ? 34 : 72} />
+            </div>
+          )}
+          {/* Switch-camera button */}
+          <button
+            onClick={swap}
+            title={tr('call_switch_view') || 'Switch'}
+            style={{ position: 'absolute', top: 12, left: 12, zIndex: 5, width: 40, height: 40, borderRadius: '50%', border: 'none', background: 'rgba(0,0,0,0.45)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
+          >
+            <SwitchCamera size={20} />
+          </button>
         </div>
-      </div>
-      ) : (
+        );
+      })() : (
       <>
       {/* Video grid */}
       <div style={{ flex: 1, display: 'grid', gridTemplateColumns: `repeat(${cols}, 1fr)`, gridAutoRows: '1fr', gap: 3, padding: 3, minHeight: 0, overflow: 'hidden' }}>

@@ -70,7 +70,7 @@ html.ui-zoom-ok.ui-textscale .app-container {
      ui-zoom-ok so unzoomed browsers keep the plain 100vw. */
   html.ui-zoom-ok .call-window {
     width: calc(100vw / var(--ui-zoom)) !important;
-    height: calc((100svh - 60px) / var(--ui-zoom)) !important;
+    height: calc(100svh / var(--ui-zoom)) !important;
   }
 }
 

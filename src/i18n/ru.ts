@@ -469,6 +469,7 @@ export const ru: Translations = {
   call_you: 'Вы',
   call_restore: 'Восстановить окно',
   call_maximize: 'Развернуть окно звонка',
+  call_switch_view: 'Переключить камеру',
   call_tile_restore: 'Восстановить',
   call_tile_expand: 'На весь экран',
   call_info: 'Информация о соединении',
