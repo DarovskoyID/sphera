@@ -779,11 +779,21 @@ export function renderRichText(text: string, customEmojis: CustomEmoji[], member
         continue;
       }
     }
-    // Normal text (group consecutive non-special lines, preserve newlines)
+    // Normal text (group consecutive non-special lines; render each newline as a
+    // <br> — a bare "\n" in a <span> collapses to a space otherwise).
     const norm: string[] = [];
     const isSpecial = (l: string) => l.trim().startsWith('```') || /^#\s+/.test(l) || /^>\s?/.test(l) || /^[-*]\s+/.test(l) || (/^\s*\|.*\|\s*$/.test(l) && (l.match(/\|/g) || []).length >= 2);
     while (i < lines.length && !isSpecial(lines[i])) { norm.push(lines[i]); i++; }
-    blocks.push(<React.Fragment key={`b${start}`}>{inline(norm.join('\n'), `b${start}`)}</React.Fragment>);
+    blocks.push(
+      <React.Fragment key={`b${start}`}>
+        {norm.map((l, k) => (
+          <React.Fragment key={k}>
+            {k > 0 && <br />}
+            {inline(l, `b${start}-${k}`)}
+          </React.Fragment>
+        ))}
+      </React.Fragment>
+    );
   }
   return blocks;
 }
