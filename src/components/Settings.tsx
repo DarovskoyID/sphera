@@ -1206,6 +1206,7 @@ const ChatSettings: React.FC = () => {
 const FormattingSettings: React.FC = () => {
   const tr = useTranslation();
   const { customEmojis } = useApp();
+  const isMobile = useIsMobile();
   const isRu = tr('settings_formatting') === 'Подсказки';
 
   const rows: { syntax: string; example: string }[] = [
@@ -1245,13 +1246,22 @@ const FormattingSettings: React.FC = () => {
       </p>
       <div style={{ ...card, marginTop: 16, padding: 0, overflow: 'hidden' }}>
         {rows.map((r, i) => (
-          <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, padding: '12px 16px', borderTop: i ? '1px solid var(--border-color)' : 'none', alignItems: 'center' }}>
+          <div
+            key={i}
+            style={isMobile
+              ? { display: 'flex', flexDirection: 'column', gap: 8, padding: '14px 16px', borderTop: i ? '1px solid var(--border-color)' : 'none' }
+              : { display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, padding: '12px 16px', borderTop: i ? '1px solid var(--border-color)' : 'none', alignItems: 'center' }}
+          >
             <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{labels[r.syntax]}</div>
-            <code style={{ fontSize: 12, fontFamily: 'monospace', color: 'var(--text-secondary)', background: 'var(--bg-tertiary, rgba(0,0,0,0.25))', padding: '4px 8px', borderRadius: 6, whiteSpace: 'pre-wrap' }}>
-              {r.syntax.replace(/\\n/g, '\n')}
-            </code>
-            <div style={{ fontSize: 14, color: 'var(--text-primary)', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-              <MessageText text={r.example} customEmojis={customEmojis} />
+            {/* On mobile, syntax + preview share a wrapping row under the label; on desktop
+                the wrapper is display:contents so both stay direct cells of the 3-col grid. */}
+            <div style={isMobile ? { display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'flex-start' } : { display: 'contents' }}>
+              <code style={{ fontSize: 12, fontFamily: 'monospace', color: 'var(--text-secondary)', background: 'var(--bg-tertiary, rgba(0,0,0,0.25))', padding: '4px 8px', borderRadius: 6, whiteSpace: 'pre-wrap', maxWidth: '100%', flexShrink: 0 }}>
+                {r.syntax.replace(/\\n/g, '\n')}
+              </code>
+              <div style={{ fontSize: 14, color: 'var(--text-primary)', whiteSpace: 'pre-wrap', wordBreak: 'break-word', minWidth: 0, flex: isMobile ? '1 1 140px' : undefined }}>
+                <MessageText text={r.example} customEmojis={customEmojis} />
+              </div>
             </div>
           </div>
         ))}
