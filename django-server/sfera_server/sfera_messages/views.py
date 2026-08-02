@@ -439,6 +439,7 @@ def send_message(request, conversation_id):
         'attachments': attachments_data,
         'reply_to': reply_to_data,
         'is_pinned': False,
+        'edited': False,
     }
 
     _fanout(f'chat_{conversation_id}', {'type': 'chat_message', 'message': msg_payload}, msg_payload)
@@ -472,9 +473,21 @@ def _wipe_files_async(file_fields):
         threading.Thread(target=_run, daemon=True).start()
 
 
-@api_view(['DELETE'])
+@api_view(['PATCH', 'DELETE'])
 @permission_classes([IsAuthenticated])
 def delete_message(request, message_id):
+    if request.method == 'PATCH':
+        try:
+            msg = Message.objects.get(id=message_id, author=request.user)
+        except Message.DoesNotExist:
+            return Response({'error': 'not found or not your message'}, status=status.HTTP_404_NOT_FOUND)
+        try:
+            payload = _apply_message_edit(msg, request.data)
+        except RichError as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        _broadcast(f'chat_{msg.conversation_id}', {'type': 'message_edited', 'message': payload})
+        return Response(payload)
+
     try:
         msg = Message.objects.prefetch_related('attachments').get(id=message_id, author=request.user)
     except Message.DoesNotExist:
@@ -1493,6 +1506,7 @@ def guild_channel_messages(request, guild_id, channel_id):
             'content': m.content,
             'created_at': m.created_at.isoformat(),
             'is_pinned': m.is_pinned,
+            'edited': m.edited,
             'reply_to': {
                 'id': str(m.reply_to.id),
                 'content': m.reply_to.content,
@@ -1573,6 +1587,7 @@ def guild_channel_send(request, guild_id, channel_id):
         'content': content,
         'created_at': msg.created_at.isoformat(),
         'is_pinned': False,
+        'edited': False,
         'tags': tags,
         'reply_to': {
             'id': str(reply_to.id), 'content': reply_to.content,
@@ -1596,7 +1611,7 @@ def guild_channel_send(request, guild_id, channel_id):
     return Response(payload, status=status.HTTP_201_CREATED)
 
 
-@api_view(['DELETE'])
+@api_view(['PATCH', 'DELETE'])
 @permission_classes([IsAuthenticated])
 def guild_message_delete(request, guild_id, message_id):
     try:
@@ -1605,6 +1620,18 @@ def guild_message_delete(request, guild_id, message_id):
         msg = GuildMessage.objects.get(id=message_id, channel__guild=guild)
     except (Guild.DoesNotExist, GuildMembership.DoesNotExist, GuildMessage.DoesNotExist):
         return Response({'error': 'not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    if request.method == 'PATCH':
+        # Editing content is the author's own action (unlike delete, which mods may do).
+        if msg.author_id != request.user.id:
+            return Response({'error': 'forbidden'}, status=status.HTTP_403_FORBIDDEN)
+        try:
+            payload = _apply_message_edit(msg, request.data)
+        except RichError as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        _broadcast(f'guild_channel_{msg.channel_id}', {'type': 'message_edited', 'message': payload})
+        return Response(payload)
+
     if msg.author != request.user and membership.role not in ('owner', 'admin'):
         return Response({'error': 'forbidden'}, status=status.HTTP_403_FORBIDDEN)
     channel_id = msg.channel_id
@@ -2276,6 +2303,7 @@ def _dm_rich_payload(msg, caption):
         'attachments': [],
         'reply_to': None,
         'is_pinned': False,
+        'edited': msg.edited,
         **rich_fields(msg, None),
     }
 
@@ -2294,6 +2322,7 @@ def _guild_rich_payload(msg, caption):
         'views': 0,
         'comments_count': 0,
         'tags': getattr(msg, 'tags', []) or [],
+        'edited': msg.edited,
         **rich_fields(msg, None),
     }
 
@@ -2310,6 +2339,36 @@ def _broadcast_message(group, msg_payload):
     (the consumer re-sends event['message']), while gateway clients must get the
     raw payload. Same convention as send_message / guild_channel_send."""
     _fanout(group, {'type': 'chat_message', 'message': msg_payload}, msg_payload)
+
+
+def _apply_message_edit(msg, data):
+    """Apply an author's edit to a text or rich message in place.
+
+    Polls are never editable. Todos/contacts/locations rebuild their whole payload
+    (full edit); plain text replaces content. Sets edited=True. Raises RichError on
+    bad input. Returns the compact payload the client merges into the message by id.
+    """
+    kind = msg.message_type or 'text'
+    if kind == MESSAGE_TYPE_POLL:
+        raise RichError('polls cannot be edited')
+    update_fields = ['edited']
+    if kind in DM_RICH_TYPES:  # todo / contact / location — replace the payload
+        payload, live_until = _build_rich(kind, data.get('payload') or {})
+        msg.payload = payload
+        msg.live_until = live_until
+        update_fields += ['encrypted_payload', 'live_until']
+        if 'content' in data:
+            msg.content = (data.get('content') or '').strip()[:2000]
+            update_fields.append('encrypted_content')
+    else:  # plain text
+        content = (data.get('content') or '').strip()
+        if not content:
+            raise RichError('empty message')
+        msg.content = content
+        update_fields.append('encrypted_content')
+    msg.edited = True
+    msg.save(update_fields=list(dict.fromkeys(update_fields)))
+    return {'id': str(msg.id), 'content': msg.content, 'edited': True, **rich_fields(msg, None)}
 
 
 @api_view(['POST'])

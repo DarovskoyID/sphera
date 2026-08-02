@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback, useLayoutEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { Phone, PhoneOff, PhoneIncoming, PhoneMissed, Video, Search, Menu, ArrowLeft, Plus, Send, FileText, FileImage, FileVideo, FileAudio, File, Download, X, MoreHorizontal, Reply, Copy, Trash2, Flag, Pin, Ban, Check, CheckCheck, ChevronUp, ChevronDown, Mic, Circle, Play, Square, Pause, CheckSquare, MapPin, User as UserIcon } from 'lucide-react';
+import { Phone, PhoneOff, PhoneIncoming, PhoneMissed, Video, Search, Menu, ArrowLeft, Plus, Send, FileText, FileImage, FileVideo, FileAudio, File, Download, X, MoreHorizontal, Reply, Copy, Trash2, Flag, Pin, Ban, Check, CheckCheck, ChevronUp, ChevronDown, Mic, Circle, Play, Square, Pause, CheckSquare, MapPin, Pencil, User as UserIcon } from 'lucide-react';
+import { MessageEditModal } from './MessageEditModal';
 import type { ChatAttachment, ChatMessage as ChatMessageType } from '../types';
 import { useApp, reportError } from '../context/AppContext';
 import { Settings } from './Settings';
@@ -1163,11 +1164,12 @@ const MessageContextMenu: React.FC<{
   isOwn: boolean;
   onClose: () => void;
   onReply: (msg: ChatMessageType) => void;
+  onEdit: (msg: ChatMessageType) => void;
   onDelete: (id: string) => void;
   onPin: (id: string) => void;
   onReport: (id: string) => void;
   onCopy: (text: string) => void;
-}> = ({ menu, isOwn, onClose, onReply, onDelete, onPin, onReport, onCopy }) => {
+}> = ({ menu, isOwn, onClose, onReply, onEdit, onDelete, onPin, onReport, onCopy }) => {
   const tr = useTranslation();
   const ref = useRef<HTMLDivElement>(null);
 
@@ -1227,6 +1229,8 @@ const MessageContextMenu: React.FC<{
   return (
     <div ref={ref} style={style}>
       {item(<Reply size={15} />, tr('chat_reply'), () => onReply(menu.msg))}
+      {isOwn && (!menu.msg.message_type || menu.msg.message_type === 'text' || menu.msg.message_type === 'todo') &&
+        item(<Pencil size={15} />, tr('chat_edit'), () => onEdit(menu.msg))}
       {item(<Copy size={15} />, tr('chat_copy_text'), () => onCopy(menu.msg.content))}
       {item(<Pin size={15} />, menu.msg.is_pinned ? tr('chat_unpin_msg') : tr('chat_pin'), () => onPin(menu.msg.id))}
       {!isOwn && item(<Flag size={15} />, tr('chat_report'), () => onReport(menu.msg.id))}
@@ -1483,7 +1487,7 @@ const MessageRow = React.memo(({ msg, isOwn, isFirstInGroup, onContextMenu, onRe
                     : <MessageText text={msg.content} customEmojis={customEmojis} />
                   }
                 </span>
-                <span className="message-timestamp">{time}</span>
+                <span className="message-timestamp">{msg.edited && <span style={{ marginRight: 4, opacity: 0.75 }}>{tr('msg_edited')}</span>}{time}</span>
                 {isOwn && <ReadReceipt msg={msg} />}
               </div>
             </div>
@@ -1516,6 +1520,7 @@ const MessageRow = React.memo(({ msg, isOwn, isFirstInGroup, onContextMenu, onRe
           )}
           {!msg.content && ((msg.attachments?.length ?? 0) > 0 || isRichMsg(msg)) && (
             <span className="message-timestamp message-timestamp-standalone">
+              {msg.edited && <span style={{ marginRight: 4, opacity: 0.75 }}>{tr('msg_edited')}</span>}
               {time}
               {isOwn && <ReadReceipt msg={msg} />}
             </span>
@@ -1531,7 +1536,8 @@ const MessagesContainer: React.FC<{
   searchQuery: string;
   scrollToRef?: React.MutableRefObject<((id: string) => void) | null>;
 }> = ({ onReply, searchQuery, scrollToRef }) => {
-  const { chatMessages, userIDonServer, loadOlderMessages, deleteMessage, pinMessage, reportMessage, customEmojis, currentChat, setCallActive, setVideoActive, setCallTargetId } = useApp();
+  const { chatMessages, userIDonServer, loadOlderMessages, deleteMessage, pinMessage, reportMessage, customEmojis, currentChat, chatConversationId, editMessage, setCallActive, setVideoActive, setCallTargetId } = useApp();
+  const [editing, setEditing] = useState<ChatMessageType | null>(null);
   const filteredMessages = searchQuery.trim()
     ? chatMessages.filter(m => m.content?.toLowerCase().includes(searchQuery.toLowerCase()))
     : chatMessages;
@@ -1665,10 +1671,21 @@ const MessagesContainer: React.FC<{
           isOwn={String(ctxMenu.msg.author.id) === String(userIDonServer)}
           onClose={closeCtx}
           onReply={msg => { onReply(msg); closeCtx(); }}
+          onEdit={msg => { setEditing(msg); closeCtx(); }}
           onDelete={id => { closeCtx(); setDeleteConfirmId(id); }}
           onPin={id => pinMessage(id)}
           onReport={id => reportMessage(id)}
           onCopy={text => navigator.clipboard.writeText(text).catch(() => {})}
+        />
+      )}
+      {editing && chatConversationId && (
+        <MessageEditModal
+          msg={editing}
+          onCancel={() => setEditing(null)}
+          onSave={async body => {
+            await editMessage({ kind: 'dm', conversationId: chatConversationId }, editing.id, body);
+            setEditing(null);
+          }}
         />
       )}
       <div className="messages-container" ref={containerRef} onScroll={handleScroll}>

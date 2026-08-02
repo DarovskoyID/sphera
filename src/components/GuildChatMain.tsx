@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback, useLayoutEffect, useMemo } from 'react';
-import { Hash, Send, Pin, Trash2, CornerUpLeft, Plus, MoreHorizontal, X, Download, FileText, FileImage, FileVideo, FileAudio, File, ChevronLeft, ChevronDown, Reply, Copy, Flag, Clock, Ban, UserX, VolumeX, Volume1, User, BarChart3, CheckSquare, MapPin } from 'lucide-react';
+import { Hash, Send, Pin, Trash2, CornerUpLeft, Plus, MoreHorizontal, X, Download, FileText, FileImage, FileVideo, FileAudio, File, ChevronLeft, ChevronDown, Reply, Copy, Flag, Clock, Ban, UserX, VolumeX, Volume1, User, BarChart3, CheckSquare, MapPin, Pencil } from 'lucide-react';
+import { MessageEditModal } from './MessageEditModal';
 import { RichMessage } from './RichMessage';
 import { RichComposer } from './RichComposer';
 import type { RichMessageType, RichPayload } from '../types';
@@ -144,6 +145,7 @@ const GuildMessageContextMenu: React.FC<{
   authorRole: string;
   onClose: () => void;
   onReply: (msg: GuildMessage) => void;
+  onEdit: (msg: GuildMessage) => void;
   onDelete: (id: string) => void;
   onPin: (id: string) => void;
   onCopy: (text: string) => void;
@@ -153,7 +155,7 @@ const GuildMessageContextMenu: React.FC<{
   onMute: (userId: string) => void;
   onUnmute: (userId: string) => void;
   authorMutedUntil?: string | null;
-}> = ({ menu, isOwn, myRole, authorRole, onClose, onReply, onDelete, onPin, onCopy, onProfile, onKick, onBlock, onMute, onUnmute, authorMutedUntil }) => {
+}> = ({ menu, isOwn, myRole, authorRole, onClose, onReply, onEdit, onDelete, onPin, onCopy, onProfile, onKick, onBlock, onMute, onUnmute, authorMutedUntil }) => {
   const tr = useTranslation();
   const ref = useRef<HTMLDivElement>(null);
 
@@ -221,6 +223,8 @@ const GuildMessageContextMenu: React.FC<{
     <div ref={ref} style={style}>
       {item(<User size={15} />, tr('guild_view_profile'), () => onProfile(menu.msg))}
       {item(<Reply size={15} />, tr('chat_reply'), () => onReply(menu.msg))}
+      {isOwn && (!menu.msg.message_type || menu.msg.message_type === 'text' || menu.msg.message_type === 'todo') &&
+        item(<Pencil size={15} />, tr('chat_edit'), () => onEdit(menu.msg))}
       {item(<Copy size={15} />, tr('chat_copy_text'), () => onCopy(menu.msg.content))}
       {canPin && item(<Pin size={15} />, menu.msg.is_pinned ? tr('chat_unpin_msg') : tr('chat_pin'), () => onPin(menu.msg.id))}
       {canDelete && item(<Trash2 size={15} />, tr('chat_delete'), () => onDelete(menu.msg.id), true)}
@@ -359,7 +363,7 @@ const GuildMessageRow = React.memo(({ msg, isOwn, isFirstInGroup, onContextMenu,
                 <span className="message-body">
                   <MessageText text={msg.content} customEmojis={customEmojis} members={members} />
                 </span>
-                <span className="message-timestamp">{time}</span>
+                <span className="message-timestamp">{msg.edited && <span style={{ marginRight: 4, opacity: 0.75 }}>{tr('msg_edited')}</span>}{time}</span>
               </div>
             </div>
           )}
@@ -377,6 +381,7 @@ const GuildMessageRow = React.memo(({ msg, isOwn, isFirstInGroup, onContextMenu,
           ))}
           {!msg.content && ((msg.attachments?.length ?? 0) > 0 || isRichMsg(msg)) && (
             <span className="message-timestamp message-timestamp-standalone">
+              {msg.edited && <span style={{ marginRight: 4, opacity: 0.75 }}>{tr('msg_edited')}</span>}
               {time}
             </span>
           )}
@@ -392,9 +397,10 @@ export const GuildChatMain: React.FC = () => {
     sendGuildMessage, scheduleGuildMessage, loadOlderGuildMessages,
     userIDonServer, currentServerIP, authToken,
     setMobileActivePanel, deleteGuildMessage, pinGuildMessage, customEmojis,
-    kickMember, blockUser, loadGuildRoles, sendRichMessage, friends,
+    kickMember, blockUser, loadGuildRoles, sendRichMessage, friends, editMessage,
   } = useApp();
   const tr = useTranslation();
+  const [editing, setEditing] = useState<GuildMessage | null>(null);
 
   const formatDate = (iso: string) => {
     const d = new Date(iso);
@@ -778,6 +784,7 @@ export const GuildChatMain: React.FC = () => {
             authorRole={authorMember?.role ?? 'member'}
             onClose={closeCtx}
             onReply={msg => { setReplyTo(msg); closeCtx(); }}
+            onEdit={msg => { setEditing(msg); closeCtx(); }}
             onDelete={id => { closeCtx(); setDeleteConfirmId(id); }}
             onPin={id => pinGuildMessage(id)}
             onCopy={text => navigator.clipboard.writeText(text).catch(() => {})}
@@ -796,6 +803,16 @@ export const GuildChatMain: React.FC = () => {
           />
         );
       })()}
+      {editing && currentGuild && currentGuildChannel && (
+        <MessageEditModal
+          msg={editing}
+          onCancel={() => setEditing(null)}
+          onSave={async body => {
+            await editMessage({ kind: 'guild', guildId: currentGuild.id, channelId: currentGuildChannel.id }, editing.id, body);
+            setEditing(null);
+          }}
+        />
+      )}
       {/* Header */}
       <div className="chat-header">
         <button

@@ -253,6 +253,7 @@ interface AppContextType extends AppState {
   closePoll: (guildId: string, messageId: string) => Promise<void>;
   fetchPollVoters: (guildId: string, messageId: string, optionId: string, offset?: number, limit?: number) => Promise<{ voters: import('../types').RichUserBrief[]; total: number }>;
   toggleTodoItem: (scope: RichScope, messageId: string, itemId: string) => Promise<void>;
+  editMessage: (scope: RichScope, messageId: string, body: { content?: string; payload?: Record<string, unknown> }) => Promise<void>;
   pushLiveLocation: (scope: RichScope, messageId: string, body: { lat?: number; lng?: number; stop?: boolean }) => Promise<void>;
   registerMessageView: (guildId: string, messageId: string) => Promise<void>;
   loadPostComments: (guildId: string, messageId: string) => Promise<import('../types').PostComment[]>;
@@ -932,6 +933,22 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
                 ...prev,
                 chatMessages: prev.chatMessages.map(m =>
                   String(m.id) === String(data.message_id) ? { ...m, payload: data.location } : m
+                ),
+              }));
+            } else if (data.type === 'message_edited') {
+              const upd = data.message || {};
+              setState(prev => ({
+                ...prev,
+                chatMessages: prev.chatMessages.map(m =>
+                  String(m.id) === String(upd.id)
+                    ? {
+                        ...m,
+                        content: upd.content ?? m.content,
+                        edited: true,
+                        ...(upd.message_type ? { message_type: upd.message_type } : {}),
+                        ...(upd.payload !== undefined ? { payload: upd.payload } : {}),
+                      }
+                    : m
                 ),
               }));
             } else {
@@ -1654,6 +1671,22 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
         }));
       } else if (data.type === 'todo_update') {
         setState(prev => ({ ...prev, guildMessages: prev.guildMessages.map(m => String(m.id) === String(data.message_id) ? { ...m, payload: data.todo } : m) }));
+      } else if (data.type === 'message_edited') {
+        const upd = data.message || {};
+        setState(prev => ({
+          ...prev,
+          guildMessages: prev.guildMessages.map(m =>
+            String(m.id) === String(upd.id)
+              ? {
+                  ...m,
+                  content: upd.content ?? m.content,
+                  edited: true,
+                  ...(upd.message_type ? { message_type: upd.message_type } : {}),
+                  ...(upd.payload !== undefined ? { payload: upd.payload } : {}),
+                }
+              : m
+          ),
+        }));
       } else if (data.type === 'location_update') {
         setState(prev => ({ ...prev, guildMessages: prev.guildMessages.map(m => String(m.id) === String(data.message_id) ? { ...m, payload: data.location } : m) }));
       } else if (data.type === 'comment_added') {
@@ -2209,6 +2242,19 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
         method: 'POST', headers: richHeaders(), body: JSON.stringify({ item_id: itemId }),
       });
     } catch (e) { reportError(e); }
+  }, [richHeaders, richMsgUrl]);
+
+  // Author-only edit of a text message (body.content) or a rich message like a
+  // to-do list (body.payload). Polls are rejected by the server. The updated
+  // message arrives over WS (message_edited) for everyone, so nothing is set
+  // locally here. Throws on rejection so the editor can surface the reason.
+  const editMessage = useCallback(async (
+    scope: RichScope, messageId: string, body: { content?: string; payload?: Record<string, unknown> },
+  ): Promise<void> => {
+    const res = await fetch(richMsgUrl(scope, messageId, ''), {
+      method: 'PATCH', headers: richHeaders(), body: JSON.stringify(body),
+    });
+    if (!res.ok) throw await failed(res);
   }, [richHeaders, richMsgUrl]);
 
   const pushLiveLocation = useCallback(async (
@@ -3223,6 +3269,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       closePoll,
       fetchPollVoters,
       toggleTodoItem,
+      editMessage,
       pushLiveLocation,
       registerMessageView,
       loadPostComments,

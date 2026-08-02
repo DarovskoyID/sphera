@@ -265,6 +265,12 @@ class ChatConsumer(AsyncWebsocketConsumer):
             'todo': event['todo'],
         }))
 
+    async def message_edited(self, event):
+        await self.send(text_data=ujson.dumps({
+            'type': 'message_edited',
+            'message': event['message'],
+        }))
+
     async def location_update(self, event):
         await self.send(text_data=ujson.dumps({
             'type': 'location_update',
@@ -852,6 +858,9 @@ class GuildChannelConsumer(AsyncWebsocketConsumer):
 
     async def todo_update(self, event):
         await self.send(text_data=ujson.dumps({'type': 'todo_update', 'message_id': event['message_id'], 'todo': event['todo']}))
+
+    async def message_edited(self, event):
+        await self.send(text_data=ujson.dumps({'type': 'message_edited', 'message': event['message']}))
 
     async def location_update(self, event):
         await self.send(text_data=ujson.dumps({'type': 'location_update', 'message_id': event['message_id'], 'location': event['location']}))

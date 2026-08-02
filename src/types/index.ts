@@ -133,6 +133,7 @@ export interface ChatMessage {
     deleted?: boolean;
   } | null;
   is_pinned?: boolean;
+  edited?: boolean;
   delivered_at?: string | null;
   read_at?: string | null;
   // 'call' is synthesised client-side from the message content (see
@@ -277,6 +278,7 @@ export interface GuildMessage {
   content: string;
   created_at: string;
   is_pinned: boolean;
+  edited?: boolean;
   reply_to?: {
     id: string;
     content: string;

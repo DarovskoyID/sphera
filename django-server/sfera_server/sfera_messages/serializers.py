@@ -36,7 +36,7 @@ class MessageSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Message
-        fields = ['id', 'author', 'content', 'attachments', 'reply_to', 'is_pinned', 'created_at', 'delivered_at', 'read_at', 'message_type', 'payload']
+        fields = ['id', 'author', 'content', 'attachments', 'reply_to', 'is_pinned', 'edited', 'created_at', 'delivered_at', 'read_at', 'message_type', 'payload']
 
     def get_is_pinned(self, obj):
         pinned_ids = self.context.get('pinned_ids')

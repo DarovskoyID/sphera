@@ -13,6 +13,8 @@ export interface RichContactCandidate {
 interface Props {
   type: RichMessageType;
   contacts?: RichContactCandidate[];
+  /** Prefill the to-do editor when editing an existing checklist. */
+  initialTodo?: { title: string; items: string[] };
   onCancel: () => void;
   /** Resolve to close; reject/throw to keep the dialog open on error. */
   onSubmit: (type: RichMessageType, payload: Record<string, unknown>) => Promise<void> | void;
@@ -51,7 +53,7 @@ const TITLES: Record<RichMessageType, string> = {
   poll: 'poll_new', todo: 'todo_new', contact: 'contact_new', location: 'location_new',
 };
 
-export function RichComposer({ type, contacts = [], onCancel, onSubmit }: Props) {
+export function RichComposer({ type, contacts = [], initialTodo, onCancel, onSubmit }: Props) {
   const tr = useTranslation();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -64,8 +66,10 @@ export function RichComposer({ type, contacts = [], onCancel, onSubmit }: Props)
   const [duration, setDuration] = useState(0);
 
   // todo
-  const [todoTitle, setTodoTitle] = useState('');
-  const [items, setItems] = useState(['', '']);
+  const [todoTitle, setTodoTitle] = useState(initialTodo?.title ?? '');
+  const [items, setItems] = useState<string[]>(
+    initialTodo?.items?.length ? initialTodo.items : ['', ''],
+  );
 
   // contact
   const [contactMode, setContactMode] = useState<'user' | 'manual'>(contacts.length ? 'user' : 'manual');
