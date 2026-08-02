@@ -683,7 +683,12 @@ export const GuildChatMain: React.FC = () => {
       if (e.key === 'Tab' || e.key === 'Enter') { e.preventDefault(); insertMention(mentionSuggestions[mentionIdx].insert); return; }
       if (e.key === 'Escape') { e.preventDefault(); setMentionQuery(null); return; }
     }
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
+    // On phones (≤768px) Enter inserts a newline — sending is via the button.
+    // Desktop keeps Enter-to-send (Shift+Enter for a newline).
+    if (e.key === 'Enter' && !e.shiftKey && !window.matchMedia('(max-width: 768px)').matches) {
+      e.preventDefault();
+      handleSend();
+    }
   };
 
   const canSend = input.trim().length > 0 || pendingFiles.length > 0;

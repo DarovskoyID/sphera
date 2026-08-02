@@ -2033,7 +2033,12 @@ const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: (
   }, [message, pendingFiles, replyTo, chatConversationId, uploadFiles, scheduleMessage, clearFiles, onCancelReply, onScheduled, persistMessage]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
+    // On phones (≤768px) Enter inserts a newline — sending is via the button.
+    // Desktop keeps Enter-to-send (Shift+Enter for a newline).
+    if (e.key === 'Enter' && !e.shiftKey && !window.matchMedia('(max-width: 768px)').matches) {
+      e.preventDefault();
+      handleSend();
+    }
   };
 
   const sendRecording = useCallback(async () => {
