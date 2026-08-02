@@ -47,6 +47,7 @@ import { UnifiedPicker } from './StickerGifPicker';
 import type { CustomEmoji } from '../types';
 import ConfirmModal from './ConfirmModal';
 import { getDraftText, setDraftText, getDraftFiles, setDraftFiles } from '../utils/drafts';
+import { censorPlain } from '../utils/censor';
 import { pickRecorderFormat, mediaUnsupportedReason, describeMediaError } from '../utils/recording';
 
 // Maps a settings page key to its translation key, so the mobile settings
@@ -1243,7 +1244,12 @@ const MessageContextMenu: React.FC<{
 
 // ── Message Row ───────────────────────────────────────────────────────────────
 
-function highlightText(text: string, query: string): React.ReactNode {
+function highlightText(rawText: string, query: string): React.ReactNode {
+  // Apply the privacy content filter before highlighting so masked words/
+  // messages never leak through the search view.
+  const censored = censorPlain(rawText);
+  if (censored.blurred) return <span className="blurred-msg">{censored.text}</span>;
+  const text = censored.text;
   if (!query.trim()) return text;
   const idx = text.toLowerCase().indexOf(query.toLowerCase());
   if (idx === -1) return text;

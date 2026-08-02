@@ -89,6 +89,13 @@ class UserSettings(models.Model):
     scan_messages_everyone = models.BooleanField(default=True)
     scan_messages_non_friends = models.BooleanField(default=False)
     scan_messages_off = models.BooleanField(default=False)
+    # Content blur filter (client-side masking of flagged words/messages)
+    blur_enabled = models.BooleanField(default=True)
+    blur_profanity = models.BooleanField(default=True)
+    blur_explicit = models.BooleanField(default=True)
+    blur_calls_to_action = models.BooleanField(default=True)
+    blur_code_requests = models.BooleanField(default=True)
+    blur_disable_requests = models.BooleanField(default=True)
     # Notifications
     enable_all_notifications = models.BooleanField(default=True)
     notify_direct_messages = models.BooleanField(default=True)

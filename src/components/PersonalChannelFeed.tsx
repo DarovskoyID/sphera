@@ -8,7 +8,7 @@ import { EmojiPicker } from './EmojiPicker';
 import { UnifiedPicker } from './StickerGifPicker';
 import { useApp, reportError } from '../context/AppContext';
 import { useTranslation } from '../i18n/useTranslation';
-import { MessageText } from './EmojiPicker';
+import { MessageText, CensoredPlainText } from './EmojiPicker';
 import { getDraftText, setDraftText, getDraftFiles, setDraftFiles, clearDraft } from '../utils/drafts';
 import { pickRecorderFormat, mediaUnsupportedReason, describeMediaError } from '../utils/recording';
 import ConfirmModal from './ConfirmModal';
@@ -431,7 +431,7 @@ function CommentsModal({ guild, messageId, serverIP, onClose }: { guild: Guild; 
                     <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{fmt(c.created_at)}</span>
                     {canDelete && <button onClick={() => remove(c.id)} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-tertiary)', padding: 2 }}><Trash2 size={13} /></button>}
                   </div>
-                  <div style={{ fontSize: 14, color: 'var(--text-primary)', lineHeight: 1.4, wordBreak: 'break-word', whiteSpace: 'pre-wrap' }}>{c.content}</div>
+                  <div style={{ fontSize: 14, color: 'var(--text-primary)', lineHeight: 1.4, wordBreak: 'break-word', whiteSpace: 'pre-wrap' }}><CensoredPlainText text={c.content} /></div>
                 </div>
               </div>
             );
@@ -514,7 +514,7 @@ function PostCard({ msg, guild, serverIP, onEdit }: { msg: import('../types').Gu
             </div>
           </div>
         </div>
-        {msg.content && <div style={{ padding: '0 20px 12px', color: 'var(--text-primary)', fontSize: 14, whiteSpace: 'pre-wrap' }}>{msg.content}</div>}
+        {msg.content && <div style={{ padding: '0 20px 12px', color: 'var(--text-primary)', fontSize: 14, whiteSpace: 'pre-wrap' }}><CensoredPlainText text={msg.content} /></div>}
         {count > 0 && (
           <div style={{ display: 'grid', gridTemplateColumns: `repeat(${cols}, 1fr)`, gap: 3, padding: '0 3px 3px' }}>
             {Array.from({ length: Math.min(count, 6) }).map((_, i) => (

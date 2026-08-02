@@ -255,6 +255,17 @@ body {
   background: var(--bg-chat);
 }
 
+/* Censored ("blurred") message text — masked words/messages rendered as
+   asterisks by the privacy content filter. */
+.blurred-msg {
+  filter: blur(0.5px);
+  opacity: 0.6;
+  letter-spacing: 1px;
+  user-select: none;
+  font-family: monospace;
+  word-break: break-word;
+}
+
 /* ---------- Message bubbles ----------
    Bubble lives on .message-text (inline-block, max-width:80%).
    .message-content is a flex:1 wrapper — must stay transparent

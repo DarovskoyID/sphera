@@ -3,6 +3,7 @@ import { Search, X, Plus, Trash2 } from 'lucide-react';
 import { EMOJI_CATEGORIES } from '../data/emojis';
 import { useApp } from '../context/AppContext';
 import { useTranslation } from '../i18n/useTranslation';
+import { getCensorConfig, useCensorConfig, isFullBlur, fullMask, censorWords, censorPlain } from '../utils/censor';
 import type { CustomEmoji } from '../types';
 
 /** @deprecated use CustomEmoji from types */
@@ -454,8 +455,20 @@ const STICKER_IMG_RE = /^https?:\/\/.+\.(png|jpg|jpeg|gif|webp)(\?.*)?$/i;
 const DATA_URL_RE = /^data:image\/(png|jpeg|gif|webp);base64,/;
 
 /** Renders message text with :custom_emoji: shortcodes replaced by images, GIF URLs as inline images, and single emoji as stickers */
+const blurredStyle: React.CSSProperties = {
+  filter: 'blur(0.5px)', opacity: 0.6, letterSpacing: 1, userSelect: 'none',
+  fontFamily: 'monospace', wordBreak: 'break-word',
+};
+
 export const MessageText: React.FC<{ text: string; customEmojis: CustomEmoji[]; members?: { username: string; nickname: string }[] }> = ({ text, customEmojis, members }) => {
+  const cfg = useCensorConfig();
   if (!text) return null;
+
+  // Whole-message masking: appeals to disable the filter are fully hidden and
+  // never rich-rendered (so no sticker/GIF/markdown escape hatch survives).
+  if (isFullBlur(text, cfg)) {
+    return <span className="blurred-msg" style={blurredStyle}>{fullMask(text)}</span>;
+  }
 
   const trimmed = text.trim();
 
@@ -514,6 +527,17 @@ export const MessageText: React.FC<{ text: string; customEmojis: CustomEmoji[]; 
   }
 
   return <span>{renderRichText(text, customEmojis, members)}</span>;
+};
+
+// Plain-text (no markdown) render with the privacy content filter applied.
+// Used for surfaces that show raw content — channel comments, optimistic
+// publishing previews, etc.
+export const CensoredPlainText: React.FC<{ text: string }> = ({ text }) => {
+  const cfg = useCensorConfig();
+  if (!text) return null;
+  const c = censorPlain(text, cfg);
+  if (c.blurred) return <span className="blurred-msg">{c.text}</span>;
+  return <>{c.text}</>;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -613,6 +637,9 @@ const CodeBlock: React.FC<{ code: string }> = ({ code }) => {
 
 // Render plain leaf text: custom emojis + mentions.
 function renderLeaf(str: string, customEmojis: CustomEmoji[], members: { username: string; nickname: string }[] | undefined, keyBase: string): React.ReactNode[] {
+  // Word-level masking runs here (after markdown parsing) so the asterisks we
+  // insert are never themselves re-interpreted as markdown syntax.
+  str = censorWords(str, getCensorConfig());
   const renderMentions = (s: string, kb: string): React.ReactNode[] => {
     if (!members?.length && !s.includes('@everyone') && !s.includes('@role:')) return [s];
     const mentionRe = /@(everyone|role:[^\s]+|[^\s@]+)/g;

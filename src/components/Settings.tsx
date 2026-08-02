@@ -9,6 +9,7 @@ import type { ServerUser } from '../types';
 import { saveNotifPrefs, ensureNotificationPermission } from '../utils/notifications';
 import { saveA11yPrefs, getA11yPrefs, TEXT_SCALE_MIN, TEXT_SCALE_MAX } from '../utils/accessibility';
 import { saveDisplayPrefs } from '../utils/displayPrefs';
+import { saveCensorConfig } from '../utils/censor';
 import { setAllowScale } from '../utils/nativeBridge';
 import {
   getKeybindings, saveKeybindings, resetKeybindings, eventToCombo, comboDisplay,
@@ -38,6 +39,12 @@ interface SettingsData {
   scan_messages_everyone: boolean;
   scan_messages_non_friends: boolean;
   scan_messages_off: boolean;
+  blur_enabled: boolean;
+  blur_profanity: boolean;
+  blur_explicit: boolean;
+  blur_calls_to_action: boolean;
+  blur_code_requests: boolean;
+  blur_disable_requests: boolean;
   enable_all_notifications: boolean;
   notify_direct_messages: boolean;
   notify_mentions: boolean;
@@ -76,6 +83,7 @@ interface SettingsData {
 const defaultSettings: SettingsData = {
   show_profile_to_everyone: true, display_online_status: true, show_activity_status: false,
   safe_dm_filter: true, scan_messages_everyone: true, scan_messages_non_friends: false, scan_messages_off: false,
+  blur_enabled: true, blur_profanity: true, blur_explicit: true, blur_calls_to_action: true, blur_code_requests: true, blur_disable_requests: true,
   enable_all_notifications: true, notify_direct_messages: true, notify_mentions: true,
   notify_all_server_messages: false, notify_friend_requests: true, sound_message: true, sound_incoming_call: true,
   theme: 'dark', show_timestamps: true, show_avatars: true, allow_scale: false,
@@ -201,6 +209,19 @@ export const Settings: React.FC = () => {
   }, [s.enable_all_notifications, s.notify_direct_messages, s.notify_mentions,
       s.notify_all_server_messages, s.notify_friend_requests, s.sound_message, s.sound_incoming_call,
       s.streamer_mode, s.streamer_disable_notifs]);
+
+  // Mirror the content-filter (blur) prefs to localStorage so the message
+  // render path can read them without the settings context.
+  useEffect(() => {
+    saveCensorConfig({
+      blur_enabled: s.blur_enabled,
+      blur_profanity: s.blur_profanity,
+      blur_explicit: s.blur_explicit,
+      blur_calls_to_action: s.blur_calls_to_action,
+      blur_code_requests: s.blur_code_requests,
+      blur_disable_requests: s.blur_disable_requests,
+    });
+  }, [s.blur_enabled, s.blur_profanity, s.blur_explicit, s.blur_calls_to_action, s.blur_code_requests, s.blur_disable_requests]);
 
   // Apply chat display + streamer-mode preferences globally via root classes.
   useEffect(() => {
@@ -563,6 +584,7 @@ interface BlockedEntry { id: number; blocked: ServerUser; created_at: string; }
 
 const PrivacySettings: React.FC = () => {
   const tr = useTranslation();
+  const { s } = useSettings();
   const { currentServerIP, authToken, searchUsers, unblockUser, blockedContacts } = useApp();
   const [blocked, setBlocked] = useState<BlockedEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -620,6 +642,21 @@ const PrivacySettings: React.FC = () => {
       <Check label={tr('sprv_scan_all')} field="scan_messages_everyone" />
       <Check label={tr('sprv_scan_non_friends')} field="scan_messages_non_friends" />
       <Check label={tr('sprv_scan_off')} field="scan_messages_off" />
+
+      <div style={divider} />
+
+      <h3 style={sectionH3}>{tr('sprv_blur')}</h3>
+      <p>{tr('sprv_blur_desc')}</p>
+      <Check label={tr('sprv_blur_enable')} field="blur_enabled" />
+      {s.blur_enabled && (
+        <div style={{ marginLeft: 26, marginTop: 4, paddingLeft: 12, borderLeft: '2px solid var(--border-color)' }}>
+          <Check label={tr('sprv_blur_profanity')} field="blur_profanity" />
+          <Check label={tr('sprv_blur_explicit')} field="blur_explicit" />
+          <Check label={tr('sprv_blur_cta')} field="blur_calls_to_action" />
+          <Check label={tr('sprv_blur_code')} field="blur_code_requests" />
+          <Check label={tr('sprv_blur_disable')} field="blur_disable_requests" />
+        </div>
+      )}
 
       <div style={divider} />
 
