@@ -400,7 +400,10 @@ export const GuildChatMain: React.FC = () => {
     kickMember, blockUser, loadGuildRoles, sendRichMessage, friends, editMessage,
   } = useApp();
   const tr = useTranslation();
+  // Text edits happen inline in the composer; to-do lists open the structured editor.
   const [editing, setEditing] = useState<GuildMessage | null>(null);
+  const [editingTodo, setEditingTodo] = useState<GuildMessage | null>(null);
+  const editingIdRef = useRef<string | null>(null);
 
   const formatDate = (iso: string) => {
     const d = new Date(iso);
@@ -451,6 +454,7 @@ export const GuildChatMain: React.FC = () => {
   // Local draft (text + files) per channel — survives switching channels.
   const draftScope = currentGuildChannel?.id ? `gc_${currentGuildChannel.id}` : '';
   useEffect(() => {
+    setEditing(null); setEditingTodo(null);  // leaving a channel cancels any edit
     if (!draftScope) { setInput(''); setPendingFiles([]); return; }
     setInput(getDraftText(draftScope));
     setPendingFiles(getDraftFiles(draftScope).map(f => ({ file: f, preview: f.type.startsWith('image/') ? URL.createObjectURL(f) : undefined })));
@@ -458,6 +462,21 @@ export const GuildChatMain: React.FC = () => {
   }, [draftScope]);
   // Saved imperatively (not in an effect) so the draft isn't clobbered on (re)mount / scope switch.
   const persistInput = useCallback((v: string) => { setInput(v); setDraftText(draftScope, v); }, [draftScope]);
+
+  // Inline edit: load the message text into the composer; restore the draft on
+  // cancel/save. setInput (not persistInput) keeps the stored draft intact.
+  useEffect(() => {
+    if (editing) {
+      if (editingIdRef.current !== String(editing.id)) {
+        editingIdRef.current = String(editing.id);
+        setInput(editing.content || '');
+      }
+    } else if (editingIdRef.current !== null) {
+      editingIdRef.current = null;
+      setInput(getDraftText(draftScope));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editing, draftScope]);
   const persistPendingFiles = useCallback((updater: PendingFile[] | ((prev: PendingFile[]) => PendingFile[])) => {
     setPendingFiles(prev => {
       const next = typeof updater === 'function' ? updater(prev) : updater;
@@ -544,13 +563,13 @@ export const GuildChatMain: React.FC = () => {
 
   const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const val = e.target.value;
-    persistInput(val);
+    if (editing) setInput(val); else persistInput(val);
     const cursor = e.target.selectionStart ?? val.length;
     const before = val.slice(0, cursor);
     const match = before.match(/@(\w*)$/);
     if (match) { setMentionQuery(match[1]); setMentionIdx(0); }
     else setMentionQuery(null);
-  }, [persistInput]);
+  }, [persistInput, editing]);
 
   const insertMention = useCallback((insert: string) => {
     persistInput((() => {
@@ -656,6 +675,16 @@ export const GuildChatMain: React.FC = () => {
   }, [currentGuild, currentGuildChannel, currentServerIP, authToken]);
 
   const handleSend = useCallback(async () => {
+    // Saving an inline edit — content only.
+    if (editing) {
+      const t = input.trim();
+      if (!t || !currentGuild || !currentGuildChannel) return;
+      try {
+        await editMessage({ kind: 'guild', guildId: currentGuild.id, channelId: currentGuildChannel.id }, String(editing.id), { content: t });
+      } catch { return; }
+      setEditing(null);
+      return;
+    }
     if (!input.trim() && pendingFiles.length === 0) return;
     const text = input;
     const files = pendingFiles;
@@ -666,7 +695,7 @@ export const GuildChatMain: React.FC = () => {
     const uploaded = await uploadFiles(files);
     const attachmentIds = uploaded.map(a => a.id);
     sendGuildMessage(text, replyId, attachmentIds.length ? attachmentIds : undefined, uploaded.length ? uploaded : undefined);
-  }, [input, pendingFiles, replyTo, uploadFiles, sendGuildMessage, clearFiles, persistInput]);
+  }, [editing, currentGuild, currentGuildChannel, editMessage, input, pendingFiles, replyTo, uploadFiles, sendGuildMessage, clearFiles, persistInput]);
 
   const handleDelayedSend = useCallback(async (delayMs: number) => {
     if (!input.trim() && pendingFiles.length === 0) return;
@@ -784,7 +813,7 @@ export const GuildChatMain: React.FC = () => {
             authorRole={authorMember?.role ?? 'member'}
             onClose={closeCtx}
             onReply={msg => { setReplyTo(msg); closeCtx(); }}
-            onEdit={msg => { setEditing(msg); closeCtx(); }}
+            onEdit={msg => { if (msg.message_type === 'todo') setEditingTodo(msg); else setEditing(msg); closeCtx(); }}
             onDelete={id => { closeCtx(); setDeleteConfirmId(id); }}
             onPin={id => pinGuildMessage(id)}
             onCopy={text => navigator.clipboard.writeText(text).catch(() => {})}
@@ -803,13 +832,13 @@ export const GuildChatMain: React.FC = () => {
           />
         );
       })()}
-      {editing && currentGuild && currentGuildChannel && (
+      {editingTodo && currentGuild && currentGuildChannel && (
         <MessageEditModal
-          msg={editing}
-          onCancel={() => setEditing(null)}
+          msg={editingTodo}
+          onCancel={() => setEditingTodo(null)}
           onSave={async body => {
-            await editMessage({ kind: 'guild', guildId: currentGuild.id, channelId: currentGuildChannel.id }, editing.id, body);
-            setEditing(null);
+            await editMessage({ kind: 'guild', guildId: currentGuild.id, channelId: currentGuildChannel.id }, String(editingTodo.id), body);
+            setEditingTodo(null);
           }}
         />
       )}
@@ -898,6 +927,15 @@ export const GuildChatMain: React.FC = () => {
           </div>
         );
       })}
+
+      {/* Editing bar */}
+      {editing && (
+        <div className="reply-bar">
+          <Pencil size={14} />
+          <span>{tr('chat_edit_title')}: {editing.content.slice(0, 60)}</span>
+          <button className="icon-btn" onClick={() => setEditing(null)}>✕</button>
+        </div>
+      )}
 
       {/* Reply bar */}
       {replyTo && (

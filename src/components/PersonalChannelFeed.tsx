@@ -2,7 +2,8 @@ import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import { RichComposer } from './RichComposer';
 import { RichMessage } from './RichMessage';
 import type { RichMessageType, RichPayload } from '../types';
-import { Send, Plus, X, FileText, Camera, Mic, Circle, Music, Square, ChevronLeft, ChevronRight, Image as ImageIcon, Eye, MessageCircle, Trash2, Settings, MoreVertical, Bell, BellOff, LogOut, SmilePlus, Smile, Play, Pause, BarChart3, CheckSquare, MapPin, User } from 'lucide-react';
+import { Send, Plus, X, FileText, Camera, Mic, Circle, Music, Square, ChevronLeft, ChevronRight, Image as ImageIcon, Eye, MessageCircle, Trash2, Settings, MoreVertical, Bell, BellOff, LogOut, SmilePlus, Smile, Play, Pause, BarChart3, CheckSquare, MapPin, User, Pencil } from 'lucide-react';
+import { MessageEditModal } from './MessageEditModal';
 import { EmojiPicker } from './EmojiPicker';
 import { UnifiedPicker } from './StickerGifPicker';
 import { useApp, reportError } from '../context/AppContext';
@@ -463,7 +464,7 @@ function postIsRich(msg: import('../types').GuildMessage): boolean {
   return !!msg.payload && !!msg.message_type && POST_RICH_KINDS.includes(msg.message_type);
 }
 
-function PostCard({ msg, guild, serverIP }: { msg: import('../types').GuildMessage; guild: Guild; serverIP: string }) {
+function PostCard({ msg, guild, serverIP, onEdit }: { msg: import('../types').GuildMessage; guild: Guild; serverIP: string; onEdit?: (msg: import('../types').GuildMessage) => void }) {
   const tr = useTranslation();
   const { toggleReaction, registerMessageView, deleteGuildMessage, currentUser, customEmojis,
     currentGuildChannel, votePoll, closePoll, toggleTodoItem, pushLiveLocation, setCurrentChat, fetchPollVoters } = useApp();
@@ -546,8 +547,19 @@ function PostCard({ msg, guild, serverIP }: { msg: import('../types').GuildMessa
         )}
         <div style={{ flex: 1 }}>
           <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--text-primary)' }}>{guild.name}</div>
-          <div style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>{formatDate(msg.created_at, tr as (k: string) => string)}</div>
+          <div style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>{formatDate(msg.created_at, tr as (k: string) => string)}{msg.edited && ` · ${tr('msg_edited')}`}</div>
         </div>
+        {isOwner && !isOptimistic && onEdit && (!msg.message_type || msg.message_type === 'text' || msg.message_type === 'todo') && (
+          <button
+            onClick={() => onEdit(msg)}
+            title={tr('chat_edit')}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-tertiary)', padding: 6, borderRadius: 6, display: 'flex' }}
+            onMouseEnter={e => (e.currentTarget.style.color = 'var(--accent-primary)')}
+            onMouseLeave={e => (e.currentTarget.style.color = 'var(--text-tertiary)')}
+          >
+            <Pencil size={16} />
+          </button>
+        )}
         {isOwner && !isOptimistic && (
           <button
             onClick={() => setConfirmDeletePost(true)}
@@ -889,9 +901,13 @@ function ChannelSettingsModal({ guild, serverIP, onClose }: { guild: Guild; serv
 
 export const PersonalChannelFeed: React.FC<{ style?: React.CSSProperties }> = ({ style }) => {
   const tr = useTranslation();
-  const { currentGuild, currentGuildChannel, guildMessages, currentServerIP, authToken, currentUser, customEmojis, guilds, joinGuild, sendGuildMessage, scheduleGuildMessage, updateGuild, leaveGuild, toggleGuildNotifications, addOptimisticGuildPost, removeOptimisticGuildPost, resolveGuildPost, sendRichMessage, friends } = useApp();
+  const { currentGuild, currentGuildChannel, guildMessages, currentServerIP, authToken, currentUser, customEmojis, guilds, joinGuild, sendGuildMessage, scheduleGuildMessage, updateGuild, leaveGuild, toggleGuildNotifications, addOptimisticGuildPost, removeOptimisticGuildPost, resolveGuildPost, sendRichMessage, editMessage, friends } = useApp();
   const [attachMenu, setAttachMenu] = useState(false);
   const [richType, setRichType] = useState<RichMessageType | null>(null);
+  // Text edits happen inline in the composer; to-do posts open the structured editor.
+  const [editingPost, setEditingPost] = useState<import('../types').GuildMessage | null>(null);
+  const [editingTodoPost, setEditingTodoPost] = useState<import('../types').GuildMessage | null>(null);
+  const editingIdRef = useRef<string | null>(null);
   const [subscribing, setSubscribing] = useState(false);
   const [confirmLeave, setConfirmLeave] = useState(false);
 
@@ -927,10 +943,28 @@ export const PersonalChannelFeed: React.FC<{ style?: React.CSSProperties }> = ({
   // effect, so the stale composer state isn't written into the wrong channel on
   // switch, and the draft isn't cleared by effects re-running on (re)mount.
   useEffect(() => {
+    setEditingPost(null); setEditingTodoPost(null);  // leaving a channel cancels any edit
     if (!channelId) { setInput(''); setFiles([]); return; }
     setInput(getDraftText(channelId));
     setFiles(getDraftFiles(channelId));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [channelId]);
+
+  // Inline edit: load the post text into the composer; restore the draft on
+  // cancel/save. setInput (not persistInput) keeps the stored draft intact.
+  useEffect(() => {
+    if (editingPost) {
+      if (editingIdRef.current !== String(editingPost.id)) {
+        editingIdRef.current = String(editingPost.id);
+        setInput(editingPost.content || '');
+        requestAnimationFrame(() => textareaRef.current?.focus());
+      }
+    } else if (editingIdRef.current !== null) {
+      editingIdRef.current = null;
+      setInput(getDraftText(channelId));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editingPost, channelId]);
 
   // Keep the textarea height in sync with restored / typed text.
   useEffect(() => { autoResize(); }, [input, autoResize]);
@@ -1072,6 +1106,16 @@ export const PersonalChannelFeed: React.FC<{ style?: React.CSSProperties }> = ({
   };
 
   const handleSend = async () => {
+    // Saving an inline edit — content only.
+    if (editingPost) {
+      const t = input.trim();
+      if (!t || !currentGuild || !currentGuildChannel) return;
+      try {
+        await editMessage({ kind: 'guild', guildId: currentGuild.id, channelId: currentGuildChannel.id }, String(editingPost.id), { content: t });
+      } catch { return; }
+      setEditingPost(null);
+      return;
+    }
     if (!input.trim() && files.length === 0) return;
     if (!currentGuild || !currentGuildChannel) return;
     setSending(true);
@@ -1241,7 +1285,7 @@ export const PersonalChannelFeed: React.FC<{ style?: React.CSSProperties }> = ({
           </div>
         ) : (
           guildMessages.map(msg => (
-            <PostCard key={msg.id} msg={msg} guild={currentGuild} serverIP={currentServerIP} />
+            <PostCard key={msg.id} msg={msg} guild={currentGuild} serverIP={currentServerIP} onEdit={m => { if (m.message_type === 'todo') setEditingTodoPost(m); else setEditingPost(m); }} />
           ))
         )}
       </div>
@@ -1302,6 +1346,15 @@ export const PersonalChannelFeed: React.FC<{ style?: React.CSSProperties }> = ({
             }
             e.target.value = '';
           }} />
+          {editingPost && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '0 0 8px', padding: '6px 12px', borderRadius: 8, background: 'var(--bg-secondary)', borderLeft: '3px solid var(--accent-primary)' }}>
+              <Pencil size={13} style={{ color: 'var(--accent-primary)', flexShrink: 0 }} />
+              <span style={{ flex: 1, minWidth: 0, fontSize: 12, fontWeight: 600, color: 'var(--accent-primary)' }}>{tr('chat_edit_title')}</span>
+              <button onClick={() => setEditingPost(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', padding: 2, flexShrink: 0 }}>
+                <X size={14} />
+              </button>
+            </div>
+          )}
           <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', position: 'relative' }}>
             {/* Single rounded input bar holding the textarea + inline action icons */}
             <div className="composer-bar">
@@ -1357,9 +1410,9 @@ export const PersonalChannelFeed: React.FC<{ style?: React.CSSProperties }> = ({
                 ref={textareaRef}
                 className="composer-input"
                 value={input}
-                onChange={e => persistInput(e.target.value)}
+                onChange={e => { if (editingPost) setInput(e.target.value); else persistInput(e.target.value); }}
                 onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
-                placeholder={tr('pcf_write_post')}
+                placeholder={editingPost ? tr('chat_edit_title') : tr('pcf_write_post')}
                 rows={1}
               />
               <button className="composer-icon-btn" onClick={() => recording === 'voice' ? stopRecording() : startRecording('voice')} disabled={recording === 'video'} title={tr('pcf_voice_message')}
@@ -1431,6 +1484,16 @@ export const PersonalChannelFeed: React.FC<{ style?: React.CSSProperties }> = ({
           cancelLabel={tr('cancel')}
           onConfirm={() => { leaveGuild(currentGuild.id); setConfirmLeave(false); }}
           onCancel={() => setConfirmLeave(false)}
+        />
+      )}
+      {editingTodoPost && currentGuild && currentGuildChannel && (
+        <MessageEditModal
+          msg={editingTodoPost}
+          onCancel={() => setEditingTodoPost(null)}
+          onSave={async body => {
+            await editMessage({ kind: 'guild', guildId: currentGuild.id, channelId: currentGuildChannel.id }, String(editingTodoPost.id), body);
+            setEditingTodoPost(null);
+          }}
         />
       )}
     </div>

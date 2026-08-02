@@ -327,6 +327,7 @@ const ChatView: React.FC = () => {
   const isBlockedByMe = blockedContacts.some(u => String(u.id) === String(currentChat));
   const blockedName = isBlockedByMe ? (blockedContacts.find(u => String(u.id) === String(currentChat))?.nickname || blockedContacts.find(u => String(u.id) === String(currentChat))?.username || '') : '';
   const [replyTo, setReplyTo] = useState<ChatMessageType | null>(null);
+  const [editingText, setEditingText] = useState<ChatMessageType | null>(null);
   const [scheduled, setScheduled] = useState<ScheduledItem[]>([]);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -393,6 +394,7 @@ const ChatView: React.FC = () => {
       ))}
       <MessagesContainer
         onReply={setReplyTo}
+        onEditText={setEditingText}
         searchQuery={searchQuery}
         scrollToRef={scrollToMsgRef}
       />
@@ -416,7 +418,7 @@ const ChatView: React.FC = () => {
             <Ban size={16} />
             {tr('chat_cannot_send')}
           </div>
-        : <MessageInput replyTo={replyTo} onCancelReply={() => setReplyTo(null)} onScheduled={item => setScheduled(prev => [...prev, item])} />
+        : <MessageInput replyTo={replyTo} onCancelReply={() => setReplyTo(null)} editing={editingText} onCancelEdit={() => setEditingText(null)} onScheduled={item => setScheduled(prev => [...prev, item])} />
       }
     </main>
   );
@@ -1533,11 +1535,14 @@ const MessageRow = React.memo(({ msg, isOwn, isFirstInGroup, onContextMenu, onRe
 
 const MessagesContainer: React.FC<{
   onReply: (msg: ChatMessageType) => void;
+  onEditText: (msg: ChatMessageType) => void;
   searchQuery: string;
   scrollToRef?: React.MutableRefObject<((id: string) => void) | null>;
-}> = ({ onReply, searchQuery, scrollToRef }) => {
+}> = ({ onReply, onEditText, searchQuery, scrollToRef }) => {
   const { chatMessages, userIDonServer, loadOlderMessages, deleteMessage, pinMessage, reportMessage, customEmojis, currentChat, chatConversationId, editMessage, setCallActive, setVideoActive, setCallTargetId } = useApp();
-  const [editing, setEditing] = useState<ChatMessageType | null>(null);
+  // Text edits happen inline in the composer (lifted to ChatView); only to-do
+  // lists open the structured editor here.
+  const [editingTodo, setEditingTodo] = useState<ChatMessageType | null>(null);
   const filteredMessages = searchQuery.trim()
     ? chatMessages.filter(m => m.content?.toLowerCase().includes(searchQuery.toLowerCase()))
     : chatMessages;
@@ -1671,20 +1676,20 @@ const MessagesContainer: React.FC<{
           isOwn={String(ctxMenu.msg.author.id) === String(userIDonServer)}
           onClose={closeCtx}
           onReply={msg => { onReply(msg); closeCtx(); }}
-          onEdit={msg => { setEditing(msg); closeCtx(); }}
+          onEdit={msg => { if (msg.message_type === 'todo') setEditingTodo(msg); else onEditText(msg); closeCtx(); }}
           onDelete={id => { closeCtx(); setDeleteConfirmId(id); }}
           onPin={id => pinMessage(id)}
           onReport={id => reportMessage(id)}
           onCopy={text => navigator.clipboard.writeText(text).catch(() => {})}
         />
       )}
-      {editing && chatConversationId && (
+      {editingTodo && chatConversationId && (
         <MessageEditModal
-          msg={editing}
-          onCancel={() => setEditing(null)}
+          msg={editingTodo}
+          onCancel={() => setEditingTodo(null)}
           onSave={async body => {
-            await editMessage({ kind: 'dm', conversationId: chatConversationId }, editing.id, body);
-            setEditing(null);
+            await editMessage({ kind: 'dm', conversationId: chatConversationId }, editingTodo.id, body);
+            setEditingTodo(null);
           }}
         />
       )}
@@ -1756,8 +1761,8 @@ type PendingFile = { file: File; preview?: string };
 type RecordMode = 'idle' | 'voice' | 'video';
 type RecordState = 'idle' | 'recording' | 'preview';
 
-const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: () => void; onScheduled: (item: ScheduledItem) => void }> = ({ replyTo, onCancelReply, onScheduled }) => {
-  const { sendChatMessage, chatConversationId, currentServerIP, authToken, scheduleMessage, sendRichMessage, friends } = useApp();
+const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: () => void; editing?: ChatMessageType | null; onCancelEdit?: () => void; onScheduled: (item: ScheduledItem) => void }> = ({ replyTo, onCancelReply, editing, onCancelEdit, onScheduled }) => {
+  const { sendChatMessage, chatConversationId, currentServerIP, authToken, scheduleMessage, sendRichMessage, editMessage, friends } = useApp();
   const tr = useTranslation();
   const [message, setMessage] = useState('');
   const [attachMenu, setAttachMenu] = useState(false);
@@ -1790,12 +1795,31 @@ const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: (
   // draft isn't clobbered by effects re-running on (re)mount / scope switch.
   const draftScope = chatConversationId ? `dm_${chatConversationId}` : '';
   useEffect(() => {
+    onCancelEdit?.();  // leaving a chat cancels any in-progress edit
     if (!draftScope) { setMessage(''); setPendingFiles([]); return; }
     setMessage(getDraftText(draftScope));
     setPendingFiles(getDraftFiles(draftScope).map(f => ({ file: f, preview: f.type.startsWith('image/') ? URL.createObjectURL(f) : undefined })));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draftScope]);
   const persistMessage = useCallback((v: string) => { setMessage(v); setDraftText(draftScope, v); }, [draftScope]);
+
+  // Inline edit: load the message text into the composer on entering edit mode,
+  // and restore the saved draft on cancel/save. Uses setMessage (not
+  // persistMessage) so the draft in storage is left intact while editing.
+  const editingIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (editing) {
+      if (editingIdRef.current !== editing.id) {
+        editingIdRef.current = editing.id;
+        setMessage(editing.content || '');
+        requestAnimationFrame(() => { autoResizeComposer(); composerInputRef.current?.focus(); });
+      }
+    } else if (editingIdRef.current !== null) {
+      editingIdRef.current = null;
+      setMessage(getDraftText(draftScope));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editing, draftScope]);
   // Keep the textarea height in sync with its content (incl. draft restore / send).
   useLayoutEffect(() => { autoResizeComposer(); }, [message, autoResizeComposer]);
   const persistPendingFiles = useCallback((updater: PendingFile[] | ((prev: PendingFile[]) => PendingFile[])) => {
@@ -2009,6 +2033,16 @@ const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: (
   }, [uploadFiles, sendChatMessage, chatConversationId, currentServerIP, authToken]);
 
   const handleSend = useCallback(async () => {
+    // Saving an inline edit — content only, no attachments/reply.
+    if (editing) {
+      const t = message.trim();
+      if (!t || !chatConversationId) return;
+      try {
+        await editMessage({ kind: 'dm', conversationId: chatConversationId }, editing.id, { content: t });
+      } catch { return; }  // keep the composer open so the user can retry
+      onCancelEdit?.();
+      return;
+    }
     if (!message.trim() && pendingFiles.length === 0) return;
     const text = message;
     const files = pendingFiles;
@@ -2026,7 +2060,7 @@ const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: (
       const chunk = files.slice(i, i + ATTACHMENTS_PER_MESSAGE);
       await doSend(i === 0 ? text : '', chunk, i === 0 ? replyId : undefined);
     }
-  }, [message, pendingFiles, replyTo, doSend, clearFiles, onCancelReply, persistMessage]);
+  }, [editing, chatConversationId, editMessage, onCancelEdit, message, pendingFiles, replyTo, doSend, clearFiles, onCancelReply, persistMessage]);
 
   const handleDelayedSend = useCallback(async (delayMs: number) => {
     if (!message.trim() && pendingFiles.length === 0) return;
@@ -2110,6 +2144,22 @@ const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: (
 
   return (
     <div className="message-input-container glass-panel" style={{ flexDirection: 'column', gap: 0, alignItems: 'stretch' }}>
+      {/* Editing banner */}
+      {editing && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '8px 8px 0', padding: '6px 12px', borderRadius: 8, background: 'var(--bg-secondary)', borderLeft: '3px solid var(--accent-primary)' }}>
+          <Pencil size={13} style={{ color: 'var(--accent-primary)', flexShrink: 0 }} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--accent-primary)' }}>{tr('chat_edit_title')}</span>
+            <span style={{ fontSize: 12, color: 'var(--text-secondary)', marginLeft: 6, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'inline-block', maxWidth: 200, verticalAlign: 'middle' }}>
+              {editing.content}
+            </span>
+          </div>
+          <button onClick={() => onCancelEdit?.()} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', padding: 2, flexShrink: 0 }}>
+            <X size={14} />
+          </button>
+        </div>
+      )}
+
       {/* Reply preview */}
       {replyTo && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '8px 8px 0', padding: '6px 12px', borderRadius: 8, background: 'var(--bg-secondary)', borderLeft: '3px solid var(--accent-primary)' }}>
@@ -2279,7 +2329,7 @@ const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: (
             placeholder={tr('chat_type_message')}
             value={message}
             maxLength={5000}
-            onChange={e => persistMessage(e.target.value)}
+            onChange={e => { if (editing) { setMessage(e.target.value); autoResizeComposer(); } else persistMessage(e.target.value); }}
             onKeyDown={handleKeyDown}
             disabled={uploading || recordState !== 'idle'}
           />

@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Search, Plus, Send, Trash2, X, Tag, BarChart3, CheckSquare, MapPin, User as UserIcon, NotebookPen, Paperclip } from 'lucide-react';
+import { Search, Plus, Send, Trash2, X, Tag, BarChart3, CheckSquare, MapPin, User as UserIcon, NotebookPen, Paperclip, Pencil } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { useTranslation } from '../i18n/useTranslation';
 import { MessageText } from './EmojiPicker';
 import { RichMessage } from './RichMessage';
 import { RichComposer } from './RichComposer';
+import { MessageEditModal } from './MessageEditModal';
 import type { GuildMessage, RichMessageType, RichPayload } from '../types';
 
 // Auth-fetched media (images / video) — the diary is private so attachments need
@@ -62,7 +63,7 @@ function TagChips({ tags, onRemove }: { tags: string[]; onRemove?: (t: string) =
 export const DiaryView: React.FC<{ style?: React.CSSProperties }> = ({ style }) => {
   const {
     currentGuild, currentGuildChannel, guildMessages, currentServerIP, authToken,
-    deleteGuildMessage, customEmojis, sendRichMessage, currentUser,
+    deleteGuildMessage, customEmojis, sendRichMessage, currentUser, editMessage,
     votePoll, closePoll, toggleTodoItem, pushLiveLocation, fetchPollVoters,
   } = useApp();
   const tr = useTranslation();
@@ -78,8 +79,29 @@ export const DiaryView: React.FC<{ style?: React.CSSProperties }> = ({ style }) 
   const [showTag, setShowTag] = useState(false);
   const [richType, setRichType] = useState<RichMessageType | null>(null);
   const [confirmDel, setConfirmDel] = useState<string | null>(null);
+  const [editing, setEditing] = useState<GuildMessage | null>(null);
+  const [editingTodo, setEditingTodo] = useState<GuildMessage | null>(null);
+  const editingIdRef = useRef<string | null>(null);
+  const priorTextRef = useRef('');
   const fileRef = useRef<HTMLInputElement>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
+
+  // Inline edit: load the entry text into the note field; restore the previous
+  // draft on cancel/save.
+  useEffect(() => {
+    if (editing) {
+      if (editingIdRef.current !== String(editing.id)) {
+        if (editingIdRef.current === null) priorTextRef.current = text;
+        editingIdRef.current = String(editing.id);
+        setText(editing.content || '');
+        requestAnimationFrame(() => taRef.current?.focus());
+      }
+    } else if (editingIdRef.current !== null) {
+      editingIdRef.current = null;
+      setText(priorTextRef.current);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editing]);
 
   // Auto-grow the note field so it never shows an ugly inner scrollbar.
   useEffect(() => {
@@ -132,6 +154,16 @@ export const DiaryView: React.FC<{ style?: React.CSSProperties }> = ({ style }) 
   };
 
   const post = async () => {
+    // Saving an inline edit — content only.
+    if (editing) {
+      const t = text.trim();
+      if (!t || !scope) return;
+      try {
+        await editMessage(scope, String(editing.id), { content: t });
+      } catch { return; }
+      setEditing(null);
+      return;
+    }
     if (!scope || (!text.trim() && files.length === 0)) return;
     setSending(true);
     try {
@@ -196,10 +228,17 @@ export const DiaryView: React.FC<{ style?: React.CSSProperties }> = ({ style }) 
           return (
             <article key={m.id} style={{ width: '100%', maxWidth: 680, background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 14, padding: 16 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-                <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>{entryDate(m.created_at)}</span>
-                <button onClick={() => setConfirmDel(String(m.id))} title={tr('pcf_delete')} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-tertiary)', padding: 2 }}>
-                  <Trash2 size={15} />
-                </button>
+                <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>{entryDate(m.created_at)}{m.edited && ` · ${tr('msg_edited')}`}</span>
+                <div style={{ marginLeft: 'auto', display: 'flex', gap: 4 }}>
+                  {isOwn && (!m.message_type || m.message_type === 'text' || m.message_type === 'todo') && (
+                    <button onClick={() => { if (m.message_type === 'todo') setEditingTodo(m); else setEditing(m); }} title={tr('chat_edit')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-tertiary)', padding: 2 }}>
+                      <Pencil size={15} />
+                    </button>
+                  )}
+                  <button onClick={() => setConfirmDel(String(m.id))} title={tr('pcf_delete')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-tertiary)', padding: 2 }}>
+                    <Trash2 size={15} />
+                  </button>
+                </div>
               </div>
               {m.content && m.content.trim() && (
                 <div style={{ fontSize: 15, lineHeight: 1.6, color: 'var(--text-primary)', wordBreak: 'break-word' }}>
@@ -241,6 +280,13 @@ export const DiaryView: React.FC<{ style?: React.CSSProperties }> = ({ style }) 
       {/* Composer */}
       <div style={{ borderTop: '1px solid var(--border-color)', padding: '12px 20px', flexShrink: 0, background: 'var(--bg-primary)' }}>
         <div style={{ maxWidth: 680, margin: '0 auto' }}>
+          {editing && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, padding: '6px 12px', borderRadius: 8, background: 'var(--bg-tertiary)', borderLeft: '3px solid var(--accent-primary)' }}>
+              <Pencil size={13} style={{ color: 'var(--accent-primary)', flexShrink: 0 }} />
+              <span style={{ flex: 1, minWidth: 0, fontSize: 12, fontWeight: 600, color: 'var(--accent-primary)' }}>{tr('chat_edit_title')}</span>
+              <X size={14} style={{ cursor: 'pointer', color: 'var(--text-secondary)' }} onClick={() => setEditing(null)} />
+            </div>
+          )}
           {(tags.length > 0) && (
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
               <TagChips tags={tags} onRemove={t => setTags(prev => prev.filter(x => x !== t))} />
@@ -325,6 +371,14 @@ export const DiaryView: React.FC<{ style?: React.CSSProperties }> = ({ style }) 
           type={richType}
           onCancel={() => setRichType(null)}
           onSubmit={async (type, payload) => { await sendRichMessage(scope, type, payload, tags); setTags([]); setRichType(null); }}
+        />
+      )}
+
+      {editingTodo && scope && (
+        <MessageEditModal
+          msg={editingTodo}
+          onCancel={() => setEditingTodo(null)}
+          onSave={async body => { await editMessage(scope, String(editingTodo.id), body); setEditingTodo(null); }}
         />
       )}
 
