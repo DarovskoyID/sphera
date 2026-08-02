@@ -764,9 +764,13 @@ write_compose_env() {
     ensure_secrets_file
     local f="$DOCKER_DIR/.env"
     local jwt_secret grafana_password pg_password
-    jwt_secret="$(sudo awk -F= '$1=="SFERA_SECRET_KEY"{print $2; exit}' /etc/sfera/secrets.env)"
-    grafana_password="$(sudo awk -F= '$1=="GRAFANA_PASSWORD"{print $2; exit}' /etc/sfera/secrets.env)"
-    pg_password="$(sudo awk -F= '$1=="SFERA_POSTGRES_PASSWORD"{print $2; exit}' /etc/sfera/secrets.env)"
+    # NB: read secrets with sed, not `awk -F= '{print $2}'` — the base64 SECRET_KEY
+    # ends in '=' and awk would drop everything after the first '=', truncating the
+    # key by one char. The ws-gateway then validates JWT with a wrong key → every
+    # chat/guild WebSocket 401s (signaling still works: it's validated by Django).
+    jwt_secret="$(sudo sed -n 's/^SFERA_SECRET_KEY=//p' /etc/sfera/secrets.env | head -1)"
+    grafana_password="$(sudo sed -n 's/^GRAFANA_PASSWORD=//p' /etc/sfera/secrets.env | head -1)"
+    pg_password="$(sudo sed -n 's/^SFERA_POSTGRES_PASSWORD=//p' /etc/sfera/secrets.env | head -1)"
 
     # ws-gateway (docker) авторизует WS-подключения HTTP-запросом в Django. Daphne
     # слушает только 127.0.0.1:$DJANGO_PORT — из контейнера он НЕдоступен (даже через
