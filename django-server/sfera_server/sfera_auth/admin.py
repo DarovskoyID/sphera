@@ -14,8 +14,9 @@ class UserSettingsAdmin(admin.ModelAdmin):
     list_display = [
         'user',
         'show_profile_to_everyone', 'display_online_status', 'show_activity_status',
-        'safe_dm_filter',
         'scan_messages_everyone', 'scan_messages_non_friends', 'scan_messages_off',
+        'blur_enabled', 'blur_profanity', 'blur_calls_to_action',
+        'blur_code_requests', 'blur_disable_requests',
         'enable_all_notifications', 'notify_direct_messages', 'notify_mentions',
         'notify_all_server_messages', 'notify_friend_requests',
         'sound_message', 'sound_incoming_call',
@@ -31,8 +32,9 @@ class UserSettingsAdmin(admin.ModelAdmin):
     list_display_links = ['user']
     list_editable = [
         'show_profile_to_everyone', 'display_online_status', 'show_activity_status',
-        'safe_dm_filter',
         'scan_messages_everyone', 'scan_messages_non_friends', 'scan_messages_off',
+        'blur_enabled', 'blur_profanity', 'blur_calls_to_action',
+        'blur_code_requests', 'blur_disable_requests',
         'enable_all_notifications', 'notify_direct_messages', 'notify_mentions',
         'notify_all_server_messages', 'notify_friend_requests',
         'sound_message', 'sound_incoming_call',
