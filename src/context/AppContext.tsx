@@ -12,6 +12,7 @@ import { saveNotifPrefs, getNotifPrefs, showDesktopNotification, showCallNotific
 import { saveA11yPrefs, announce as announceA11y, type A11yPrefs } from '../utils/accessibility';
 import { saveDisplayPrefs } from '../utils/displayPrefs';
 import { saveCensorConfig, setCensorAudience, scopeFromScanFlags } from '../utils/censor';
+import { sortByDate, insertByDate } from '../utils/messageOrder';
 import { postNativeTheme, setAllowScale } from '../utils/nativeBridge';
 import { deviceQuery } from '../utils/device';
 import { toUserMessage, readResponse, setErrorLang } from '../utils/errorManager';
@@ -877,9 +878,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
                     const lateWsMsgs = prev.chatMessages.filter(
                       m => !String(m.id).startsWith('optimistic-') && !freshIds.has(String(m.id))
                     );
-                    const merged = [...freshMsgs, ...lateWsMsgs].sort(
-                      (a, b) => a.created_at.localeCompare(b.created_at)
-                    );
+                    const merged = sortByDate([...freshMsgs, ...lateWsMsgs]);
                     const realContents = new Set(merged.map(m => m.content));
                     const pending = prev.chatMessages.filter(
                       m => String(m.id).startsWith('optimistic-') && !realContents.has(m.content)
@@ -1024,7 +1023,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
                   msgs = [...prev.chatMessages];
                   msgs[optIdx] = msg;
                 } else {
-                  msgs = [...prev.chatMessages, msg];
+                  msgs = insertByDate(prev.chatMessages, msg);
                 }
                 if (msgs.length > 500) msgs.splice(0, msgs.length - 500);
                 chatLastMsgId.current = String(msg.id);
@@ -1195,7 +1194,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
         reply_to: optimisticReplyTo,
         is_pinned: false,
       };
-      const msgs = [...prev.chatMessages, optimistic];
+      const msgs = insertByDate(prev.chatMessages, optimistic);
       if (msgs.length > 500) msgs.splice(0, msgs.length - 500);
       return { ...prev, chatMessages: msgs };
     });
@@ -1257,7 +1256,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
         message_type: 'call',
         call_info: callInfo,
       };
-      const msgs = [...prev.chatMessages, msg];
+      const msgs = insertByDate(prev.chatMessages, msg);
       if (msgs.length > 500) msgs.splice(0, msgs.length - 500);
       return { ...prev, chatMessages: msgs };
     });
@@ -1382,9 +1381,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
         if (!fresh.length) return prev;
         return {
           ...prev,
-          chatMessages: [...fresh, ...prev.chatMessages].sort(
-            (a, b) => a.created_at.localeCompare(b.created_at)
-          ),
+          chatMessages: sortByDate([...fresh, ...prev.chatMessages]),
         };
       });
       return true;
@@ -1931,7 +1928,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
             msgs = [...prev.guildMessages];
             msgs[optIdx] = msg;
           } else {
-            msgs = [...prev.guildMessages, msg];
+            msgs = insertByDate(prev.guildMessages, msg);
           }
           if (msgs.length > 500) msgs.splice(0, msgs.length - 500);
           return { ...prev, guildMessages: msgs };
@@ -2763,7 +2760,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
         // Merge: keep any WS messages that arrived after the REST snapshot
         const ids = new Set(msgs.map(m => m.id));
         const extra = prev.guildMessages.filter(m => !ids.has(m.id));
-        const merged = [...msgs, ...extra].sort((a, b) => a.created_at.localeCompare(b.created_at));
+        const merged = sortByDate([...msgs, ...extra]);
         return { ...prev, guildMessages: merged };
       }))
       .catch(reportError);
@@ -2788,7 +2785,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
         pending: true,
         pending_count: fileCount,
       } as unknown as import('../types').GuildMessage;
-      return { ...prev, guildMessages: [...prev.guildMessages, optimistic] };
+      return { ...prev, guildMessages: insertByDate(prev.guildMessages, optimistic) };
     });
     return id;
   }, []);
@@ -2849,7 +2846,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
         reply_to: optimisticReplyTo,
         is_pinned: false,
       };
-      const msgs = [...prev.guildMessages, optimistic];
+      const msgs = insertByDate(prev.guildMessages, optimistic);
       if (msgs.length > 500) msgs.splice(0, msgs.length - 500);
       return { ...prev, guildMessages: msgs };
     });
@@ -2890,9 +2887,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
         if (!fresh.length) return prev;
         return {
           ...prev,
-          guildMessages: [...fresh, ...prev.guildMessages].sort(
-            (a, b) => a.created_at.localeCompare(b.created_at)
-          ),
+          guildMessages: sortByDate([...fresh, ...prev.guildMessages]),
         };
       });
       return true;
