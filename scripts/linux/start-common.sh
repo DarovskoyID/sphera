@@ -1010,6 +1010,29 @@ start_django() {
 build_frontend() {
     log "Building frontend"
     cd "$FRONTEND_DIR"
+
+    # Dependencies must be installed before building. Without this the build
+    # runs against whatever node_modules the machine happens to have, so the
+    # first deploy after a new package is added dies on an unresolved import.
+    # --include=dev because vite itself is a devDependency and would be skipped
+    # if NODE_ENV=production is set in the deploy environment.
+    #
+    # npm ci wipes node_modules, so it only runs when the lockfile actually
+    # changed; repeat deploys of unchanged dependencies stay fast.
+    if [ -f package-lock.json ]; then
+        lock_hash="$(sha256sum package-lock.json | cut -d' ' -f1)"
+        lock_stamp="node_modules/.deployed-lock-hash"
+        if [ ! -d node_modules ] || [ "$(cat "$lock_stamp" 2>/dev/null)" != "$lock_hash" ]; then
+            echo "      Dependencies changed — running npm ci"
+            npm ci --include=dev
+            printf '%s' "$lock_hash" > "$lock_stamp"
+        else
+            echo "      Dependencies unchanged — skipping install"
+        fi
+    else
+        npm install --include=dev
+    fi
+
     npm run build
 
     sudo install -d -m 0755 "$WEB_ROOT"
