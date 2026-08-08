@@ -175,9 +175,10 @@ const Spinner = () => (
   <div style={{ width: 24, height: 24, border: '3px solid var(--border-color)', borderTopColor: 'var(--accent-primary)', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} />
 );
 
-function GalleryThumb({ src, onClick, overlay }: { src: string; onClick: () => void; overlay?: string }) {
+function GalleryThumb({ src, onClick, overlay, filename, caption, authorId }: { src: string; onClick: () => void; overlay?: string; filename?: string; caption?: string; authorId?: string }) {
   const blobUrl = useAuthBlob(src);
   return (
+    <BlurredMedia filename={filename} text={caption} authorId={authorId}>
     <div onClick={onClick} style={{ position: 'relative', width: '100%', height: '100%', cursor: 'pointer', background: 'var(--bg-tertiary)', overflow: 'hidden' }}>
       {blobUrl
         ? <img src={blobUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
@@ -188,6 +189,7 @@ function GalleryThumb({ src, onClick, overlay }: { src: string; onClick: () => v
         </div>
       )}
     </div>
+    </BlurredMedia>
   );
 }
 
@@ -253,7 +255,7 @@ function CountBadge({ n }: { n: number }) {
   );
 }
 
-function PhotoGallery({ images, serverIP }: { images: Att[]; serverIP: string }) {
+function PhotoGallery({ images, serverIP, caption, authorId }: { images: Att[]; serverIP: string; caption?: string; authorId?: string }) {
   const [lightbox, setLightbox] = useState<number | null>(null);
   const srcs = images.map(a => (a.url.startsWith('http') ? a.url : serverIP + a.url));
   const n = images.length;
@@ -265,7 +267,7 @@ function PhotoGallery({ images, serverIP }: { images: Att[]; serverIP: string })
     return (
       <>
         <div style={{ borderRadius: 12, overflow: 'hidden', maxWidth: '100%' }}>
-          <GalleryThumb src={srcs[0]} onClick={() => setLightbox(0)} />
+          <GalleryThumb src={srcs[0]} onClick={() => setLightbox(0)} filename={images[0].filename} caption={caption} authorId={authorId} />
         </div>
         {lb}
       </>
@@ -280,7 +282,7 @@ function PhotoGallery({ images, serverIP }: { images: Att[]; serverIP: string })
           <CountBadge n={n} />
           {srcs.map((s, i) => (
             <div key={images[i].id} style={{ height: 200 }}>
-              <GalleryThumb src={s} onClick={() => setLightbox(i)} />
+              <GalleryThumb src={s} onClick={() => setLightbox(i)} filename={images[i].filename} caption={caption} authorId={authorId} />
             </div>
           ))}
         </div>
@@ -301,7 +303,7 @@ function PhotoGallery({ images, serverIP }: { images: Att[]; serverIP: string })
         <CountBadge n={n} />
         {/* Hero image */}
         <div style={{ height: 240 }}>
-          <GalleryThumb src={srcs[0]} onClick={() => setLightbox(0)} />
+          <GalleryThumb src={srcs[0]} onClick={() => setLightbox(0)} filename={images[0].filename} caption={caption} authorId={authorId} />
         </div>
         {/* Lower grid */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 3 }}>
@@ -310,7 +312,7 @@ function PhotoGallery({ images, serverIP }: { images: Att[]; serverIP: string })
             const isLast = i === restVisible - 1 && hiddenCount > 0;
             return (
               <div key={images[idx].id} style={{ height: 130 }}>
-                <GalleryThumb src={srcs[idx]} onClick={() => setLightbox(idx)} overlay={isLast ? `+${hiddenCount + 1}` : undefined} />
+                <GalleryThumb src={srcs[idx]} onClick={() => setLightbox(idx)} overlay={isLast ? `+${hiddenCount + 1}` : undefined} filename={images[idx].filename} caption={caption} authorId={authorId} />
               </div>
             );
           })}
@@ -622,7 +624,7 @@ function PostCard({ msg, guild, serverIP, onEdit }: { msg: import('../types').Gu
         const others = msg.attachments.filter(a => !a.content_type.startsWith('image/'));
         return (
           <div style={{ padding: '12px 20px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {images.length > 0 && <PhotoGallery images={images} serverIP={serverIP} />}
+            {images.length > 0 && <PhotoGallery images={images} serverIP={serverIP} caption={msg.content} authorId={msg.author?.id} />}
             {others.map(att => <AttachmentBlock key={att.id} att={att} caption={msg.content} authorId={msg.author?.id} />)}
           </div>
         );

@@ -999,10 +999,11 @@ async function downloadAuthed(serverIP: string, token: string, url: string, file
 
 const spin: React.CSSProperties = { width: 20, height: 20, border: '2px solid var(--accent-primary)', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.7s linear infinite' };
 
-const GalleryThumb: React.FC<{ att: ChatAttachment; onOpen: () => void }> = ({ att, onOpen }) => {
+const GalleryThumb: React.FC<{ att: ChatAttachment; onOpen: () => void; caption?: string; authorId?: string }> = ({ att, onOpen, caption, authorId }) => {
   const blobUrl = useAuthObjectUrl(att.url);
   const isVideo = att.content_type.startsWith('video/');
   return (
+    <BlurredMedia filename={att.filename} text={caption} authorId={authorId}>
     <div onClick={onOpen} style={{ position: 'relative', aspectRatio: '1 / 1', borderRadius: 8, overflow: 'hidden', cursor: 'pointer', background: 'var(--bg-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       {!blobUrl ? <div style={spin} /> : isVideo ? (
         <>
@@ -1015,6 +1016,7 @@ const GalleryThumb: React.FC<{ att: ChatAttachment; onOpen: () => void }> = ({ a
         <img src={blobUrl} alt={att.filename} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
       )}
     </div>
+    </BlurredMedia>
   );
 };
 
@@ -1062,7 +1064,7 @@ const MediaLightbox: React.FC<{
   );
 };
 
-const MediaGallery: React.FC<{ items: ChatAttachment[] }> = ({ items }) => {
+const MediaGallery: React.FC<{ items: ChatAttachment[]; caption?: string; authorId?: string }> = ({ items, caption, authorId }) => {
   const tr = useTranslation();
   const { authToken, currentServerIP } = useApp();
   const [lightbox, setLightbox] = useState<number | null>(null);
@@ -1082,7 +1084,7 @@ const MediaGallery: React.FC<{ items: ChatAttachment[] }> = ({ items }) => {
   return (
     <div style={{ marginTop: 6, maxWidth: 360 }}>
       <div style={{ display: 'grid', gridTemplateColumns: `repeat(${cols}, 1fr)`, gap: 4 }}>
-        {items.map((att, i) => <GalleryThumb key={att.id} att={att} onOpen={() => setLightbox(i)} />)}
+        {items.map((att, i) => <GalleryThumb key={att.id} att={att} onOpen={() => setLightbox(i)} caption={caption} authorId={authorId} />)}
       </div>
       <button
         onClick={downloadAll}
@@ -1514,7 +1516,7 @@ const MessageRow = React.memo(({ msg, isOwn, isFirstInGroup, onContextMenu, onRe
             const rest = atts.filter(a => !isGalleryMedia(a));
             return (
               <>
-                {media.length > 0 && <MediaGallery items={media} />}
+                {media.length > 0 && <MediaGallery items={media} caption={msg.content} authorId={msg.author?.id} />}
                 {rest.map(att => <AttachmentView key={att.id} att={att} caption={msg.content} authorId={msg.author?.id} />)}
               </>
             );
