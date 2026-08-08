@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useLayoutEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { Phone, PhoneOff, PhoneIncoming, PhoneMissed, Video, Search, Menu, ArrowLeft, Plus, Send, FileText, FileImage, FileVideo, FileAudio, File, Download, X, MoreHorizontal, Reply, Copy, Trash2, Flag, Pin, Ban, Check, CheckCheck, ChevronUp, ChevronDown, Mic, Circle, Play, Square, Pause, CheckSquare, MapPin, Pencil, User as UserIcon } from 'lucide-react';
+import { Phone, PhoneOff, PhoneIncoming, PhoneMissed, Video, Search, Menu, ArrowLeft, Plus, Send, FileText, FileImage, FileVideo, FileAudio, File, Download, X, MoreHorizontal, Reply, Copy, Trash2, Flag, Pin, Ban, Check, CheckCheck, ChevronUp, ChevronDown, Mic, Circle, Play, Square, Pause, CheckSquare, MapPin, Pencil, Clock, User as UserIcon } from 'lucide-react';
 import { MessageEditModal } from './MessageEditModal';
 import type { ChatAttachment, ChatMessage as ChatMessageType } from '../types';
 import { useApp, reportError } from '../context/AppContext';
