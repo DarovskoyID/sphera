@@ -589,6 +589,7 @@ function PostCard({ msg, guild, serverIP, onEdit }: { msg: import('../types').Gu
           <RichMessage
             type={msg.message_type as RichMessageType}
             payload={msg.payload as RichPayload}
+            authorId={msg.author?.id}
             isOwn={!!currentUser && String(msg.author?.id) === String(currentUser.id)}
             canManage={!!currentUser && (String(msg.author?.id) === String(currentUser.id) || guild.owner_id === currentUser.id)}
             onVote={(ids) => { void votePoll(guild.id, String(msg.id), ids); }}

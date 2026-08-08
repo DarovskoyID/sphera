@@ -1,6 +1,7 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { BarChart3, Check, CheckSquare, MapPin, MessageSquare, Phone, Radio, Square, User as UserIcon, X } from 'lucide-react';
 import { useTranslation } from '../i18n/useTranslation';
+import { CensoredPlainText } from './EmojiPicker';
 import type {
   ContactPayload,
   LocationPayload,
@@ -102,6 +103,18 @@ function MapPreview({ lat, lng, zoom = 15, height = 160 }: { lat: number; lng: n
   );
 }
 
+
+// Free-text inside a poll/to-do/location is written by a user just like a
+// normal message, so it runs through the same content filter. The author is
+// carried in context rather than drilled through every card component.
+const RichAuthorCtx = createContext<string | undefined>(undefined);
+
+const T: React.FC<{ v?: string | null }> = ({ v }) => {
+  const authorId = useContext(RichAuthorCtx);
+  if (!v) return null;
+  return <CensoredPlainText text={v} authorId={authorId} />;
+};
+
 const cardStyle: React.CSSProperties = {
   border: '1px solid var(--border-color, rgba(255,255,255,.1))',
   background: 'var(--bg-secondary, #2b2d31)',
@@ -159,7 +172,7 @@ function VotersModal({ option, onClose, onFetch }: {
       <div style={{ width: '100%', maxWidth: 380, maxHeight: '80vh', display: 'flex', flexDirection: 'column', background: 'var(--bg-secondary, #2b2d31)', borderRadius: 14, border: '1px solid var(--border-color, rgba(255,255,255,.1))' }} onClick={(e) => e.stopPropagation()}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '14px 16px', borderBottom: '1px solid var(--border-color, rgba(255,255,255,.08))' }}>
           <div style={{ minWidth: 0 }}>
-            <div style={{ fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{option.text}</div>
+            <div style={{ fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}><T v={option.text} /></div>
             <div style={{ fontSize: 12, color: 'var(--text-muted, #949ba4)' }}>{tr('poll_votes_count')}: {total}</div>
           </div>
           <button onClick={onClose} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted, #949ba4)' }}><X size={18} /></button>
@@ -217,7 +230,7 @@ function PollCard({ poll, canManage, onVote, onClose, onFetchVoters }: {
         {poll.closed ? tr('poll_closed') : poll.multiple ? tr('poll_multiple') : tr('poll_single')}
         {poll.anonymous && <span>· {tr('poll_anonymous')}</span>}
       </div>
-      <div style={{ fontWeight: 600, marginBottom: 10, color: 'var(--text-primary)' }}>{poll.question}</div>
+      <div style={{ fontWeight: 600, marginBottom: 10, color: 'var(--text-primary)' }}><T v={poll.question} /></div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
         {poll.options.map((o) => {
@@ -256,7 +269,7 @@ function PollCard({ poll, canManage, onVote, onClose, onFetchVoters }: {
                   >
                     {o.me && <Check size={10} color="#fff" strokeWidth={4} />}
                   </span>
-                  <span style={{ flex: 1, minWidth: 0, wordBreak: 'break-word' }}>{o.text}</span>
+                  <span style={{ flex: 1, minWidth: 0, wordBreak: 'break-word' }}><T v={o.text} /></span>
                   {showResults && (
                     <span style={{ fontSize: 12, color: 'var(--text-muted, #949ba4)', flexShrink: 0 }}>
                       {pct}% · {o.count}
@@ -324,7 +337,7 @@ function TodoCard({ todo, onToggle }: { todo: TodoPayload; onToggle?: (id: strin
           {todo.done_count}/{todo.total}
         </span>
       </div>
-      {todo.title && <div style={{ fontWeight: 600, marginBottom: 8, color: 'var(--text-primary)' }}>{todo.title}</div>}
+      {todo.title && <div style={{ fontWeight: 600, marginBottom: 8, color: 'var(--text-primary)' }}><T v={todo.title} /></div>}
 
       <div style={{ height: 3, borderRadius: 3, background: 'var(--bg-tertiary, #1e1f22)', marginBottom: 10, overflow: 'hidden' }}>
         <div style={{ width: `${pct}%`, height: '100%', background: 'var(--accent-primary)', transition: 'width .3s ease' }} />
@@ -356,7 +369,7 @@ function TodoCard({ todo, onToggle }: { todo: TodoPayload; onToggle?: (id: strin
                 opacity: it.done ? 0.55 : 1,
               }}
             >
-              {it.text}
+              <T v={it.text} />
             </span>
           </button>
         ))}
@@ -387,7 +400,7 @@ function ContactCard({ contact, onMessage }: { contact: ContactPayload; onMessag
             </div>
           )}
         <div style={{ minWidth: 0, flex: 1 }}>
-          <div style={{ fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</div>
+          <div style={{ fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}><T v={name} /></div>
           <div style={{ fontSize: 12, color: 'var(--text-muted, #949ba4)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sub}</div>
         </div>
       </div>
@@ -461,7 +474,7 @@ function LocationCard({ loc, isOwn, onStopLive }: { loc: LocationPayload; isOwn:
         <MapPreview lat={loc.lat} lng={loc.lng} />
       </a>
 
-      {loc.label && <div style={{ marginTop: 8, color: 'var(--text-primary)', fontSize: 13 }}>{loc.label}</div>}
+      {loc.label && <div style={{ marginTop: 8, color: 'var(--text-primary)', fontSize: 13 }}><T v={loc.label} /></div>}
       <div style={{ marginTop: 6, fontSize: 11, color: 'var(--text-muted, #949ba4)', fontVariantNumeric: 'tabular-nums' }}>
         {loc.lat.toFixed(5)}, {loc.lng.toFixed(5)}
       </div>
@@ -493,11 +506,27 @@ export interface RichMessageProps {
   onToggleTodo?: (itemId: string) => void;
   onStopLive?: () => void;
   onMessageContact?: (userId: string) => void;
+  /** Who wrote it — decides whether the explicit filter applies to its text. */
+  authorId?: string;
 }
 
 export function RichMessage(props: RichMessageProps) {
   const { type, payload, isOwn, canManage = false } = props;
   if (!payload) return null;
+  return (
+    <RichAuthorCtx.Provider value={props.authorId}>
+      {renderCard(props, type, payload, isOwn, canManage)}
+    </RichAuthorCtx.Provider>
+  );
+}
+
+function renderCard(
+  props: RichMessageProps,
+  type: RichMessageType,
+  payload: RichPayload,
+  isOwn: boolean,
+  canManage: boolean,
+) {
   switch (type) {
     case 'poll':
       return <PollCard poll={payload as PollPayload} canManage={canManage || isOwn} onVote={props.onVote} onClose={props.onClosePoll} onFetchVoters={props.onFetchVoters} />;

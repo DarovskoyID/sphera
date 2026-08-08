@@ -7,6 +7,7 @@ import {
   useCensorConfig, isFullBlur, fullMask, censorPlain,
   censorToSentinel, sentinelToStars, stripSentinels, MASK_SENTINEL,
 } from '../utils/censor';
+import { useCensorOff } from './CensorScope';
 import type { CustomEmoji } from '../types';
 
 /** @deprecated use CustomEmoji from types */
@@ -471,10 +472,14 @@ export const MessageText: React.FC<{
   authorId?: string;
 }> = ({ text, customEmojis, members, authorId }) => {
   const cfg = useCensorConfig();
+  const censorOff = useCensorOff();
   if (!text) return null;
 
   // Drop any mask sentinels the sender typed, so nobody can forge a mask.
   const clean = stripSentinels(text);
+
+  // Inside a CensorOff scope (the diary) nothing is masked at all.
+  if (censorOff) return <span>{renderRichText(clean, customEmojis, members)}</span>;
 
   // Whole-message masking: appeals to disable the filter are fully hidden and
   // never rich-rendered (so no sticker/GIF/markdown escape hatch survives).
@@ -557,7 +562,9 @@ export const MessageText: React.FC<{
 // publishing previews, etc.
 export const CensoredPlainText: React.FC<{ text: string; authorId?: string }> = ({ text, authorId }) => {
   const cfg = useCensorConfig();
+  const censorOff = useCensorOff();
   if (!text) return null;
+  if (censorOff) return <>{text}</>;
   const c = censorPlain(text, cfg, authorId);
   if (c.blurred) return <span className="blurred-msg">{c.text}</span>;
   return <>{c.text}</>;

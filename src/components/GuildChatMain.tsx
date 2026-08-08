@@ -273,6 +273,7 @@ const GuildRichCard: React.FC<{
         type={msg.message_type as RichMessageType}
         payload={msg.payload as RichPayload}
         isOwn={isOwn}
+        authorId={msg.author?.id}
         canManage={canManage}
         onVote={(ids) => { void votePoll(currentGuild.id, id, ids); }}
         onClosePoll={() => { void closePoll(currentGuild.id, id); }}

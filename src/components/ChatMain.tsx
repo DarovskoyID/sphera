@@ -35,6 +35,7 @@ const DmRichCard: React.FC<{
         type={msg.message_type as RichMessageType}
         payload={msg.payload as RichPayload}
         isOwn={isOwn}
+        authorId={msg.author?.id}
         onToggleTodo={(itemId) => { void toggleTodoItem(scope, id, itemId); }}
         onStopLive={() => { void pushLiveLocation(scope, id, { stop: true }); }}
         onMessageContact={(userId) => setCurrentChat(userId)}
@@ -42,7 +43,7 @@ const DmRichCard: React.FC<{
     </div>
   );
 };
-import { MessageText } from './EmojiPicker';
+import { MessageText, CensoredPlainText } from './EmojiPicker';
 import { UnifiedPicker } from './StickerGifPicker';
 import type { CustomEmoji } from '../types';
 import ConfirmModal from './ConfirmModal';
@@ -292,7 +293,7 @@ const PinnedBar: React.FC<{
         style={{ flex: 1, minWidth: 0, cursor: 'pointer', overflow: 'hidden' }}
         onClick={() => onScrollTo(current.id)}
       >
-        <div style={{ fontSize: 12, color: 'var(--text-secondary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{preview}</div>
+        <div style={{ fontSize: 12, color: 'var(--text-secondary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}><CensoredPlainText text={preview} authorId={current.author?.id} /></div>
       </div>
       {pinned.length > 1 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 0, flexShrink: 0 }}>
@@ -2182,7 +2183,9 @@ const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: (
               {replyTo.author.nickname || replyTo.author.username}
             </span>
             <span style={{ fontSize: 12, color: 'var(--text-secondary)', marginLeft: 6, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'inline-block', maxWidth: 200, verticalAlign: 'middle' }}>
-              {replyTo.content || tr('chat_attachment_label')}
+              {replyTo.content
+                ? <CensoredPlainText text={replyTo.content} authorId={replyTo.author?.id} />
+                : tr('chat_attachment_label')}
             </span>
           </div>
           <button onClick={onCancelReply} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', padding: 2, flexShrink: 0 }}>

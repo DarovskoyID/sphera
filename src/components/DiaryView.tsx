@@ -3,6 +3,7 @@ import { Search, Plus, Send, Trash2, X, Tag, BarChart3, CheckSquare, MapPin, Use
 import { useApp } from '../context/AppContext';
 import { useTranslation } from '../i18n/useTranslation';
 import { MessageText } from './EmojiPicker';
+import { CensorOff } from './CensorScope';
 import { RichMessage } from './RichMessage';
 import { RichComposer } from './RichComposer';
 import { MessageEditModal } from './MessageEditModal';
@@ -191,6 +192,9 @@ export const DiaryView: React.FC<{ style?: React.CSSProperties }> = ({ style }) 
   ] as const;
 
   return (
+    // The diary is a private note to self: the reader is the author, so there
+    // is nobody to shield and nothing here is masked.
+    <CensorOff>
     <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'var(--bg-primary)', height: isMobile ? 'calc(100% - 60px)' : '100%', minHeight: 0, ...style }}>
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 20px', borderBottom: '1px solid var(--border-color)', flexShrink: 0 }}>
@@ -394,6 +398,7 @@ export const DiaryView: React.FC<{ style?: React.CSSProperties }> = ({ style }) 
         </div>
       )}
     </div>
+    </CensorOff>
   );
 };
 

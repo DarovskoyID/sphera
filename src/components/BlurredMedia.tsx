@@ -3,6 +3,7 @@ import { EyeOff } from 'lucide-react';
 import { useTranslation } from '../i18n/useTranslation';
 import { useCensorConfig, isExplicitMedia, explicitApplies } from '../utils/censor';
 import { classifyMedia, type Verdict } from '../utils/nsfwDetect';
+import { useCensorOff } from './CensorScope';
 
 /**
  * Hides a photo or video behind a blur until the reader taps to reveal it.
@@ -29,9 +30,10 @@ export const BlurredMedia: React.FC<{
 }> = ({ filename, text, authorId, src, mediaKey, isVideo, children }) => {
   const tr = useTranslation();
   const cfg = useCensorConfig();
+  const censorOff = useCensorOff();
   const [revealed, setRevealed] = useState(false);
 
-  const applies = cfg.blur_enabled && explicitApplies(cfg, authorId);
+  const applies = !censorOff && cfg.blur_enabled && explicitApplies(cfg, authorId);
   const flaggedByText = applies && isExplicitMedia({ filename, text, authorId }, cfg);
   // Only worth classifying when the filter is on and wording didn't already decide.
   const shouldClassify = applies && !flaggedByText && !!src;
