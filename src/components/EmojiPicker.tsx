@@ -3,7 +3,10 @@ import { Search, X, Plus, Trash2 } from 'lucide-react';
 import { EMOJI_CATEGORIES } from '../data/emojis';
 import { useApp } from '../context/AppContext';
 import { useTranslation } from '../i18n/useTranslation';
-import { getCensorConfig, useCensorConfig, isFullBlur, fullMask, censorWords, censorPlain } from '../utils/censor';
+import {
+  useCensorConfig, isFullBlur, fullMask, censorPlain,
+  censorToSentinel, sentinelToStars, stripSentinels, MASK_SENTINEL,
+} from '../utils/censor';
 import type { CustomEmoji } from '../types';
 
 /** @deprecated use CustomEmoji from types */
@@ -460,17 +463,37 @@ const blurredStyle: React.CSSProperties = {
   fontFamily: 'monospace', wordBreak: 'break-word',
 };
 
-export const MessageText: React.FC<{ text: string; customEmojis: CustomEmoji[]; members?: { username: string; nickname: string }[] }> = ({ text, customEmojis, members }) => {
+export const MessageText: React.FC<{
+  text: string;
+  customEmojis: CustomEmoji[];
+  members?: { username: string; nickname: string }[];
+  /** Author of the message — decides whether the explicit filter applies. */
+  authorId?: string;
+}> = ({ text, customEmojis, members, authorId }) => {
   const cfg = useCensorConfig();
   if (!text) return null;
 
+  // Drop any mask sentinels the sender typed, so nobody can forge a mask.
+  const clean = stripSentinels(text);
+
   // Whole-message masking: appeals to disable the filter are fully hidden and
   // never rich-rendered (so no sticker/GIF/markdown escape hatch survives).
-  if (isFullBlur(text, cfg)) {
-    return <span className="blurred-msg" style={blurredStyle}>{fullMask(text)}</span>;
+  if (isFullBlur(clean, cfg)) {
+    return <span className="blurred-msg" style={blurredStyle}>{fullMask(clean)}</span>;
   }
 
-  const trimmed = text.trim();
+  // Word masking runs BEFORE markdown parsing — otherwise `с**у**ка` would be
+  // split into separate leaves and slip past. Masked spans become sentinel
+  // runs (not '*') so the markdown pass cannot reinterpret them as syntax;
+  // renderLeaf turns them into asterisks at the very end.
+  const censored = censorToSentinel(clean, cfg, authorId);
+  const wasCensored = censored !== clean;
+
+  const trimmed = clean.trim();
+
+  // A censored message never takes the sticker/GIF/emoji shortcuts below —
+  // those render the raw string as media and would bypass the mask entirely.
+  if (wasCensored) return <span>{renderRichText(censored, customEmojis, members)}</span>;
 
   // Animated Noto sticker (Google hosted)
   if (NOTO_STICKER_RE.test(trimmed)) {
@@ -532,10 +555,10 @@ export const MessageText: React.FC<{ text: string; customEmojis: CustomEmoji[]; 
 // Plain-text (no markdown) render with the privacy content filter applied.
 // Used for surfaces that show raw content — channel comments, optimistic
 // publishing previews, etc.
-export const CensoredPlainText: React.FC<{ text: string }> = ({ text }) => {
+export const CensoredPlainText: React.FC<{ text: string; authorId?: string }> = ({ text, authorId }) => {
   const cfg = useCensorConfig();
   if (!text) return null;
-  const c = censorPlain(text, cfg);
+  const c = censorPlain(text, cfg, authorId);
   if (c.blurred) return <span className="blurred-msg">{c.text}</span>;
   return <>{c.text}</>;
 };
@@ -629,17 +652,39 @@ const CodeBlock: React.FC<{ code: string }> = ({ code }) => {
         </button>
       </div>
       <pre style={{ margin: 0, padding: '12px 14px', overflowX: 'auto', fontFamily: 'monospace', fontSize: 13, lineHeight: 1.5, color: '#e3e5e8', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-        {highlightCode(code)}
+        {/* Code blocks skip renderLeaf, so masks are materialised here. */}
+        {highlightCode(sentinelToStars(code))}
       </pre>
     </div>
   );
 };
 
+// Turn mask-sentinel runs (written by the content filter before markdown
+// parsing) into visible asterisks. Runs are emitted as styled spans; plain
+// segments pass through untouched.
+function withMaskSpans(nodes: React.ReactNode[], keyBase: string): React.ReactNode[] {
+  const out: React.ReactNode[] = [];
+  nodes.forEach((node, ni) => {
+    if (typeof node !== 'string' || !node.includes(MASK_SENTINEL)) { out.push(node); return; }
+    const re = new RegExp(MASK_SENTINEL + '+', 'g');
+    let last = 0;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(node)) !== null) {
+      if (m.index > last) out.push(node.slice(last, m.index));
+      out.push(
+        <span key={`${keyBase}-mask${ni}-${m.index}`} className="blurred-msg">
+          {'*'.repeat(m[0].length)}
+        </span>
+      );
+      last = m.index + m[0].length;
+    }
+    if (last < node.length) out.push(node.slice(last));
+  });
+  return out;
+}
+
 // Render plain leaf text: custom emojis + mentions.
 function renderLeaf(str: string, customEmojis: CustomEmoji[], members: { username: string; nickname: string }[] | undefined, keyBase: string): React.ReactNode[] {
-  // Word-level masking runs here (after markdown parsing) so the asterisks we
-  // insert are never themselves re-interpreted as markdown syntax.
-  str = censorWords(str, getCensorConfig());
   const renderMentions = (s: string, kb: string): React.ReactNode[] => {
     if (!members?.length && !s.includes('@everyone') && !s.includes('@role:')) return [s];
     const mentionRe = /@(everyone|role:[^\s]+|[^\s@]+)/g;
@@ -664,7 +709,7 @@ function renderLeaf(str: string, customEmojis: CustomEmoji[], members: { usernam
     return out;
   };
 
-  if (customEmojis.length === 0 || !str.includes(':')) return renderMentions(str, keyBase);
+  if (customEmojis.length === 0 || !str.includes(':')) return withMaskSpans(renderMentions(str, keyBase), keyBase);
 
   const parts: React.ReactNode[] = [];
   const regex = /:([a-z0-9_]+):/g;
@@ -681,12 +726,13 @@ function renderLeaf(str: string, customEmojis: CustomEmoji[], members: { usernam
     last = m.index + m[0].length;
   }
   if (last < str.length) parts.push(...renderMentions(str.slice(last), `${keyBase}-end`));
-  return parts;
+  return withMaskSpans(parts, keyBase);
 }
 
 interface InlineRule { re: RegExp; render: (inner: string, key: string, parse: (s: string, kb: string) => React.ReactNode[]) => React.ReactNode; literal?: boolean; }
 const INLINE_RULES: InlineRule[] = [
-  { re: /`([^`]+)`/, literal: true, render: (inner, key) => <code key={key} style={inlineCodeStyle}>{inner}</code> },
+  // `literal` rules bypass renderLeaf, so masks are materialised inline.
+  { re: /`([^`]+)`/, literal: true, render: (inner, key) => <code key={key} style={inlineCodeStyle}>{sentinelToStars(inner)}</code> },
   { re: /\*\*([\s\S]+?)\*\*/, render: (inner, key, parse) => <strong key={key}>{parse(inner, key)}</strong> },
   { re: /__([\s\S]+?)__/, render: (inner, key, parse) => <u key={key}>{parse(inner, key)}</u> },
   { re: /~~([\s\S]+?)~~/, render: (inner, key, parse) => <s key={key}>{parse(inner, key)}</s> },

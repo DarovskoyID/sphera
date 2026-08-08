@@ -11,6 +11,7 @@ import { loadSelectedServer, wsUrlFor } from '../config/network';
 import { saveNotifPrefs, getNotifPrefs, showDesktopNotification, showCallNotification, playMessageSound, ensureNotificationPermission } from '../utils/notifications';
 import { saveA11yPrefs, announce as announceA11y, type A11yPrefs } from '../utils/accessibility';
 import { saveDisplayPrefs } from '../utils/displayPrefs';
+import { saveCensorConfig, setCensorAudience, scopeFromScanFlags } from '../utils/censor';
 import { postNativeTheme, setAllowScale } from '../utils/nativeBridge';
 import { deviceQuery } from '../utils/device';
 import { toUserMessage, readResponse, setErrorLang } from '../utils/errorManager';
@@ -570,6 +571,14 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
           streamer_mode: cfg.streamer_mode,
           streamer_hide_info: cfg.streamer_hide_info,
         });
+        saveCensorConfig({
+          blur_enabled: cfg.blur_enabled,
+          blur_profanity: cfg.blur_profanity,
+          blur_calls_to_action: cfg.blur_calls_to_action,
+          blur_code_requests: cfg.blur_code_requests,
+          blur_disable_requests: cfg.blur_disable_requests,
+          explicit_scope: scopeFromScanFlags(cfg),
+        });
         setAllowScale(!!cfg.allow_scale);
         const a11y: Partial<A11yPrefs> = {};
         (['high_contrast', 'screen_reader', 'reduce_motion', 'large_text', 'keyboard_outlines'] as const)
@@ -580,6 +589,15 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     };
     load();
   }, [state.authToken, state.currentServerIP]);
+
+  // Tell the content filter who the reader is and who their friends are, so the
+  // "explicit content from non-friends only" scope can be resolved at render.
+  useEffect(() => {
+    setCensorAudience(
+      state.currentUser ? String(state.currentUser.id) : '',
+      state.friends.map(f => String(f.id)),
+    );
+  }, [state.currentUser, state.friends]);
 
   // Keep a ref of the logged-in user for use inside stable WS callbacks.
   useEffect(() => {

@@ -9,6 +9,7 @@ import { UnifiedPicker } from './StickerGifPicker';
 import { useApp, reportError } from '../context/AppContext';
 import { useTranslation } from '../i18n/useTranslation';
 import { MessageText, CensoredPlainText } from './EmojiPicker';
+import { BlurredMedia } from './BlurredMedia';
 import { getDraftText, setDraftText, getDraftFiles, setDraftFiles, clearDraft } from '../utils/drafts';
 import { pickRecorderFormat, mediaUnsupportedReason, describeMediaError } from '../utils/recording';
 import ConfirmModal from './ConfirmModal';
@@ -121,7 +122,7 @@ function isVideoCircle(att: { filename: string }) {
   return att.filename.startsWith('video_') && att.filename.endsWith('.webm');
 }
 
-function AuthMedia({ src, contentType, filename }: { src: string; contentType: string; filename: string }) {
+function AuthMedia({ src, contentType, filename, caption, authorId }: { src: string; contentType: string; filename: string; caption?: string; authorId?: string }) {
   const { authToken } = useApp();
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
 
@@ -143,9 +144,9 @@ function AuthMedia({ src, contentType, filename }: { src: string; contentType: s
   </div>;
 
   if (contentType.startsWith('image/'))
-    return <img src={blobUrl} alt={filename} style={{ maxWidth: 'min(400px, 100%)', maxHeight: 300, borderRadius: 12, display: 'block', cursor: 'pointer', objectFit: 'contain' }} onClick={() => window.open(blobUrl, '_blank')} />;
+    return <BlurredMedia filename={filename} text={caption} authorId={authorId}><img src={blobUrl} alt={filename} style={{ maxWidth: 'min(400px, 100%)', maxHeight: 300, borderRadius: 12, display: 'block', cursor: 'pointer', objectFit: 'contain' }} onClick={() => window.open(blobUrl, '_blank')} /></BlurredMedia>;
   if (contentType.startsWith('video/'))
-    return <video src={blobUrl} controls style={{ maxWidth: 'min(400px, 100%)', maxHeight: 300, borderRadius: 12, display: 'block' }} />;
+    return <BlurredMedia filename={filename} text={caption} authorId={authorId}><video src={blobUrl} controls style={{ maxWidth: 'min(400px, 100%)', maxHeight: 300, borderRadius: 12, display: 'block' }} /></BlurredMedia>;
   return null;
 }
 
@@ -320,7 +321,7 @@ function PhotoGallery({ images, serverIP }: { images: Att[]; serverIP: string })
   );
 }
 
-function AttachmentBlock({ att }: { att: { id: string; filename: string; content_type: string; file_size: number; url: string } }) {
+function AttachmentBlock({ att, caption, authorId }: { att: { id: string; filename: string; content_type: string; file_size: number; url: string }; caption?: string; authorId?: string }) {
   const tr = useTranslation();
   const { currentServerIP } = useApp();
   // players prefix currentServerIP internally, so they get the raw path
@@ -342,7 +343,7 @@ function AttachmentBlock({ att }: { att: { id: string; filename: string; content
   }
   if (att.content_type.startsWith('image/') || att.content_type.startsWith('video/')) {
     const fullUrl = att.url.startsWith('http') ? att.url : currentServerIP + att.url;
-    return <AuthMedia src={fullUrl} contentType={att.content_type} filename={att.filename} />;
+    return <AuthMedia src={fullUrl} contentType={att.content_type} filename={att.filename} caption={caption} authorId={authorId} />;
   }
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', background: 'var(--bg-tertiary)', borderRadius: 8 }}>
@@ -431,7 +432,7 @@ function CommentsModal({ guild, messageId, serverIP, onClose }: { guild: Guild; 
                     <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{fmt(c.created_at)}</span>
                     {canDelete && <button onClick={() => remove(c.id)} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-tertiary)', padding: 2 }}><Trash2 size={13} /></button>}
                   </div>
-                  <div style={{ fontSize: 14, color: 'var(--text-primary)', lineHeight: 1.4, wordBreak: 'break-word', whiteSpace: 'pre-wrap' }}><CensoredPlainText text={c.content} /></div>
+                  <div style={{ fontSize: 14, color: 'var(--text-primary)', lineHeight: 1.4, wordBreak: 'break-word', whiteSpace: 'pre-wrap' }}><CensoredPlainText text={c.content} authorId={c.author?.id} /></div>
                 </div>
               </div>
             );
@@ -514,7 +515,7 @@ function PostCard({ msg, guild, serverIP, onEdit }: { msg: import('../types').Gu
             </div>
           </div>
         </div>
-        {msg.content && <div style={{ padding: '0 20px 12px', color: 'var(--text-primary)', fontSize: 14, whiteSpace: 'pre-wrap' }}><CensoredPlainText text={msg.content} /></div>}
+        {msg.content && <div style={{ padding: '0 20px 12px', color: 'var(--text-primary)', fontSize: 14, whiteSpace: 'pre-wrap' }}><CensoredPlainText text={msg.content} authorId={msg.author?.id} /></div>}
         {count > 0 && (
           <div style={{ display: 'grid', gridTemplateColumns: `repeat(${cols}, 1fr)`, gap: 3, padding: '0 3px 3px' }}>
             {Array.from({ length: Math.min(count, 6) }).map((_, i) => (
@@ -576,7 +577,7 @@ function PostCard({ msg, guild, serverIP, onEdit }: { msg: import('../types').Gu
       {/* Content */}
       {msg.content && msg.content.trim() ? (
         <div style={{ padding: '12px 20px 0', fontSize: 15, lineHeight: 1.6, color: 'var(--text-primary)', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-          <MessageText text={msg.content} customEmojis={customEmojis} />
+          <MessageText text={msg.content} customEmojis={customEmojis} authorId={msg.author?.id} />
         </div>
       ) : null}
 
@@ -622,7 +623,7 @@ function PostCard({ msg, guild, serverIP, onEdit }: { msg: import('../types').Gu
         return (
           <div style={{ padding: '12px 20px', display: 'flex', flexDirection: 'column', gap: 8 }}>
             {images.length > 0 && <PhotoGallery images={images} serverIP={serverIP} />}
-            {others.map(att => <AttachmentBlock key={att.id} att={att} />)}
+            {others.map(att => <AttachmentBlock key={att.id} att={att} caption={msg.content} authorId={msg.author?.id} />)}
           </div>
         );
       })()}

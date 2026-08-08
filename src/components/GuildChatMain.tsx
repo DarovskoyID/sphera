@@ -7,6 +7,7 @@ import type { RichMessageType, RichPayload } from '../types';
 import { useApp, reportError } from '../context/AppContext';
 import { useTranslation } from '../i18n/useTranslation';
 import { MessageText } from './EmojiPicker';
+import { BlurredMedia } from './BlurredMedia';
 import { UnifiedPicker } from './StickerGifPicker';
 import { ProfileModal, type ProfileUser } from './ProfileModal';
 import ConfirmModal from './ConfirmModal';
@@ -38,7 +39,7 @@ function getFileIcon(type: string) {
 }
 
 /** Fetches media with Authorization header and renders as blob URL (image or video) */
-function AuthMedia({ src, contentType, filename }: { src: string; contentType: string; filename: string }) {
+function AuthMedia({ src, contentType, filename, caption, authorId }: { src: string; contentType: string; filename: string; caption?: string; authorId?: string }) {
   const { authToken } = useApp();
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
 
@@ -68,25 +69,29 @@ function AuthMedia({ src, contentType, filename }: { src: string; contentType: s
 
   if (contentType.startsWith('image/')) {
     return (
-      <img
-        src={blobUrl}
-        alt={filename}
-        style={{ maxWidth: 'min(320px, 100%)', maxHeight: 240, borderRadius: 8, display: 'block', cursor: 'pointer', marginTop: 4, objectFit: 'contain' }}
-        onClick={() => window.open(blobUrl, '_blank')}
-      />
+      <BlurredMedia filename={filename} text={caption} authorId={authorId}>
+        <img
+          src={blobUrl}
+          alt={filename}
+          style={{ maxWidth: 'min(320px, 100%)', maxHeight: 240, borderRadius: 8, display: 'block', cursor: 'pointer', marginTop: 4, objectFit: 'contain' }}
+          onClick={() => window.open(blobUrl, '_blank')}
+        />
+      </BlurredMedia>
     );
   }
 
   return (
-    <video
-      src={blobUrl}
-      controls
-      style={{ maxWidth: 'min(400px, 100%)', maxHeight: 280, borderRadius: 8, display: 'block', marginTop: 4 }}
-    />
+    <BlurredMedia filename={filename} text={caption} authorId={authorId}>
+      <video
+        src={blobUrl}
+        controls
+        style={{ maxWidth: 'min(400px, 100%)', maxHeight: 280, borderRadius: 8, display: 'block', marginTop: 4 }}
+      />
+    </BlurredMedia>
   );
 }
 
-function AttachmentView({ att }: { att: { id: string; filename: string; content_type: string; file_size: number; url: string } }) {
+function AttachmentView({ att, caption, authorId }: { att: { id: string; filename: string; content_type: string; file_size: number; url: string }; caption?: string; authorId?: string }) {
   const { currentServerIP, authToken } = useApp();
   const tr = useTranslation();
   const isMedia = att.content_type.startsWith('image/') || att.content_type.startsWith('video/');
@@ -104,7 +109,7 @@ function AttachmentView({ att }: { att: { id: string; filename: string; content_
   };
 
   if (isMedia) {
-    return <AuthMedia src={src} contentType={att.content_type} filename={att.filename} />;
+    return <AuthMedia src={src} contentType={att.content_type} filename={att.filename} caption={caption} authorId={authorId} />;
   }
 
   return (
@@ -355,13 +360,13 @@ const GuildMessageRow = React.memo(({ msg, isOwn, isFirstInGroup, onContextMenu,
                     {msg.reply_to.author.nickname || msg.reply_to.author.username}
                   </span>
                   <span className="message-reply-text">
-                    <MessageText text={msg.reply_to.content} customEmojis={customEmojis} members={members} />
+                    <MessageText text={msg.reply_to.content} customEmojis={customEmojis} members={members} authorId={msg.reply_to.author?.id} />
                   </span>
                 </div>
               )}
               <div className="message-line">
                 <span className="message-body">
-                  <MessageText text={msg.content} customEmojis={customEmojis} members={members} />
+                  <MessageText text={msg.content} customEmojis={customEmojis} members={members} authorId={msg.author?.id} />
                 </span>
                 <span className="message-timestamp">{msg.edited && <span style={{ marginRight: 4, opacity: 0.75 }}>{tr('msg_edited')}</span>}{time}</span>
               </div>
@@ -377,7 +382,7 @@ const GuildMessageRow = React.memo(({ msg, isOwn, isFirstInGroup, onContextMenu,
             />
           )}
           {msg.attachments?.map(att => (
-            <AttachmentView key={att.id} att={att} />
+            <AttachmentView key={att.id} att={att} caption={msg.content} authorId={msg.author?.id} />
           ))}
           {!msg.content && ((msg.attachments?.length ?? 0) > 0 || isRichMsg(msg)) && (
             <span className="message-timestamp message-timestamp-standalone">

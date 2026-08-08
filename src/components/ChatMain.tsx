@@ -48,6 +48,7 @@ import type { CustomEmoji } from '../types';
 import ConfirmModal from './ConfirmModal';
 import { getDraftText, setDraftText, getDraftFiles, setDraftFiles } from '../utils/drafts';
 import { censorPlain } from '../utils/censor';
+import { BlurredMedia } from './BlurredMedia';
 import { pickRecorderFormat, mediaUnsupportedReason, describeMediaError } from '../utils/recording';
 
 // Maps a settings page key to its translation key, so the mobile settings
@@ -490,7 +491,7 @@ function getFileIcon(contentType: string) {
 }
 
 // Fetches media with auth token and renders as blob URL
-const AuthMedia: React.FC<{ url: string; contentType: string; filename: string }> = ({ url, contentType, filename }) => {
+const AuthMedia: React.FC<{ url: string; contentType: string; filename: string; caption?: string; authorId?: string }> = ({ url, contentType, filename, caption, authorId }) => {
   const { authToken, currentServerIP } = useApp();
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
 
@@ -524,21 +525,25 @@ const AuthMedia: React.FC<{ url: string; contentType: string; filename: string }
 
   if (contentType.startsWith('image/')) {
     return (
-      <img
-        src={blobUrl}
-        alt={filename}
-        style={{ maxWidth: 320, maxHeight: 300, borderRadius: 8, display: 'block', cursor: 'pointer', marginTop: 6 }}
-        onClick={() => window.open(blobUrl, '_blank')}
-      />
+      <BlurredMedia filename={filename} text={caption} authorId={authorId}>
+        <img
+          src={blobUrl}
+          alt={filename}
+          style={{ maxWidth: 320, maxHeight: 300, borderRadius: 8, display: 'block', cursor: 'pointer', marginTop: 6 }}
+          onClick={() => window.open(blobUrl, '_blank')}
+        />
+      </BlurredMedia>
     );
   }
 
   return (
-    <video
-      src={blobUrl}
-      controls
-      style={{ maxWidth: 400, maxHeight: 280, borderRadius: 8, display: 'block', marginTop: 6 }}
-    />
+    <BlurredMedia filename={filename} text={caption} authorId={authorId}>
+      <video
+        src={blobUrl}
+        controls
+        style={{ maxWidth: 400, maxHeight: 280, borderRadius: 8, display: 'block', marginTop: 6 }}
+      />
+    </BlurredMedia>
   );
 };
 
@@ -1070,7 +1075,7 @@ const MediaGallery: React.FC<{ items: ChatAttachment[] }> = ({ items }) => {
 
   // Single item keeps the classic large preview.
   if (items.length === 1) {
-    return <AuthMedia url={items[0].url} contentType={items[0].content_type} filename={items[0].filename} />;
+    return <AuthMedia url={items[0].url} contentType={items[0].content_type} filename={items[0].filename} caption={caption} authorId={authorId} />;
   }
 
   const cols = items.length === 2 ? 2 : items.length === 4 ? 2 : 3;
@@ -1093,7 +1098,7 @@ const MediaGallery: React.FC<{ items: ChatAttachment[] }> = ({ items }) => {
   );
 };
 
-const AttachmentView: React.FC<{ att: ChatAttachment }> = ({ att }) => {
+const AttachmentView: React.FC<{ att: ChatAttachment; caption?: string; authorId?: string }> = ({ att, caption, authorId }) => {
   const isImage = att.content_type.startsWith('image/');
   const isVideo = att.content_type.startsWith('video/');
   const isVoice = att.filename.startsWith('voice_') && att.filename.endsWith('.webm');
@@ -1103,7 +1108,7 @@ const AttachmentView: React.FC<{ att: ChatAttachment }> = ({ att }) => {
   if (isVideoCircle) return <VideoCirclePlayer url={att.url} />;
 
   if (isImage || isVideo) {
-    return <AuthMedia url={att.url} contentType={att.content_type} filename={att.filename} />;
+    return <AuthMedia url={att.url} contentType={att.content_type} filename={att.filename} caption={caption} authorId={authorId} />;
   }
 
   return (
@@ -1244,10 +1249,10 @@ const MessageContextMenu: React.FC<{
 
 // ── Message Row ───────────────────────────────────────────────────────────────
 
-function highlightText(rawText: string, query: string): React.ReactNode {
+function highlightText(rawText: string, query: string, authorId?: string): React.ReactNode {
   // Apply the privacy content filter before highlighting so masked words/
   // messages never leak through the search view.
-  const censored = censorPlain(rawText);
+  const censored = censorPlain(rawText, undefined, authorId);
   if (censored.blurred) return <span className="blurred-msg">{censored.text}</span>;
   const text = censored.text;
   if (!query.trim()) return text;
@@ -1482,7 +1487,7 @@ const MessageRow = React.memo(({ msg, isOwn, isFirstInGroup, onContextMenu, onRe
                         {msg.reply_to.author.nickname || msg.reply_to.author.username}
                       </span>
                       <span className="message-reply-text">
-                        <MessageText text={msg.reply_to.content} customEmojis={customEmojis} />
+                        <MessageText text={msg.reply_to.content} customEmojis={customEmojis} authorId={msg.reply_to.author?.id} />
                       </span>
                     </>
                   )}
@@ -1491,8 +1496,8 @@ const MessageRow = React.memo(({ msg, isOwn, isFirstInGroup, onContextMenu, onRe
               <div className="message-line">
                 <span className="message-body">
                   {searchQuery?.trim()
-                    ? highlightText(msg.content, searchQuery)
-                    : <MessageText text={msg.content} customEmojis={customEmojis} />
+                    ? highlightText(msg.content, searchQuery, msg.author?.id)
+                    : <MessageText text={msg.content} customEmojis={customEmojis} authorId={msg.author?.id} />
                   }
                 </span>
                 <span className="message-timestamp">{msg.edited && <span style={{ marginRight: 4, opacity: 0.75 }}>{tr('msg_edited')}</span>}{time}</span>
@@ -1510,7 +1515,7 @@ const MessageRow = React.memo(({ msg, isOwn, isFirstInGroup, onContextMenu, onRe
             return (
               <>
                 {media.length > 0 && <MediaGallery items={media} />}
-                {rest.map(att => <AttachmentView key={att.id} att={att} />)}
+                {rest.map(att => <AttachmentView key={att.id} att={att} caption={msg.content} authorId={msg.author?.id} />)}
               </>
             );
           })()}

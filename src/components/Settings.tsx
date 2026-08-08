@@ -9,7 +9,7 @@ import type { ServerUser } from '../types';
 import { saveNotifPrefs, ensureNotificationPermission } from '../utils/notifications';
 import { saveA11yPrefs, getA11yPrefs, TEXT_SCALE_MIN, TEXT_SCALE_MAX } from '../utils/accessibility';
 import { saveDisplayPrefs } from '../utils/displayPrefs';
-import { saveCensorConfig } from '../utils/censor';
+import { saveCensorConfig, scopeFromScanFlags } from '../utils/censor';
 import { setAllowScale } from '../utils/nativeBridge';
 import {
   getKeybindings, saveKeybindings, resetKeybindings, eventToCombo, comboDisplay,
@@ -35,13 +35,11 @@ interface SettingsData {
   show_profile_to_everyone: boolean;
   display_online_status: boolean;
   show_activity_status: boolean;
-  safe_dm_filter: boolean;
   scan_messages_everyone: boolean;
   scan_messages_non_friends: boolean;
   scan_messages_off: boolean;
   blur_enabled: boolean;
   blur_profanity: boolean;
-  blur_explicit: boolean;
   blur_calls_to_action: boolean;
   blur_code_requests: boolean;
   blur_disable_requests: boolean;
@@ -82,8 +80,8 @@ interface SettingsData {
 
 const defaultSettings: SettingsData = {
   show_profile_to_everyone: true, display_online_status: true, show_activity_status: false,
-  safe_dm_filter: true, scan_messages_everyone: true, scan_messages_non_friends: false, scan_messages_off: false,
-  blur_enabled: true, blur_profanity: true, blur_explicit: true, blur_calls_to_action: true, blur_code_requests: true, blur_disable_requests: true,
+  scan_messages_everyone: true, scan_messages_non_friends: false, scan_messages_off: false,
+  blur_enabled: true, blur_profanity: true, blur_calls_to_action: true, blur_code_requests: true, blur_disable_requests: true,
   enable_all_notifications: true, notify_direct_messages: true, notify_mentions: true,
   notify_all_server_messages: false, notify_friend_requests: true, sound_message: true, sound_incoming_call: true,
   theme: 'dark', show_timestamps: true, show_avatars: true, allow_scale: false,
@@ -101,9 +99,13 @@ interface SettingsCtx {
   s: SettingsData;
   toggle: (key: keyof SettingsData) => void;
   setField: (key: keyof SettingsData, val: any) => void;
+  /** Set several fields at once — one state update, one save. */
+  setFields: (patch: Partial<SettingsData>) => void;
 }
 
-const SettingsCtx = createContext<SettingsCtx>({ s: defaultSettings, toggle: () => {}, setField: () => {} });
+const SettingsCtx = createContext<SettingsCtx>({
+  s: defaultSettings, toggle: () => {}, setField: () => {}, setFields: () => {},
+});
 
 const useSettings = () => useContext(SettingsCtx);
 
@@ -128,6 +130,39 @@ const Check: React.FC<{ label: string; field: keyof SettingsData }> = ({ label, 
       <span className="ui-checkbox-box"></span>
       <span className="ui-checkbox-text">{label}</span>
     </label>
+  );
+};
+
+// Scope picker for the explicit-content filter. The three flags predate this
+// screen and live as separate booleans in the API, so exclusivity is enforced
+// here rather than by the storage shape.
+const ScanScope: React.FC = () => {
+  const tr = useTranslation();
+  const { s, setFields } = useSettings();
+  const scope: 'everyone' | 'non_friends' | 'off' =
+    s.scan_messages_off ? 'off' : s.scan_messages_everyone ? 'everyone'
+      : s.scan_messages_non_friends ? 'non_friends' : 'off';
+
+  const pick = (next: 'everyone' | 'non_friends' | 'off') => setFields({
+    scan_messages_everyone: next === 'everyone',
+    scan_messages_non_friends: next === 'non_friends',
+    scan_messages_off: next === 'off',
+  });
+
+  const opt = (value: 'everyone' | 'non_friends' | 'off', label: string) => (
+    <label className="ui-checkbox">
+      <input type="radio" name="scan_scope" checked={scope === value} onChange={() => pick(value)} />
+      <span className="ui-checkbox-box"></span>
+      <span className="ui-checkbox-text">{label}</span>
+    </label>
+  );
+
+  return (
+    <>
+      {opt('everyone', tr('sprv_scan_all'))}
+      {opt('non_friends', tr('sprv_scan_non_friends'))}
+      {opt('off', tr('sprv_scan_off'))}
+    </>
   );
 };
 
@@ -188,6 +223,14 @@ export const Settings: React.FC = () => {
     });
   }, [saveToApi]);
 
+  const setFields = useCallback((patch: Partial<SettingsData>) => {
+    setS(prev => {
+      const newS = { ...prev, ...patch };
+      saveToApi(newS);
+      return newS;
+    });
+  }, [saveToApi]);
+
   // Apply chat_message_spacing as CSS variable whenever it changes
   useEffect(() => {
     document.documentElement.style.setProperty('--chat-message-gap', `${s.chat_message_spacing}px`);
@@ -216,12 +259,13 @@ export const Settings: React.FC = () => {
     saveCensorConfig({
       blur_enabled: s.blur_enabled,
       blur_profanity: s.blur_profanity,
-      blur_explicit: s.blur_explicit,
       blur_calls_to_action: s.blur_calls_to_action,
       blur_code_requests: s.blur_code_requests,
       blur_disable_requests: s.blur_disable_requests,
+      explicit_scope: scopeFromScanFlags(s),
     });
-  }, [s.blur_enabled, s.blur_profanity, s.blur_explicit, s.blur_calls_to_action, s.blur_code_requests, s.blur_disable_requests]);
+  }, [s.blur_enabled, s.blur_profanity, s.blur_calls_to_action, s.blur_code_requests,
+      s.blur_disable_requests, s.scan_messages_everyone, s.scan_messages_non_friends, s.scan_messages_off]);
 
   // Apply chat display + streamer-mode preferences globally via root classes.
   useEffect(() => {
@@ -251,7 +295,7 @@ export const Settings: React.FC = () => {
   if (!currentSettingsPage || !loaded) return null;
 
   return (
-    <SettingsCtx.Provider value={{ s, toggle, setField }}>
+    <SettingsCtx.Provider value={{ s, toggle, setField, setFields }}>
       <div className="settings-container">
         <div className="settings-list">
           {currentSettingsPage === 'profile' && <ProfileSettings />}
@@ -631,32 +675,25 @@ const PrivacySettings: React.FC = () => {
       <h1>{tr('sprv_title')}</h1>
       <p>{tr('sprv_desc')}</p>
 
-      <h3 style={sectionH3}>{tr('sprv_safe_dm')}</h3>
-      <p>{tr('sprv_safe_dm_desc')}</p>
-      <Check label={tr('sprv_keep_safe')} field="safe_dm_filter" />
-
-      <div style={divider} />
-
-      <h3 style={sectionH3}>{tr('sprv_explicit')}</h3>
-      <p>{tr('sprv_explicit_desc')}</p>
-      <Check label={tr('sprv_scan_all')} field="scan_messages_everyone" />
-      <Check label={tr('sprv_scan_non_friends')} field="scan_messages_non_friends" />
-      <Check label={tr('sprv_scan_off')} field="scan_messages_off" />
-
-      <div style={divider} />
-
       <h3 style={sectionH3}>{tr('sprv_blur')}</h3>
       <p>{tr('sprv_blur_desc')}</p>
       <Check label={tr('sprv_blur_enable')} field="blur_enabled" />
       {s.blur_enabled && (
         <div style={{ marginLeft: 26, marginTop: 4, paddingLeft: 12, borderLeft: '2px solid var(--border-color)' }}>
           <Check label={tr('sprv_blur_profanity')} field="blur_profanity" />
-          <Check label={tr('sprv_blur_explicit')} field="blur_explicit" />
           <Check label={tr('sprv_blur_cta')} field="blur_calls_to_action" />
           <Check label={tr('sprv_blur_code')} field="blur_code_requests" />
           <Check label={tr('sprv_blur_disable')} field="blur_disable_requests" />
         </div>
       )}
+
+      <div style={divider} />
+
+      {/* Explicit content is scoped, so it gets its own section: the three
+          options below are mutually exclusive (radio semantics). */}
+      <h3 style={sectionH3}>{tr('sprv_explicit')}</h3>
+      <p>{tr('sprv_explicit_desc')}</p>
+      <ScanScope />
 
       <div style={divider} />
 

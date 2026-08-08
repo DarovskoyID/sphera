@@ -194,6 +194,7 @@ export const en = {
   sprv_blur_cta: 'Blur calls to action (subscribe, buy, click…)',
   sprv_blur_code: 'Blur requests to share a code',
   sprv_blur_disable: 'Fully blur messages telling you to turn this off',
+  media_tap_reveal: 'Tap to reveal',
   sprv_blocked: 'Blocked Users',
   sprv_search_block: 'Search user to block...',
   sprv_block: 'Block',

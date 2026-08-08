@@ -242,7 +242,7 @@ export const DiaryView: React.FC<{ style?: React.CSSProperties }> = ({ style }) 
               </div>
               {m.content && m.content.trim() && (
                 <div style={{ fontSize: 15, lineHeight: 1.6, color: 'var(--text-primary)', wordBreak: 'break-word' }}>
-                  <MessageText text={m.content} customEmojis={customEmojis} />
+                  <MessageText text={m.content} customEmojis={customEmojis} authorId={m.author?.id} />
                 </div>
               )}
               {isRich(m) && scope && (
