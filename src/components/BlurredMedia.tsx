@@ -80,6 +80,10 @@ export const BlurredMedia: React.FC<{
           alignItems: 'center', justifyContent: 'center', gap: 6,
           background: 'rgba(0,0,0,0.35)', border: 'none', cursor: 'pointer',
           color: '#fff', font: 'inherit', padding: 12, textAlign: 'center',
+          // The wrapper zeroes line-height to kill the inline-block descender
+          // gap; that must not reach the stacked label, or the lines collapse
+          // onto each other.
+          lineHeight: 1.35,
         }}
       >
         {checking ? (
