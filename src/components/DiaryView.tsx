@@ -309,7 +309,13 @@ export const DiaryView: React.FC<{ style?: React.CSSProperties }> = ({ style }) 
             </div>
           )}
           <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, position: 'relative' }}>
-            <input ref={fileRef} type="file" multiple hidden onChange={e => { if (e.target.files) setFiles(prev => [...prev, ...Array.from(e.target.files!)]); e.target.value = ''; }} />
+            <input ref={fileRef} type="file" multiple hidden onChange={e => {
+              // Snapshot the list first: the state updater runs after the input
+              // is cleared, so reading e.target.files inside it yields nothing.
+              const picked = e.target.files ? Array.from(e.target.files) : [];
+              e.target.value = '';
+              if (picked.length) setFiles(prev => [...prev, ...picked]);
+            }} />
             <div className="composer-bar">
               <button className="composer-icon-btn" title={tr('pcf_add')} onClick={() => setAttachMenu(v => !v)}>
                 <Plus size={20} />
