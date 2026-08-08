@@ -178,7 +178,7 @@ const Spinner = () => (
 function GalleryThumb({ src, onClick, overlay, filename, caption, authorId }: { src: string; onClick: () => void; overlay?: string; filename?: string; caption?: string; authorId?: string }) {
   const blobUrl = useAuthBlob(src);
   return (
-    <BlurredMedia filename={filename} text={caption} authorId={authorId} src={blobUrl ?? undefined} mediaKey={src}>
+    <BlurredMedia filename={filename} text={caption} authorId={authorId} src={blobUrl ?? undefined} mediaKey={src} fill>
     <div onClick={onClick} style={{ position: 'relative', width: '100%', height: '100%', cursor: 'pointer', background: 'var(--bg-tertiary)', overflow: 'hidden' }}>
       {blobUrl
         ? <img src={blobUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />

@@ -26,8 +26,15 @@ export const BlurredMedia: React.FC<{
   /** Stable id for caching the verdict — the attachment URL, not the blob. */
   mediaKey?: string;
   isVideo?: boolean;
+  /**
+   * Stretch to the parent instead of hugging the media. Gallery tiles live in
+   * a cell of a fixed size and expect their child to fill it; a standalone
+   * photo must keep its own dimensions, or the cover would balloon to the full
+   * width of the message row.
+   */
+  fill?: boolean;
   children: React.ReactNode;
-}> = ({ filename, text, authorId, src, mediaKey, isVideo, children }) => {
+}> = ({ filename, text, authorId, src, mediaKey, isVideo, fill, children }) => {
   const tr = useTranslation();
   const cfg = useCensorConfig();
   const censorOff = useCensorOff();
@@ -55,7 +62,12 @@ export const BlurredMedia: React.FC<{
   const checking = !flaggedByText && verdict === 'pending';
 
   return (
-    <div style={{ position: 'relative', display: 'inline-block', maxWidth: '100%', width: '100%', height: '100%', borderRadius: 10, overflow: 'hidden' }}>
+    <div style={{
+      position: 'relative', maxWidth: '100%', borderRadius: 10, overflow: 'hidden',
+      ...(fill
+        ? { display: 'block', width: '100%', height: '100%' }
+        : { display: 'inline-block', lineHeight: 0 }),
+    }}>
       <div style={{ filter: 'blur(22px)', transform: 'scale(1.08)', pointerEvents: 'none', userSelect: 'none' }} aria-hidden="true">
         {children}
       </div>
