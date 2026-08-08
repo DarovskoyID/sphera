@@ -227,7 +227,9 @@ export const DiaryView: React.FC<{ style?: React.CSSProperties }> = ({ style }) 
           </div>
         )}
         {entries.map(m => {
-          const media = (m.attachments || []).filter(a => a.content_type.startsWith('image/') || a.content_type.startsWith('video/') || a.content_type.startsWith('audio/'));
+          // Every attachment is shown: AuthMedia renders media inline and falls
+          // back to a download link for documents and archives.
+          const media = m.attachments || [];
           const isOwn = !!currentUser && String(m.author?.id) === String(currentUser.id);
           return (
             <article key={m.id} style={{ width: '100%', maxWidth: 680, background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 14, padding: 16 }}>
@@ -307,7 +309,7 @@ export const DiaryView: React.FC<{ style?: React.CSSProperties }> = ({ style }) 
             </div>
           )}
           <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, position: 'relative' }}>
-            <input ref={fileRef} type="file" multiple hidden accept="image/*,video/*,audio/*" onChange={e => { if (e.target.files) setFiles(prev => [...prev, ...Array.from(e.target.files!)]); e.target.value = ''; }} />
+            <input ref={fileRef} type="file" multiple hidden onChange={e => { if (e.target.files) setFiles(prev => [...prev, ...Array.from(e.target.files!)]); e.target.value = ''; }} />
             <div className="composer-bar">
               <button className="composer-icon-btn" title={tr('pcf_add')} onClick={() => setAttachMenu(v => !v)}>
                 <Plus size={20} />
