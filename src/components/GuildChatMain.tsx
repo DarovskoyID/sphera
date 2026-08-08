@@ -69,7 +69,7 @@ function AuthMedia({ src, contentType, filename, caption, authorId }: { src: str
 
   if (contentType.startsWith('image/')) {
     return (
-      <BlurredMedia filename={filename} text={caption} authorId={authorId}>
+      <BlurredMedia filename={filename} text={caption} authorId={authorId} src={blobUrl} mediaKey={src}>
         <img
           src={blobUrl}
           alt={filename}
@@ -81,7 +81,7 @@ function AuthMedia({ src, contentType, filename, caption, authorId }: { src: str
   }
 
   return (
-    <BlurredMedia filename={filename} text={caption} authorId={authorId}>
+    <BlurredMedia filename={filename} text={caption} authorId={authorId} src={blobUrl} mediaKey={src} isVideo>
       <video
         src={blobUrl}
         controls

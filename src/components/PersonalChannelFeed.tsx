@@ -144,9 +144,9 @@ function AuthMedia({ src, contentType, filename, caption, authorId }: { src: str
   </div>;
 
   if (contentType.startsWith('image/'))
-    return <BlurredMedia filename={filename} text={caption} authorId={authorId}><img src={blobUrl} alt={filename} style={{ maxWidth: 'min(400px, 100%)', maxHeight: 300, borderRadius: 12, display: 'block', cursor: 'pointer', objectFit: 'contain' }} onClick={() => window.open(blobUrl, '_blank')} /></BlurredMedia>;
+    return <BlurredMedia filename={filename} text={caption} authorId={authorId} src={blobUrl} mediaKey={src}><img src={blobUrl} alt={filename} style={{ maxWidth: 'min(400px, 100%)', maxHeight: 300, borderRadius: 12, display: 'block', cursor: 'pointer', objectFit: 'contain' }} onClick={() => window.open(blobUrl, '_blank')} /></BlurredMedia>;
   if (contentType.startsWith('video/'))
-    return <BlurredMedia filename={filename} text={caption} authorId={authorId}><video src={blobUrl} controls style={{ maxWidth: 'min(400px, 100%)', maxHeight: 300, borderRadius: 12, display: 'block' }} /></BlurredMedia>;
+    return <BlurredMedia filename={filename} text={caption} authorId={authorId} src={blobUrl} mediaKey={src} isVideo><video src={blobUrl} controls style={{ maxWidth: 'min(400px, 100%)', maxHeight: 300, borderRadius: 12, display: 'block' }} /></BlurredMedia>;
   return null;
 }
 
@@ -178,7 +178,7 @@ const Spinner = () => (
 function GalleryThumb({ src, onClick, overlay, filename, caption, authorId }: { src: string; onClick: () => void; overlay?: string; filename?: string; caption?: string; authorId?: string }) {
   const blobUrl = useAuthBlob(src);
   return (
-    <BlurredMedia filename={filename} text={caption} authorId={authorId}>
+    <BlurredMedia filename={filename} text={caption} authorId={authorId} src={blobUrl ?? undefined} mediaKey={src}>
     <div onClick={onClick} style={{ position: 'relative', width: '100%', height: '100%', cursor: 'pointer', background: 'var(--bg-tertiary)', overflow: 'hidden' }}>
       {blobUrl
         ? <img src={blobUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />

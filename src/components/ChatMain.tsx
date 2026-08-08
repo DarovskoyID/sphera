@@ -525,7 +525,7 @@ const AuthMedia: React.FC<{ url: string; contentType: string; filename: string; 
 
   if (contentType.startsWith('image/')) {
     return (
-      <BlurredMedia filename={filename} text={caption} authorId={authorId}>
+      <BlurredMedia filename={filename} text={caption} authorId={authorId} src={blobUrl} mediaKey={url}>
         <img
           src={blobUrl}
           alt={filename}
@@ -537,7 +537,7 @@ const AuthMedia: React.FC<{ url: string; contentType: string; filename: string; 
   }
 
   return (
-    <BlurredMedia filename={filename} text={caption} authorId={authorId}>
+    <BlurredMedia filename={filename} text={caption} authorId={authorId} src={blobUrl} mediaKey={url} isVideo>
       <video
         src={blobUrl}
         controls
@@ -1003,7 +1003,7 @@ const GalleryThumb: React.FC<{ att: ChatAttachment; onOpen: () => void; caption?
   const blobUrl = useAuthObjectUrl(att.url);
   const isVideo = att.content_type.startsWith('video/');
   return (
-    <BlurredMedia filename={att.filename} text={caption} authorId={authorId}>
+    <BlurredMedia filename={att.filename} text={caption} authorId={authorId} src={blobUrl ?? undefined} mediaKey={att.url} isVideo={isVideo}>
     <div onClick={onOpen} style={{ position: 'relative', aspectRatio: '1 / 1', borderRadius: 8, overflow: 'hidden', cursor: 'pointer', background: 'var(--bg-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       {!blobUrl ? <div style={spin} /> : isVideo ? (
         <>

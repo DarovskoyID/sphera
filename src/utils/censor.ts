@@ -127,7 +127,7 @@ export function setCensorAudience(currentUserId: string, friends: string[]) {
  * Does the explicit filter apply to this author? Unknown authors count as
  * non-friends (fail closed), but the reader's own text is never masked.
  */
-function explicitApplies(cfg: CensorConfig, authorId?: string): boolean {
+export function explicitApplies(cfg: CensorConfig, authorId?: string): boolean {
   if (cfg.explicit_scope === 'off') return false;
   if (cfg.explicit_scope === 'everyone') return true;
   if (authorId === undefined) return true;

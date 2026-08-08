@@ -184,6 +184,7 @@ export const ru: Translations = {
   sprv_blur_code: 'Блюрить просьбы скинуть код',
   sprv_blur_disable: 'Полностью блюрить сообщения с призывом это отключить',
   media_tap_reveal: 'Нажмите, чтобы показать',
+  media_checking: 'Проверяем…',
   sprv_blocked: 'Заблокированные',
   sprv_search_block: 'Найти пользователя для блокировки...',
   sprv_block: 'Заблокировать',
