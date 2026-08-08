@@ -10,7 +10,7 @@ confluent-kafka==2.6.1
 constantly==23.10.4
 cryptography==49.0.0
 daphne==4.2.2
-Django==5.2.15
+Django==5.2.16
 django-cors-headers==4.9.0
 djangorestframework==3.17.1
 djangorestframework_simplejwt==5.5.1
