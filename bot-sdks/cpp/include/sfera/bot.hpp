@@ -97,6 +97,10 @@ public:
     std::vector<Chat> chats();
     Json send(const std::string& chat_id, const std::string& text, const std::string& reply_to = "");
     Json reply(const Update& update, const std::string& text);
+    /// Переписать сообщение, отправленное ботом ранее (ЛС или канал).
+    Json edit(const std::string& message_id, const std::string& text);
+    /// Удалить сообщение, отправленное ботом ранее.
+    void remove(const std::string& message_id);
     /// Опубликовать команды — их показывает кнопка команд у поля ввода.
     Json set_commands();
     /// GET наружу — используется узлом «HTTP-запрос» нодового редактора.

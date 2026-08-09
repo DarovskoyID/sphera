@@ -181,6 +181,17 @@ class Bot:
         """Ответить в тот же чат, цитируя исходное сообщение."""
         return self.send(update.chat_id, text, reply_to=update.message_id)
 
+    def edit(self, message_id: str, text: str) -> dict:
+        """Rewrite a message the bot sent earlier (DM or channel)."""
+        return self._request(
+            'POST', '/api/bots/api/edit/',
+            {'message_id': str(message_id), 'text': text},
+        )
+
+    def delete(self, message_id: str) -> None:
+        """Delete a message the bot sent earlier."""
+        self._request('POST', '/api/bots/api/delete/', {'message_id': str(message_id)})
+
     def set_commands(self, commands: Optional[List[Command]] = None) -> List[dict]:
         """Опубликовать список команд. По умолчанию — все зарегистрированные."""
         items = commands if commands is not None else list(self._commands.values())

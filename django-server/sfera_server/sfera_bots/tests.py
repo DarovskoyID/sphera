@@ -102,13 +102,43 @@ class SferonikTests(TestCase):
             Friendship.objects.filter(from_user=self.owner, to_user=account.user, status='accepted').exists()
         )
 
+    def test_addbot_only_offers_servers_the_user_manages(self):
+        from .sferonik import create_bot
+
+        account, _token = create_bot(self.owner, 'Погода', 'weather')
+        mine = Guild.objects.create(name='Мой клуб', owner=self.owner, invite_code='inv-mine')
+        GuildMembership.objects.create(guild=mine, user=self.owner, role='owner')
+
+        stranger = User.objects.create_user(username='carol', password='x')
+        theirs = Guild.objects.create(name='Чужой клуб', owner=stranger, invite_code='inv-theirs')
+        GuildMembership.objects.create(guild=theirs, user=stranger, role='owner')
+        GuildMembership.objects.create(guild=theirs, user=self.owner, role='member')
+
+        listing = self._say('/addbot weather_bot')
+        self.assertIn('Мой клуб', listing)
+        self.assertNotIn('Чужой клуб', listing)
+
+        self.assertIn('добавлен на сервер', self._say('1'))
+        self.assertTrue(GuildMembership.objects.filter(guild=mine, user=account.user).exists())
+
+        self._say('/removebot weather_bot')
+        self.assertIn('убран с сервера', self._say('1'))
+        self.assertFalse(GuildMembership.objects.filter(guild=mine, user=account.user).exists())
+
+    def test_addbot_without_a_manageable_server(self):
+        from .sferonik import create_bot
+
+        create_bot(self.owner, 'Погода', 'weather')
+        self.assertIn('Нет серверов', self._say('/addbot weather_bot'))
+
     def test_registration_flow_issues_a_key(self):
         self.assertIn('/newbot', self._say('/help'))
         self.assertIn('имя', self._say('/newbot').lower())
         self.assertIn('юзернейм', self._say('Погода').lower())
         reply = self._say('weather')
         self.assertIn('@weather_bot', reply)
-        self.assertIn('sfb_', reply)
+        # The key sits in a fenced code block so the client renders a copy button.
+        self.assertRegex(reply, r'```\nsfb_[^\n]+\n```')
 
         account = BotAccount.objects.get(user__username='weather_bot')
         self.assertEqual(account.owner, self.owner)
@@ -235,6 +265,58 @@ class BotApiTests(TestCase):
         updates = self.bot_client.get('/api/bots/api/updates/').json()['updates']
         self.assertEqual(len(updates), 1)
         self.assertEqual(updates[0]['command'], 'start')
+
+    def test_bot_can_edit_and_delete_its_own_messages(self):
+        convo = outbound.dm_conversation_for(self.peer, self.account.user)
+        sent = self.bot_client.post(
+            '/api/bots/api/send/', {'chat_id': str(convo.id), 'text': 'первый вариант'}, format='json',
+        ).json()
+
+        res = self.bot_client.post(
+            '/api/bots/api/edit/', {'message_id': sent['id'], 'text': 'исправлено'}, format='json',
+        )
+        self.assertEqual(res.status_code, 200)
+        self.assertTrue(res.json()['edited'])
+        self.assertEqual(Message.objects.get(id=sent['id']).content, 'исправлено')
+
+        res = self.bot_client.post(
+            '/api/bots/api/delete/', {'message_id': sent['id']}, format='json',
+        )
+        self.assertEqual(res.status_code, 204)
+        self.assertFalse(Message.objects.filter(id=sent['id']).exists())
+
+    def test_bot_cannot_edit_someone_elses_message(self):
+        convo = outbound.dm_conversation_for(self.peer, self.account.user)
+        theirs = Message.objects.create(conversation=convo, author=self.peer)
+        theirs.content = 'моё сообщение'
+        theirs.save()
+
+        res = self.bot_client.post(
+            '/api/bots/api/edit/', {'message_id': str(theirs.id), 'text': 'подмена'}, format='json',
+        )
+        self.assertEqual(res.status_code, 404)
+        self.assertEqual(Message.objects.get(id=theirs.id).content, 'моё сообщение')
+
+    def test_adding_a_bot_as_a_contact_needs_no_acceptance(self):
+        res = app_client(self.peer).post(
+            '/api/auth/friends/request/', {'user_id': str(self.account.user_id)}, format='json',
+        )
+        self.assertEqual(res.status_code, 201)
+        self.assertEqual(res.json()['status'], 'accepted')
+
+        listed = app_client(self.peer).get('/api/auth/friends/').json()
+        self.assertIn('weather_bot', [u['username'] for u in listed])
+        pending = app_client(self.peer).get('/api/auth/friends/requests/pending/').json()
+        self.assertEqual(pending, [])
+
+    def test_sferonik_never_appears_in_the_friend_list(self):
+        from .sferonik import ensure_sferonik
+        from sfera_auth.models import Friendship
+
+        bot = ensure_sferonik()
+        Friendship.objects.create(from_user=self.peer, to_user=bot.user, status='accepted')
+        listed = app_client(self.peer).get('/api/auth/friends/').json()
+        self.assertNotIn(SFERONIK_USERNAME, [u['username'] for u in listed])
 
     def test_bot_cannot_post_into_a_chat_it_is_not_in(self):
         stranger_convo = Conversation.objects.create()

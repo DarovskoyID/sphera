@@ -125,6 +125,19 @@ Json Bot::reply(const Update& update, const std::string& text) {
     return send(update.chat_id, text, update.message_id);
 }
 
+Json Bot::edit(const std::string& message_id, const std::string& text) {
+    std::ostringstream body;
+    body << "{\"message_id\":" << Json::quote(message_id)
+         << ",\"text\":" << Json::quote(text) << "}";
+    return request("POST", "/api/bots/api/edit/", body.str());
+}
+
+void Bot::remove(const std::string& message_id) {
+    std::ostringstream body;
+    body << "{\"message_id\":" << Json::quote(message_id) << "}";
+    request("POST", "/api/bots/api/delete/", body.str());
+}
+
 Json Bot::set_commands() {
     std::ostringstream body;
     body << "{\"commands\":[";

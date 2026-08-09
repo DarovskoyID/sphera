@@ -218,6 +218,22 @@ impl Bot {
         })))
     }
 
+    /// Переписать сообщение, отправленное ботом ранее (ЛС или канал).
+    pub fn edit(&self, message_id: &str, text: &str) -> Result<Value> {
+        self.request("POST", "/api/bots/api/edit/", Some(json!({
+            "message_id": message_id,
+            "text": text,
+        })))
+    }
+
+    /// Удалить сообщение, отправленное ботом ранее.
+    pub fn delete(&self, message_id: &str) -> Result<()> {
+        self.request("POST", "/api/bots/api/delete/", Some(json!({
+            "message_id": message_id,
+        })))?;
+        Ok(())
+    }
+
     /// Опубликовать команды — именно они видны в кнопке команд у поля ввода.
     pub fn set_commands(&self) -> Result<Value> {
         let items: Vec<Value> = self.commands.iter()

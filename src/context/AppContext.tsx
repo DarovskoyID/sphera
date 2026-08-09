@@ -754,13 +754,23 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
   }, []);
 
   const sendFriendRequest = useCallback(async (userId: string, user?: ServerUser) => {
+    // A bot has nobody to accept a request, so the server links it straight
+    // away — showing it under "sent requests" would be a lie that never clears.
+    const isBot = user?.account_type === 'bot' || !!user?.username?.endsWith('_bot');
     if (user) {
-      setState(prev => ({
-        ...prev,
-        sentRequests: prev.sentRequests.some(u => String(u.id) === String(userId))
-          ? prev.sentRequests
-          : [...prev.sentRequests, user],
-      }));
+      setState(prev => (isBot
+        ? {
+          ...prev,
+          friends: prev.friends.some(f => String(f.id) === String(userId))
+            ? prev.friends
+            : [...prev.friends, user],
+        }
+        : {
+          ...prev,
+          sentRequests: prev.sentRequests.some(u => String(u.id) === String(userId))
+            ? prev.sentRequests
+            : [...prev.sentRequests, user],
+        }));
     }
     await apiPost('/api/auth/friends/request/', state.authToken, state.currentServerIP, { user_id: userId });
   }, [state.authToken, state.currentServerIP, apiPost]);

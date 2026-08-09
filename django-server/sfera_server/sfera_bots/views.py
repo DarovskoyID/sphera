@@ -356,6 +356,45 @@ def send(request):
     return Response(payload, status=status.HTTP_201_CREATED)
 
 
+@api_view(['POST'])
+@authentication_classes([BotTokenAuthentication])
+@permission_classes([IsAuthenticated])
+def edit(request):
+    """Rewrite a message the bot sent earlier."""
+    account = request.bot_account
+    message_id = (request.data.get('message_id') or '').strip()
+    text = (request.data.get('text') or '').strip()
+    if not message_id or not text:
+        return Response({'error': 'message_id and text are required'}, status=status.HTTP_400_BAD_REQUEST)
+    if len(text) > MAX_MESSAGE_LENGTH:
+        return Response({'error': 'text too long'}, status=status.HTTP_400_BAD_REQUEST)
+    try:
+        payload = outbound.edit_message(account.user, message_id, text)
+    except (ValueError, TypeError):
+        return Response({'error': 'bad message_id'}, status=status.HTTP_400_BAD_REQUEST)
+    if payload is None:
+        return Response({'error': 'message not found or not the bot\'s'}, status=status.HTTP_404_NOT_FOUND)
+    return Response(payload)
+
+
+@api_view(['POST'])
+@authentication_classes([BotTokenAuthentication])
+@permission_classes([IsAuthenticated])
+def delete(request):
+    """Delete a message the bot sent earlier."""
+    account = request.bot_account
+    message_id = (request.data.get('message_id') or '').strip()
+    if not message_id:
+        return Response({'error': 'message_id is required'}, status=status.HTTP_400_BAD_REQUEST)
+    try:
+        removed = outbound.delete_message(account.user, message_id)
+    except (ValueError, TypeError):
+        return Response({'error': 'bad message_id'}, status=status.HTTP_400_BAD_REQUEST)
+    if not removed:
+        return Response({'error': 'message not found or not the bot\'s'}, status=status.HTTP_404_NOT_FOUND)
+    return Response(status=status.HTTP_204_NO_CONTENT)
+
+
 @api_view(['GET'])
 @authentication_classes([BotTokenAuthentication])
 @permission_classes([IsAuthenticated])

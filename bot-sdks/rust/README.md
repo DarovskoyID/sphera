@@ -44,6 +44,7 @@ fn main() -> Result<()> {
 | `bot.command(name, description, handler)` | обработчик `/name` |
 | `bot.on_message(contains, handler)` | обработчик обычных сообщений |
 | `bot.send(chat_id, text)` / `bot.reply(&update, text)` | отправка |
+| `bot.edit(message_id, text)` / `bot.delete(message_id)` | правка и удаление своих сообщений |
 | `bot.set_commands()` | опубликовать команды вручную |
 | `bot.chats()` | где бот присутствует |
 | `bot.poll()` / `bot.dispatch(&update)` | свой цикл вместо `run()` |

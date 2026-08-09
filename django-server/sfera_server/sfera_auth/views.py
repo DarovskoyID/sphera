@@ -516,9 +516,18 @@ def users_list(request):
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def friends_list(request):
+    # A bot has nobody to press "accept", so any request aimed at one is
+    # promoted here too — this heals links made before bots auto-accepted.
+    Friendship.objects.filter(
+        from_user=request.user, to_user__account_type='bot', status='pending',
+    ).update(status='accepted')
     friendships = Friendship.objects.filter(
         Q(from_user=request.user) | Q(to_user=request.user),
         status='accepted',
+    ).exclude(
+        # System bots (Сфероник) are tools reached from the server bar, never
+        # contacts, so they must not show up in the DM list.
+        Q(from_user__bot_profile__is_system=True) | Q(to_user__bot_profile__is_system=True),
     )
     friends = []
     for f in friendships:
@@ -580,12 +589,16 @@ def friend_request_send(request):
             _push_friend_event(str(to_user_id), 'friend-request', friendship_data)
             return Response(friendship_data)
 
+    # Bots can't accept anything: adding one is immediate, not a request.
+    is_bot = getattr(to_user, 'account_type', 'user') == 'bot'
     friendship = Friendship.objects.create(
         from_user=request.user, to_user=to_user,
+        status='accepted' if is_bot else 'pending',
     )
     friendship_data = FriendshipSerializer(friendship, context={'request': request}).data
-    # Notify recipient in real time so their pending requests update immediately
-    _push_friend_event(str(to_user_id), 'friend-request', friendship_data)
+    if not is_bot:
+        # Notify recipient in real time so their pending requests update immediately
+        _push_friend_event(str(to_user_id), 'friend-request', friendship_data)
     return Response(friendship_data, status=status.HTTP_201_CREATED)
 
 

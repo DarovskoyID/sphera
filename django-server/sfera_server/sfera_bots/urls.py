@@ -22,5 +22,7 @@ urlpatterns = [
     path('api/commands/', views.set_commands),
     path('api/updates/', views.get_updates),
     path('api/send/', views.send),
+    path('api/edit/', views.edit),
+    path('api/delete/', views.delete),
     path('api/chats/', views.chats),
 ]

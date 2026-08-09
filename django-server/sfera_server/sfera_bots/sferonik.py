@@ -25,14 +25,20 @@ MAX_BOTS_PER_OWNER = 20
 USERNAME_RE = re.compile(r'^[a-z0-9_]{4,28}$')
 
 HELP = (
-    'Привет! Я Сфероник — через меня создаются боты Сферы.\n\n'
-    'Команды:\n'
-    '/newbot — создать бота и получить ключ\n'
-    '/mybots — список ваших ботов\n'
-    '/token <имя> — выпустить новый ключ (старый перестанет работать)\n'
-    '/setcommands <имя> — задать команды бота\n'
-    '/deletebot <имя> — удалить бота: ключ перестаёт работать, переписки остаются\n'
-    '/help — эта справка'
+    '# Сфероник\n'
+    'Через меня создаются боты Сферы.\n\n'
+    '**Создание**\n'
+    '- `/newbot` — создать бота и получить ключ\n'
+    '- `/mybots` — список ваших ботов\n\n'
+    '**Настройка**\n'
+    '- `/setcommands <бот>` — команды, которые видны у поля ввода\n'
+    '- `/token <бот>` — выпустить новый ключ (старый перестанет работать)\n\n'
+    '**Серверы**\n'
+    '- `/addbot <бот>` — добавить бота на свой сервер\n'
+    '- `/removebot <бот>` — убрать бота с сервера\n\n'
+    '**Прочее**\n'
+    '- `/deletebot <бот>` — удалить бота: ключ перестаёт работать, переписки остаются\n'
+    '- `/help` — эта справка'
 )
 
 
@@ -68,6 +74,8 @@ def ensure_sferonik():
                     {'command': 'mybots', 'description': 'Мои боты'},
                     {'command': 'token', 'description': 'Выпустить новый ключ'},
                     {'command': 'setcommands', 'description': 'Задать команды бота'},
+                    {'command': 'addbot', 'description': 'Добавить бота на свой сервер'},
+                    {'command': 'removebot', 'description': 'Убрать бота с сервера'},
                     {'command': 'deletebot', 'description': 'Удалить бота'},
                     {'command': 'help', 'description': 'Справка'},
                 ],
@@ -156,6 +164,13 @@ def _run_command(bot, author, command, args):
             'start - Запустить бота\nhelp - Справка\n\n'
             'Чтобы убрать все команды, пришлите `-`.'
         )
+    if command in ('addbot', 'removebot'):
+        if not args:
+            return _need_name(f'/{command}')
+        target = _find_bot(author, args)
+        if target is None:
+            return _not_found(args)
+        return _ask_server(bot, author, target, adding=(command == 'addbot'))
     if command == 'deletebot':
         if not args:
             return _need_name('/deletebot')
@@ -195,6 +210,17 @@ def _continue(bot, author, state, text):
             return f'Команды @{target.user.username} очищены.'
         listing = '\n'.join(f'/{c["command"]} — {c["description"]}' for c in commands)
         return f'Команды @{target.user.username} обновлены:\n{listing}'
+    if step in ('addbot_server', 'removebot_server'):
+        target = BotAccount.objects.filter(id=state.get('bot_id'), owner=author).first()
+        if target is None:
+            return 'Бот не найден.'
+        guild = _pick_guild(state.get('guild_ids') or [], text)
+        if guild is None:
+            return 'Не понял, какой сервер. Пришлите номер из списка или точное название.'
+        return (
+            _add_to_guild(target, guild) if step == 'addbot_server'
+            else _remove_from_guild(target, guild)
+        )
     if step == 'confirm_delete':
         target = BotAccount.objects.filter(id=state.get('bot_id'), owner=author).first()
         if target is None:
@@ -284,14 +310,106 @@ def _create(bot, author, display_name, username):
             'с окончанием `_bot`. Пришлите другой.'
         )
     _set_state(bot, author.id, None)
+    username = account.user.username
+    fence = '```'
     return (
-        f'Готово! Бот @{account.user.username} создан.\n\n'
-        f'Ключ:\n{token}\n\n'
-        'Сохраните его — второй раз я его не покажу. Ключ открывает нодовый '
-        'редактор в «Инструментах от разработчика» и нужен библиотекам для '
-        'C++, Python и Rust.\n\n'
-        'Дальше: /setcommands ' + account.user.username
+        f'# Бот @{username} создан\n'
+        f'**{account.display_name}** готов к работе.\n\n'
+        '**Ключ** — нажмите «Копировать» справа сверху:\n'
+        f'{fence}\n{token}\n{fence}\n'
+        '> Второй раз я его не покажу. Если ключ потерян — `/token '
+        f'{username}` выпустит новый, а старый перестанет работать.\n\n'
+        '**Что дальше**\n'
+        f'- `/setcommands {username}` — команды, которые увидят пользователи\n'
+        f'- `/addbot {username}` — добавить бота на свой сервер\n'
+        '- Нодовый редактор в «Инструментах от разработчика» — вставьте туда ключ\n'
+        '- Библиотеки для C++, Python и Rust читают ключ из `SFERA_BOT_TOKEN`'
     )
+
+
+def _manageable_guilds(user):
+    """Servers where the user may add a bot — their own, as owner or admin.
+
+    Personal channels and the private diary are excluded: they are single-author
+    spaces, so a bot there would have nothing to do.
+    """
+    from sfera_messages.models import Guild, GuildMembership
+
+    guild_ids = GuildMembership.objects.filter(
+        user=user, role__in=('owner', 'admin'),
+    ).values_list('guild_id', flat=True)
+    return list(
+        Guild.objects.filter(id__in=list(guild_ids), is_personal_channel=False, is_private=False)
+        .order_by('name')
+    )
+
+
+def _ask_server(bot, author, target, adding):
+    from sfera_messages.models import Guild, GuildMembership
+
+    guilds = _manageable_guilds(author)
+    if adding:
+        joined = set(
+            GuildMembership.objects.filter(user=target.user).values_list('guild_id', flat=True)
+        )
+        guilds = [g for g in guilds if g.id not in joined]
+        if not guilds:
+            return (
+                'Нет серверов, куда можно добавить бота. Добавлять можно только на свои '
+                'серверы — те, где вы владелец или админ.'
+            )
+        title = f'На какой сервер добавить **@{target.user.username}**?'
+    else:
+        guild_ids = GuildMembership.objects.filter(user=target.user).values_list('guild_id', flat=True)
+        manageable = {g.id for g in guilds}
+        guilds = [g for g in Guild.objects.filter(id__in=list(guild_ids)) if g.id in manageable]
+        if not guilds:
+            return f'Бот @{target.user.username} не добавлен ни на один ваш сервер.'
+        title = f'С какого сервера убрать **@{target.user.username}**?'
+
+    _set_state(bot, author.id, {
+        'step': 'addbot_server' if adding else 'removebot_server',
+        'bot_id': str(target.id),
+        'guild_ids': [str(g.id) for g in guilds],
+    })
+    listing = '\n'.join(f'{i + 1}. {g.name}' for i, g in enumerate(guilds))
+    return f'{title}\n\n{listing}\n\nПришлите номер или название.'
+
+
+def _pick_guild(guild_ids, text):
+    from sfera_messages.models import Guild
+
+    choice = (text or '').strip()
+    guilds = list(Guild.objects.filter(id__in=guild_ids))
+    # Keep the order the numbers were shown in.
+    ordered = [g for gid in guild_ids for g in guilds if str(g.id) == gid]
+    if choice.isdigit():
+        index = int(choice) - 1
+        return ordered[index] if 0 <= index < len(ordered) else None
+    for guild in ordered:
+        if guild.name.lower() == choice.lower():
+            return guild
+    return None
+
+
+def _add_to_guild(target, guild):
+    from sfera_messages.models import GuildMembership
+
+    GuildMembership.objects.get_or_create(
+        guild=guild, user=target.user, defaults={'role': 'member'},
+    )
+    return (
+        f'@{target.user.username} добавлен на сервер **{guild.name}**.\n\n'
+        'В текстовых каналах этого сервера у поля ввода появится кнопка команд бота. '
+        'Команды задаются через `/setcommands`.'
+    )
+
+
+def _remove_from_guild(target, guild):
+    from sfera_messages.models import GuildMembership
+
+    GuildMembership.objects.filter(guild=guild, user=target.user).delete()
+    return f'@{target.user.username} убран с сервера **{guild.name}**. Сообщения бота остались.'
 
 
 def _list_bots(author):
@@ -300,9 +418,9 @@ def _list_bots(author):
         return 'У вас пока нет ботов. Создайте первого: /newbot'
     lines = []
     for b in bots:
-        cmds = ', '.join('/' + c['command'] for c in b.commands) or 'команд нет'
-        lines.append(f'@{b.user.username} — {b.display_name}\n  {cmds}')
-    return 'Ваши боты:\n\n' + '\n'.join(lines)
+        cmds = ', '.join('`/' + c['command'] + '`' for c in b.commands) or '_команд нет_'
+        lines.append(f'- **@{b.user.username}** — {b.display_name}\n  {cmds}')
+    return '# Ваши боты\n' + '\n'.join(lines)
 
 
 def _reissue(author, args):
@@ -311,9 +429,11 @@ def _reissue(author, args):
         return _not_found(args)
     token = target.set_token()
     target.save(update_fields=['token_hash', 'token_prefix'])
+    fence = '```'
     return (
-        f'Новый ключ для @{target.user.username}:\n{token}\n\n'
-        'Старый ключ отозван — обновите его в своих запущенных копиях бота.'
+        f'**Новый ключ для @{target.user.username}**\n'
+        f'{fence}\n{token}\n{fence}\n'
+        '> Старый ключ отозван — обновите его в запущенных копиях бота.'
     )
 
 

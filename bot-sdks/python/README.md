@@ -47,6 +47,8 @@ bot.run()
 | `@bot.on_message(contains="")` | обработчик обычных сообщений |
 | `bot.send(chat_id, text, reply_to="")` | отправить сообщение |
 | `bot.reply(update, text)` | ответить цитатой |
+| `bot.edit(message_id, text)` | переписать своё сообщение |
+| `bot.delete(message_id)` | удалить своё сообщение |
 | `bot.set_commands([...])` | опубликовать команды вручную |
 | `bot.chats()` | где бот присутствует (ЛС и каналы серверов) |
 | `bot.poll(timeout)` / `bot.dispatch(update)` | свой цикл вместо `run()` |

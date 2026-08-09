@@ -140,6 +140,53 @@ def send_channel(bot_user, channel, content, reply_to=None):
     return msg, payload
 
 
+def edit_message(bot_user, message_id, text):
+    """Rewrite one of the bot's own messages, in a DM or a channel.
+
+    Returns the payload the clients merge by id, or None when the message
+    isn't the bot's. Broadcast shape matches the human edit path exactly."""
+    from sfera_messages.views import _broadcast
+
+    msg = Message.objects.filter(id=message_id, author=bot_user).first()
+    if msg is not None:
+        msg.content = text
+        msg.edited = True
+        msg.save(update_fields=['encrypted_content', 'edited'])
+        payload = {'id': str(msg.id), 'content': text, 'edited': True}
+        _broadcast(f'chat_{msg.conversation_id}', {'type': 'message_edited', 'message': payload})
+        return payload
+
+    guild_msg = GuildMessage.objects.filter(id=message_id, author=bot_user).first()
+    if guild_msg is None:
+        return None
+    guild_msg.content = text
+    guild_msg.edited = True
+    guild_msg.save(update_fields=['encrypted_content', 'edited'])
+    payload = {'id': str(guild_msg.id), 'content': text, 'edited': True}
+    _broadcast(f'guild_channel_{guild_msg.channel_id}', {'type': 'message_edited', 'message': payload})
+    return payload
+
+
+def delete_message(bot_user, message_id):
+    """Remove one of the bot's own messages."""
+    from sfera_messages.views import _broadcast
+
+    msg = Message.objects.filter(id=message_id, author=bot_user).first()
+    if msg is not None:
+        conversation_id = msg.conversation_id
+        msg.delete()
+        _broadcast(f'chat_{conversation_id}', {'type': 'message_deleted', 'id': str(message_id)})
+        return True
+
+    guild_msg = GuildMessage.objects.filter(id=message_id, author=bot_user).first()
+    if guild_msg is None:
+        return False
+    channel_id = guild_msg.channel_id
+    guild_msg.delete()
+    _broadcast(f'guild_channel_{channel_id}', {'type': 'message_deleted', 'id': str(message_id)})
+    return True
+
+
 def parse_command(text):
     """'/ban @x 3d' -> ('ban', '@x 3d'); None when the text isn't a command."""
     text = (text or '').strip()
