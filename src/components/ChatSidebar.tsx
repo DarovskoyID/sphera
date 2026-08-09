@@ -974,7 +974,12 @@ export const ChatSidebar: React.FC = () => {
                 }} />
               </div>
               <div className="chat-info">
-                <div className="chat-name">{friend.nickname || friend.username}</div>
+                <div className="chat-name" style={{ display: 'flex', alignItems: 'center', minWidth: 0 }}>
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {accountDisplayName(friend)}
+                  </span>
+                  <AccountBadge account={friend} />
+                </div>
                 <div className="chat-message" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                   <StatusDot status={friend.status} size={7} />
                   <span>{tr((`status_${friend.status ?? 'offline'}`) as any)}</span>

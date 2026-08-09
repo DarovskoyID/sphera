@@ -18,6 +18,9 @@ from rest_framework.decorators import (
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
+from django.db.models import Q
+
+from sfera_auth.models import Friendship
 from sfera_messages.models import (
     Conversation, Guild, GuildChannel, GuildMembership, GuildMessage, Message,
 )
@@ -199,6 +202,11 @@ def sferonik_chat(request):
     """Open (creating if needed) the DM with Сфероник — the developer-tools entry."""
     bot = ensure_sferonik()
     convo = outbound.dm_conversation_for(request.user, bot.user)
+    # Сфероник used to be added as a contact; drop the leftover link so it stops
+    # showing up in the DM list of accounts that opened it earlier.
+    Friendship.objects.filter(
+        Q(from_user=request.user, to_user=bot.user) | Q(from_user=bot.user, to_user=request.user),
+    ).delete()
     first_time = not Message.objects.filter(conversation=convo).exists()
     if first_time:
         from .sferonik import HELP

@@ -79,7 +79,7 @@ const ToolCard: React.FC<{
 export const ExploreServers: React.FC<{ style?: React.CSSProperties }> = ({ style }) => {
   const {
     currentServerIP, authToken, joinGuild, previewGuild, selectGuild, guilds, createPersonalNotes,
-    setCurrentChat, setCurrentView, setMobileActivePanel, loadFriends,
+    setCurrentChat, setCurrentView, setMobileActivePanel,
   } = useApp();
   const [showStudio, setShowStudio] = useState(false);
   const [openingSferonik, setOpeningSferonik] = useState(false);
@@ -463,8 +463,6 @@ export const ExploreServers: React.FC<{ style?: React.CSSProperties }> = ({ styl
                     setCurrentView('home');
                     setCurrentChat(bot.user_id);
                     setMobileActivePanel('chat-view');
-                    // The bot is now a contact server-side; refresh the DM list.
-                    loadFriends();
                   } catch {
                     // Leave the explore view as-is; the user can retry.
                   } finally {

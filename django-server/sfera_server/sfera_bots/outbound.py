@@ -36,9 +36,15 @@ def ensure_contact(user, bot_user):
     a request on its behalf, so the link is created already accepted the moment
     a conversation with the bot starts. Removing the bot from the list stays a
     normal "remove friend" action.
+
+    System bots (Сфероник) are excluded: they are tools reached from the server
+    bar, and listing them among contacts only clutters the DM list.
     """
     from sfera_auth.models import Friendship
+    from .models import BotAccount
 
+    if BotAccount.objects.filter(user=bot_user, is_system=True).exists():
+        return
     if Friendship.objects.filter(
         Q(from_user=user, to_user=bot_user) | Q(from_user=bot_user, to_user=user),
     ).exists():

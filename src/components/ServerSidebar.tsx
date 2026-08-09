@@ -198,7 +198,7 @@ export const ServerSidebar: React.FC = () => {
   const {
     currentServer, setCurrentServer, isMobileSidebarOpen, guilds, selectGuild,
     currentServerIP, leaveGuild, deleteGuild, currentUser, serverLayout, saveLayout,
-    authToken, setCurrentChat, setMobileActivePanel, loadFriends,
+    authToken, setCurrentChat, setMobileActivePanel,
   } = useApp();
   const tr = useTranslation();
   const isRu = tr('nav_explore') === 'Исследовать';
@@ -213,15 +213,12 @@ export const ServerSidebar: React.FC = () => {
       setCurrentServer('home');
       setCurrentChat(bot.user_id);
       setMobileActivePanel('chat-view');
-      // The bot was just added as a contact server-side — refresh so it shows
-      // up in the DM list too.
-      loadFriends();
     } catch {
       // Nothing to do: the sidebar stays as it was and the user can retry.
     } finally {
       setOpeningSferonik(false);
     }
-  }, [authToken, currentServerIP, loadFriends, openingSferonik, setCurrentChat, setCurrentServer, setMobileActivePanel]);
+  }, [authToken, currentServerIP, openingSferonik, setCurrentChat, setCurrentServer, setMobileActivePanel]);
   // Right-click a server icon (desktop) → context menu → leave / delete.
   const [guildMenu, setGuildMenu] = useState<{ guild: Guild; x: number; y: number } | null>(null);
   const [confirmLeave, setConfirmLeave] = useState<Guild | null>(null);

@@ -10,6 +10,31 @@ from .models import BotAccount, BotUpdate
 from .sferonik import SFERONIK_USERNAME, ensure_sferonik
 from . import outbound
 
+def _load_kafka_worker():
+    """Import the worker even without the Kafka client installed.
+
+    The worker is the production write path for messages, so its bot hook must
+    be covered; `confluent_kafka` is a heavyweight native dependency that only
+    the deployed image needs, so a stub stands in for the import.
+    """
+    import sys
+    import types
+
+    if 'confluent_kafka' not in sys.modules:
+        try:
+            import confluent_kafka  # noqa: F401
+        except ImportError:
+            stub = types.ModuleType('confluent_kafka')
+            stub.Consumer = object
+            stub.KafkaError = type('KafkaError', (Exception,), {})
+            stub.Producer = object
+            sys.modules['confluent_kafka'] = stub
+    from sfera_messages.kafka_worker import _process_chat_message
+    return _process_chat_message
+
+
+_process_chat_message = _load_kafka_worker()
+
 
 def app_client(user=None):
     client = APIClient(HTTP_X_IONIK_CLIENT='1')
@@ -39,6 +64,43 @@ class SferonikTests(TestCase):
         self.assertEqual(res.json()['bot']['username'], SFERONIK_USERNAME)
         convo = Conversation.objects.get(id=res.json()['conversation_id'])
         self.assertEqual(Message.objects.filter(conversation=convo).count(), 1)
+
+    def test_sferonik_answers_a_command_that_arrives_through_kafka(self):
+        bot = ensure_sferonik()
+        convo = outbound.dm_conversation_for(self.owner, bot.user)
+        _process_chat_message({
+            'content': '/mybots',
+            'author_id': str(self.owner.id),
+            'conversation_id': str(convo.id),
+        })
+        reply = Message.objects.filter(conversation=convo, author=bot.user).last()
+        self.assertIn('/newbot', reply.content)
+
+    def test_sferonik_is_not_added_to_the_dm_list(self):
+        from sfera_auth.models import Friendship
+
+        self.client.get('/api/bots/sferonik/')
+        bot = ensure_sferonik()
+        self.assertFalse(Friendship.objects.filter(to_user=bot.user).exists())
+        self.assertFalse(Friendship.objects.filter(from_user=bot.user).exists())
+
+    def test_opening_sferonik_clears_a_legacy_contact(self):
+        from sfera_auth.models import Friendship
+
+        bot = ensure_sferonik()
+        Friendship.objects.create(from_user=self.owner, to_user=bot.user, status='accepted')
+        self.client.get('/api/bots/sferonik/')
+        self.assertFalse(Friendship.objects.filter(to_user=bot.user).exists())
+
+    def test_a_normal_bot_does_appear_in_the_dm_list(self):
+        from sfera_auth.models import Friendship
+        from .sferonik import create_bot
+
+        account, _token = create_bot(self.owner, 'Погода', 'weather')
+        outbound.dm_conversation_for(self.owner, account.user)
+        self.assertTrue(
+            Friendship.objects.filter(from_user=self.owner, to_user=account.user, status='accepted').exists()
+        )
 
     def test_registration_flow_issues_a_key(self):
         self.assertIn('/newbot', self._say('/help'))
@@ -160,6 +222,19 @@ class BotApiTests(TestCase):
         )
         listed = app_client(self.peer).get(f'/api/bots/commands/?channel_id={channel.id}').json()
         self.assertEqual(listed['bots'][0]['username'], 'weather_bot')
+
+    def test_messages_arriving_through_kafka_reach_the_bot(self):
+        """Real clients write via the ws-gateway → Kafka worker, not the view."""
+        convo = outbound.dm_conversation_for(self.peer, self.account.user)
+        _process_chat_message({
+            'content': '/start now',
+            'author_id': str(self.peer.id),
+            'conversation_id': str(convo.id),
+        })
+
+        updates = self.bot_client.get('/api/bots/api/updates/').json()['updates']
+        self.assertEqual(len(updates), 1)
+        self.assertEqual(updates[0]['command'], 'start')
 
     def test_bot_cannot_post_into_a_chat_it_is_not_in(self):
         stranger_convo = Conversation.objects.create()

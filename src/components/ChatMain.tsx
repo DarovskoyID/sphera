@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback, useLayoutEffect } from
 import { createPortal } from 'react-dom';
 import { Phone, PhoneOff, PhoneIncoming, PhoneMissed, Video, Search, Menu, ArrowLeft, Plus, Send, FileText, FileImage, FileVideo, FileAudio, File, Download, X, MoreHorizontal, Reply, Copy, Trash2, Flag, Pin, Ban, Check, CheckCheck, ChevronUp, ChevronDown, Mic, Circle, Play, Square, Pause, CheckSquare, MapPin, Pencil, Clock, User as UserIcon } from 'lucide-react';
 import { MessageEditModal } from './MessageEditModal';
-import type { ChatAttachment, ChatMessage as ChatMessageType } from '../types';
+import type { ChatAttachment, ChatMessage as ChatMessageType, ServerUser } from '../types';
 import { useApp, reportError } from '../context/AppContext';
 import { Settings } from './Settings';
 import { CallWindow } from './CallWindow';
@@ -127,6 +127,31 @@ export const ChatMain: React.FC = () => {
   return null;
 };
 
+/** Profile of the current chat partner when they are in neither list.
+ *
+ * The DM list is built from contacts, but a chat can also be opened with
+ * someone who is not one — a bot reached from the server bar. Without this the
+ * header would have nothing to render and the whole view would stay blank.
+ */
+const useUnknownPeer = (userId: string, known: boolean) => {
+  const { authToken, currentServerIP } = useApp();
+  const [peer, setPeer] = useState<ServerUser | null>(null);
+
+  useEffect(() => {
+    if (!userId || known || !authToken) { setPeer(null); return; }
+    let cancelled = false;
+    fetch(`${currentServerIP}/api/auth/users/${userId}/profile/`, {
+      headers: { Authorization: `Bearer ${authToken}` },
+    })
+      .then(res => (res.ok ? res.json() : null))
+      .then(data => { if (!cancelled) setPeer(data); })
+      .catch(() => { if (!cancelled) setPeer(null); });
+    return () => { cancelled = true; };
+  }, [authToken, currentServerIP, known, userId]);
+
+  return peer;
+};
+
 const ChatHeader: React.FC<{
   onSearchToggle: () => void;
   searchOpen: boolean;
@@ -139,7 +164,8 @@ const ChatHeader: React.FC<{
 
   const friend = friends.find(f => String(f.id) === String(currentChat));
   const blockedUser = !friend ? blockedContacts.find(u => String(u.id) === String(currentChat)) : null;
-  const chatUser = friend ?? blockedUser;
+  const unknownPeer = useUnknownPeer(String(currentChat || ''), !!(friend || blockedUser));
+  const chatUser = friend ?? blockedUser ?? unknownPeer;
 
   if (isCallActive) {
     return <CallWindow inline />;

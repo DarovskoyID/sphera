@@ -103,6 +103,8 @@ def _process_chat_message(data: dict):
             message__isnull=True,
         ).update(message=msg)
 
+    _notify_bots('dm', msg)
+
     # Send FCM push to the other participants. DMs reach this worker via the Kafka
     # 'chat.messages' topic (published by the Rust ws-gateway), which bypasses the
     # Django ChatConsumer — so without this, closed apps never get notified.
@@ -189,6 +191,25 @@ def _process_guild_message(data: dict):
 
     from .search_index import index_message
     index_message(msg)
+
+    _notify_bots('channel', msg)
+
+
+def _notify_bots(kind: str, message):
+    """Hand the stored message to the bot layer.
+
+    Real clients send through the Rust ws-gateway, which publishes to Kafka and
+    lands here — not in the Django view or consumer. Without this hook a bot
+    would only ever hear messages posted over HTTP.
+    """
+    try:
+        from sfera_bots import outbound as bot_outbound
+        if kind == 'dm':
+            bot_outbound.dispatch_dm_message(message)
+        else:
+            bot_outbound.dispatch_channel_message(message)
+    except Exception as e:
+        logger.warning('bot dispatch failed: %s', e)
 
 
 def _process_notification(data: dict):
