@@ -7,6 +7,7 @@ from sfera_server.metrics import status_page, prometheus_metrics
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/auth/', include('sfera_auth.urls')),
+    path('api/bots/', include('sfera_bots.urls')),
     path('api/', include('sfera_messages.urls')),
     path('status-<str:date_token>/', status_page),
     path('metrics/', prometheus_metrics),

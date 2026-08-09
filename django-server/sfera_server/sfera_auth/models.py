@@ -6,8 +6,24 @@ from django.contrib.auth.models import AbstractUser
 from django.db import models
 
 
+ACCOUNT_TYPE_USER = 'user'
+ACCOUNT_TYPE_BOT = 'bot'
+ACCOUNT_TYPE_ADMIN = 'admin'
+ACCOUNT_TYPE_CHOICES = [
+    (ACCOUNT_TYPE_USER, 'User'),
+    (ACCOUNT_TYPE_BOT, 'Bot'),
+    (ACCOUNT_TYPE_ADMIN, 'Admin'),
+]
+
+
 class User(AbstractUser):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    # Global account role. Guild-level roles stay independent of this: `admin`
+    # here means staff of the whole instance, not of one guild.
+    account_type = models.CharField(
+        max_length=8, choices=ACCOUNT_TYPE_CHOICES,
+        default=ACCOUNT_TYPE_USER, db_index=True,
+    )
     nickname = models.CharField(max_length=50, blank=True, default='')
     phone = models.CharField(max_length=32, blank=True, default='')
     avatar = models.ImageField(upload_to='avatars/', blank=True, null=True)

@@ -91,6 +91,24 @@ def _fanout(group, channel_event, gw_payload):
         _do_fanout(group, channel_event, gw_payload)
 
 
+def _notify_bots(kind, message):
+    """Hand a freshly stored message to the bot layer (queue it for member bots
+    and let Сфероник answer). Never allowed to break the write path."""
+    def _run():
+        try:
+            from sfera_bots import outbound as bot_outbound
+            if kind == 'dm':
+                bot_outbound.dispatch_dm_message(message)
+            else:
+                bot_outbound.dispatch_channel_message(message)
+        except Exception:
+            pass
+    try:
+        _FANOUT_POOL.submit(_run)
+    except Exception:
+        _run()
+
+
 def _fanout_user_notifs(user_ids, notification):
     """Fire-and-forget per-user notification fanout (a Redis round-trip each),
     off the request thread."""
@@ -220,6 +238,19 @@ def conversation_list(request):
     return Response(ConversationSerializer(convos, many=True, context={'request': request}).data)
 
 
+def _link_bot_contact(user, peer_id):
+    """A DM list is built from friendships; a bot can't accept a request, so
+    starting a chat with one adds the contact directly."""
+    try:
+        from sfera_auth.models import User
+        from sfera_bots.outbound import ensure_contact
+        peer = User.objects.filter(id=peer_id, account_type='bot').first()
+        if peer is not None:
+            ensure_contact(user, peer)
+    except Exception:
+        pass
+
+
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def conversation_create(request):
@@ -252,6 +283,7 @@ def conversation_create(request):
 
     convo = Conversation.objects.create()
     convo.participants.add(request.user.id, user_id)
+    _link_bot_contact(request.user, user_id)
     data = ConversationSerializer(convo, context={'request': request}).data
     data['blocked_by_other'] = False
     return Response(data, status=status.HTTP_201_CREATED)
@@ -429,6 +461,7 @@ def send_message(request, conversation_id):
         'nickname': getattr(request.user, 'nickname', '') or '',
         'avatar': getattr(getattr(request.user, 'avatar', None), 'url', '') if getattr(request.user, 'avatar', None) else '',
         'status': getattr(request.user, 'status', 'online'),
+        'account_type': getattr(request.user, 'account_type', 'user'),
     }
 
     msg_payload = {
@@ -456,6 +489,8 @@ def send_message(request, conversation_id):
         convo.participants.exclude(id=request.user.id).values_list('id', flat=True)
     )
     _fanout_user_notifs(other_ids, notification)
+
+    _notify_bots('dm', msg)
 
     return Response(msg_payload, status=status.HTTP_201_CREATED)
 
@@ -737,6 +772,7 @@ def _guild_data(guild, user):
             'nickname': m.nickname or u.nickname or '',
             'avatar': u.avatar.url if u.avatar else '',
             'status': u.status,
+            'account_type': u.account_type,
             'role': m.role,
             'custom_roles': [str(r.role_id) for r in m.custom_role_assignments.all()],
             'muted_until': m.muted_until.isoformat() if m.muted_until and m.muted_until > timezone.now() else None,
@@ -1174,7 +1210,7 @@ def guild_join(request):
                 'id': str(u.id), 'username': u.username,
                 'nickname': membership.nickname or u.nickname or '',
                 'avatar': u.avatar.url if u.avatar else '',
-                'status': u.status, 'role': membership.role,
+                'status': u.status, 'account_type': u.account_type, 'role': membership.role,
             },
         },
     )
@@ -1583,6 +1619,7 @@ def guild_channel_send(request, guild_id, channel_id):
         'author': {
             'id': str(u.id), 'username': u.username, 'nickname': u.nickname or '',
             'avatar': u.avatar.url if u.avatar else '', 'status': u.status,
+            'account_type': u.account_type,
         },
         'content': content,
         'created_at': msg.created_at.isoformat(),
@@ -1608,6 +1645,7 @@ def guild_channel_send(request, guild_id, channel_id):
     # Gateway clients receive the raw message payload (the consumer's chat_message
     # handler sends event['message'] as-is); offloaded so the write returns fast.
     _fanout(f'guild_channel_{channel_id}', {'type': 'chat_message', 'message': payload}, payload)
+    _notify_bots('channel', msg)
     return Response(payload, status=status.HTTP_201_CREATED)
 
 
@@ -2290,6 +2328,7 @@ def _author_brief(u):
         'nickname': getattr(u, 'nickname', '') or '',
         'avatar': u.avatar.url if getattr(u, 'avatar', None) else '',
         'status': getattr(u, 'status', 'online'),
+        'account_type': getattr(u, 'account_type', 'user'),
     }
 
 

@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Search, Users, ArrowRight, Compass, Globe, Gamepad2, Music, Code, BookOpen, Palette, Trophy, MessageCircle, Sparkles, Newspaper, Check, NotebookPen, X } from 'lucide-react';
+import { Search, Users, ArrowRight, Compass, Globe, Gamepad2, Music, Code, BookOpen, Palette, Trophy, MessageCircle, Sparkles, Newspaper, Check, NotebookPen, X, Bot, Workflow } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { useTranslation } from '../i18n/useTranslation';
+import { BotStudio } from './BotStudio';
+import { openSferonik } from '../utils/botsApi';
 
 interface ExploreGuild {
   id: string;
@@ -38,8 +40,49 @@ interface MessageResult {
   author: { username: string; nickname: string };
 }
 
+/** One card in the "Developer tools" row. */
+const ToolCard: React.FC<{
+  icon: React.ReactNode;
+  gradient: string;
+  /** Colour stem like "rgba(88,101,242" — alpha is appended per state. */
+  tint: string;
+  title: string;
+  subtitle: string;
+  busy?: boolean;
+  onClick: () => void;
+}> = ({ icon, gradient, tint, title, subtitle, busy, onClick }) => (
+  <div
+    onClick={onClick}
+    style={{
+      display: 'flex', alignItems: 'center', gap: 12, padding: 14, borderRadius: 12,
+      cursor: busy ? 'progress' : 'pointer', opacity: busy ? 0.7 : 1,
+      background: `linear-gradient(135deg, ${tint},0.14), ${tint},0.10))`,
+      border: `1px solid ${tint},0.35)`, transition: 'transform .15s, box-shadow .15s',
+    }}
+    onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = `0 8px 24px ${tint},0.2)`; }}
+    onMouseLeave={e => { e.currentTarget.style.transform = 'none'; e.currentTarget.style.boxShadow = 'none'; }}
+  >
+    <div style={{
+      width: 42, height: 42, borderRadius: 12, flexShrink: 0, background: gradient,
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      boxShadow: `0 4px 12px ${tint},0.35)`,
+    }}>
+      {icon}
+    </div>
+    <div style={{ minWidth: 0 }}>
+      <div style={{ fontWeight: 700, color: 'var(--text-primary)', fontSize: 14.5 }}>{title}</div>
+      <div style={{ fontSize: 12, color: 'var(--text-tertiary)', lineHeight: 1.35 }}>{subtitle}</div>
+    </div>
+  </div>
+);
+
 export const ExploreServers: React.FC<{ style?: React.CSSProperties }> = ({ style }) => {
-  const { currentServerIP, authToken, joinGuild, previewGuild, selectGuild, guilds, createPersonalNotes } = useApp();
+  const {
+    currentServerIP, authToken, joinGuild, previewGuild, selectGuild, guilds, createPersonalNotes,
+    setCurrentChat, setCurrentView, setMobileActivePanel,
+  } = useApp();
+  const [showStudio, setShowStudio] = useState(false);
+  const [openingSferonik, setOpeningSferonik] = useState(false);
   const [showNotes, setShowNotes] = useState(false);
   const [notesName, setNotesName] = useState('');
   const [notesBusy, setNotesBusy] = useState(false);
@@ -287,6 +330,7 @@ export const ExploreServers: React.FC<{ style?: React.CSSProperties }> = ({ styl
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'var(--bg-primary)', ...style }}>
+      {showStudio && <BotStudio onClose={() => setShowStudio(false)} />}
       {showNotes && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,0,0,.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }} onClick={() => setShowNotes(false)}>
           <div style={{ width: '100%', maxWidth: 400, background: 'var(--bg-secondary)', borderRadius: 14, padding: 18, border: '1px solid var(--border-color)' }} onClick={e => e.stopPropagation()}>
@@ -389,42 +433,54 @@ export const ExploreServers: React.FC<{ style?: React.CSSProperties }> = ({ styl
             <h3 style={{ margin: '0 0 14px', fontSize: 13, fontWeight: 700, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
               {isRu ? 'Инструменты от разработчика' : 'Developer tools'}
             </h3>
-            {guilds.some(g => g.is_private) ? (
-              <div style={{
-                display: 'flex', alignItems: 'center', gap: 12, padding: 16, borderRadius: 12,
-                background: 'var(--bg-secondary)', border: '1px dashed var(--border-color)',
-              }}>
-                <NotebookPen size={20} style={{ color: 'var(--text-tertiary)', flexShrink: 0 }} />
-                <div style={{ fontSize: 13, color: 'var(--text-tertiary)', lineHeight: 1.4 }}>
-                  {isRu
-                    ? 'Все инструменты уже добавлены. Ваш личный дневник — в списке серверов слева. Новые инструменты появятся здесь.'
-                    : 'All tools are already added. Your personal diary is in the server list on the left. New tools will appear here.'}
-                </div>
-              </div>
-            ) : (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(230px, 1fr))', gap: 10 }}>
               {!guilds.some(g => g.is_private) && (
-                <div
+                <ToolCard
+                  icon={<NotebookPen size={20} color="#fff" />}
+                  gradient="linear-gradient(135deg,#a855f7,#7c3aed)"
+                  tint="rgba(168,85,247"
+                  title={isRu ? 'Личный дневник' : 'Personal diary'}
+                  subtitle={isRu
+                    ? 'Приватные заметки, задачи, код, гео и контакты — только для вас'
+                    : 'Private notes, tasks, code, locations and contacts — just for you'}
                   onClick={() => setShowNotes(true)}
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: 12, padding: 14, borderRadius: 12, cursor: 'pointer',
-                    background: 'linear-gradient(135deg, rgba(168,85,247,0.14), rgba(124,58,237,0.10))',
-                    border: '1px solid rgba(168,85,247,0.35)', transition: 'transform .15s, box-shadow .15s',
-                  }}
-                  onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 8px 24px rgba(168,85,247,0.2)'; }}
-                  onMouseLeave={e => { e.currentTarget.style.transform = 'none'; e.currentTarget.style.boxShadow = 'none'; }}
-                >
-                  <div style={{ width: 42, height: 42, borderRadius: 12, flexShrink: 0, background: 'linear-gradient(135deg,#a855f7,#7c3aed)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 4px 12px rgba(168,85,247,0.35)' }}>
-                    <NotebookPen size={20} color="#fff" />
-                  </div>
-                  <div style={{ minWidth: 0 }}>
-                    <div style={{ fontWeight: 700, color: 'var(--text-primary)', fontSize: 14.5 }}>{isRu ? 'Личный дневник' : 'Personal diary'}</div>
-                    <div style={{ fontSize: 12, color: 'var(--text-tertiary)', lineHeight: 1.35 }}>{isRu ? 'Приватные заметки, задачи, код, гео и контакты — только для вас' : 'Private notes, tasks, code, locations and contacts — just for you'}</div>
-                  </div>
-                </div>
+                />
               )}
+              <ToolCard
+                icon={<Bot size={20} color="#fff" />}
+                gradient="linear-gradient(135deg,#5865f2,#4752c4)"
+                tint="rgba(88,101,242"
+                title={isRu ? 'Сфероник' : 'Sferonik'}
+                subtitle={isRu
+                  ? 'Регистрация ботов: создаёт аккаунт бота и выдаёт ключ'
+                  : 'Bot registration: creates the bot account and issues its key'}
+                busy={openingSferonik}
+                onClick={async () => {
+                  if (openingSferonik) return;
+                  setOpeningSferonik(true);
+                  try {
+                    const { bot } = await openSferonik({ token: authToken, serverIP: currentServerIP });
+                    setCurrentView('home');
+                    setCurrentChat(bot.user_id);
+                    setMobileActivePanel('chat-view');
+                  } catch {
+                    // Leave the explore view as-is; the user can retry.
+                  } finally {
+                    setOpeningSferonik(false);
+                  }
+                }}
+              />
+              <ToolCard
+                icon={<Workflow size={20} color="#fff" />}
+                gradient="linear-gradient(135deg,#00a8fc,#0d7dc0)"
+                tint="rgba(0,168,252"
+                title={isRu ? 'Нодовый редактор бота' : 'Bot node editor'}
+                subtitle={isRu
+                  ? 'Соберите логику узлами и скачайте проект на Python, C++ или Rust'
+                  : 'Build the logic from nodes and export a Python, C++ or Rust project'}
+                onClick={() => setShowStudio(true)}
+              />
             </div>
-            )}
           </div>
         )}
 

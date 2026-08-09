@@ -6,6 +6,7 @@ import { ProfileModal, type ProfileUser } from './ProfileModal';
 import { UserProfile } from './ChatSidebar';
 import { GuildSettingsModal } from './GuildSettings';
 import type { GuildMember, GuildRole } from '../types';
+import { AccountBadge, accountDisplayName } from './BotBadge';
 
 // ── Member context menu ──────────────────────────────────────────────────────
 function MemberContextMenu({
@@ -168,7 +169,8 @@ function MemberRow({ member, myRole, guildId, guildRoles }: { member: GuildMembe
           <span className="status-dot" style={{ background: statusColor[member.status] ?? '#747f8d' }} />
         </div>
         <div style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 4, overflow: 'hidden' }}>
-          <span className="member-name">{member.nickname || member.username}</span>
+          <span className="member-name">{accountDisplayName(member)}</span>
+          <AccountBadge account={member} />
           {member.role === 'owner' && <Crown size={11} style={{ color: '#faa81a', flexShrink: 0 }} />}
           {member.role === 'admin' && <Shield size={11} style={{ color: '#5865f2', flexShrink: 0 }} />}
           {(() => {

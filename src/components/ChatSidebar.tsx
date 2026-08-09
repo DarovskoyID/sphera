@@ -7,6 +7,7 @@ import { useApp, reportError } from '../context/AppContext';
 import { useTranslation } from '../i18n/useTranslation';
 import ConfirmModal from './ConfirmModal';
 import type { ServerUser } from '../types';
+import { AccountBadge, accountDisplayName } from './BotBadge';
 
 // ── Mobile detection ─────────────────────────────────────────────────────────
 
@@ -421,7 +422,7 @@ const FriendContextMenu: React.FC<{
       {/* Header */}
       <div style={{ padding: '8px 14px 6px', borderBottom: '1px solid var(--border-color)', marginBottom: 2 }}>
         <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>
-          {friend.nickname || friend.username}
+          {accountDisplayName(friend)}<AccountBadge account={friend} />
         </div>
         <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>@{friend.username}</div>
       </div>
@@ -865,7 +866,7 @@ export const ChatSidebar: React.FC = () => {
                     <Avatar name={user.nickname || user.username} avatar={user.avatar} size={36} />
                   </div>
                   <div className="chat-info" style={{ flex: 1 }}>
-                    <div className="chat-name">{user.nickname || user.username}</div>
+                    <div className="chat-name">{accountDisplayName(user)}<AccountBadge account={user} /></div>
                     <div className="chat-message">{tr('friends_request_pending')}</div>
                   </div>
                 </div>
@@ -1005,7 +1006,7 @@ export const ChatSidebar: React.FC = () => {
                     <Avatar name={user.nickname || user.username} avatar={user.avatar} size={36} />
                   </div>
                   <div className="chat-info">
-                    <div className="chat-name">{user.nickname || user.username}</div>
+                    <div className="chat-name">{accountDisplayName(user)}<AccountBadge account={user} /></div>
                     <div className="chat-message" style={{ fontSize: 11, color: '#f97316' }}>{tr('status_blocked')}</div>
                   </div>
                 </div>

@@ -23,6 +23,7 @@
 | **i18n** | 7 languages — English, Russian, German, French, Spanish, Portuguese, Chinese |
 | **Themes** | Customizable appearance & settings panel |
 | **Responsive** | Full mobile support with adaptive layout |
+| **Bots** | Bot accounts registered by Сфероник, node editor, Python/C++/Rust SDKs — see [docs/BOTS.md](docs/BOTS.md) |
 
 ---
 

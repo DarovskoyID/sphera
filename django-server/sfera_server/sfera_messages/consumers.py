@@ -30,6 +30,19 @@ def _kafka_enabled():
         return False
 
 
+def _notify_bots(kind, message):
+    """Queue a stored message for the bots that can see it (and let Сфероник
+    reply). Best-effort: bot plumbing must never break message delivery."""
+    try:
+        from sfera_bots import outbound as bot_outbound
+        if kind == 'dm':
+            bot_outbound.dispatch_dm_message(message)
+        else:
+            bot_outbound.dispatch_channel_message(message)
+    except Exception:
+        pass
+
+
 class ChatConsumer(AsyncWebsocketConsumer):
     async def connect(self):
         self.conversation_id = self.scope['url_route']['kwargs']['conversation_id']
@@ -346,6 +359,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
 
         msg.is_sent = True
         msg.save(update_fields=['is_sent'])
+        _notify_bots('dm', real_msg)
 
         author = msg.author
         avatar_url = author.avatar.url if author.avatar else ''
@@ -525,6 +539,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
         if msg_id:
             kwargs['id'] = msg_id
         msg = Message.objects.create(**kwargs)
+        _notify_bots('dm', msg)
         if attachment_ids:
             Attachment.objects.filter(
                 id__in=attachment_ids,
@@ -798,6 +813,7 @@ class GuildChannelConsumer(AsyncWebsocketConsumer):
 
         sched.is_sent = True
         sched.save(update_fields=['is_sent'])
+        _notify_bots('channel', real_msg)
 
         author = sched.author
         reply_to_data = None
@@ -961,6 +977,7 @@ class GuildChannelConsumer(AsyncWebsocketConsumer):
         if msg_id:
             kwargs['id'] = msg_id
         msg = GuildMessage.objects.create(**kwargs)
+        _notify_bots('channel', msg)
         if attachment_ids:
             GuildAttachment.objects.filter(
                 id__in=attachment_ids,

@@ -3,6 +3,8 @@ import { Hash, Send, Pin, Trash2, CornerUpLeft, Plus, MoreHorizontal, X, Downloa
 import { MessageEditModal } from './MessageEditModal';
 import { RichMessage } from './RichMessage';
 import { RichComposer } from './RichComposer';
+import { AccountBadge, accountDisplayName } from './BotBadge';
+import { BotCommandsButton } from './BotCommandsButton';
 import type { RichMessageType, RichPayload } from '../types';
 import { useApp, reportError } from '../context/AppContext';
 import { useTranslation } from '../i18n/useTranslation';
@@ -298,7 +300,7 @@ const GuildMessageRow = React.memo(({ msg, isOwn, isFirstInGroup, onContextMenu,
   highlight?: boolean;
 }) => {
   const tr = useTranslation();
-  const displayName = msg.author?.nickname || msg.author?.username || '?';
+  const displayName = accountDisplayName(msg.author);
   const time = new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   const [avatarError, setAvatarError] = useState(false);
   // Long-press (mobile) opens the same context menu as right-click (desktop).
@@ -353,7 +355,7 @@ const GuildMessageRow = React.memo(({ msg, isOwn, isFirstInGroup, onContextMenu,
           {msg.content && (
             <div className="message-text" style={{ position: 'relative' }}>
               {isFirstInGroup && (
-                <div className="message-author-bubble" onClick={() => onProfileClick(msg.author)} style={{ cursor: 'pointer' }}>{displayName}</div>
+                <div className="message-author-bubble" onClick={() => onProfileClick(msg.author)} style={{ cursor: 'pointer' }}>{displayName}<AccountBadge account={msg.author} /></div>
               )}
               {msg.reply_to && (
                 <div className="message-reply-preview">
@@ -1066,6 +1068,12 @@ export const GuildChatMain: React.FC = () => {
               rows={1}
               maxLength={5000}
               disabled={uploading || isMuted}
+            />
+            <BotCommandsButton
+              token={authToken}
+              serverIP={currentServerIP}
+              channelId={currentGuildChannel.id}
+              onPick={cmd => persistInput(cmd)}
             />
             <button
               ref={pickerButtonRef}

@@ -91,6 +91,7 @@ INSTALLED_APPS = [
     'sfera_auth',
     'sfera_messages',
     'sfera_signaling',
+    'sfera_bots',
 ]
 
 MIDDLEWARE = [

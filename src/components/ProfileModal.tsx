@@ -6,6 +6,7 @@ import { X, Phone, Video, UserMinus, UserPlus } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { useTranslation } from '../i18n/useTranslation';
 import ConfirmModal from './ConfirmModal';
+import { AccountBadge, accountDisplayName } from './BotBadge';
 
 export type ProfileUser = {
   id: string;
@@ -51,7 +52,7 @@ export const ProfileModal: React.FC<{
   const [showRemoveConfirm, setShowRemoveConfirm] = useState(false);
   const [note, setNote] = useState(() => localStorage.getItem(`note_${user.id}`) ?? '');
   const tr = useTranslation();
-  const displayName = user.nickname || user.username;
+  const displayName = accountDisplayName(user);
   const isFriend = friends.some(f => String(f.id) === String(user.id));
 
   useEffect(() => {
@@ -116,7 +117,7 @@ export const ProfileModal: React.FC<{
               }} />
             </div>
             <div style={{ paddingBottom: 4, minWidth: 0 }}>
-              <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.2 }}>{displayName}</div>
+              <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.2 }}>{displayName}<AccountBadge account={user} size="md" /></div>
               <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>@{user.username}</div>
               <div style={{ fontSize: 12, color: STATUS_COLOR[user.status] ?? STATUS_COLOR.offline, marginTop: 2 }}>
                 {tr((STATUS_KEYS[user.status] ?? 'status_offline') as any)}

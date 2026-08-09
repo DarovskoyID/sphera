@@ -425,6 +425,7 @@ def update_profile(request):
                 'avatar': user.avatar.url if user.avatar else '',
                 'bio': user.bio or '',
                 'status': user.status,
+                'account_type': user.account_type,
             },
         })
 

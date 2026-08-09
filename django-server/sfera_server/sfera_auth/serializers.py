@@ -61,7 +61,7 @@ class UserSerializer(serializers.ModelSerializer):
         model = User
         fields = [
             'id', 'username', 'nickname', 'avatar', 'bio', 'status',
-            'verification_level', 'verification',
+            'account_type', 'verification_level', 'verification',
         ]
 
     def get_avatar(self, obj):

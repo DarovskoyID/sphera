@@ -9,7 +9,9 @@ from sfera_auth.models import User
 class AppOnlyMiddleware:
     """
     Blocks direct browser access to the server.
-    Every HTTP request must carry the custom header X-Ionik-Client: 1.
+    Every HTTP request must carry the custom header X-Ionik-Client: 1,
+    except the key-authenticated bot API (/api/bots/api/), which exists
+    precisely so third-party programs can call it.
     CORS pre-flight OPTIONS requests are allowed through so the browser
     can negotiate the custom header before the real request is sent.
     WebSocket connections are handled by ASGI/Channels and are not
@@ -25,6 +27,8 @@ class AppOnlyMiddleware:
             and not request.path.startswith('/media/')
             and not request.path.startswith('/status-')
             and not request.path.startswith('/metrics')
+            # Public bot API: third-party SDKs are legitimate non-app clients.
+            and not request.path.startswith('/api/bots/api/')
             and request.headers.get('X-Ionik-Client') != '1'
         ):
             return HttpResponse()

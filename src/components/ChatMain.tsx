@@ -9,6 +9,8 @@ import { CallWindow } from './CallWindow';
 import { useTranslation } from '../i18n/useTranslation';
 import { RichMessage } from './RichMessage';
 import { RichComposer } from './RichComposer';
+import { AccountBadge, accountDisplayName } from './BotBadge';
+import { BotCommandsButton } from './BotCommandsButton';
 import type { RichMessageType, RichPayload } from '../types';
 
 // ── Rich messages (checklist / contact / location). Polls are guild-only. ────
@@ -145,7 +147,7 @@ const ChatHeader: React.FC<{
 
   if (!chatUser) return null;
 
-  const displayName = chatUser.nickname || chatUser.username || '?';
+  const displayName = accountDisplayName(chatUser);
 
   const startCall = (withVideo = false) => {
     // Prevent camera from turning on when starting a voice call (state can persist from a previous call)
@@ -173,7 +175,7 @@ const ChatHeader: React.FC<{
           }
         </div>
         <div>
-          <h3>{displayName}</h3>
+          <h3>{displayName}<AccountBadge account={chatUser} size="md" /></h3>
           {blockedUser
             ? <p style={{ color: '#f97316' }}>{tr('status_blocked')}</p>
             : <p>@{chatUser.username}</p>
@@ -1415,9 +1417,8 @@ const MessageRow = React.memo(({ msg, isOwn, isFirstInGroup, onContextMenu, onRe
       ?? blockedContacts.find(u => String(u.id) === String(msg.author?.id))
       ?? friends.find(f => String(f.id) === String(currentChat))
       ?? blockedContacts.find(u => String(u.id) === String(currentChat));
-  const displayName =
-    msg.author?.nickname || msg.author?.username ||
-    known?.nickname || known?.username || '?';
+  const author = msg.author?.username ? msg.author : known;
+  const displayName = accountDisplayName(author);
   const avatarSrc = msg.author?.avatar || known?.avatar;
   const time = new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   const [avatarError, setAvatarError] = useState(false);
@@ -1478,7 +1479,7 @@ const MessageRow = React.memo(({ msg, isOwn, isFirstInGroup, onContextMenu, onRe
           {msg.content && (
             <div className="message-text" style={{ position: 'relative' }}>
               {isFirstInGroup && (
-                <div className="message-author-bubble">{displayName}</div>
+                <div className="message-author-bubble">{displayName}<AccountBadge account={author} /></div>
               )}
               {msg.reply_to && (
                 <div className="message-reply-preview">
@@ -1776,7 +1777,7 @@ type RecordMode = 'idle' | 'voice' | 'video';
 type RecordState = 'idle' | 'recording' | 'preview';
 
 const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: () => void; editing?: ChatMessageType | null; onCancelEdit?: () => void; onScheduled: (item: ScheduledItem) => void }> = ({ replyTo, onCancelReply, editing, onCancelEdit, onScheduled }) => {
-  const { sendChatMessage, chatConversationId, currentServerIP, authToken, scheduleMessage, sendRichMessage, editMessage, friends } = useApp();
+  const { sendChatMessage, chatConversationId, currentServerIP, authToken, scheduleMessage, sendRichMessage, editMessage, friends, currentChat } = useApp();
   const tr = useTranslation();
   const [message, setMessage] = useState('');
   const [attachMenu, setAttachMenu] = useState(false);
@@ -2380,6 +2381,15 @@ const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: (
               </button>
             </>
           )}
+          <BotCommandsButton
+            token={authToken}
+            serverIP={currentServerIP}
+            userId={String(currentChat || '')}
+            onPick={cmd => {
+              persistMessage(cmd);
+              requestAnimationFrame(() => { autoResizeComposer(); composerInputRef.current?.focus(); });
+            }}
+          />
           <button
             ref={pickerButtonRef}
             className={`composer-icon-btn ${showPicker ? 'active' : ''}`}
