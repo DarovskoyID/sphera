@@ -69,7 +69,9 @@ export const BotCommandsButton: React.FC<Props> = ({ token, serverIP, userId, ch
           <div style={{ position: 'fixed', inset: 0, zIndex: 40 }} onClick={() => setOpen(false)} />
           <div
             style={{
-              position: 'absolute', bottom: '100%', left: 0, marginBottom: 8, zIndex: 41,
+              // Anchored to the right: the button sits at the right end of the
+              // composer, so opening leftwards is what keeps the list on screen.
+              position: 'absolute', bottom: '100%', right: 0, marginBottom: 8, zIndex: 41,
               minWidth: 240, maxWidth: 'min(340px, calc(100vw - 32px))',
               maxHeight: 'min(320px, 50vh)', overflowY: 'auto',
               background: 'var(--bg-secondary, #2b2d31)', borderRadius: 10, padding: 5,

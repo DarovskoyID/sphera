@@ -1,9 +1,10 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback } from 'react';
-import { Settings, Home, Plus, LogIn, X, Compass, Rss, LogOut, Trash2, Folder, FolderMinus, NotebookPen } from 'lucide-react';
+import { Settings, Home, Plus, LogIn, X, Compass, Rss, LogOut, Trash2, Folder, FolderMinus, NotebookPen, Bot } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { useTranslation } from '../i18n/useTranslation';
 import ConfirmModal from './ConfirmModal';
 import type { Guild, LayoutEntry } from '../types';
+import { openSferonik } from '../utils/botsApi';
 
 function CreateGuildModal({ onClose }: { onClose: () => void }) {
   const { createGuild, selectGuild } = useApp();
@@ -194,8 +195,33 @@ type RenderItem =
   | { type: 'folder'; folder: { id: string; name: string; color?: string; guilds: Guild[] } };
 
 export const ServerSidebar: React.FC = () => {
-  const { currentServer, setCurrentServer, isMobileSidebarOpen, guilds, currentGuild, selectGuild, currentServerIP, leaveGuild, deleteGuild, currentUser, serverLayout, saveLayout } = useApp();
+  const {
+    currentServer, setCurrentServer, isMobileSidebarOpen, guilds, selectGuild,
+    currentServerIP, leaveGuild, deleteGuild, currentUser, serverLayout, saveLayout,
+    authToken, setCurrentChat, setMobileActivePanel, loadFriends,
+  } = useApp();
   const tr = useTranslation();
+  const isRu = tr('nav_explore') === 'Исследовать';
+  // Сфероник lives in the DM list, but it is reached from here: it is a tool,
+  // not a contact, so it gets a pinned icon next to Explore.
+  const [openingSferonik, setOpeningSferonik] = useState(false);
+  const goToSferonik = useCallback(async () => {
+    if (openingSferonik || !authToken) return;
+    setOpeningSferonik(true);
+    try {
+      const { bot } = await openSferonik({ token: authToken, serverIP: currentServerIP });
+      setCurrentServer('home');
+      setCurrentChat(bot.user_id);
+      setMobileActivePanel('chat-view');
+      // The bot was just added as a contact server-side — refresh so it shows
+      // up in the DM list too.
+      loadFriends();
+    } catch {
+      // Nothing to do: the sidebar stays as it was and the user can retry.
+    } finally {
+      setOpeningSferonik(false);
+    }
+  }, [authToken, currentServerIP, loadFriends, openingSferonik, setCurrentChat, setCurrentServer, setMobileActivePanel]);
   // Right-click a server icon (desktop) → context menu → leave / delete.
   const [guildMenu, setGuildMenu] = useState<{ guild: Guild; x: number; y: number } | null>(null);
   const [confirmLeave, setConfirmLeave] = useState<Guild | null>(null);
@@ -436,6 +462,15 @@ export const ServerSidebar: React.FC = () => {
             title={tr('nav_explore')}
           >
             <Compass size={20} />
+          </button>
+
+          <button
+            className="server-icon"
+            onClick={goToSferonik}
+            title={isRu ? 'Сфероник — создание ботов' : 'Sferonik — bot registration'}
+            style={{ opacity: openingSferonik ? 0.6 : 1 }}
+          >
+            <Bot size={20} />
           </button>
 
           {/* Scrollable guild list */}
