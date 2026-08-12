@@ -13,6 +13,7 @@ import { saveA11yPrefs, announce as announceA11y, type A11yPrefs } from '../util
 import { saveDisplayPrefs } from '../utils/displayPrefs';
 import { saveCensorConfig, setCensorAudience, scopeFromScanFlags } from '../utils/censor';
 import { sortByDate, insertByDate } from '../utils/messageOrder';
+import { clearMessageCache, readCachedMessages, writeCachedMessages } from '../utils/messageCache';
 import { postNativeTheme, setAllowScale } from '../utils/nativeBridge';
 import { deviceQuery } from '../utils/device';
 import { toUserMessage, readResponse, setErrorLang } from '../utils/errorManager';
@@ -483,6 +484,9 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       headers: { 'X-Ionik-Client': '1' },
     }).catch(() => undefined);
     localStorage.removeItem(AUTH_TOKEN_KEY);
+    // The message cache is plain text on the device; a session ending is
+    // exactly when it must stop existing.
+    clearMessageCache();
     setState(prev => ({ ...prev, authToken: '', currentUser: null, friends: [], pendingRequests: [], sentRequests: [], userIDonServer: '', currentChat: '' }));
   }, []);
 
@@ -871,7 +875,20 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
         }
 
         const convoId = convo.id;
-        setState(prev => ({ ...prev, chatConversationId: convoId }));
+        // Paint the tail we already have while the history request is in
+        // flight. The fetch below replaces it wholesale, so a cached message
+        // deleted meanwhile lives for one round-trip and no longer.
+        const cached = readCachedMessages(convoId);
+        setState(prev => (
+          cancelled || prev.chatMessages.length
+            ? { ...prev, chatConversationId: convoId }
+            : {
+              ...prev,
+              chatConversationId: convoId,
+              chatMessages: cached ? cached.map(enrichCallMessage) : prev.chatMessages,
+              chatLoading: !cached,
+            }
+        ));
 
         // Load message history
         const msgs: ChatMessage[] = await apiGet(
@@ -1435,6 +1452,18 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       return false;
     }
   }, [state.chatConversationId, state.chatMessages, state.authToken, state.currentServerIP, apiGet]);
+
+  // Persist the tail of the open conversation so the next visit paints at once.
+  //
+  // Debounced: a busy chat changes state many times a second, and localStorage
+  // is synchronous — writing on every change would stall the main thread in
+  // exactly the conversations where responsiveness matters most.
+  useEffect(() => {
+    const convoId = state.chatConversationId;
+    if (!convoId || !state.chatMessages.length) return;
+    const timer = setTimeout(() => writeCachedMessages(convoId, state.chatMessages), 1500);
+    return () => clearTimeout(timer);
+  }, [state.chatConversationId, state.chatMessages]);
 
   // ==================== Signaling WebSocket ====================
   useEffect(() => {
@@ -3219,7 +3248,9 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       authTokenRef.current = '';
     }
     if (!token) {
-      // Logout — close all sockets and reset to clean state
+      // Logout — close all sockets, drop the on-device message cache, and
+      // reset to a clean state.
+      clearMessageCache();
       chatWs.current?.close();
       chatWs.current = null;
       signalingWs.current?.close();
