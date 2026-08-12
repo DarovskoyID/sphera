@@ -646,7 +646,7 @@ export function isExplicitMedia(
   cfg: CensorConfig = getCensorConfig(),
 ): boolean {
   if (!cfg.blur_enabled || !explicitApplies(cfg, opts.authorId)) return false;
-  const lists: Lists = { subs: EXPLICIT_ROOTS, words: EXPLICIT_WORDS };
+  const lists: Lists = { subs: EXPLICIT_ROOTS, words: EXPLICIT_WORDS, translit: TRANSLIT_EXPLICIT };
   const scan = (s?: string) => {
     if (!s) return false;
     // File names arrive as "my.hot_pic-2.jpg", so split on separators too.
