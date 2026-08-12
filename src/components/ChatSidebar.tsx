@@ -9,6 +9,7 @@ import ConfirmModal from './ConfirmModal';
 import type { ServerUser } from '../types';
 import { AccountBadge, accountDisplayName } from './BotBadge';
 import { useAnchoredMenu } from './useAnchoredMenu';
+import { ListSkeleton } from './Skeleton';
 
 // ── Mobile detection ─────────────────────────────────────────────────────────
 
@@ -674,7 +675,7 @@ export const ChatSidebar: React.FC = () => {
     currentView, currentChat, currentSettingsPage,
     setCurrentChat, setCurrentSettingsPage, toggleTheme, theme,
     isMobileSidebarOpen, toggleMobileSidebar, setAuthToken,
-    friends, blockedContacts, pendingRequests, sentRequests, sendFriendRequest, acceptFriendRequest,
+    friends, friendsLoaded, blockedContacts, pendingRequests, sentRequests, sendFriendRequest, acceptFriendRequest,
     rejectFriendRequest, searchUsers,
     setCallActive, setCallTargetId, setVideoActive,
     removeFriend,
@@ -917,6 +918,10 @@ export const ChatSidebar: React.FC = () => {
             </div>
           )}
 
+          {/* Until the first fetch settles the list is empty for a reason we
+              cannot tell apart from "no friends yet" — so say neither. */}
+          {!friendsLoaded && friends.length === 0 && <ListSkeleton rows={5} avatarSize={36} />}
+
           {/* Unified list: friends + blocked contacts */}
           {filteredFriends.map(friend => (
             <div
@@ -949,7 +954,7 @@ export const ChatSidebar: React.FC = () => {
             </div>
           ))}
 
-          {filteredFriends.length === 0 && filteredBlocked.length === 0 && !showAddFriend && pendingRequests.length === 0 && (
+          {friendsLoaded && filteredFriends.length === 0 && filteredBlocked.length === 0 && !showAddFriend && pendingRequests.length === 0 && (
             <div style={{ padding: '16px 12px', color: 'var(--text-secondary)', fontSize: 13, textAlign: 'center' }}>
               {tr('friends_none')} <UserPlus size={12} style={{ display: 'inline' }} />
             </div>

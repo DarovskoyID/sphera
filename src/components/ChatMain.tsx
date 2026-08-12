@@ -54,7 +54,7 @@ import { censorPlain } from '../utils/censor';
 import { BlurredMedia } from './BlurredMedia';
 import { pickRecorderFormat, mediaUnsupportedReason, describeMediaError } from '../utils/recording';
 import { useAnchoredMenu } from './useAnchoredMenu';
-import { MessageListSkeleton } from './Skeleton';
+import { MediaSkeleton, MessageListSkeleton } from './Skeleton';
 
 // Maps a settings page key to its translation key, so the mobile settings
 // header shows a translated title instead of the raw page id.
@@ -546,13 +546,7 @@ const AuthMedia: React.FC<{ url: string; contentType: string; filename: string; 
     };
   }, [url, authToken, currentServerIP]);
 
-  if (!blobUrl) {
-    return (
-      <div style={{ width: 200, height: 120, borderRadius: 8, background: 'var(--bg-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginTop: 6 }}>
-        <div style={{ width: 20, height: 20, border: '2px solid var(--accent-primary)', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} />
-      </div>
-    );
-  }
+  if (!blobUrl) return <MediaSkeleton width={200} height={120} />;
 
   if (contentType.startsWith('image/')) {
     return (

@@ -342,6 +342,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       authToken: savedToken,
       currentUser: null,
       friends: [],
+      friendsLoaded: false,
       blockedContacts: [],
       pendingRequests: [],
       sentRequests: [],
@@ -357,6 +358,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       currentGuild: null,
       currentGuildChannel: null,
       guildMessages: [],
+      guildMessagesLoading: false,
       currentVoiceChannel: null,
       voiceParticipants: [],
       voiceChannelParticipants: {},
@@ -640,8 +642,13 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
   const loadFriends = useCallback(async () => {
     try {
       const friends: ServerUser[] = await apiGet('/api/auth/friends/', state.authToken, state.currentServerIP);
-      setState(prev => ({ ...prev, friends }));
-    } catch (e) { reportError(e); }
+      setState(prev => ({ ...prev, friends, friendsLoaded: true }));
+    } catch (e) {
+      // Mark it settled either way: an empty list the reader can act on beats a
+      // skeleton that shimmers forever because one request failed.
+      setState(prev => ({ ...prev, friendsLoaded: true }));
+      reportError(e);
+    }
   }, [state.authToken, state.currentServerIP, apiGet]);
 
   const loadPendingRequests = useCallback(async () => {
@@ -2784,7 +2791,14 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
         lastGuildChatBackRef.current.channelId === channel.id &&
         Date.now() - lastGuildChatBackRef.current.at < 900;
       if (isSameChannel && recentBackToList) return prev;
-      return { ...prev, currentGuildChannel: channel, guildMessages: prev.currentGuildChannel?.id === channel.id ? prev.guildMessages : [], mobileActivePanel: 'guild-chat' as MobilePanel };
+      const sameChannel = prev.currentGuildChannel?.id === channel.id;
+      return {
+        ...prev,
+        currentGuildChannel: channel,
+        guildMessages: sameChannel ? prev.guildMessages : [],
+        guildMessagesLoading: !sameChannel,
+        mobileActivePanel: 'guild-chat' as MobilePanel,
+      };
     });
   }, [_connectGuildWs]);
 
@@ -2799,9 +2813,12 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
         const ids = new Set(msgs.map(m => m.id));
         const extra = prev.guildMessages.filter(m => !ids.has(m.id));
         const merged = sortByDate([...msgs, ...extra]);
-        return { ...prev, guildMessages: merged };
+        return { ...prev, guildMessages: merged, guildMessagesLoading: false };
       }))
-      .catch(reportError);
+      .catch(e => {
+        setState(prev => ({ ...prev, guildMessagesLoading: false }));
+        reportError(e);
+      });
   }, [state.currentGuildChannel?.id]);
 
   // Show an immediate placeholder post while the author's photos upload/post.

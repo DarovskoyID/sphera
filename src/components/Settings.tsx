@@ -5,6 +5,7 @@ import { MessageText } from './EmojiPicker';
 import { useApp, reportError } from '../context/AppContext';
 import { useTranslation } from '../i18n/useTranslation';
 import { languages, type LangCode } from '../i18n';
+import { ListSkeleton } from './Skeleton';
 import type { ServerUser } from '../types';
 import { saveNotifPrefs, ensureNotificationPermission } from '../utils/notifications';
 import { saveA11yPrefs, getA11yPrefs, TEXT_SCALE_MIN, TEXT_SCALE_MAX } from '../utils/accessibility';
@@ -718,7 +719,7 @@ const PrivacySettings: React.FC = () => {
         </div>
       ))}
 
-      {loading ? <div style={{ color: 'var(--text-secondary)', fontSize: 13 }}>{tr('loading')}</div> : blocked.length === 0 ? (
+      {loading ? <ListSkeleton rows={3} avatarSize={32} /> : blocked.length === 0 ? (
         <div style={{ color: 'var(--text-secondary)', fontSize: 13, padding: 16, textAlign: 'center' }}>{tr('sprv_no_blocked')}</div>
       ) : blocked.map(entry => {
         const u = entry.blocked; const name = u.nickname || u.username;
@@ -774,7 +775,7 @@ const DevicesSettings: React.FC = () => {
       <h1>{tr('sdev_title')}</h1>
       <p>{tr('sdev_desc')}</p>
 
-      {loading ? <div style={{ color: 'var(--text-secondary)', fontSize: 13, padding: 20 }}>{tr('sdev_loading')}</div> : devices.length === 0 ? (
+      {loading ? <ListSkeleton rows={3} avatar={false} /> : devices.length === 0 ? (
         <div style={{ color: 'var(--text-secondary)', fontSize: 13, padding: 20, textAlign: 'center' }}>{tr('sdev_none')}</div>
       ) : devices.map((device, i) => {
         // New records store a friendly name ("Chrome on Windows"); old records

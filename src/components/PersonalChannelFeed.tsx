@@ -10,6 +10,7 @@ import { useApp, reportError } from '../context/AppContext';
 import { useTranslation } from '../i18n/useTranslation';
 import { MessageText, CensoredPlainText } from './EmojiPicker';
 import { BlurredMedia } from './BlurredMedia';
+import { ListSkeleton, MediaSkeleton, Skeleton } from './Skeleton';
 import { getDraftText, setDraftText, getDraftFiles, setDraftFiles, clearDraft } from '../utils/drafts';
 import { pickRecorderFormat, mediaUnsupportedReason, describeMediaError } from '../utils/recording';
 import ConfirmModal from './ConfirmModal';
@@ -139,9 +140,7 @@ function AuthMedia({ src, contentType, filename, caption, authorId }: { src: str
     return () => { cancelled = true; setBlobUrl(prev => { if (prev) URL.revokeObjectURL(prev); return null; }); };
   }, [src, authToken]);
 
-  if (!blobUrl) return <div style={{ width: '100%', maxWidth: 500, height: 200, borderRadius: 12, background: 'var(--bg-tertiary)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-    <div style={{ width: 24, height: 24, border: '3px solid var(--accent-primary)', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} />
-  </div>;
+  if (!blobUrl) return <MediaSkeleton width="min(500px, 100%)" height={200} />;
 
   if (contentType.startsWith('image/'))
     return <BlurredMedia filename={filename} text={caption} authorId={authorId} src={blobUrl} mediaKey={src}><img src={blobUrl} alt={filename} style={{ maxWidth: 'min(400px, 100%)', maxHeight: 300, borderRadius: 12, display: 'block', cursor: 'pointer', objectFit: 'contain' }} onClick={() => window.open(blobUrl, '_blank')} /></BlurredMedia>;
@@ -182,7 +181,7 @@ function GalleryThumb({ src, onClick, overlay, filename, caption, authorId }: { 
     <div onClick={onClick} style={{ position: 'relative', width: '100%', height: '100%', cursor: 'pointer', background: 'var(--bg-tertiary)', overflow: 'hidden' }}>
       {blobUrl
         ? <img src={blobUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
-        : <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Spinner /></div>}
+        : <Skeleton width="100%" height="100%" radius={0} style={{ position: 'absolute', inset: 0 }} />}
       {overlay && (
         <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 26, fontWeight: 700 }}>
           {overlay}
@@ -418,7 +417,7 @@ function CommentsModal({ guild, messageId, serverIP, onClose }: { guild: Guild; 
         {/* List */}
         <div ref={listRef} style={{ flex: '1 1 auto', minHeight: 120, overflowY: 'auto', padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 14 }}>
           {loading ? (
-            <div style={{ display: 'flex', justifyContent: 'center', padding: 30 }}><Spinner /></div>
+            <ListSkeleton rows={4} avatarSize={32} />
           ) : comments.length === 0 ? (
             <div style={{ textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13, padding: '30px 10px' }}>{tr('pcf_no_comments')}</div>
           ) : comments.map(c => {

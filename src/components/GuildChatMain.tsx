@@ -16,6 +16,7 @@ import ConfirmModal from './ConfirmModal';
 import { getDraftText, setDraftText, getDraftFiles, setDraftFiles } from '../utils/drafts';
 import type { GuildMessage, GuildMember, GuildRole } from '../types';
 import { useAnchoredMenu } from './useAnchoredMenu';
+import { MediaSkeleton, MessageListSkeleton } from './Skeleton';
 
 const MAX_FILES = 10;
 
@@ -62,13 +63,7 @@ function AuthMedia({ src, contentType, filename, caption, authorId }: { src: str
     };
   }, [src, authToken]);
 
-  if (!blobUrl) {
-    return (
-      <div style={{ width: 200, height: 120, borderRadius: 8, background: 'var(--bg-tertiary)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginTop: 4 }}>
-        <div style={{ width: 20, height: 20, border: '2px solid var(--accent-primary)', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} />
-      </div>
-    );
-  }
+  if (!blobUrl) return <MediaSkeleton width={200} height={120} />;
 
   if (contentType.startsWith('image/')) {
     return (
@@ -377,7 +372,7 @@ const GuildMessageRow = React.memo(({ msg, isOwn, isFirstInGroup, onContextMenu,
 
 export const GuildChatMain: React.FC = () => {
   const {
-    currentGuild, currentGuildChannel, guildMessages,
+    currentGuild, currentGuildChannel, guildMessages, guildMessagesLoading,
     sendGuildMessage, scheduleGuildMessage, loadOlderGuildMessages,
     userIDonServer, currentServerIP, authToken,
     setMobileActivePanel, deleteGuildMessage, pinGuildMessage, customEmojis,
@@ -854,6 +849,7 @@ export const GuildChatMain: React.FC = () => {
       {/* Messages */}
       <div className="messages-container" ref={listRef} onScroll={handleScroll}>
         <div className="messages-list">
+          {guildMessagesLoading && <MessageListSkeleton />}
           {loadingOlder && <div className="loading-older">{tr('guild_loading_older')}</div>}
           {!hasMore && guildMessages.length > 0 && (
             <div className="channel-start">

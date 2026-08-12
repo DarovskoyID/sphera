@@ -365,6 +365,8 @@ export interface AppState {
   authToken: string;
   currentUser: ServerUser | null;
   friends: ServerUser[];
+  /** The friend list has been fetched at least once (success or failure). */
+  friendsLoaded: boolean;
   blockedContacts: ServerUser[];
   pendingRequests: PendingRequest[];
   sentRequests: ServerUser[];
@@ -381,6 +383,8 @@ export interface AppState {
   currentGuild: Guild | null;
   currentGuildChannel: GuildChannel | null;
   guildMessages: GuildMessage[];
+  /** A channel is being opened: its history has not arrived yet. */
+  guildMessagesLoading: boolean;
   currentVoiceChannel: GuildChannel | null;
   voiceParticipants: VoiceParticipant[];
   voiceChannelParticipants: Record<string, VoiceParticipant[]>;

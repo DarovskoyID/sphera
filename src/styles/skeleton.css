@@ -106,3 +106,20 @@ body.dark-theme .skeleton {
   border: 1px solid var(--border-color);
   background: var(--bg-secondary);
 }
+
+/* ── feed posts ────────────────────────────────────────────────────────── */
+
+.skeleton-feed {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 16px;
+}
+
+.skeleton-post {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 560px;
+  width: 100%;
+}

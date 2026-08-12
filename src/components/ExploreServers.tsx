@@ -4,6 +4,7 @@ import { useApp } from '../context/AppContext';
 import { useTranslation } from '../i18n/useTranslation';
 import { BotStudio } from './BotStudio';
 import { openSferonik } from '../utils/botsApi';
+import { CardGridSkeleton } from './Skeleton';
 
 /** Keep in step with MAX_PRIVATE_NOTES in sfera_messages/views.py. */
 const MAX_DIARIES = 3;
@@ -600,14 +601,7 @@ export const ExploreServers: React.FC<{ style?: React.CSSProperties }> = ({ styl
           </h3>
 
           {!loaded || loading ? (
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', paddingTop: 40, gap: 12 }}>
-              <div style={{
-                width: 36, height: 36, borderRadius: '50%',
-                border: '3px solid var(--border-color)', borderTopColor: 'var(--accent-primary)',
-                animation: 'spin 0.8s linear infinite',
-              }} />
-              <p style={{ color: 'var(--text-tertiary)', fontSize: 13 }}>{tr('explore_loading')}</p>
-            </div>
+            <CardGridSkeleton cards={6} />
           ) : (search ? results.length === 0 : serverResults.length === 0) ? (
             <div style={{
               display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10,

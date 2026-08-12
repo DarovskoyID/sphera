@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { useTranslation } from '../i18n/useTranslation';
+import { ListSkeleton } from './Skeleton';
 
 function useIsMobile() {
   const [mobile, setMobile] = useState(() => typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches);
@@ -278,7 +279,7 @@ function EmojiSection() {
         </div>
       )}
 
-      {loading ? <p style={{ color: 'var(--text-secondary)' }}>{tr('gs_loading')}</p> : emojis.length === 0
+      {loading ? <ListSkeleton rows={4} avatarSize={30} /> : emojis.length === 0
         ? <p style={{ color: 'var(--text-secondary)', fontSize: 14 }}>{tr('gs_no_custom_emoji')}</p>
         : (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(80px, 1fr))', gap: 12 }}>
@@ -356,7 +357,7 @@ function StickersSection() {
         </div>
       )}
 
-      {loading ? <p style={{ color: 'var(--text-secondary)' }}>{tr('gs_loading')}</p> : stickers.length === 0
+      {loading ? <ListSkeleton rows={4} avatarSize={30} /> : stickers.length === 0
         ? <p style={{ color: 'var(--text-secondary)', fontSize: 14 }}>{tr('gs_no_stickers')}</p>
         : (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', gap: 12 }}>
@@ -449,7 +450,7 @@ function SoundsSection() {
         </div>
       )}
 
-      {loading ? <p style={{ color: 'var(--text-secondary)' }}>{tr('gs_loading')}</p> : sounds.length === 0
+      {loading ? <ListSkeleton rows={4} avatarSize={30} /> : sounds.length === 0
         ? <p style={{ color: 'var(--text-secondary)', fontSize: 14 }}>{tr('gs_no_sounds')}</p>
         : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -659,7 +660,7 @@ function RolesSection() {
               <Plus size={14} /> {tr('gs_create_role')}
             </button>
           )}
-          {loading ? <p style={{ color: 'var(--text-secondary)', fontSize: 13 }}>{tr('gs_loading')}</p>
+          {loading ? <ListSkeleton rows={4} avatar={false} />
             : roles.map(r => (
               <div key={r.id} onClick={() => startEdit(r)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 6, cursor: 'pointer', background: editing?.id === r.id ? 'var(--bg-tertiary)' : 'transparent', border: editing?.id === r.id ? '1px solid var(--border-color)' : '1px solid transparent' }}>
                 <span style={{ width: 12, height: 12, borderRadius: '50%', background: r.color, flexShrink: 0, display: 'inline-block' }} />
@@ -784,7 +785,7 @@ function InvitesSection() {
         </button>
       </div>
 
-      {loading ? <p style={{ color: 'var(--text-secondary)' }}>{tr('gs_loading')}</p> : invites.length === 0
+      {loading ? <ListSkeleton rows={4} avatar={false} /> : invites.length === 0
         ? <p style={{ color: 'var(--text-secondary)', fontSize: 14 }}>{tr('gs_no_custom_invites')}</p>
         : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -1081,7 +1082,7 @@ function LogsSection() {
       <button onClick={reload} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 16, padding: '7px 14px', background: 'var(--bg-tertiary)', color: 'var(--text-primary)', border: '1px solid var(--border-color)', borderRadius: 7, cursor: 'pointer', fontSize: 13 }}>
         <RefreshCw size={13} /> {tr('gs_refresh')}
       </button>
-      {loading ? <p style={{ color: 'var(--text-secondary)' }}>{tr('gs_loading')}</p> : logs.length === 0
+      {loading ? <ListSkeleton rows={6} avatarSize={28} /> : logs.length === 0
         ? <p style={{ color: 'var(--text-secondary)', fontSize: 14 }}>{tr('gs_no_log_entries')}</p>
         : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
