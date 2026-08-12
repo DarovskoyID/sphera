@@ -1722,14 +1722,61 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
   const guildChannelWs = useRef<WebSocket | null>(null);
   const guildPresenceWs = useRef<WebSocket | null>(null);
 
-  const _connectGuildWs = useCallback((guild: Guild, channel: GuildChannel, token: string, serverIP: string) => {
+  // Which channel connection is current. A reconnect timer from a channel the
+  // reader has already left must not reopen it, so every attempt carries the
+  // generation it was scheduled under and gives up if that has moved on.
+  const guildWsGen = useRef(0);
+  const guildWsRetry = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  /**
+   * Close the channel socket for good.
+   *
+   * Bumping the generation is the point: a plain `close()` still fires
+   * `onclose`, which would schedule a reconnect — and on sign-out that means
+   * reopening a socket with a token that is no longer valid.
+   */
+  const closeGuildWs = useCallback(() => {
+    guildWsGen.current++;
+    if (guildWsRetry.current) { clearTimeout(guildWsRetry.current); guildWsRetry.current = null; }
+    guildChannelWs.current?.close();
+    guildChannelWs.current = null;
+  }, []);
+
+  const _connectGuildWs = useCallback((
+    guild: Guild, channel: GuildChannel, token: string, serverIP: string,
+    // Carried across attempts so a server that stays down is not hammered at
+    // one-second intervals; a successful open resets it.
+    retryDelay = 1000,
+  ) => {
     if (guildChannelWs.current) {
       guildChannelWs.current.close();
       guildChannelWs.current = null;
     }
+    if (guildWsRetry.current) { clearTimeout(guildWsRetry.current); guildWsRetry.current = null; }
+    const gen = ++guildWsGen.current;
+    let backoff = retryDelay;
+
     const wsUrl = wsUrlFor(serverIP);
     const ws = new WebSocket(`${wsUrl}/ws/guild/${guild.id}/channel/${channel.id}/`, wsProtocols(token));
-    ws.onopen = () => { guildChannelWs.current = ws; };
+    let opened = false;
+    ws.onopen = () => {
+      guildChannelWs.current = ws;
+      backoff = 1000;
+      // Everything posted while the socket was down was missed entirely — the
+      // channel has no polling fallback — so the history is re-read and merged
+      // on every reopen after the first.
+      if (opened) {
+        apiGet(`/api/guilds/${guild.id}/channels/${channel.id}/messages/`, token, serverIP)
+          .then((msgs: GuildMessage[]) => setState(prev => {
+            if (guildWsGen.current !== gen) return prev;
+            const ids = new Set(msgs.map(m => m.id));
+            const extra = prev.guildMessages.filter(m => !ids.has(m.id));
+            return { ...prev, guildMessages: sortByDate([...msgs, ...extra]) };
+          }))
+          .catch(() => { /* the next reopen will try again */ });
+      }
+      opened = true;
+    };
     ws.onmessage = (event) => {
       const data = JSON.parse(event.data);
       if (data.type === 'message_deleted') {
@@ -2009,7 +2056,19 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
         });
       }
     };
-    ws.onclose = () => { if (guildChannelWs.current === ws) guildChannelWs.current = null; };
+    ws.onclose = () => {
+      if (guildChannelWs.current === ws) guildChannelWs.current = null;
+      // Only reconnect while this is still the channel on screen. Without this
+      // the diary and every guild channel simply stopped updating after the
+      // first dropped connection — backgrounding a phone was enough — and only
+      // a reload brought them back.
+      if (guildWsGen.current !== gen) return;
+      const next = Math.min(backoff * 2, 15000);
+      guildWsRetry.current = setTimeout(() => {
+        if (guildWsGen.current !== gen) return;
+        _connectGuildWs(guild, channel, token, serverIP, next);
+      }, backoff);
+    };
   }, []);
 
   const _connectGuildPresenceWs = useCallback((guild: Guild, token: string, serverIP: string) => {
@@ -2152,6 +2211,27 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     };
     ws.onclose = () => { if (guildPresenceWs.current === ws) guildPresenceWs.current = null; };
   }, []);
+
+  // Coming back to the app is the common case, not a network outage: a phone
+  // that has been in a pocket has had its socket closed for minutes, and
+  // waiting out the backoff before reconnecting would leave the channel stale
+  // for exactly as long as the reader is looking at it.
+  useEffect(() => {
+    const wake = () => {
+      if (document.visibilityState !== 'visible') return;
+      const guild = state.currentGuild;
+      const channel = state.currentGuildChannel;
+      if (!guild || !channel || !state.authToken) return;
+      if (guildChannelWs.current?.readyState === WebSocket.OPEN) return;
+      _connectGuildWs(guild, channel, state.authToken, state.currentServerIP);
+    };
+    document.addEventListener('visibilitychange', wake);
+    window.addEventListener('online', wake);
+    return () => {
+      document.removeEventListener('visibilitychange', wake);
+      window.removeEventListener('online', wake);
+    };
+  }, [state.currentGuild, state.currentGuildChannel, state.authToken, state.currentServerIP, _connectGuildWs]);
 
   // ==================== Guild methods ====================
   const loadGuilds = useCallback(async () => {
@@ -2470,7 +2550,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       currentView: prev.currentGuild?.id === guildId ? 'home' : prev.currentView,
       currentServer: prev.currentGuild?.id === guildId ? 'home' : prev.currentServer,
     }));
-    if (guildChannelWs.current) { guildChannelWs.current.close(); guildChannelWs.current = null; }
+    closeGuildWs();
     if (guildPresenceWs.current) { guildPresenceWs.current.close(); guildPresenceWs.current = null; }
   }, [state.authToken, state.currentServerIP]);
 
@@ -2490,7 +2570,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       currentView: prev.currentGuild?.id === guildId ? 'home' : prev.currentView,
       currentServer: prev.currentGuild?.id === guildId ? 'home' : prev.currentServer,
     }));
-    if (guildChannelWs.current) { guildChannelWs.current.close(); guildChannelWs.current = null; }
+    closeGuildWs();
     if (guildPresenceWs.current) { guildPresenceWs.current.close(); guildPresenceWs.current = null; }
     return true;
   }, [state.authToken, state.currentServerIP]);
@@ -3255,8 +3335,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       chatWs.current = null;
       signalingWs.current?.close();
       signalingWs.current = null;
-      guildChannelWs.current?.close();
-      guildChannelWs.current = null;
+      closeGuildWs();
       voiceWs.current?.close();
       voiceWs.current = null;
       voiceLocalStream.current?.getTracks().forEach(t => t.stop());
