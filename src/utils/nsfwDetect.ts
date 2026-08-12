@@ -25,15 +25,22 @@ type Predictions = Array<{ className: string; probability: number }>;
  * detections clear it.
  */
 const THRESHOLDS: Record<string, number> = {
-  Porn: 0.7,
-  Hentai: 0.9,
-  Sexy: 0.97,
+  // "Porn" is the one class the model is actually decisive about, so it does
+  // not need a high bar — it needs the guards below. Set at 0.7 it missed
+  // ordinary explicit photographs, which is the whole job.
+  Porn: 0.55,
+  // "Hentai" is the leaky one: it fires on anything drawn, illustrated or
+  // AI-generated, regardless of subject. It stays high.
+  Hentai: 0.85,
+  // "Sexy" covers swimwear, gym shots and close-up portraits.
+  Sexy: 0.95,
 };
 
 /** Classes that mean "nothing to hide here". */
 const SAFE_CLASSES = ['Neutral', 'Drawing'];
 
-function judge(preds: Predictions): Verdict {
+/** Exported so the decision can be tested against known prediction vectors. */
+export function judge(preds: Predictions): Verdict {
   // The winning class must itself be an explicit one. Without this a picture
   // the model calls Drawing at 0.6 could still be hidden on a 0.3 Hentai tail,
   // which is exactly how stylised art ends up behind an 18+ cover.
@@ -41,12 +48,16 @@ function judge(preds: Predictions): Verdict {
   if (!top || THRESHOLDS[top.className] === undefined) return 'safe';
   if (top.probability < THRESHOLDS[top.className]) return 'safe';
 
-  // A confident explicit call should leave little probability on the safe
-  // classes; when it does not, the model is hedging and we let the media show.
+  // The explicit class has to outweigh the safe ones taken together. This is a
+  // comparison, not a ceiling: an earlier version demanded the safe classes
+  // stay under 0.15 in absolute terms, which a real photograph rarely does —
+  // Porn 0.62 with Neutral 0.22 is an ordinary reading, and it was being let
+  // through. What actually distinguishes a hedge is the safe mass rivalling
+  // the winner, not merely being present.
   const safeMass = preds
     .filter(p => SAFE_CLASSES.includes(p.className))
     .reduce((sum, p) => sum + p.probability, 0);
-  if (safeMass > 0.15) return 'safe';
+  if (safeMass >= top.probability) return 'safe';
 
   return 'explicit';
 }
