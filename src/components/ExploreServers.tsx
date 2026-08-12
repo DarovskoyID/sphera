@@ -5,6 +5,9 @@ import { useTranslation } from '../i18n/useTranslation';
 import { BotStudio } from './BotStudio';
 import { openSferonik } from '../utils/botsApi';
 
+/** Keep in step with MAX_PRIVATE_NOTES in sfera_messages/views.py. */
+const MAX_DIARIES = 3;
+
 interface ExploreGuild {
   id: string;
   name: string;
@@ -81,6 +84,9 @@ export const ExploreServers: React.FC<{ style?: React.CSSProperties }> = ({ styl
     currentServerIP, authToken, joinGuild, previewGuild, selectGuild, guilds, createPersonalNotes,
     setCurrentChat, setCurrentView, setMobileActivePanel,
   } = useApp();
+  // Mirrors MAX_PRIVATE_NOTES on the server, which is the real gate — this only
+  // stops the card offering a diary the API would refuse to create.
+  const diaryCount = guilds.filter(g => g.is_private).length;
   const [showStudio, setShowStudio] = useState(false);
   const [openingSferonik, setOpeningSferonik] = useState(false);
   const [showNotes, setShowNotes] = useState(false);
@@ -434,15 +440,19 @@ export const ExploreServers: React.FC<{ style?: React.CSSProperties }> = ({ styl
               {isRu ? 'Инструменты от разработчика' : 'Developer tools'}
             </h3>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(230px, 1fr))', gap: 10 }}>
-              {!guilds.some(g => g.is_private) && (
+              {diaryCount < MAX_DIARIES && (
                 <ToolCard
                   icon={<NotebookPen size={20} color="#fff" />}
                   gradient="linear-gradient(135deg,#a855f7,#7c3aed)"
                   tint="rgba(168,85,247"
                   title={isRu ? 'Личный дневник' : 'Personal diary'}
-                  subtitle={isRu
-                    ? 'Приватные заметки, задачи, код, гео и контакты — только для вас'
-                    : 'Private notes, tasks, code, locations and contacts — just for you'}
+                  subtitle={diaryCount === 0
+                    ? (isRu
+                      ? 'Приватные заметки, задачи, код, гео и контакты — только для вас'
+                      : 'Private notes, tasks, code, locations and contacts — just for you')
+                    : (isRu
+                      ? `Ещё один дневник — осталось ${MAX_DIARIES - diaryCount} из ${MAX_DIARIES}`
+                      : `Another diary — ${MAX_DIARIES - diaryCount} of ${MAX_DIARIES} left`)}
                   onClick={() => setShowNotes(true)}
                 />
               )}
