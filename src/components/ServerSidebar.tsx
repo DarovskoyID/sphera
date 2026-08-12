@@ -6,6 +6,7 @@ import ConfirmModal from './ConfirmModal';
 import type { Guild, LayoutEntry } from '../types';
 import { openSferonik } from '../utils/botsApi';
 import { useAnchoredMenu } from './useAnchoredMenu';
+import { LONG_PRESS_SAFE, useIsTouch, useLongPress } from './useLongPress';
 
 function CreateGuildModal({ onClose }: { onClose: () => void }) {
   const { createGuild, selectGuild } = useApp();
@@ -198,6 +199,29 @@ type RenderItem =
 type AddAction = 'server' | 'channel' | 'join-server' | 'join-channel';
 
 /**
+ * A server icon whose menu opens on right-click and, on touch, on long press.
+ * Its own component because hooks cannot live inside the list callback.
+ */
+const GuildIconWithMenu: React.FC<{
+  guild: Guild;
+  active: boolean;
+  serverIP: string;
+  onOpen: () => void;
+  onMenu: (x: number, y: number) => void;
+}> = ({ guild, active, serverIP, onOpen, onMenu }) => {
+  const press = useLongPress(onMenu);
+  return (
+    <div
+      style={LONG_PRESS_SAFE}
+      onContextMenu={e => { e.preventDefault(); onMenu(e.clientX, e.clientY); }}
+      {...press}
+    >
+      <GuildIcon guild={guild} active={active} onClick={onOpen} serverIP={serverIP} />
+    </div>
+  );
+};
+
+/**
  * The "+" menu at the foot of the server bar. Its own component so it can use
  * the shared anchoring hook — the version inlined here wrote its clamped
  * position back over the anchor it had just been given, so the second pass
@@ -276,6 +300,7 @@ export const ServerSidebar: React.FC = () => {
   const [showJoin, setShowJoin] = useState(false);
   const [showJoinChannel, setShowJoinChannel] = useState(false);
   const [showCreateChannel, setShowCreateChannel] = useState(false);
+  const isTouch = useIsTouch();
   const [showAddMenu, setShowAddMenu] = useState(false);
   const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null);
   const addBtnRef = useRef<HTMLButtonElement>(null);
@@ -496,7 +521,10 @@ export const ServerSidebar: React.FC = () => {
               const wrap = (children: React.ReactNode) => (
                 <div
                   key={k}
-                  draggable
+                  // On touch, `draggable` is what swallowed the long press:
+                  // Android starts a native drag and the context menu never
+                  // opens. HTML5 drag does not work there anyway.
+                  draggable={!isTouch}
                   onDragStart={e => { setDragKey(k); e.dataTransfer.effectAllowed = 'move'; }}
                   onDragOver={e => { e.preventDefault(); e.stopPropagation(); if (dragKey && dragKey !== k) setDropInfo({ key: k, mode: computeMode(item, e) }); }}
                   onDragLeave={() => setDropInfo(prev => prev?.key === k ? null : prev)}
@@ -518,14 +546,13 @@ export const ServerSidebar: React.FC = () => {
               if (item.type === 'guild') {
                 const guild = item.guild;
                 return wrap(
-                  <div onContextMenu={e => { e.preventDefault(); setGuildMenu({ guild, x: e.clientX, y: e.clientY }); }}>
-                    <GuildIcon
-                      guild={guild}
-                      active={currentServer === String(guild.id)}
-                      onClick={() => selectGuild(guild)}
-                      serverIP={currentServerIP}
-                    />
-                  </div>
+                  <GuildIconWithMenu
+                    guild={guild}
+                    active={currentServer === String(guild.id)}
+                    serverIP={currentServerIP}
+                    onOpen={() => selectGuild(guild)}
+                    onMenu={(x, y) => setGuildMenu({ guild, x, y })}
+                  />
                 );
               }
               const f = item.folder;
@@ -702,19 +729,18 @@ export const ServerSidebar: React.FC = () => {
               {f.folder.guilds.map(g => (
                 <div
                   key={g.id}
-                  draggable
+                  draggable={!isTouch}
                   onDragStart={e => { setDragKey(`g:${g.id}`); e.dataTransfer.effectAllowed = 'move'; setOpenFolder(null); }}
                   onDragEnd={() => { setDragKey(null); setDropInfo(null); }}
                   style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, cursor: 'grab' }}
                 >
-                  <div onContextMenu={e => { e.preventDefault(); setOpenFolder(null); setGuildMenu({ guild: g, x: e.clientX, y: e.clientY }); }}>
-                    <GuildIcon
-                      guild={g}
-                      active={currentServer === String(g.id)}
-                      onClick={() => { setOpenFolder(null); selectGuild(g); }}
-                      serverIP={currentServerIP}
-                    />
-                  </div>
+                  <GuildIconWithMenu
+                    guild={g}
+                    active={currentServer === String(g.id)}
+                    serverIP={currentServerIP}
+                    onOpen={() => { setOpenFolder(null); selectGuild(g); }}
+                    onMenu={(x, y) => { setOpenFolder(null); setGuildMenu({ guild: g, x, y }); }}
+                  />
                   <span style={{ fontSize: 10, color: 'var(--text-tertiary)', maxWidth: 56, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textAlign: 'center' }}>{g.name}</span>
                 </div>
               ))}

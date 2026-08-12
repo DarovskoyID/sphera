@@ -8,6 +8,37 @@ import { GuildSettingsModal } from './GuildSettings';
 import type { GuildMember, GuildRole } from '../types';
 import { AccountBadge, accountDisplayName } from './BotBadge';
 import { useAnchoredMenu } from './useAnchoredMenu';
+import { LONG_PRESS_SAFE, useLongPress } from './useLongPress';
+
+/**
+ * A row in the channel list. Its menu opens on right-click and, on touch, on a
+ * long press — Android would otherwise start a text selection on the channel
+ * name and never fire `contextmenu`, which is why these menus could not be
+ * reached on a phone at all.
+ *
+ * A component rather than an inline handler because it needs a hook, and these
+ * rows are rendered inside `.map`.
+ */
+const ChannelItem: React.FC<{
+  className: string;
+  style?: React.CSSProperties;
+  onOpen: () => void;
+  onMenu: (x: number, y: number) => void;
+  children: React.ReactNode;
+}> = ({ className, style, onOpen, onMenu, children }) => {
+  const press = useLongPress(onMenu);
+  return (
+    <div
+      className={className}
+      style={{ ...LONG_PRESS_SAFE, ...style }}
+      onClick={onOpen}
+      onContextMenu={e => { e.preventDefault(); e.stopPropagation(); onMenu(e.clientX, e.clientY); }}
+      {...press}
+    >
+      {children}
+    </div>
+  );
+};
 
 // ── Member context menu ──────────────────────────────────────────────────────
 function MemberContextMenu({
@@ -484,11 +515,12 @@ export const GuildSidebar: React.FC = () => {
                     </form>
                   )}
                   {uncatText.map(ch => (
-                    <div key={ch.id} className={`channel-item ${currentGuildChannel?.id === ch.id ? 'active' : ''}`} onClick={() => selectGuildChannel(ch)}
-                      onContextMenu={e => { e.preventDefault(); e.stopPropagation(); setChannelMenu({ id: ch.id, x: e.clientX, y: e.clientY, type: ch.type, user_limit: ch.user_limit ?? 0 }); }}>
+                    <ChannelItem key={ch.id} className={`channel-item ${currentGuildChannel?.id === ch.id ? 'active' : ''}`}
+                      onOpen={() => selectGuildChannel(ch)}
+                      onMenu={(x, y) => setChannelMenu({ id: ch.id, x, y, type: ch.type, user_limit: ch.user_limit ?? 0 })}>
                       <Hash size={15} className="channel-icon" />
                       <span style={{ flex: 1 }}>{ch.name}</span>
-                    </div>
+                    </ChannelItem>
                   ))}
                 </div>
               )}
@@ -516,18 +548,18 @@ export const GuildSidebar: React.FC = () => {
                     const participants = mergedPresence[ch.id] ?? [];
                     return (
                       <div key={ch.id} style={{ display: 'flex', flexDirection: 'column' }}>
-                        <div className={`channel-item ${isActive ? 'active' : ''}`} style={{ cursor: 'pointer', position: 'relative' }}
-                          onClick={() => {
+                        <ChannelItem className={`channel-item ${isActive ? 'active' : ''}`} style={{ cursor: 'pointer', position: 'relative' }}
+                          onOpen={() => {
                             if (isActive) return leaveVoiceChannel();
                             const limit = ch.user_limit ?? 0;
                             if (limit > 0 && (mergedPresence[ch.id] ?? []).length >= limit) return;
                             joinVoiceChannel(ch);
                           }}
-                          onContextMenu={e => { e.preventDefault(); e.stopPropagation(); setChannelMenu({ id: ch.id, x: e.clientX, y: e.clientY, type: ch.type, user_limit: ch.user_limit ?? 0 }); }}>
+                          onMenu={(x, y) => setChannelMenu({ id: ch.id, x, y, type: ch.type, user_limit: ch.user_limit ?? 0 })}>
                           <Volume2 size={15} className="channel-icon" style={{ color: isActive ? 'var(--accent-primary, #5865f2)' : undefined }} />
                           <span style={{ flex: 1 }}>{ch.name}</span>
                           {(participants.length > 0 || (ch.user_limit ?? 0) > 0) && <span style={{ fontSize: 10, color: 'var(--text-secondary, #888)' }}>{participants.length}{(ch.user_limit ?? 0) > 0 ? `/${ch.user_limit}` : ''}</span>}
-                        </div>
+                        </ChannelItem>
                         {participants.length > 0 && (
                           <div style={{ paddingLeft: 28, display: 'flex', flexDirection: 'column', gap: 2, marginBottom: 2 }}>
                             {participants.map(p => (
@@ -570,29 +602,30 @@ export const GuildSidebar: React.FC = () => {
                 </form>
               )}
               {catText.map(ch => (
-                <div key={ch.id} className={`channel-item ${currentGuildChannel?.id === ch.id ? 'active' : ''}`} onClick={() => selectGuildChannel(ch)}
-                  onContextMenu={e => { e.preventDefault(); e.stopPropagation(); setChannelMenu({ id: ch.id, x: e.clientX, y: e.clientY, type: ch.type, user_limit: ch.user_limit ?? 0 }); }}>
+                <ChannelItem key={ch.id} className={`channel-item ${currentGuildChannel?.id === ch.id ? 'active' : ''}`}
+                  onOpen={() => selectGuildChannel(ch)}
+                  onMenu={(x, y) => setChannelMenu({ id: ch.id, x, y, type: ch.type, user_limit: ch.user_limit ?? 0 })}>
                   <Hash size={15} className="channel-icon" />
                   <span style={{ flex: 1 }}>{ch.name}</span>
-                </div>
+                </ChannelItem>
               ))}
               {catVoice.map(ch => {
                 const isActive = currentVoiceChannel?.id === ch.id;
                 const participants = mergedPresence[ch.id] ?? [];
                 return (
                   <div key={ch.id} style={{ display: 'flex', flexDirection: 'column' }}>
-                    <div className={`channel-item ${isActive ? 'active' : ''}`} style={{ cursor: 'pointer', position: 'relative' }}
-                      onClick={() => {
+                    <ChannelItem className={`channel-item ${isActive ? 'active' : ''}`} style={{ cursor: 'pointer', position: 'relative' }}
+                      onOpen={() => {
                             if (isActive) return leaveVoiceChannel();
                             const limit = ch.user_limit ?? 0;
                             if (limit > 0 && (mergedPresence[ch.id] ?? []).length >= limit) return;
                             joinVoiceChannel(ch);
                           }}
-                      onContextMenu={e => { e.preventDefault(); e.stopPropagation(); setChannelMenu({ id: ch.id, x: e.clientX, y: e.clientY, type: ch.type, user_limit: ch.user_limit ?? 0 }); }}>
+                      onMenu={(x, y) => setChannelMenu({ id: ch.id, x, y, type: ch.type, user_limit: ch.user_limit ?? 0 })}>
                       <Volume2 size={15} className="channel-icon" style={{ color: isActive ? 'var(--accent-primary, #5865f2)' : undefined }} />
                       <span style={{ flex: 1 }}>{ch.name}</span>
                       {(participants.length > 0 || (ch.user_limit ?? 0) > 0) && <span style={{ fontSize: 10, color: 'var(--text-secondary, #888)' }}>{participants.length}{(ch.user_limit ?? 0) > 0 ? `/${ch.user_limit}` : ''}</span>}
-                    </div>
+                    </ChannelItem>
                     {participants.length > 0 && (
                       <div style={{ paddingLeft: 28, display: 'flex', flexDirection: 'column', gap: 2, marginBottom: 2 }}>
                         {participants.map(p => (
