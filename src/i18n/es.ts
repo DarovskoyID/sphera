@@ -2,6 +2,12 @@ import type { Translations } from './index';
 
 export const es: Translations = {
   auth_create_account: 'Crear cuenta', auth_welcome_back: 'Bienvenido de nuevo', auth_signup_desc: 'Regístrate para comenzar', auth_signin_desc: 'Inicia sesión para continuar', auth_login: 'Usuario', auth_register: 'Registrarse', auth_password: 'Contraseña', auth_nickname: 'Apodo (nombre visible)', auth_photo: 'Foto', auth_already_have: '¿Ya tienes cuenta?', auth_dont_have: '¿No tienes cuenta?', auth_signin: 'Iniciar sesión', auth_connection_error: 'Error de conexión', auth_email: 'Correo electrónico', auth_verify_title: 'Confirma tu correo', auth_verify_desc: 'Introduce el código que enviamos a', auth_code: 'Código de confirmación', auth_confirm: 'Confirmar', auth_code_sent: 'Se ha enviado un código de confirmación a tu correo.', auth_resend_code: 'Reenviar código', auth_change_email: 'Cambiar datos',
+  auth_language: 'Idioma de la interfaz', auth_brand: 'Sfera',
+  auth_hero_title_lead: 'Tu círculo,', auth_hero_title_accent: 'tus reglas',
+  auth_hero_text: 'Mensajes, llamadas, servidores y un diario que solo ves tú — en el host que elijas.',
+  auth_point_privacy: 'Almacenamiento cifrado y un filtro de contenido activado por defecto',
+  auth_point_chat: 'Mensajes directos, canales, voz y vídeo',
+  auth_point_servers: 'Conéctate a cualquier servidor de Sfera o monta el tuyo',
   nav_settings: 'Ajustes', nav_direct_messages: 'Mensajes directos', nav_back: 'Atrás', nav_menu: 'Menú', nav_toggle_theme: 'Cambiar tema',
   chat_type_message: 'Escribe un mensaje...', chat_send: 'Enviar', chat_attachment: 'Adjuntar archivo', chat_emoji: 'Emoji', chat_voice_message: 'Mensaje de voz', chat_video_circle: 'Videomensaje', chat_recording: 'Grabando...', chat_record_cancel: 'Cancelar', chat_record_send: 'Enviar', chat_record_preview: 'Vista previa', chat_no_messages: '¡Aún no hay mensajes. Di hola!', chat_search: 'Buscar', chat_voice_call: 'Llamada de voz', chat_video_call: 'Videollamada',
   welcome_title: 'Tus mensajes', welcome_desc: 'Selecciona una conversación de la barra lateral para chatear.',

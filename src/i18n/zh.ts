@@ -2,6 +2,12 @@ import type { Translations } from './index';
 
 export const zh: Translations = {
   auth_create_account: '创建账户', auth_welcome_back: '欢迎回来', auth_signup_desc: '注册以开始使用', auth_signin_desc: '登录以继续', auth_login: '用户名', auth_register: '注册', auth_password: '密码', auth_nickname: '昵称（显示名称）', auth_photo: '头像', auth_already_have: '已有账户？', auth_dont_have: '没有账户？', auth_signin: '登录', auth_connection_error: '连接错误', auth_email: '电子邮箱', auth_verify_title: '确认您的邮箱', auth_verify_desc: '请输入我们发送至以下邮箱的验证码', auth_code: '验证码', auth_confirm: '确认', auth_code_sent: '验证码已发送至您的邮箱。', auth_resend_code: '重新发送验证码', auth_change_email: '修改信息',
+  auth_language: '界面语言', auth_brand: 'Sfera',
+  auth_hero_title_lead: '你的圈子，', auth_hero_title_accent: '你的规则',
+  auth_hero_text: '消息、通话、服务器，以及只有你能看到的日记 — 都在你自己选择的主机上。',
+  auth_point_privacy: '加密存储，内容过滤默认开启',
+  auth_point_chat: '私信、频道、语音与视频',
+  auth_point_servers: '连接任意 Sfera 服务器，或自行搭建',
   nav_settings: '设置', nav_direct_messages: '私信', nav_back: '返回', nav_menu: '菜单', nav_toggle_theme: '切换主题',
   chat_type_message: '输入消息...', chat_send: '发送', chat_attachment: '添加附件', chat_emoji: '表情', chat_voice_message: '语音消息', chat_video_circle: '视频消息', chat_recording: '录制中...', chat_record_cancel: '取消', chat_record_send: '发送', chat_record_preview: '预览', chat_no_messages: '还没有消息，打个招呼吧！', chat_search: '搜索', chat_voice_call: '语音通话', chat_video_call: '视频通话',
   welcome_title: '你的消息', welcome_desc: '从侧边栏选择一个对话开始聊天。',

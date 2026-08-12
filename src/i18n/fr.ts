@@ -2,6 +2,12 @@ import type { Translations } from './index';
 
 export const fr: Translations = {
   auth_create_account: 'Créer un compte', auth_welcome_back: 'Bon retour', auth_signup_desc: 'Inscrivez-vous pour commencer', auth_signin_desc: 'Connectez-vous pour continuer', auth_login: 'Identifiant', auth_register: "S'inscrire", auth_password: 'Mot de passe', auth_nickname: 'Pseudo (nom affiché)', auth_photo: 'Photo', auth_already_have: 'Vous avez déjà un compte ?', auth_dont_have: "Pas encore de compte ?", auth_signin: 'Se connecter', auth_connection_error: 'Erreur de connexion', auth_email: 'E-mail', auth_verify_title: 'Confirmez votre e-mail', auth_verify_desc: 'Saisissez le code envoyé à', auth_code: 'Code de confirmation', auth_confirm: 'Confirmer', auth_code_sent: 'Un code de confirmation a été envoyé à votre e-mail.', auth_resend_code: 'Renvoyer le code', auth_change_email: 'Modifier les informations',
+  auth_language: "Langue de l'interface", auth_brand: 'Sfera',
+  auth_hero_title_lead: 'Votre cercle,', auth_hero_title_accent: 'vos règles',
+  auth_hero_text: "Messages, appels, serveurs et un journal que vous seul voyez — sur l'hôte de votre choix.",
+  auth_point_privacy: 'Stockage chiffré et filtre de contenu actif par défaut',
+  auth_point_chat: 'Messages privés, canaux, voix et vidéo',
+  auth_point_servers: "Connectez-vous à n'importe quel serveur Sfera, ou hébergez le vôtre",
   nav_settings: 'Paramètres', nav_direct_messages: 'Messages privés', nav_back: 'Retour', nav_menu: 'Menu', nav_toggle_theme: 'Changer de thème',
   chat_type_message: 'Écrivez un message...', chat_send: 'Envoyer', chat_attachment: 'Joindre un fichier', chat_emoji: 'Emoji', chat_voice_message: 'Message vocal', chat_video_circle: 'Message vidéo', chat_recording: 'Enregistrement...', chat_record_cancel: 'Annuler', chat_record_send: 'Envoyer', chat_record_preview: 'Aperçu', chat_no_messages: 'Pas encore de messages. Dites bonjour !', chat_search: 'Rechercher', chat_voice_call: 'Appel vocal', chat_video_call: 'Appel vidéo',
   welcome_title: 'Vos messages', welcome_desc: 'Sélectionnez une conversation dans la barre latérale pour commencer.',

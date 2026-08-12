@@ -1,0 +1,561 @@
+/* ================================
+   SIGN-IN / SIGN-UP SCREEN
+   ================================
+   The parallax scene is driven by two custom properties, --px and --py, each
+   in the range -1..1, written by AuthBackdrop on every animation frame. Every
+   layer reads the same pair and multiplies it by its own --depth, so one
+   update moves the whole scene and each layer moves by its own amount.
+
+   Only `transform` and `opacity` are animated, so none of this touches layout.
+*/
+
+.auth-root {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background: var(--auth-bg);
+  color: var(--text-primary);
+  --auth-bg: radial-gradient(120% 120% at 50% 0%, #101425 0%, #07080f 55%, #04050a 100%);
+  --auth-accent: var(--accent-primary, #5865f2);
+}
+
+/* The light theme keeps the same scene, lifted so dark text stays readable. */
+body:not(.dark-theme) .auth-root {
+  --auth-bg: radial-gradient(120% 120% at 50% 0%, #eef1ff 0%, #dfe4f5 55%, #cfd6ea 100%);
+}
+
+/* ── scene ─────────────────────────────────────────────────────────────── */
+
+.auth-scene {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  --px: 0;
+  --py: 0;
+}
+
+.auth-layer {
+  position: absolute;
+  /* Oversized so a layer can slide without exposing an edge. */
+  inset: -12%;
+  transform: translate3d(
+    calc(var(--px) * var(--depth) * -1px),
+    calc(var(--py) * var(--depth) * -1px),
+    0
+  );
+  will-change: transform;
+}
+
+.auth-vignette {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(70% 60% at 50% 45%, transparent 0%, rgba(0, 0, 0, 0.45) 100%);
+  pointer-events: none;
+}
+
+body:not(.dark-theme) .auth-vignette {
+  background:
+    radial-gradient(70% 60% at 50% 45%, transparent 0%, rgba(255, 255, 255, 0.5) 100%);
+}
+
+/* Starfield: three staggered dot grids rather than hundreds of elements. */
+.auth-stars {
+  position: absolute;
+  inset: 0;
+  background-image:
+    radial-gradient(1.4px 1.4px at 20% 30%, rgba(255, 255, 255, 0.75) 50%, transparent 51%),
+    radial-gradient(1.1px 1.1px at 70% 15%, rgba(255, 255, 255, 0.55) 50%, transparent 51%),
+    radial-gradient(1.6px 1.6px at 45% 75%, rgba(255, 255, 255, 0.65) 50%, transparent 51%);
+  background-size: 220px 220px, 340px 340px, 480px 480px;
+  opacity: 0.55;
+  animation: auth-twinkle 7s ease-in-out infinite;
+}
+
+/* The stars become dark specks on a light background, which reads as dirt at
+   full strength — hence its own, fainter twinkle rather than a plain opacity
+   override, which the animation would win against anyway. */
+body:not(.dark-theme) .auth-stars {
+  filter: invert(1);
+  animation-name: auth-twinkle-light;
+}
+
+@keyframes auth-twinkle {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 0.3; }
+}
+
+@keyframes auth-twinkle-light {
+  0%, 100% { opacity: 0.2; }
+  50% { opacity: 0.1; }
+}
+
+/* Soft colour orbs. Blur is expensive, so there are only three and they are
+   sized generously rather than stacked. */
+.auth-orb {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(70px);
+  opacity: 0.5;
+}
+
+.auth-orb-a {
+  width: 46vmax; height: 46vmax;
+  left: -8vmax; top: -10vmax;
+  background: radial-gradient(circle, var(--auth-accent) 0%, transparent 70%);
+  animation: auth-drift-a 18s ease-in-out infinite;
+}
+
+.auth-orb-b {
+  width: 38vmax; height: 38vmax;
+  right: -6vmax; bottom: -12vmax;
+  background: radial-gradient(circle, #a855f7 0%, transparent 70%);
+  animation: auth-drift-b 23s ease-in-out infinite;
+}
+
+.auth-orb-c {
+  width: 20vmax; height: 20vmax;
+  right: 18%; top: 12%;
+  background: radial-gradient(circle, #22d3ee 0%, transparent 70%);
+  opacity: 0.32;
+  animation: auth-drift-a 15s ease-in-out infinite reverse;
+}
+
+@keyframes auth-drift-a {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50%      { transform: translate(4%, 6%) scale(1.08); }
+}
+
+@keyframes auth-drift-b {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50%      { transform: translate(-5%, -4%) scale(1.12); }
+}
+
+/* A ground plane, faded out before it reaches the form. */
+.auth-grid {
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.07) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.07) 1px, transparent 1px);
+  background-size: 64px 64px;
+  mask-image: radial-gradient(80% 70% at 50% 50%, #000 0%, transparent 75%);
+  -webkit-mask-image: radial-gradient(80% 70% at 50% 50%, #000 0%, transparent 75%);
+}
+
+body:not(.dark-theme) .auth-grid {
+  background-image:
+    linear-gradient(rgba(0, 0, 0, 0.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 0, 0, 0.06) 1px, transparent 1px);
+}
+
+/* Concentric rings echoing the Sphere mark. */
+.auth-ring {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 50%;
+  translate: -50% -50%;
+}
+
+body:not(.dark-theme) .auth-ring { border-color: rgba(0, 0, 0, 0.08); }
+
+.auth-ring-1 { width: 42vmin; height: 42vmin; animation: auth-breathe 11s ease-in-out infinite; }
+.auth-ring-2 { width: 66vmin; height: 66vmin; animation: auth-breathe 15s ease-in-out infinite reverse; }
+.auth-ring-3 { width: 92vmin; height: 92vmin; opacity: 0.6; animation: auth-breathe 19s ease-in-out infinite; }
+
+@keyframes auth-breathe {
+  0%, 100% { scale: 1; opacity: 1; }
+  50%      { scale: 1.04; opacity: 0.55; }
+}
+
+/* Nearest layer: a few bright motes that move most, selling the depth. */
+.auth-mote {
+  position: absolute;
+  width: 4px; height: 4px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 12px 2px rgba(255, 255, 255, 0.55);
+  opacity: 0.5;
+}
+
+.auth-mote-1 { left: 18%; top: 62%; animation: auth-float 9s ease-in-out infinite; }
+.auth-mote-2 { left: 78%; top: 34%; animation: auth-float 13s ease-in-out infinite reverse; }
+.auth-mote-3 { left: 62%; top: 78%; animation: auth-float 16s ease-in-out infinite; }
+
+@keyframes auth-float {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-22px); }
+}
+
+/* ── layout ────────────────────────────────────────────────────────────── */
+
+.auth-stage {
+  position: relative;
+  z-index: 1;
+  width: min(980px, 100%);
+  padding: 24px;
+  display: grid;
+  grid-template-columns: 1fr minmax(340px, 400px);
+  align-items: center;
+  gap: 56px;
+  box-sizing: border-box;
+}
+
+/* One column below the point where the hero would squeeze the form. */
+@media (max-width: 900px) {
+  .auth-stage {
+    grid-template-columns: minmax(0, 420px);
+    justify-content: center;
+    gap: 28px;
+  }
+  .auth-hero { display: none; }
+}
+
+/* ── hero ──────────────────────────────────────────────────────────────── */
+
+.auth-hero { animation: auth-rise 0.7s cubic-bezier(0.16, 1, 0.3, 1) both; }
+
+.auth-hero-mark {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 26px;
+}
+
+.auth-hero-logo {
+  width: 52px;
+  height: 52px;
+  border-radius: 16px;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(135deg, var(--auth-accent), #a855f7);
+  box-shadow: 0 12px 32px -8px var(--auth-accent);
+}
+
+.auth-hero-name {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text-primary);
+}
+
+.auth-hero h1 {
+  margin: 0 0 16px;
+  font-size: clamp(30px, 4.4vw, 46px);
+  line-height: 1.08;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  color: var(--text-primary);
+}
+
+.auth-hero h1 em {
+  font-style: normal;
+  background: linear-gradient(120deg, var(--auth-accent), #a855f7 55%, #22d3ee);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.auth-hero p {
+  margin: 0 0 28px;
+  max-width: 42ch;
+  font-size: 15px;
+  line-height: 1.65;
+  color: var(--text-secondary);
+}
+
+.auth-points {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.auth-points li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.auth-points svg { flex: none; color: var(--auth-accent); }
+
+/* ── card ──────────────────────────────────────────────────────────────── */
+
+.auth-card {
+  position: relative;
+  padding: 30px;
+  border-radius: 22px;
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  box-shadow: 0 30px 70px -20px rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(22px) saturate(140%);
+  -webkit-backdrop-filter: blur(22px) saturate(140%);
+  animation: auth-rise 0.7s cubic-bezier(0.16, 1, 0.3, 1) 0.08s both;
+  /* The card leans very slightly the opposite way to the scene, which makes it
+     read as sitting in front of the layers rather than pasted onto them. */
+  transform: translate3d(
+    calc(var(--px, 0) * 6px),
+    calc(var(--py, 0) * 6px),
+    0
+  );
+}
+
+@keyframes auth-rise {
+  from { opacity: 0; transform: translateY(18px); }
+  to   { opacity: 1; }
+}
+
+.auth-card h2 {
+  margin: 0 0 6px;
+  font-size: 23px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text-primary);
+}
+
+.auth-card-sub {
+  margin: 0 0 22px;
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--text-secondary);
+}
+
+/* Sign in / Sign up switch. */
+.auth-tabs {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  margin-bottom: 22px;
+  padding: 4px;
+  border-radius: 12px;
+  background: rgba(127, 127, 127, 0.12);
+}
+
+.auth-tabs button {
+  position: relative;
+  z-index: 1;
+  padding: 9px 0;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: color var(--transition-fast);
+}
+
+.auth-tabs button[aria-selected='true'] { color: var(--text-primary); }
+
+.auth-tab-thumb {
+  position: absolute;
+  z-index: 0;
+  top: 4px;
+  bottom: 4px;
+  left: 4px;
+  width: calc(50% - 4px);
+  border-radius: 9px;
+  background: var(--bg-secondary);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
+  transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.auth-tab-thumb[data-at='register'] { transform: translateX(100%); }
+
+.auth-form { display: flex; flex-direction: column; gap: 13px; }
+
+/* Inputs: the label rides up into the border on focus or once filled. */
+.auth-field { position: relative; }
+
+.auth-field input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 17px 14px 7px;
+  border-radius: 12px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 14px;
+  outline: none;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.auth-field input:focus {
+  border-color: var(--auth-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--auth-accent) 22%, transparent);
+}
+
+.auth-field label {
+  position: absolute;
+  left: 15px;
+  top: 50%;
+  translate: 0 -50%;
+  font-size: 14px;
+  color: var(--text-tertiary);
+  pointer-events: none;
+  transition: top 0.16s ease, font-size 0.16s ease, color 0.16s ease;
+}
+
+.auth-field input:focus + label,
+.auth-field input:not(:placeholder-shown) + label {
+  top: 15px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.auth-field input:focus + label { color: var(--auth-accent); }
+
+/* Avatar picker. */
+.auth-avatar {
+  align-self: center;
+  position: relative;
+  width: 78px;
+  height: 78px;
+  border-radius: 50%;
+  border: 2px dashed var(--border-color);
+  background: var(--bg-primary);
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  cursor: pointer;
+  transition: border-color var(--transition-fast), transform var(--transition-fast);
+}
+
+.auth-avatar:hover { border-color: var(--auth-accent); transform: scale(1.04); }
+.auth-avatar img { width: 100%; height: 100%; object-fit: cover; }
+.auth-avatar span { font-size: 11px; color: var(--text-tertiary); }
+
+/* Submit. */
+.auth-submit {
+  margin-top: 4px;
+  padding: 13px;
+  border: none;
+  border-radius: 12px;
+  background: linear-gradient(120deg, var(--auth-accent), #7c5cf0);
+  color: #fff;
+  font: inherit;
+  font-size: 14.5px;
+  font-weight: 650;
+  cursor: pointer;
+  box-shadow: 0 10px 26px -10px var(--auth-accent);
+  transition: transform var(--transition-fast), box-shadow var(--transition-fast), opacity var(--transition-fast);
+}
+
+.auth-submit:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 14px 30px -10px var(--auth-accent); }
+.auth-submit:active:not(:disabled) { transform: translateY(0); }
+.auth-submit:disabled { opacity: 0.6; cursor: not-allowed; box-shadow: none; }
+
+.auth-spinner {
+  display: inline-block;
+  width: 15px; height: 15px;
+  border: 2px solid rgba(255, 255, 255, 0.4);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+/* Messages. */
+.auth-note {
+  padding: 9px 12px;
+  border-radius: 10px;
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.auth-note-info {
+  background: color-mix(in srgb, var(--auth-accent) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--auth-accent) 30%, transparent);
+  color: var(--text-secondary);
+}
+
+.auth-note-error {
+  background: rgba(240, 71, 71, 0.12);
+  border: 1px solid rgba(240, 71, 71, 0.35);
+  color: #ff8f8f;
+}
+
+body:not(.dark-theme) .auth-note-error { color: #b32020; }
+
+.auth-links {
+  margin: 16px 0 0;
+  font-size: 12.5px;
+  text-align: center;
+  color: var(--text-secondary);
+}
+
+.auth-link {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  font-weight: 600;
+  color: var(--auth-accent);
+  cursor: pointer;
+}
+
+.auth-link:disabled { opacity: 0.5; cursor: default; }
+
+/* Footer: language + server picker. */
+.auth-foot {
+  margin-top: 20px;
+  padding-top: 15px;
+  border-top: 1px solid var(--border-color);
+}
+
+.auth-foot-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.auth-foot select,
+.auth-foot button {
+  border: 1px solid var(--border-color);
+  border-radius: 9px;
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 12.5px;
+  padding: 7px 11px;
+  cursor: pointer;
+  outline: none;
+  transition: border-color var(--transition-fast), color var(--transition-fast);
+}
+
+.auth-foot select:hover,
+.auth-foot button:hover { border-color: var(--auth-accent); color: var(--text-primary); }
+
+.auth-foot button { display: flex; align-items: center; gap: 6px; }
+
+/* ── reduced motion ────────────────────────────────────────────────────── */
+/* The scene stays — it is the page's identity — but nothing in it moves, and
+   the parallax handler is never attached in the first place. */
+
+@media (prefers-reduced-motion: reduce) {
+  .auth-stars,
+  .auth-orb,
+  .auth-ring,
+  .auth-mote,
+  .auth-hero,
+  .auth-card { animation: none !important; }
+
+  .auth-layer,
+  .auth-card { transform: none !important; }
+
+  .auth-tab-thumb,
+  .auth-field label,
+  .auth-submit { transition: none; }
+}

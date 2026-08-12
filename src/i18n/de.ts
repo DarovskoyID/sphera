@@ -2,6 +2,12 @@ import type { Translations } from './index';
 
 export const de: Translations = {
   auth_create_account: 'Konto erstellen', auth_welcome_back: 'Willkommen zurück', auth_signup_desc: 'Registrieren Sie sich, um zu starten', auth_signin_desc: 'Melden Sie sich an, um fortzufahren', auth_login: 'Benutzername', auth_register: 'Registrieren', auth_password: 'Passwort', auth_nickname: 'Spitzname (Anzeigename)', auth_photo: 'Foto', auth_already_have: 'Bereits ein Konto?', auth_dont_have: 'Kein Konto?', auth_signin: 'Anmelden', auth_connection_error: 'Verbindungsfehler', auth_email: 'E-Mail', auth_verify_title: 'E-Mail bestätigen', auth_verify_desc: 'Geben Sie den Code ein, den wir gesendet haben an', auth_code: 'Bestätigungscode', auth_confirm: 'Bestätigen', auth_code_sent: 'Ein Bestätigungscode wurde an Ihre E-Mail gesendet.', auth_resend_code: 'Code erneut senden', auth_change_email: 'Daten ändern',
+  auth_language: 'Sprache der Oberfläche', auth_brand: 'Sfera',
+  auth_hero_title_lead: 'Dein Kreis,', auth_hero_title_accent: 'deine Regeln',
+  auth_hero_text: 'Nachrichten, Anrufe, Server und ein Tagebuch, das nur du siehst — auf dem Host, den du selbst wählst.',
+  auth_point_privacy: 'Verschlüsselte Speicherung und ein standardmäßig aktiver Inhaltsfilter',
+  auth_point_chat: 'Direktnachrichten, Kanäle, Sprache und Video',
+  auth_point_servers: 'Verbinde dich mit jedem Sfera-Server oder betreibe deinen eigenen',
   nav_settings: 'Einstellungen', nav_direct_messages: 'Direktnachrichten', nav_back: 'Zurück', nav_menu: 'Menü', nav_toggle_theme: 'Thema wechseln',
   chat_type_message: 'Nachricht eingeben...', chat_send: 'Senden', chat_attachment: 'Datei anhängen', chat_emoji: 'Emoji', chat_voice_message: 'Sprachnachricht', chat_video_circle: 'Videonachricht', chat_recording: 'Aufnahme...', chat_record_cancel: 'Abbrechen', chat_record_send: 'Senden', chat_record_preview: 'Vorschau', chat_no_messages: 'Noch keine Nachrichten. Sag Hallo!', chat_search: 'Suchen', chat_voice_call: 'Sprachanruf', chat_video_call: 'Videoanruf',
   welcome_title: 'Deine Nachrichten', welcome_desc: 'Wähle eine Unterhaltung aus der Seitenleiste, um zu chatten.',

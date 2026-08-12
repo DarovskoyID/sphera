@@ -21,6 +21,14 @@ export const en = {
   auth_code_sent: 'A confirmation code has been sent to your email.',
   auth_resend_code: 'Resend code',
   auth_change_email: 'Change details',
+  auth_language: 'Interface language',
+  auth_brand: 'Sfera',
+  auth_hero_title_lead: 'Your circle,',
+  auth_hero_title_accent: 'your rules',
+  auth_hero_text: 'Messages, calls, servers and a diary only you can read — on a host you choose yourself.',
+  auth_point_privacy: 'Encrypted storage and a content filter that is on by default',
+  auth_point_chat: 'Direct messages, group channels, voice and video',
+  auth_point_servers: 'Connect to any Sfera server, or run your own',
 
   // Navigation
   nav_settings: 'Settings',

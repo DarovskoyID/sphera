@@ -2,6 +2,12 @@ import type { Translations } from './index';
 
 export const pt: Translations = {
   auth_create_account: 'Criar conta', auth_welcome_back: 'Bem-vindo de volta', auth_signup_desc: 'Cadastre-se para começar', auth_signin_desc: 'Entre para continuar', auth_login: 'Usuário', auth_register: 'Cadastrar', auth_password: 'Senha', auth_nickname: 'Apelido (nome de exibição)', auth_photo: 'Foto', auth_already_have: 'Já tem uma conta?', auth_dont_have: 'Não tem uma conta?', auth_signin: 'Entrar', auth_connection_error: 'Erro de conexão', auth_email: 'E-mail', auth_verify_title: 'Confirme seu e-mail', auth_verify_desc: 'Digite o código que enviamos para', auth_code: 'Código de confirmação', auth_confirm: 'Confirmar', auth_code_sent: 'Um código de confirmação foi enviado para o seu e-mail.', auth_resend_code: 'Reenviar código', auth_change_email: 'Alterar dados',
+  auth_language: 'Idioma da interface', auth_brand: 'Sfera',
+  auth_hero_title_lead: 'Seu círculo,', auth_hero_title_accent: 'suas regras',
+  auth_hero_text: 'Mensagens, chamadas, servidores e um diário que só você vê — no host que você escolher.',
+  auth_point_privacy: 'Armazenamento criptografado e um filtro de conteúdo ativo por padrão',
+  auth_point_chat: 'Mensagens diretas, canais, voz e vídeo',
+  auth_point_servers: 'Conecte-se a qualquer servidor Sfera ou hospede o seu',
   nav_settings: 'Configurações', nav_direct_messages: 'Mensagens diretas', nav_back: 'Voltar', nav_menu: 'Menu', nav_toggle_theme: 'Alternar tema',
   chat_type_message: 'Digite uma mensagem...', chat_send: 'Enviar', chat_attachment: 'Anexar arquivo', chat_emoji: 'Emoji', chat_voice_message: 'Mensagem de voz', chat_video_circle: 'Mensagem de vídeo', chat_recording: 'Gravando...', chat_record_cancel: 'Cancelar', chat_record_send: 'Enviar', chat_record_preview: 'Pré-visualização', chat_no_messages: 'Ainda sem mensagens. Diga olá!', chat_search: 'Buscar', chat_voice_call: 'Chamada de voz', chat_video_call: 'Videochamada',
   welcome_title: 'Suas mensagens', welcome_desc: 'Selecione uma conversa na barra lateral para começar a conversar.',
