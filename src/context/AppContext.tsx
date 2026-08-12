@@ -1117,6 +1117,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
               }
 
               let updated = base;
+              let appended = false;
               for (const fm of fresh) {
                 let optIdx = updated.findIndex(
                   m => String(m.id).startsWith('optimistic-') &&
@@ -1132,9 +1133,15 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
                   changed = true;
                 } else {
                   updated.push(fm);
+                  appended = true;
                   changed = true;
                 }
               }
+              // A polled message is not necessarily a NEW one. Deleting messages
+              // slides the server's fixed-size window further back in time, so
+              // the next poll hands back history this client had already
+              // trimmed — appending that put old messages under today's.
+              if (appended) updated = sortByDate(updated);
               // Remove any remaining stale optimistic messages
               const beforeLen = updated.length;
               updated = updated.filter(m =>
