@@ -357,6 +357,65 @@ class BotApiTests(TestCase):
         self.assertEqual(res.json()['commands'][0]['command'], 'ping')
 
 
+class BotMessageEditRulesTests(TestCase):
+    """A bot's words stay the bot's: it may rewrite them, a person may not."""
+
+    def setUp(self):
+        self.owner = User.objects.create_user(username='alice', password='x')
+        self.peer = User.objects.create_user(username='bob', password='x')
+        res = app_client(self.owner).post(
+            '/api/bots/', {'username': 'weather', 'display_name': 'Погода'}, format='json',
+        )
+        self.token = res.json()['token']
+        self.account = BotAccount.objects.get(id=res.json()['id'])
+        self.bot = app_client()
+        self.bot.credentials(HTTP_AUTHORIZATION=f'Bot {self.token}')
+        self.convo = outbound.dm_conversation_for(self.peer, self.account.user)
+        _msg, payload = outbound.send_dm(self.account.user, self.convo, 'первый ответ')
+        self.bot_message_id = payload['id']
+
+    def test_the_bot_can_rewrite_its_own_message(self):
+        res = self.bot.post(
+            '/api/bots/api/edit/',
+            {'message_id': self.bot_message_id, 'text': 'исправленный ответ'},
+            format='json',
+        )
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(Message.objects.get(id=self.bot_message_id).content, 'исправленный ответ')
+
+    def test_a_person_in_the_chat_cannot_edit_the_bot_message(self):
+        res = app_client(self.peer).patch(
+            f'/api/messages/{self.bot_message_id}/', {'content': 'подделка'}, format='json',
+        )
+        self.assertEqual(res.status_code, 404)
+        self.assertEqual(Message.objects.get(id=self.bot_message_id).content, 'первый ответ')
+
+    def test_the_owner_cannot_edit_it_either(self):
+        res = app_client(self.owner).patch(
+            f'/api/messages/{self.bot_message_id}/', {'content': 'подделка'}, format='json',
+        )
+        self.assertEqual(res.status_code, 404)
+
+    def test_signing_in_as_the_bot_account_does_not_open_the_app_edit_path(self):
+        # The ownership check alone would allow this — the account IS the
+        # author — so it is the account_type guard that has to refuse.
+        res = app_client(self.account.user).patch(
+            f'/api/messages/{self.bot_message_id}/', {'content': 'через веб'}, format='json',
+        )
+        self.assertEqual(res.status_code, 403)
+        self.assertEqual(Message.objects.get(id=self.bot_message_id).content, 'первый ответ')
+
+    def test_a_person_can_still_edit_their_own_message_in_a_bot_chat(self):
+        mine = Message.objects.create(conversation=self.convo, author=self.peer)
+        mine.content = '/hi'
+        mine.save()
+        res = app_client(self.peer).patch(
+            f'/api/messages/{mine.id}/', {'content': '/hello'}, format='json',
+        )
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(Message.objects.get(id=mine.id).content, '/hello')
+
+
 class BotMediaAndContextTests(TestCase):
     """Attachments, chat history, members and reactions."""
 

@@ -435,7 +435,14 @@ export const BotStudio: React.FC<Props> = ({ onClose }) => {
           onPointerCancel={onPointerUp}
           onWheel={e => { if (e.ctrlKey) { e.preventDefault(); zoom(e.deltaY < 0 ? 1.1 : 0.9); } }}
           style={{
-            position: 'relative', flex: 1, minHeight: narrow ? '48vh' : 0, overflow: 'hidden',
+            position: 'relative',
+            // A share of the space rather than a fixed slice of the viewport:
+            // `48vh` ignored the toolbar above it, so canvas plus inspector
+            // came to more than the screen and the inspector's lower half was
+            // simply off it. A pixel floor keeps the canvas usable instead.
+            flex: narrow ? '1 1 45%' : 1,
+            minHeight: narrow ? 180 : 0,
+            overflow: 'hidden',
             background:
               'radial-gradient(circle at 1px 1px, rgba(255,255,255,.08) 1px, transparent 0) 0 0/20px 20px, var(--bg-primary, #1e1f22)',
             touchAction: 'none', cursor: pendingPort ? 'crosshair' : 'grab',
@@ -570,11 +577,17 @@ export const BotStudio: React.FC<Props> = ({ onClose }) => {
 
         {/* Inspector */}
         <div style={{
-          width: narrow ? 'auto' : 300, flexShrink: 0,
+          width: narrow ? 'auto' : 300,
+          // Allowed to shrink: it scrolls its own content, so giving it a
+          // fixed size only pushed the bottom of the form past the screen.
+          flex: narrow ? '0 1 auto' : '0 0 auto',
+          minHeight: 0,
+          maxHeight: narrow ? '55%' : 'none',
           borderLeft: narrow ? 'none' : '1px solid var(--border-color)',
           borderTop: narrow ? '1px solid var(--border-color)' : 'none',
-          padding: 14, overflowY: 'auto',
-          maxHeight: narrow ? '42vh' : 'none',
+          padding: 14,
+          overflowY: 'auto',
+          overscrollBehavior: 'contain',
           background: 'var(--bg-secondary, #2b2d31)',
         }}>
           {selectedNode ? (

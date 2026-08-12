@@ -202,8 +202,8 @@ const ChatHeader: React.FC<{
             : <span className={`status-indicator ${chatUser.status ?? 'offline'}`} />
           }
         </div>
-        <div>
-          <h3>{displayName}<AccountBadge account={chatUser} size="md" /></h3>
+        <div className="chat-header-text">
+          <h3><span>{displayName}</span><AccountBadge account={chatUser} size="md" /></h3>
           {blockedUser
             ? <p style={{ color: '#f97316' }}>{tr('status_blocked')}</p>
             : <p>@{chatUser.username}</p>

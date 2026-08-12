@@ -20,12 +20,22 @@
   align-items: center;
   gap: var(--spacing-md);
   min-height: 60px;
+  /* It is a flex item of .chat-main, so min-width defaults to its content —
+     a long name would widen the header past the screen instead of eliding. */
+  min-width: 0;
 }
 
 .chat-header-info {
   display: flex;
   align-items: center;
   gap: var(--spacing-md);
+  /* Must be allowed to shrink, or a long name pushes the call buttons out. */
+  flex: 1;
+  min-width: 0;
+}
+
+.chat-header-text {
+  min-width: 0;
 }
 
 .header-avatar {
@@ -45,15 +55,42 @@
   border-color: var(--bg-chat);
 }
 
+/*
+ * The name and its BOT chip belong on one line.
+ *
+ * As a plain block, a name that filled the width pushed the chip onto a second
+ * line and the @username onto a third, which is what made the bot header look
+ * broken on a phone. A flex row with a truncating name keeps it to two lines
+ * at any width: the name gives way, the chip never does.
+ */
 .chat-header h3 {
+  display: flex;
+  align-items: center;
+  min-width: 0;
   font-size: 18.4px;
   font-weight: 600;
   color: var(--text-primary);
 }
 
+.chat-header h3 > span:first-child {
+  /* A flex item defaults to min-width:auto, which is its full text width — so
+     without this the name refuses to shrink and pushes the call buttons out. */
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-header-actions {
+  flex: none;
+}
+
 .chat-header p {
   font-size: 14.9px;
   color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .chat-header-actions {
