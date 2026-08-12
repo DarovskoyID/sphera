@@ -14,22 +14,41 @@ export type Verdict = 'safe' | 'explicit';
 type Predictions = Array<{ className: string; probability: number }>;
 
 /**
- * How sure we must be before hiding. "Porn" and "Hentai" are unambiguous, so a
- * low bar is right; "Sexy" covers swimwear and gym photos and would otherwise
- * hide a lot of ordinary pictures, so it needs near-certainty.
+ * How sure we must be before hiding.
+ *
+ * These are deliberately high. MobileNetV2 is noisy on anything stylised —
+ * illustrations, game art, AI-generated pictures — and leaks a large "Hentai"
+ * score onto them purely because they are drawings, not because of what they
+ * depict. "Sexy" is worse still: it covers swimwear, gym shots and close-up
+ * portraits. Hiding someone's ordinary photo is a far more visible failure than
+ * letting a borderline one through, so the bar is set where only confident
+ * detections clear it.
  */
 const THRESHOLDS: Record<string, number> = {
-  Porn: 0.5,
-  Hentai: 0.5,
-  Sexy: 0.9,
+  Porn: 0.7,
+  Hentai: 0.9,
+  Sexy: 0.97,
 };
 
+/** Classes that mean "nothing to hide here". */
+const SAFE_CLASSES = ['Neutral', 'Drawing'];
+
 function judge(preds: Predictions): Verdict {
-  for (const p of preds) {
-    const limit = THRESHOLDS[p.className];
-    if (limit !== undefined && p.probability >= limit) return 'explicit';
-  }
-  return 'safe';
+  // The winning class must itself be an explicit one. Without this a picture
+  // the model calls Drawing at 0.6 could still be hidden on a 0.3 Hentai tail,
+  // which is exactly how stylised art ends up behind an 18+ cover.
+  const top = preds.reduce((a, b) => (b.probability > a.probability ? b : a), preds[0]);
+  if (!top || THRESHOLDS[top.className] === undefined) return 'safe';
+  if (top.probability < THRESHOLDS[top.className]) return 'safe';
+
+  // A confident explicit call should leave little probability on the safe
+  // classes; when it does not, the model is hedging and we let the media show.
+  const safeMass = preds
+    .filter(p => SAFE_CLASSES.includes(p.className))
+    .reduce((sum, p) => sum + p.probability, 0);
+  if (safeMass > 0.15) return 'safe';
+
+  return 'explicit';
 }
 
 // ── model loading (once per session) ─────────────────────────────────────────
