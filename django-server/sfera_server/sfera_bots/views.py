@@ -10,20 +10,29 @@ Three audiences share this module:
 """
 
 import time
+import uuid
 
 from rest_framework import status
 from rest_framework.decorators import (
-    api_view, authentication_classes, permission_classes,
+    api_view, authentication_classes, parser_classes, permission_classes,
 )
+from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
+from django.core.files.base import ContentFile
 from django.db.models import Q
+from django.http import HttpResponse
 
 from sfera_auth.models import Friendship
+from sfera_messages.encryption import decrypt_bytes, encrypt_bytes
 from sfera_messages.models import (
-    Conversation, Guild, GuildChannel, GuildMembership, GuildMessage, Message,
+    Attachment, Conversation, Guild, GuildAttachment, GuildChannel,
+    GuildMembership, GuildMessage, Message,
 )
+# Same ceiling as the app's own composer, so a bot cannot post a message the
+# clients would refuse to accept.
+from sfera_messages.views import MAX_ATTACHMENTS_PER_MESSAGE
 
 from .auth import BotTokenAuthentication
 from .models import BotAccount, BotFlow, BotUpdate
@@ -35,6 +44,7 @@ from .sferonik import create_bot, delete_bot, ensure_sferonik, parse_command_lis
 MAX_POLL_SECONDS = 45
 POLL_INTERVAL = 0.5
 MAX_MESSAGE_LENGTH = 4000
+MAX_HISTORY = 200
 
 
 def _bot_view(account, token=None):
@@ -330,13 +340,24 @@ def get_updates(request):
 @authentication_classes([BotTokenAuthentication])
 @permission_classes([IsAuthenticated])
 def send(request):
-    """Post a message into a DM or a guild channel the bot belongs to."""
+    """Post a message into a DM or a guild channel the bot belongs to.
+
+    Either `text` or `attachment_ids` (from `/api/bots/api/upload/`) has to be
+    present — a message may be a caption, a bare photo, or both.
+    """
     account = request.bot_account
     chat_id = (request.data.get('chat_id') or '').strip()
     text = (request.data.get('text') or '').strip()
     reply_to_id = request.data.get('reply_to')
-    if not chat_id or not text:
-        return Response({'error': 'chat_id and text are required'}, status=status.HTTP_400_BAD_REQUEST)
+    try:
+        attachment_ids = _attachment_ids(request.data.get('attachment_ids'))
+    except ValueError as exc:
+        return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+    if not chat_id or (not text and not attachment_ids):
+        return Response(
+            {'error': 'chat_id and either text or attachment_ids are required'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
     if len(text) > MAX_MESSAGE_LENGTH:
         return Response({'error': 'text too long'}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -347,13 +368,37 @@ def send(request):
     if kind is None:
         return Response({'error': 'chat not found for this bot'}, status=status.HTTP_404_NOT_FOUND)
 
-    if kind == 'dm':
-        reply_to = Message.objects.filter(id=reply_to_id, conversation=target).first() if reply_to_id else None
-        _msg, payload = outbound.send_dm(account.user, target, text, reply_to)
-    else:
-        reply_to = GuildMessage.objects.filter(id=reply_to_id, channel=target).first() if reply_to_id else None
-        _msg, payload = outbound.send_channel(account.user, target, text, reply_to)
+    try:
+        if kind == 'dm':
+            reply_to = Message.objects.filter(id=reply_to_id, conversation=target).first() if reply_to_id else None
+            _msg, payload = outbound.send_dm(account.user, target, text, reply_to, attachment_ids)
+        else:
+            reply_to = GuildMessage.objects.filter(id=reply_to_id, channel=target).first() if reply_to_id else None
+            _msg, payload = outbound.send_channel(account.user, target, text, reply_to, attachment_ids)
+    except ValueError:
+        return Response(
+            {'error': 'attachment not found, already sent, or from another chat'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
     return Response(payload, status=status.HTTP_201_CREATED)
+
+
+def _attachment_ids(raw):
+    """Normalise the `attachment_ids` field. Raises ValueError with a message
+    fit to hand straight back to the caller."""
+    if raw in (None, ''):
+        return []
+    if not isinstance(raw, list):
+        raw = [raw]
+    if len(raw) > MAX_ATTACHMENTS_PER_MESSAGE:
+        raise ValueError(f'at most {MAX_ATTACHMENTS_PER_MESSAGE} attachments per message')
+    out = []
+    for item in raw:
+        try:
+            out.append(uuid.UUID(str(item)))
+        except (TypeError, ValueError):
+            raise ValueError('bad attachment id') from None
+    return out
 
 
 @api_view(['POST'])
@@ -420,6 +465,162 @@ def chats(request):
             'guild_name': ch.guild.name,
         })
     return Response({'chats': dms + channels})
+
+
+@api_view(['POST'])
+@authentication_classes([BotTokenAuthentication])
+@permission_classes([IsAuthenticated])
+@parser_classes([MultiPartParser, FormParser])
+def upload(request):
+    """Stage a file for a later `send`.
+
+    Upload and send are two steps, exactly as for a person: the file is stored
+    unattached, and the id it returns is passed to `/send` as `attachment_ids`.
+    That lets one message carry several files and keeps the send call plain
+    JSON. The file is bound to the chat it was uploaded for and can only be
+    sent there, once.
+    """
+    from sfera_messages.views import (
+        MAX_UPLOAD_SIZE, _safe_upload, _scan_upload,
+    )
+
+    account = request.bot_account
+    chat_id = (request.data.get('chat_id') or '').strip()
+    uploaded = request.FILES.get('file')
+    if not chat_id or not uploaded:
+        return Response({'error': 'chat_id and file are required'}, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        kind, target = outbound.resolve_chat(account.user, chat_id)
+    except (ValueError, TypeError):
+        return Response({'error': 'bad chat_id'}, status=status.HTTP_400_BAD_REQUEST)
+    if kind is None:
+        return Response({'error': 'chat not found for this bot'}, status=status.HTTP_404_NOT_FOUND)
+
+    if uploaded.size > MAX_UPLOAD_SIZE:
+        return Response({'error': 'file too large (max 50 MB)'}, status=status.HTTP_400_BAD_REQUEST)
+    ok, content_type = _safe_upload(uploaded)
+    if not ok:
+        return Response({'error': 'file type not allowed'}, status=status.HTTP_400_BAD_REQUEST)
+    raw = uploaded.read()
+    if not _scan_upload(raw):
+        return Response({'error': 'file rejected by scanner'}, status=status.HTTP_400_BAD_REQUEST)
+
+    if kind == 'dm':
+        att = Attachment(conversation=target, uploader=account.user)
+    else:
+        att = GuildAttachment(channel=target, uploader=account.user)
+    att.original_filename = uploaded.name
+    att.content_type = content_type
+    att.file_size = len(raw)
+    att.file.save(f'{uuid.uuid4().hex}.enc', ContentFile(encrypt_bytes(raw)), save=True)
+
+    return Response(outbound.bot_attachment_payload(att), status=status.HTTP_201_CREATED)
+
+
+@api_view(['GET'])
+@authentication_classes([BotTokenAuthentication])
+@permission_classes([IsAuthenticated])
+def file(request, attachment_id):
+    """Download an attachment from a chat the bot belongs to.
+
+    The app's own `/api/attachments/` route needs a JWT and the app-only
+    header, so bots read files through here instead.
+    """
+    att = outbound.visible_attachment(request.bot_account.user, attachment_id)
+    if att is None:
+        return Response({'error': 'not found'}, status=status.HTTP_404_NOT_FOUND)
+    try:
+        with att.file.open('rb') as fh:
+            encrypted = fh.read()
+    except FileNotFoundError:
+        return Response({'error': 'not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    response = HttpResponse(decrypt_bytes(encrypted), content_type=att.content_type)
+    filename = att.original_filename.replace('"', '\\"')
+    response['Content-Disposition'] = f'attachment; filename="{filename}"'
+    response['Content-Length'] = att.file_size
+    response['X-Content-Type-Options'] = 'nosniff'
+    return response
+
+
+@api_view(['GET'])
+@authentication_classes([BotTokenAuthentication])
+@permission_classes([IsAuthenticated])
+def history(request):
+    """Read a chat back: `?chat_id=&limit=&before=`.
+
+    Unlike `/updates`, this does not consume anything — it is for bots that
+    need context (a summariser, a moderator) rather than a live feed.
+    """
+    account = request.bot_account
+    chat_id = (request.GET.get('chat_id') or '').strip()
+    if not chat_id:
+        return Response({'error': 'chat_id is required'}, status=status.HTTP_400_BAD_REQUEST)
+    try:
+        kind, target = outbound.resolve_chat(account.user, chat_id)
+    except (ValueError, TypeError):
+        return Response({'error': 'bad chat_id'}, status=status.HTTP_400_BAD_REQUEST)
+    if kind is None:
+        return Response({'error': 'chat not found for this bot'}, status=status.HTTP_404_NOT_FOUND)
+
+    try:
+        limit = min(max(int(request.GET.get('limit') or 50), 1), MAX_HISTORY)
+    except ValueError:
+        limit = 50
+    before = (request.GET.get('before') or '').strip() or None
+    try:
+        messages = outbound.history(kind, target, limit, before)
+    except (ValueError, TypeError):
+        return Response({'error': 'bad before'}, status=status.HTTP_400_BAD_REQUEST)
+    return Response({'chat_id': chat_id, 'chat_type': kind, 'messages': messages})
+
+
+@api_view(['GET'])
+@authentication_classes([BotTokenAuthentication])
+@permission_classes([IsAuthenticated])
+def members(request):
+    """Who else is in the chat: `?chat_id=`."""
+    account = request.bot_account
+    chat_id = (request.GET.get('chat_id') or '').strip()
+    if not chat_id:
+        return Response({'error': 'chat_id is required'}, status=status.HTTP_400_BAD_REQUEST)
+    try:
+        kind, target = outbound.resolve_chat(account.user, chat_id)
+    except (ValueError, TypeError):
+        return Response({'error': 'bad chat_id'}, status=status.HTTP_400_BAD_REQUEST)
+    if kind is None:
+        return Response({'error': 'chat not found for this bot'}, status=status.HTTP_404_NOT_FOUND)
+    return Response({'chat_id': chat_id, 'chat_type': kind, 'members': outbound.members(kind, target)})
+
+
+@api_view(['POST'])
+@authentication_classes([BotTokenAuthentication])
+@permission_classes([IsAuthenticated])
+def react(request):
+    """React to a channel message, or take the reaction back with `remove`.
+
+    Channel-only: direct messages carry no reactions in the data model.
+    """
+    account = request.bot_account
+    message_id = (request.data.get('message_id') or '').strip()
+    emoji = (request.data.get('emoji') or '').strip()[:50]
+    if not message_id or not emoji:
+        return Response({'error': 'message_id and emoji are required'}, status=status.HTTP_400_BAD_REQUEST)
+    try:
+        uuid.UUID(message_id)
+    except ValueError:
+        return Response({'error': 'bad message_id'}, status=status.HTTP_400_BAD_REQUEST)
+    try:
+        reactions = outbound.react(account.user, message_id, emoji, bool(request.data.get('remove')))
+    except ValueError as exc:
+        return Response({'error': str(exc)}, status=status.HTTP_409_CONFLICT)
+    if reactions is None:
+        return Response(
+            {'error': 'message not found, or not in a channel the bot belongs to'},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+    return Response({'message_id': message_id, 'reactions': reactions})
 
 
 def _clean_commands(raw):

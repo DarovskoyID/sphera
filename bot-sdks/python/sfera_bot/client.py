@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import logging
+import mimetypes
 import os
 import re
 import ssl
@@ -23,10 +24,12 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import uuid
 from dataclasses import dataclass, field
-from typing import Callable, Dict, List, Optional
+from pathlib import Path
+from typing import Callable, Dict, List, Optional, Union
 
-__version__ = '1.0.0'
+__version__ = '1.1.0'
 
 DEFAULT_SERVER = 'https://start-ionik.ru'
 LONG_POLL_SECONDS = 30
@@ -62,6 +65,32 @@ class Chat:
 
 
 @dataclass
+class Attachment:
+    """Файл, прикреплённый к сообщению."""
+    id: str
+    filename: str = ''
+    content_type: str = ''
+    file_size: int = 0
+
+    @property
+    def is_image(self) -> bool:
+        return self.content_type.startswith('image/')
+
+    @property
+    def is_video(self) -> bool:
+        return self.content_type.startswith('video/')
+
+    @classmethod
+    def from_payload(cls, payload: dict) -> 'Attachment':
+        return cls(
+            id=str(payload.get('id') or ''),
+            filename=payload.get('filename') or '',
+            content_type=payload.get('content_type') or '',
+            file_size=int(payload.get('file_size') or 0),
+        )
+
+
+@dataclass
 class Update:
     """Входящее событие."""
     id: int
@@ -76,6 +105,7 @@ class Update:
     command: str = ''
     args: str = ''
     guild_id: str = ''
+    attachments: List[Attachment] = field(default_factory=list)
     raw: dict = field(default_factory=dict)
 
     @property
@@ -86,11 +116,18 @@ class Update:
     def is_direct(self) -> bool:
         return self.chat_type == 'dm'
 
+    @property
+    def has_media(self) -> bool:
+        return bool(self.attachments)
+
     @classmethod
     def from_payload(cls, payload: dict) -> 'Update':
         message = payload.get('message') or {}
         author = message.get('from') or {}
         return cls(
+            attachments=[
+                Attachment.from_payload(a) for a in (message.get('attachments') or [])
+            ],
             id=int(payload.get('id') or 0),
             type=payload.get('type') or 'message',
             chat_id=str(payload.get('chat_id') or ''),
@@ -171,15 +208,96 @@ class Bot:
             for item in payload.get('chats', [])
         ]
 
-    def send(self, chat_id: str, text: str, reply_to: str = '') -> dict:
-        body = {'chat_id': str(chat_id), 'text': text}
+    def send(
+        self,
+        chat_id: str,
+        text: str = '',
+        reply_to: str = '',
+        attachment_ids: Optional[List[str]] = None,
+    ) -> dict:
+        """Отправить сообщение. Нужен либо ``text``, либо ``attachment_ids``."""
+        body: dict = {'chat_id': str(chat_id), 'text': text}
         if reply_to:
             body['reply_to'] = str(reply_to)
+        if attachment_ids:
+            body['attachment_ids'] = [str(a) for a in attachment_ids]
         return self._request('POST', '/api/bots/api/send/', body)
 
     def reply(self, update: Update, text: str) -> dict:
         """Ответить в тот же чат, цитируя исходное сообщение."""
         return self.send(update.chat_id, text, reply_to=update.message_id)
+
+    # ── файлы ─────────────────────────────────────────────────────────────
+
+    def upload(
+        self,
+        chat_id: str,
+        file: Union[str, Path, bytes],
+        filename: str = '',
+        content_type: str = '',
+    ) -> Attachment:
+        """Загрузить файл в чат, ничего пока не отправляя.
+
+        Принимает путь или сами байты. Возвращает вложение, чей ``id``
+        передаётся в :meth:`send` как ``attachment_ids``. Файл привязан к
+        этому чату и отправляется ровно один раз.
+        """
+        if isinstance(file, (str, Path)):
+            path = Path(file)
+            data = path.read_bytes()
+            filename = filename or path.name
+        else:
+            data = bytes(file)
+            filename = filename or 'file.bin'
+        content_type = content_type or mimetypes.guess_type(filename)[0] or 'application/octet-stream'
+        payload = self._upload_request(str(chat_id), filename, content_type, data)
+        return Attachment.from_payload(payload)
+
+    def send_file(
+        self,
+        chat_id: str,
+        file: Union[str, Path, bytes],
+        caption: str = '',
+        filename: str = '',
+        reply_to: str = '',
+    ) -> dict:
+        """Загрузить и сразу отправить один файл — самый частый случай."""
+        attachment = self.upload(chat_id, file, filename)
+        return self.send(chat_id, caption, reply_to=reply_to, attachment_ids=[attachment.id])
+
+    def download(self, attachment: Union[str, Attachment]) -> bytes:
+        """Скачать вложение из чата, где бот состоит."""
+        attachment_id = attachment.id if isinstance(attachment, Attachment) else str(attachment)
+        return self._raw_request('GET', f'/api/bots/api/file/{attachment_id}/')
+
+    # ── контекст чата ─────────────────────────────────────────────────────
+
+    def history(self, chat_id: str, limit: int = 50, before: str = '') -> List[dict]:
+        """Прочитать чат назад: последние ``limit`` сообщений, старые первыми.
+
+        В отличие от :meth:`poll`, ничего не подтверждает и не удаляет —
+        это для ботов, которым нужен контекст, а не живая лента. ``before`` —
+        id сообщения, от которого шагать дальше в прошлое.
+        """
+        query = {'chat_id': str(chat_id), 'limit': limit}
+        if before:
+            query['before'] = str(before)
+        payload = self._request('GET', f'/api/bots/api/history/?{urllib.parse.urlencode(query)}')
+        return payload.get('messages', [])
+
+    def members(self, chat_id: str) -> List[dict]:
+        """Кто ещё в чате. В канале у каждого есть ``role``."""
+        query = urllib.parse.urlencode({'chat_id': str(chat_id)})
+        payload = self._request('GET', f'/api/bots/api/members/?{query}')
+        return payload.get('members', [])
+
+    def react(self, message_id: str, emoji: str, remove: bool = False) -> List[dict]:
+        """Поставить (или снять) реакцию. Только в каналах: у ЛС реакций нет."""
+        payload = self._request(
+            'POST', '/api/bots/api/react/',
+            {'message_id': str(message_id), 'emoji': emoji, 'remove': remove},
+        )
+        return payload.get('reactions', [])
 
     def edit(self, message_id: str, text: str) -> dict:
         """Rewrite a message the bot sent earlier (DM or channel)."""
@@ -263,23 +381,60 @@ class Bot:
 
     # ── транспорт ─────────────────────────────────────────────────────────
 
+    def _headers(self, content_type: str) -> Dict[str, str]:
+        return {
+            'Authorization': f'Bot {self.token}',
+            'Content-Type': content_type,
+            'X-Ionik-Client': '1',
+            'User-Agent': f'sfera-bot/{__version__}',
+        }
+
     def _request(self, method: str, path: str, body: Optional[dict] = None) -> dict:
         data = json.dumps(body).encode('utf-8') if body is not None else None
+        raw = self._send(method, path, data, 'application/json')
+        try:
+            return json.loads(raw.decode('utf-8')) if raw else {}
+        except json.JSONDecodeError as exc:
+            raise BotError('сервер вернул не JSON') from exc
+
+    def _raw_request(self, method: str, path: str) -> bytes:
+        """Ответ как есть — для скачивания файлов."""
+        return self._send(method, path, None, 'application/json')
+
+    def _upload_request(self, chat_id: str, filename: str, content_type: str, data: bytes) -> dict:
+        """multipart/form-data вручную: SDK не тянет зависимостей."""
+        boundary = f'----sfera{uuid.uuid4().hex}'
+        crlf = b'\r\n'
+        safe_name = filename.replace('"', '')
+        body = b''.join([
+            f'--{boundary}'.encode(), crlf,
+            b'Content-Disposition: form-data; name="chat_id"', crlf, crlf,
+            chat_id.encode(), crlf,
+            f'--{boundary}'.encode(), crlf,
+            f'Content-Disposition: form-data; name="file"; filename="{safe_name}"'.encode(), crlf,
+            f'Content-Type: {content_type}'.encode(), crlf, crlf,
+            data, crlf,
+            f'--{boundary}--'.encode(), crlf,
+        ])
+        raw = self._send(
+            'POST', '/api/bots/api/upload/', body,
+            f'multipart/form-data; boundary={boundary}',
+        )
+        try:
+            return json.loads(raw.decode('utf-8')) if raw else {}
+        except json.JSONDecodeError as exc:
+            raise BotError('сервер вернул не JSON') from exc
+
+    def _send(self, method: str, path: str, data: Optional[bytes], content_type: str) -> bytes:
         request = urllib.request.Request(
             f'{self.server}{path}', data=data, method=method,
-            headers={
-                'Authorization': f'Bot {self.token}',
-                'Content-Type': 'application/json',
-                'X-Ionik-Client': '1',
-                'User-Agent': f'sfera-bot/{__version__}',
-            },
+            headers=self._headers(content_type),
         )
         # Длинный опрос держит соединение до timeout: даём запас сверху.
         deadline = self.timeout + 15
         try:
             with urllib.request.urlopen(request, timeout=deadline, context=self._ssl_context) as response:
-                raw = response.read().decode('utf-8')
-                return json.loads(raw) if raw else {}
+                return response.read()
         except urllib.error.HTTPError as exc:
             detail = exc.read().decode('utf-8', 'replace')[:300]
             if exc.code == 401:
@@ -287,8 +442,6 @@ class Bot:
             raise BotError(f'HTTP {exc.code}: {detail}') from exc
         except (urllib.error.URLError, TimeoutError, ssl.SSLError) as exc:
             raise BotError(f'сеть недоступна: {exc}') from exc
-        except json.JSONDecodeError as exc:
-            raise BotError('сервер вернул не JSON') from exc
 
 
 def _normalize_command(name: str) -> str:

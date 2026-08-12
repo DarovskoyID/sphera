@@ -45,7 +45,7 @@ bot.run()
 | `Bot(token, server)` | клиент; без аргументов читает переменные окружения |
 | `@bot.command(name, description)` | обработчик `/name` |
 | `@bot.on_message(contains="")` | обработчик обычных сообщений |
-| `bot.send(chat_id, text, reply_to="")` | отправить сообщение |
+| `bot.send(chat_id, text, reply_to="", attachment_ids=None)` | отправить сообщение |
 | `bot.reply(update, text)` | ответить цитатой |
 | `bot.edit(message_id, text)` | переписать своё сообщение |
 | `bot.delete(message_id)` | удалить своё сообщение |
@@ -54,8 +54,38 @@ bot.run()
 | `bot.poll(timeout)` / `bot.dispatch(update)` | свой цикл вместо `run()` |
 | `bot.http_get(url)` | GET наружу (узел «HTTP-запрос» редактора) |
 
+### Файлы и контекст
+
+| Метод | Назначение |
+|---|---|
+| `bot.send_file(chat_id, file, caption="")` | загрузить и сразу отправить файл |
+| `bot.upload(chat_id, file)` | загрузить, не отправляя (несколько файлов в одном сообщении) |
+| `bot.download(attachment)` | скачать вложение как `bytes` |
+| `bot.history(chat_id, limit=50, before="")` | прочитать чат назад |
+| `bot.members(chat_id)` | участники чата |
+| `bot.react(message_id, emoji, remove=False)` | реакция (только в каналах) |
+
+```python
+@bot.command("cat", "Прислать кота")
+def cat(bot: Bot, update: Update) -> None:
+    bot.send_file(update.chat_id, "cat.png", caption="держи")
+
+@bot.on_message()
+def echo_media(bot: Bot, update: Update) -> None:
+    for attachment in update.attachments:
+        if attachment.is_image:
+            data = bot.download(attachment)
+            bot.send_file(update.chat_id, data, filename=attachment.filename)
+```
+
 `Update` содержит `chat_id`, `chat_type` (`dm` / `channel`), `text`, `command`,
-`args`, `user`, `user_id`, `message_id`, `guild_id`.
+`args`, `user`, `user_id`, `message_id`, `guild_id`, `attachments` и удобные
+`is_command`, `is_direct`, `has_media`.
+
+`Attachment` — это `id`, `filename`, `content_type`, `file_size` плюс
+`is_image` / `is_video`.
+
+Полное описание протокола — [docs/BOT_API.md](../../docs/BOT_API.md).
 
 ## Что нужно знать
 

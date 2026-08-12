@@ -1,10 +1,14 @@
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
 from rest_framework.test import APIClient
 
 from sfera_auth.models import User
 from sfera_messages.models import (
-    Conversation, Guild, GuildChannel, GuildMembership, GuildMessage, Message,
+    Attachment, Conversation, ConversationParticipant, Guild, GuildChannel,
+    GuildMembership, GuildMessage, Message,
 )
+
+PNG_BYTES = b'\x89PNG\r\n\x1a\nbody'
 
 from .models import BotAccount, BotUpdate
 from .sferonik import SFERONIK_USERNAME, ensure_sferonik
@@ -351,3 +355,159 @@ class BotApiTests(TestCase):
         res = app_client(self.owner).get(f'/api/bots/{self.account.id}/flow/')
         self.assertEqual(res.json()['graph'], graph)
         self.assertEqual(res.json()['commands'][0]['command'], 'ping')
+
+
+class BotMediaAndContextTests(TestCase):
+    """Attachments, chat history, members and reactions."""
+
+    def setUp(self):
+        self.owner = User.objects.create_user(username='alice', password='x')
+        self.peer = User.objects.create_user(username='bob', password='x')
+        res = app_client(self.owner).post(
+            '/api/bots/', {'username': 'weather', 'display_name': 'Погода'}, format='json',
+        )
+        self.token = res.json()['token']
+        self.account = BotAccount.objects.get(id=res.json()['id'])
+        self.bot = app_client()
+        self.bot.credentials(HTTP_AUTHORIZATION=f'Bot {self.token}')
+        self.convo = outbound.dm_conversation_for(self.peer, self.account.user)
+
+    def _upload(self, chat_id, name='pic.png', body=PNG_BYTES):
+        return self.bot.post(
+            '/api/bots/api/upload/',
+            {
+                'chat_id': str(chat_id),
+                'file': SimpleUploadedFile(name, body, content_type='image/png'),
+            },
+            format='multipart',
+        )
+
+    def test_upload_then_send_attaches_the_file_and_the_bot_can_read_it_back(self):
+        up = self._upload(self.convo.id)
+        self.assertEqual(up.status_code, 201)
+        attachment_id = up.json()['id']
+
+        res = self.bot.post(
+            '/api/bots/api/send/',
+            {'chat_id': str(self.convo.id), 'attachment_ids': [attachment_id]},
+            format='json',
+        )
+        self.assertEqual(res.status_code, 201)
+        self.assertEqual(res.json()['attachments'][0]['id'], attachment_id)
+        # A bare photo with no caption is a valid message.
+        self.assertEqual(res.json()['content'], '')
+
+        self.assertIsNotNone(Attachment.objects.get(id=attachment_id).message_id)
+
+        # And the file comes back through the bot's own download route.
+        got = self.bot.get(f'/api/bots/api/file/{attachment_id}/')
+        self.assertEqual(got.status_code, 200)
+        self.assertEqual(got.content, PNG_BYTES)
+
+    def test_the_same_attachment_cannot_be_sent_twice(self):
+        attachment_id = self._upload(self.convo.id).json()['id']
+        body = {'chat_id': str(self.convo.id), 'attachment_ids': [attachment_id]}
+        self.assertEqual(self.bot.post('/api/bots/api/send/', body, format='json').status_code, 201)
+        self.assertEqual(self.bot.post('/api/bots/api/send/', body, format='json').status_code, 400)
+
+    def test_a_bot_cannot_download_a_file_from_a_chat_it_is_not_in(self):
+        stranger = User.objects.create_user(username='carol', password='x')
+        other = Conversation.objects.create()
+        ConversationParticipant.objects.create(conversation=other, user=self.peer)
+        ConversationParticipant.objects.create(conversation=other, user=stranger)
+        att = Attachment.objects.create(
+            conversation=other, uploader=self.peer, original_filename='secret.png',
+            content_type='image/png', file_size=3,
+        )
+        self.assertEqual(self.bot.get(f'/api/bots/api/file/{att.id}/').status_code, 404)
+
+    def test_an_incoming_photo_shows_up_in_updates(self):
+        msg = Message.objects.create(conversation=self.convo, author=self.peer)
+        msg.content = 'смотри'
+        msg.save()
+        Attachment.objects.create(
+            conversation=self.convo, uploader=self.peer, message=msg,
+            original_filename='cat.png', content_type='image/png', file_size=7,
+        )
+        outbound.dispatch_dm_message(msg)
+
+        update = self.bot.get('/api/bots/api/updates/').json()['updates'][0]
+        self.assertEqual(update['message']['attachments'][0]['filename'], 'cat.png')
+
+    def test_history_reads_the_chat_back_without_draining_updates(self):
+        for i in range(5):
+            m = Message.objects.create(conversation=self.convo, author=self.peer)
+            m.content = f'сообщение {i}'
+            m.save()
+
+        res = self.bot.get(f'/api/bots/api/history/?chat_id={self.convo.id}&limit=3')
+        self.assertEqual(res.status_code, 200)
+        # Newest three, oldest first.
+        self.assertEqual(
+            [m['content'] for m in res.json()['messages']],
+            ['сообщение 2', 'сообщение 3', 'сообщение 4'],
+        )
+
+        # Paging backwards from the oldest one returned.
+        first_id = res.json()['messages'][0]['id']
+        older = self.bot.get(f'/api/bots/api/history/?chat_id={self.convo.id}&before={first_id}')
+        self.assertEqual(
+            [m['content'] for m in older.json()['messages']],
+            ['сообщение 0', 'сообщение 1'],
+        )
+
+    def test_history_and_members_refuse_a_chat_the_bot_is_not_in(self):
+        other = Conversation.objects.create()
+        ConversationParticipant.objects.create(conversation=other, user=self.peer)
+        self.assertEqual(self.bot.get(f'/api/bots/api/history/?chat_id={other.id}').status_code, 404)
+        self.assertEqual(self.bot.get(f'/api/bots/api/members/?chat_id={other.id}').status_code, 404)
+
+    def test_members_of_a_dm_and_of_a_channel(self):
+        res = self.bot.get(f'/api/bots/api/members/?chat_id={self.convo.id}')
+        self.assertEqual(res.json()['chat_type'], 'dm')
+        self.assertEqual(
+            sorted(m['username'] for m in res.json()['members']),
+            ['bob', 'weather_bot'],
+        )
+
+        guild = Guild.objects.create(name='Клуб', owner=self.owner, invite_code='inv-media')
+        GuildMembership.objects.create(guild=guild, user=self.owner, role='owner')
+        channel = GuildChannel.objects.create(guild=guild, name='general')
+        app_client(self.owner).post(f'/api/bots/{self.account.id}/guilds/{guild.id}/')
+
+        res = self.bot.get(f'/api/bots/api/members/?chat_id={channel.id}')
+        self.assertEqual(res.json()['chat_type'], 'channel')
+        roles = {m['username']: m['role'] for m in res.json()['members']}
+        self.assertEqual(roles['alice'], 'owner')
+        self.assertEqual(roles['weather_bot'], 'member')
+
+    def test_react_toggles_on_a_channel_message_and_is_refused_in_a_dm(self):
+        guild = Guild.objects.create(name='Клуб', owner=self.owner, invite_code='inv-react')
+        GuildMembership.objects.create(guild=guild, user=self.owner, role='owner')
+        channel = GuildChannel.objects.create(guild=guild, name='general')
+        app_client(self.owner).post(f'/api/bots/{self.account.id}/guilds/{guild.id}/')
+        msg = GuildMessage.objects.create(channel=channel, author=self.owner)
+        msg.content = 'ага'
+        msg.save()
+
+        res = self.bot.post(
+            '/api/bots/api/react/', {'message_id': str(msg.id), 'emoji': '\U0001f44d'}, format='json',
+        )
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json()['reactions'][0]['emoji'], '\U0001f44d')
+
+        res = self.bot.post(
+            '/api/bots/api/react/',
+            {'message_id': str(msg.id), 'emoji': '\U0001f44d', 'remove': True},
+            format='json',
+        )
+        self.assertEqual(res.json()['reactions'], [])
+
+        # A DM message has no reactions to give.
+        dm = Message.objects.create(conversation=self.convo, author=self.peer)
+        dm.content = 'привет'
+        dm.save()
+        res = self.bot.post(
+            '/api/bots/api/react/', {'message_id': str(dm.id), 'emoji': '\U0001f44d'}, format='json',
+        )
+        self.assertEqual(res.status_code, 404)

@@ -9,8 +9,9 @@ client-side content filter).
 from django.db.models import Q
 
 from sfera_messages.models import (
-    Conversation, ConversationParticipant, Message,
-    GuildChannel, GuildMembership, GuildMessage,
+    Attachment, Conversation, ConversationParticipant, Message,
+    GuildAttachment, GuildChannel, GuildMembership, GuildMessage,
+    GuildMessageReaction,
 )
 from sfera_messages.encryption import encrypt_text
 from sfera_messages.views import _fanout, _fanout_user_notifs
@@ -27,6 +28,39 @@ def user_payload(u):
         'status': getattr(u, 'status', 'online'),
         'account_type': getattr(u, 'account_type', 'user'),
     }
+
+
+def client_attachment_payload(att, is_guild):
+    """Attachment as the *app* clients expect it, for the realtime fanout."""
+    base = '/api/guild-attachments/' if is_guild else '/api/attachments/'
+    return {
+        'id': str(att.id),
+        'filename': att.original_filename,
+        'content_type': att.content_type,
+        'file_size': att.file_size,
+        'url': f'{base}{att.id}/',
+    }
+
+
+def bot_attachment_payload(att):
+    """Attachment as a *bot* sees it.
+
+    Bots hold an API key, not a JWT, and the app download endpoints also sit
+    behind the X-Ionik-Client header — so they are pointed at the bot API's own
+    file route instead. The id is the same either way.
+    """
+    return {
+        'id': str(att.id),
+        'filename': att.original_filename,
+        'content_type': att.content_type,
+        'file_size': att.file_size,
+        'url': f'/api/bots/api/file/{att.id}/',
+    }
+
+
+def message_attachments(message, is_guild):
+    model = GuildAttachment if is_guild else Attachment
+    return [bot_attachment_payload(a) for a in model.objects.filter(message=message)]
 
 
 def ensure_contact(user, bot_user):
@@ -73,19 +107,38 @@ def dm_conversation_for(user_a, user_b, create=True):
     return convo
 
 
-def send_dm(bot_user, conversation, content, reply_to=None):
+def _claim(model, bot_user, attachment_ids, message, **scope):
+    """Attach previously uploaded files to the message that now carries them.
+
+    Only the bot's own unclaimed uploads inside the same chat are eligible, so
+    a bot cannot re-post someone else's file by guessing an id.
+    """
+    if not attachment_ids:
+        return []
+    qs = model.objects.filter(
+        id__in=attachment_ids, uploader=bot_user, message__isnull=True, **scope,
+    )
+    rows = list(qs)
+    if len(rows) != len(set(str(i) for i in attachment_ids)):
+        raise ValueError('invalid attachment')
+    qs.update(message=message)
+    return rows
+
+
+def send_dm(bot_user, conversation, content, reply_to=None, attachment_ids=None):
     msg = Message.objects.create(
         conversation=conversation,
         author=bot_user,
         encrypted_content=encrypt_text(content),
         reply_to=reply_to,
     )
+    files = _claim(Attachment, bot_user, attachment_ids, msg, conversation=conversation)
     payload = {
         'id': str(msg.id),
         'author': user_payload(bot_user),
         'content': content,
         'created_at': msg.created_at.isoformat(),
-        'attachments': [],
+        'attachments': [client_attachment_payload(a, False) for a in files],
         'reply_to': (
             {
                 'id': str(reply_to.id),
@@ -103,19 +156,25 @@ def send_dm(bot_user, conversation, content, reply_to=None):
             'type': 'new_message_notification',
             'sender_id': str(bot_user.id),
             'sender_name': bot_user.nickname or bot_user.username,
-            'content': content,
+            'content': content or ('\U0001f4ce Attachment' if files else ''),
         },
     )
-    return msg, payload
+    return msg, _bot_view_of(payload, files)
 
 
-def send_channel(bot_user, channel, content, reply_to=None):
+def _bot_view_of(payload, files):
+    """The same message, with attachment URLs a bot can actually fetch."""
+    return {**payload, 'attachments': [bot_attachment_payload(a) for a in files]}
+
+
+def send_channel(bot_user, channel, content, reply_to=None, attachment_ids=None):
     msg = GuildMessage.objects.create(
         channel=channel,
         author=bot_user,
         encrypted_content=encrypt_text(content),
         reply_to=reply_to,
     )
+    files = _claim(GuildAttachment, bot_user, attachment_ids, msg, channel=channel)
     payload = {
         'id': str(msg.id),
         'author': user_payload(bot_user),
@@ -131,13 +190,13 @@ def send_channel(bot_user, channel, content, reply_to=None):
                 'author': {'id': str(reply_to.author.id), 'username': reply_to.author.username},
             } if reply_to else None
         ),
-        'attachments': [],
+        'attachments': [client_attachment_payload(a, True) for a in files],
         'reactions': [],
         'views': 0,
         'comments_count': 0,
     }
     _fanout(f'guild_channel_{channel.id}', {'type': 'chat_message', 'message': payload}, payload)
-    return msg, payload
+    return msg, _bot_view_of(payload, files)
 
 
 def edit_message(bot_user, message_id, text):
@@ -257,6 +316,7 @@ def _message_update(message, chat_type):
             'content': message.content,
             'created_at': message.created_at.isoformat(),
             'from': user_payload(message.author),
+            'attachments': message_attachments(message, chat_type == 'channel'),
         },
     }
     if chat_type == 'dm':
@@ -285,3 +345,99 @@ def resolve_chat(bot_user, chat_id):
     ).exists():
         return 'channel', channel
     return None, None
+
+
+# ── reading a chat back ───────────────────────────────────────────────────────
+
+
+def history(kind, target, limit, before=None):
+    """The newest `limit` messages, oldest first.
+
+    `before` is a message id: only messages older than it are returned, which
+    is how a bot walks backwards through a long conversation one page at a
+    time. An unknown id is ignored rather than treated as an error, so a bot
+    paging past the start of a chat simply gets an empty list.
+    """
+    is_guild = kind == 'channel'
+    model = GuildMessage if is_guild else Message
+    scope = {'channel': target} if is_guild else {'conversation': target}
+    qs = model.objects.filter(**scope).select_related('author')
+
+    if before:
+        anchor = model.objects.filter(id=before, **scope).first()
+        if anchor is not None:
+            qs = qs.filter(created_at__lt=anchor.created_at)
+
+    rows = list(qs.order_by('-created_at')[:limit])
+    rows.reverse()
+    return [
+        {
+            'id': str(m.id),
+            'content': m.content,
+            'created_at': m.created_at.isoformat(),
+            'edited': m.edited,
+            'from': user_payload(m.author),
+            'attachments': message_attachments(m, is_guild),
+        }
+        for m in rows
+    ]
+
+
+def members(kind, target):
+    """Who is in the chat. A DM has exactly two sides; a channel has the guild."""
+    if kind == 'dm':
+        return [user_payload(u) for u in target.participants.all()]
+    user_ids = GuildMembership.objects.filter(guild_id=target.guild_id).select_related('user')
+    return [{**user_payload(m.user), 'role': m.role} for m in user_ids]
+
+
+def react(bot_user, message_id, emoji, remove=False):
+    """Add or drop one of the bot's reactions on a channel message.
+
+    Returns the aggregated reaction list, or None when the message is not one
+    the bot can see. DMs have no reactions in the data model, so this is
+    channel-only.
+    """
+    from sfera_messages.views import _aggregate_reactions
+
+    msg = (
+        GuildMessage.objects
+        .select_related('channel')
+        .filter(id=message_id)
+        .first()
+    )
+    if msg is None or not GuildMembership.objects.filter(
+        guild_id=msg.channel.guild_id, user=bot_user,
+    ).exists():
+        return None
+
+    existing = GuildMessageReaction.objects.filter(message=msg, user=bot_user)
+    if remove:
+        existing.filter(emoji=emoji).delete()
+    elif not existing.filter(emoji=emoji).exists():
+        # Same cap as a human: three distinct reactions per message.
+        if existing.count() >= 3:
+            raise ValueError('reaction limit reached')
+        GuildMessageReaction.objects.create(message=msg, user=bot_user, emoji=emoji)
+
+    reactions = _aggregate_reactions(msg.reactions.all(), bot_user)
+    evt = {'type': 'reaction_update', 'message_id': str(msg.id), 'reactions': reactions}
+    _fanout(f'guild_channel_{msg.channel_id}', evt, evt)
+    return reactions
+
+
+def visible_attachment(bot_user, attachment_id):
+    """An attachment the bot is entitled to download, or None.
+
+    Entitlement is chat membership, exactly as for a person: a DM the bot takes
+    part in, or a channel in a guild the bot belongs to.
+    """
+    att = Attachment.objects.filter(
+        id=attachment_id, conversation__participants=bot_user,
+    ).first()
+    if att is not None:
+        return att
+    guild_ids = GuildMembership.objects.filter(user=bot_user).values_list('guild_id', flat=True)
+    return GuildAttachment.objects.filter(
+        id=attachment_id, channel__guild_id__in=list(guild_ids),
+    ).first()

@@ -12,7 +12,7 @@ import unittest
 from django.test import LiveServerTestCase
 
 from sfera_auth.models import User
-from sfera_messages.models import Message
+from sfera_messages.models import Attachment, Message
 
 from . import outbound
 from .models import BotAccount, BotUpdate
@@ -103,3 +103,49 @@ class PythonSdkTests(LiveServerTestCase):
 
     def test_bot_account_is_marked_as_bot(self):
         self.assertEqual(BotAccount.objects.get(id=self.account.id).user.account_type, 'bot')
+
+    def test_send_file_uploads_and_posts_it_and_download_reads_it_back(self):
+        peer = User.objects.create_user(username='bob', password='x')
+        convo = outbound.dm_conversation_for(peer, self.account.user)
+
+        blob = b'\x89PNG\r\n\x1a\nhello'
+        sent = self.bot.send_file(convo.id, blob, caption='держи', filename='cat.png')
+        self.assertEqual(sent['content'], 'держи')
+        attachment_id = sent['attachments'][0]['id']
+
+        self.assertEqual(Attachment.objects.get(id=attachment_id).original_filename, 'cat.png')
+        self.assertEqual(self.bot.download(attachment_id), blob)
+
+    def test_history_and_members_read_the_chat_back(self):
+        peer = User.objects.create_user(username='bob', password='x')
+        convo = outbound.dm_conversation_for(peer, self.account.user)
+        for text in ('первое', 'второе'):
+            m = Message.objects.create(conversation=convo, author=peer)
+            m.content = text
+            m.save()
+
+        self.assertEqual(
+            [m['content'] for m in self.bot.history(convo.id)],
+            ['первое', 'второе'],
+        )
+        self.assertEqual(
+            sorted(m['username'] for m in self.bot.members(convo.id)),
+            ['bob', 'weather_bot'],
+        )
+
+    def test_an_incoming_photo_arrives_as_an_attachment(self):
+        peer = User.objects.create_user(username='bob', password='x')
+        convo = outbound.dm_conversation_for(peer, self.account.user)
+        incoming = Message.objects.create(conversation=convo, author=peer)
+        incoming.content = 'смотри'
+        incoming.save()
+        Attachment.objects.create(
+            conversation=convo, uploader=peer, message=incoming,
+            original_filename='cat.png', content_type='image/png', file_size=5,
+        )
+        outbound.dispatch_dm_message(incoming)
+
+        update = self.bot.poll()[0]
+        self.assertTrue(update.has_media)
+        self.assertTrue(update.attachments[0].is_image)
+        self.assertEqual(update.attachments[0].filename, 'cat.png')

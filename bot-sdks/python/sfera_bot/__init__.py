@@ -11,6 +11,6 @@
     bot.run()
 """
 
-from .client import Bot, BotError, Chat, Command, Update, __version__
+from .client import Attachment, Bot, BotError, Chat, Command, Update, __version__
 
-__all__ = ['Bot', 'BotError', 'Chat', 'Command', 'Update', '__version__']
+__all__ = ['Attachment', 'Bot', 'BotError', 'Chat', 'Command', 'Update', '__version__']

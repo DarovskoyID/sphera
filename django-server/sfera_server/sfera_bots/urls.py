@@ -25,4 +25,9 @@ urlpatterns = [
     path('api/edit/', views.edit),
     path('api/delete/', views.delete),
     path('api/chats/', views.chats),
+    path('api/history/', views.history),
+    path('api/members/', views.members),
+    path('api/react/', views.react),
+    path('api/upload/', views.upload),
+    path('api/file/<uuid:attachment_id>/', views.file),
 ]
