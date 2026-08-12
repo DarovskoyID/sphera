@@ -57,6 +57,11 @@ export const defaultCensorConfig: CensorConfig = {
 let cached: CensorConfig | null = null;
 const listeners = new Set<() => void>();
 
+// Bumped whenever anything that can change a verdict changes: the settings, or
+// who counts as a friend. Cached results carry the epoch they were computed
+// under, so a stale one is never handed back — no cache needs clearing.
+let epoch = 0;
+
 function read(): CensorConfig {
   try {
     const raw = localStorage.getItem(KEY);
@@ -77,6 +82,7 @@ export function saveCensorConfig(partial: Partial<CensorConfig>) {
   // Skip a churn-y re-render/save when nothing actually changed.
   if (cached && (Object.keys(next) as (keyof CensorConfig)[]).every(k => next[k] === cached![k])) return;
   cached = next;
+  epoch++;
   try { localStorage.setItem(KEY, JSON.stringify(next)); } catch { /* ignore */ }
   listeners.forEach(fn => fn());
 }
@@ -121,6 +127,7 @@ export function setCensorAudience(currentUserId: string, friends: string[]) {
   if (same && String(currentUserId) === selfId) return;
   friendIds = next;
   selfId = String(currentUserId);
+  epoch++;
   listeners.forEach(fn => fn());
 }
 
@@ -193,6 +200,9 @@ function fold(s: string): string {
  * on their canonical form.
  */
 function variants(s: string): [string, string] {
+  const hit = variantCache.get(s);
+  if (hit) return hit;
+
   const base = fold(s);
   let cyr = '';
   let lat = '';
@@ -203,7 +213,27 @@ function variants(s: string): [string, string] {
   }
   // Collapse doubles too — evasion by letter doubling ("сууука" survives the
   // 3+ collapse above as "суука") should still land on the root.
-  return [cyr.replace(/(.)\1+/gu, '$1'), lat.replace(/(.)\1+/gu, '$1')];
+  const out: [string, string] = [cyr.replace(/(.)\1+/gu, '$1'), lat.replace(/(.)\1+/gu, '$1')];
+  remember(variantCache, s, out, 4000);
+  return out;
+}
+
+// Folding is pure and the same handful of words come round again and again —
+// every token of every visible message, once per active list. It is the single
+// hottest thing in the render path, so the result is kept.
+const variantCache = new Map<string, [string, string]>();
+
+/**
+ * Insert into a bounded cache, evicting the oldest entry once it is full.
+ * A Map iterates in insertion order, which is enough of an LRU here: these
+ * caches exist to survive a burst of re-renders, not to model long-term use.
+ */
+function remember<K, V>(cache: Map<K, V>, key: K, value: V, limit: number) {
+  if (cache.size >= limit) {
+    const oldest = cache.keys().next();
+    if (!oldest.done) cache.delete(oldest.value);
+  }
+  cache.set(key, value);
 }
 
 // ── fuzzy matching ───────────────────────────────────────────────────────────
@@ -350,12 +380,35 @@ function activePhraseRes(cfg: CensorConfig): RegExp[] {
 
 const MAX_SCAN = 4000; // guard against pathological input
 
+// ── result caches ────────────────────────────────────────────────────────────
+// Both entry points run on every render of every visible message, and the work
+// is not cheap: tokenizing, folding, and fuzzy-matching against several hundred
+// keywords. The text of a message never changes, so the answer is kept against
+// the config epoch it was computed under.
+
+interface Cached<T> { epoch: number; value: T }
+
+const fullBlurCache = new Map<string, Cached<boolean>>();
+const maskCache = new Map<string, Cached<string>>();
+
+function cacheKey(text: string, authorId?: string): string {
+  // The author id is a uuid, so a '/' cannot appear in it and the two parts
+  // can never run together in a way that lets two different inputs collide.
+  return `${authorId ?? ''}/${text}`;
+}
+
 /** True when the whole message should be masked (disable-the-filter appeals). */
 export function isFullBlur(text: string, cfg: CensorConfig = getCensorConfig()): boolean {
   if (!cfg.blur_enabled || !cfg.blur_disable_requests || !text) return false;
+
+  const hit = fullBlurCache.get(text);
+  if (hit && hit.epoch === epoch) return hit.value;
+
   // Strip every separator: defeats "о т к л ю ч и", "от-клю-чи", "от_клю_чи".
   const flat = text.slice(0, MAX_SCAN).replace(/[^\p{L}\p{N}]+/gu, '');
-  return hits(flat, DISABLE_VERBS) && hits(flat, DISABLE_NOUNS);
+  const value = hits(flat, DISABLE_VERBS) && hits(flat, DISABLE_NOUNS);
+  remember(fullBlurCache, text, { epoch, value }, 2000);
+  return value;
 }
 
 /** Replace the whole message with asterisks, keeping its whitespace shape. */
@@ -423,6 +476,11 @@ function maskRange(chars: string[], start: number, end: number) {
  */
 export function censorToSentinel(text: string, cfg: CensorConfig = getCensorConfig(), authorId?: string): string {
   if (!cfg.blur_enabled || !text) return text;
+
+  const key = cacheKey(text, authorId);
+  const hit = maskCache.get(key);
+  if (hit && hit.epoch === epoch) return hit.value;
+
   const lists = activeLists(cfg, authorId);
   // Split per UTF-16 unit, not per code point: `tokenize` and the phrase
   // regexes both report UTF-16 offsets, and indexing a code-point array with
@@ -480,7 +538,9 @@ export function censorToSentinel(text: string, cfg: CensorConfig = getCensorConf
     }
   }
 
-  return chars.join('');
+  const value = chars.join('');
+  remember(maskCache, key, { epoch, value }, 2000);
+  return value;
 }
 
 /**

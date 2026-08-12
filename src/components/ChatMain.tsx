@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback, useLayoutEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useLayoutEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { Phone, PhoneOff, PhoneIncoming, PhoneMissed, Video, Search, Menu, ArrowLeft, Plus, Send, FileText, FileImage, FileVideo, FileAudio, File, Download, X, MoreHorizontal, Reply, Copy, Trash2, Flag, Pin, Ban, Check, CheckCheck, ChevronUp, ChevronDown, Mic, Circle, Play, Square, Pause, CheckSquare, MapPin, Pencil, Clock, User as UserIcon } from 'lucide-react';
 import { MessageEditModal } from './MessageEditModal';
@@ -1561,9 +1561,13 @@ const MessagesContainer: React.FC<{
   // Text edits happen inline in the composer (lifted to ChatView); only to-do
   // lists open the structured editor here.
   const [editingTodo, setEditingTodo] = useState<ChatMessageType | null>(null);
-  const filteredMessages = searchQuery.trim()
-    ? chatMessages.filter(m => m.content?.toLowerCase().includes(searchQuery.toLowerCase()))
-    : chatMessages;
+  // Memoised so the array identity is stable: without it every render of this
+  // component handed a brand-new array to the list below, and the memoised
+  // MessageRows all re-rendered even when nothing about them had changed.
+  const filteredMessages = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    return q ? chatMessages.filter(m => m.content?.toLowerCase().includes(q)) : chatMessages;
+  }, [chatMessages, searchQuery]);
   const tr = useTranslation();
   const containerRef = useRef<HTMLDivElement>(null);
   const wasAtBottom = useRef(true);
