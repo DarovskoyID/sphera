@@ -10,6 +10,7 @@ import { useApp, reportError } from '../context/AppContext';
 import { useTranslation } from '../i18n/useTranslation';
 import { MessageText, CensoredPlainText } from './EmojiPicker';
 import { BlurredMedia } from './BlurredMedia';
+import { isBot } from './BotBadge';
 import { ListSkeleton, MediaSkeleton, Skeleton } from './Skeleton';
 import { getDraftText, setDraftText, getDraftFiles, setDraftFiles, clearDraft } from '../utils/drafts';
 import { pickRecorderFormat, mediaUnsupportedReason, describeMediaError } from '../utils/recording';
@@ -478,6 +479,11 @@ function PostCard({ msg, guild, serverIP, onEdit }: { msg: import('../types').Gu
   const reactions = msg.reactions || [];
   const isOptimistic = msg.id.startsWith('optimistic-');
   const isOwner = currentUser && guild.owner_id === currentUser.id;
+  // Owning the channel is not the same as having written the post. Editing is
+  // the author's own act, so a bot's post — or anyone else's — is not editable
+  // here; the server refuses it either way, and the button only promised
+  // something that could not happen.
+  const canEditPost = !!currentUser && String(msg.author?.id) === String(currentUser.id) && !isBot(msg.author);
 
   // Register a view once when the post first renders (optimistic, deduped server-side per user)
   useEffect(() => {
@@ -551,7 +557,7 @@ function PostCard({ msg, guild, serverIP, onEdit }: { msg: import('../types').Gu
           <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--text-primary)' }}>{guild.name}</div>
           <div style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>{formatDate(msg.created_at, tr as (k: string) => string)}{msg.edited && ` · ${tr('msg_edited')}`}</div>
         </div>
-        {isOwner && !isOptimistic && onEdit && (!msg.message_type || msg.message_type === 'text' || msg.message_type === 'todo') && (
+        {canEditPost && !isOptimistic && onEdit && (!msg.message_type || msg.message_type === 'text' || msg.message_type === 'todo') && (
           <button
             onClick={() => onEdit(msg)}
             title={tr('chat_edit')}

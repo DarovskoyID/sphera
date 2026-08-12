@@ -516,6 +516,9 @@ def delete_message(request, message_id):
             msg = Message.objects.get(id=message_id, author=request.user)
         except Message.DoesNotExist:
             return Response({'error': 'not found or not your message'}, status=status.HTTP_404_NOT_FOUND)
+        if _is_bot_message(msg):
+            return Response({'error': 'bot messages are edited through the bot API'},
+                            status=status.HTTP_403_FORBIDDEN)
         try:
             payload = _apply_message_edit(msg, request.data)
         except RichError as exc:
@@ -1664,6 +1667,9 @@ def guild_message_delete(request, guild_id, message_id):
         # Editing content is the author's own action (unlike delete, which mods may do).
         if msg.author_id != request.user.id:
             return Response({'error': 'forbidden'}, status=status.HTTP_403_FORBIDDEN)
+        if _is_bot_message(msg):
+            return Response({'error': 'bot messages are edited through the bot API'},
+                            status=status.HTTP_403_FORBIDDEN)
         try:
             payload = _apply_message_edit(msg, request.data)
         except RichError as exc:
@@ -2379,6 +2385,18 @@ def _broadcast_message(group, msg_payload):
     (the consumer re-sends event['message']), while gateway clients must get the
     raw payload. Same convention as send_message / guild_channel_send."""
     _fanout(group, {'type': 'chat_message', 'message': msg_payload}, msg_payload)
+
+
+def _is_bot_message(msg):
+    """Was this written by a bot account?
+
+    Bots edit their own messages through the bot API, where the key proves who
+    is asking. The ordinary edit endpoints already require you to be the author,
+    so this only bites if someone signs into a bot account through the web UI —
+    which is exactly the hole worth closing, because a bot's words should stay
+    the bot's.
+    """
+    return getattr(msg.author, 'account_type', 'user') == 'bot'
 
 
 def _apply_message_edit(msg, data):

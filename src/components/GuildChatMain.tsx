@@ -3,7 +3,7 @@ import { Hash, Send, Pin, Trash2, CornerUpLeft, Plus, MoreHorizontal, X, Downloa
 import { MessageEditModal } from './MessageEditModal';
 import { RichMessage } from './RichMessage';
 import { RichComposer } from './RichComposer';
-import { AccountBadge, accountDisplayName } from './BotBadge';
+import { AccountBadge, accountDisplayName, isBot } from './BotBadge';
 import { BotCommandsButton } from './BotCommandsButton';
 import type { RichMessageType, RichPayload } from '../types';
 import { useApp, reportError } from '../context/AppContext';
@@ -201,7 +201,8 @@ const GuildMessageContextMenu: React.FC<{
     <div ref={ref} style={style}>
       {item(<User size={15} />, tr('guild_view_profile'), () => onProfile(menu.msg))}
       {item(<Reply size={15} />, tr('chat_reply'), () => onReply(menu.msg))}
-      {isOwn && (!menu.msg.message_type || menu.msg.message_type === 'text' || menu.msg.message_type === 'todo') &&
+      {/* A bot's own words are the bot's; nobody edits them from the UI. */}
+      {isOwn && !isBot(menu.msg.author) && (!menu.msg.message_type || menu.msg.message_type === 'text' || menu.msg.message_type === 'todo') &&
         item(<Pencil size={15} />, tr('chat_edit'), () => onEdit(menu.msg))}
       {item(<Copy size={15} />, tr('chat_copy_text'), () => onCopy(menu.msg.content))}
       {canPin && item(<Pin size={15} />, menu.msg.is_pinned ? tr('chat_unpin_msg') : tr('chat_pin'), () => onPin(menu.msg.id))}

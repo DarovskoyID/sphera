@@ -9,7 +9,7 @@ import { CallWindow } from './CallWindow';
 import { useTranslation } from '../i18n/useTranslation';
 import { RichMessage } from './RichMessage';
 import { RichComposer } from './RichComposer';
-import { AccountBadge, accountDisplayName } from './BotBadge';
+import { AccountBadge, accountDisplayName, isBot } from './BotBadge';
 import { BotCommandsButton } from './BotCommandsButton';
 import type { RichMessageType, RichPayload } from '../types';
 
@@ -1239,7 +1239,8 @@ const MessageContextMenu: React.FC<{
   return portal(
     <div ref={ref} style={style}>
       {item(<Reply size={15} />, tr('chat_reply'), () => onReply(menu.msg))}
-      {isOwn && (!menu.msg.message_type || menu.msg.message_type === 'text' || menu.msg.message_type === 'todo') &&
+      {/* A bot's own words are the bot's; nobody edits them from the UI. */}
+      {isOwn && !isBot(menu.msg.author) && (!menu.msg.message_type || menu.msg.message_type === 'text' || menu.msg.message_type === 'todo') &&
         item(<Pencil size={15} />, tr('chat_edit'), () => onEdit(menu.msg))}
       {item(<Copy size={15} />, tr('chat_copy_text'), () => onCopy(menu.msg.content))}
       {item(<Pin size={15} />, menu.msg.is_pinned ? tr('chat_unpin_msg') : tr('chat_pin'), () => onPin(menu.msg.id))}
