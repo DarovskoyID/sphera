@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Sun, Moon, Search, Menu, UserPlus, Check, X, LogOut,
   Phone, Video, Ban, BellOff, Copy, Trash2, UserMinus, Volume2, PhoneOff,

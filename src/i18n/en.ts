@@ -84,7 +84,6 @@ export const en = {
   call_video_playing: 'video playing',
   call_video_enabled: 'video enabled',
   call_video_disabled: 'video disabled',
-  call_video_off: 'Video disabled',
   call_remote_video_off: 'Participant has video disabled',
   call_msg_completed: 'Call ended',
   call_msg_missed: 'Missed call',

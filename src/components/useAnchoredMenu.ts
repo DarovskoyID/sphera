@@ -32,8 +32,12 @@ interface Anchor {
 }
 
 export interface AnchoredMenu {
-  /** Attach to the menu element. */
-  ref: React.RefObject<HTMLDivElement | null>;
+  /**
+   * Attach to the menu element. Typed non-nullable to match what `ref={}`
+   * accepts under the React 18 types this project uses — `useRef<T>(null)`
+   * already produces exactly that.
+   */
+  ref: React.RefObject<HTMLDivElement>;
   /** Position, size cap and overflow — spread onto the menu's own style. */
   style: React.CSSProperties;
   /** Wrap the menu element in this to escape any transformed ancestor. */

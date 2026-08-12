@@ -18,7 +18,16 @@ export const languages: Record<LangCode, string> = {
   pt: 'Português',
 };
 
-export type Translations = typeof en;
+/**
+ * The set of keys every locale must provide, each mapped to a string.
+ *
+ * Deliberately not `typeof en`: that types every entry as the *literal* English
+ * text, so `auth_login: 'Логин'` is an error because it is not `'Login'`. Every
+ * translated line in every locale failed that way — over two thousand errors,
+ * which is why `npm run typecheck` was unusable and real mistakes hid among
+ * them. Keys are still checked exactly; only the values are free.
+ */
+export type Translations = Record<keyof typeof en, string>;
 
 const all: Record<LangCode, Translations> = { en, ru, es, zh, fr, de, pt };
 

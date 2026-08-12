@@ -3245,7 +3245,9 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
 
   const setCurrentChat = (chatId: string) => {
     setState(prev => {
-      const next = {
+      // Annotated: pulling the object out of the setState call loses the
+      // contextual typing, and 'home' would widen from ViewType to string.
+      const next: AppState = {
         ...prev,
         currentChat: chatId,
         currentView: 'home',
