@@ -13,7 +13,10 @@
   position: fixed;
   inset: 0;
   display: grid;
-  place-items: center;
+  /* `safe` matters: a plain centered item that outgrows the viewport overflows
+     equally in both directions, and the part above the start edge cannot be
+     scrolled to. Safe centring falls back to start alignment exactly then. */
+  place-items: safe center;
   overflow: hidden;
   background: var(--auth-bg);
   color: var(--text-primary);
@@ -193,21 +196,52 @@ body:not(.dark-theme) .auth-ring { border-color: rgba(0, 0, 0, 0.08); }
 
 /* ── layout ────────────────────────────────────────────────────────────── */
 
+/*
+ * Two elements, two jobs.
+ *
+ * The card grows when the server picker or the sign-up fields open, and the
+ * scene behind it is `overflow: hidden` — so the form used to run off the
+ * bottom of the screen with no way to reach it. Making the centring grid do
+ * the scrolling does not fix that: a centred item taller than its row
+ * overflows in BOTH directions, and the part above the start edge cannot be
+ * scrolled to at all.
+ *
+ * So `.auth-stage` only scrolls, and `.auth-inner` only lays out. Its
+ * `min-height: 100%` is what makes both cases work: short content is centred
+ * inside a full-height box, tall content simply makes the box taller and the
+ * scroller takes over.
+ */
 .auth-stage {
-  position: relative;
+  position: absolute;
+  inset: 0;
   z-index: 1;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.auth-inner {
+  min-height: 100%;
+  box-sizing: border-box;
   width: min(980px, 100%);
+  margin: 0 auto;
   padding: 24px;
   display: grid;
   grid-template-columns: 1fr minmax(340px, 400px);
   align-items: center;
   gap: 56px;
-  box-sizing: border-box;
 }
+
+/* The scroll lives on the stage, so its bar should not straddle the hero. */
+.auth-stage::-webkit-scrollbar { width: 8px; }
+.auth-stage::-webkit-scrollbar-thumb {
+  background: rgba(127, 127, 127, 0.35);
+  border-radius: 4px;
+}
+.auth-stage::-webkit-scrollbar-track { background: transparent; }
 
 /* One column below the point where the hero would squeeze the form. */
 @media (max-width: 900px) {
-  .auth-stage {
+  .auth-inner {
     grid-template-columns: minmax(0, 420px);
     justify-content: center;
     gap: 28px;

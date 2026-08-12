@@ -143,6 +143,7 @@ export const AuthScreen = () => {
       <AuthBackdrop />
 
       <div className="auth-stage">
+        <div className="auth-inner">
         <section className="auth-hero">
           <div className="auth-hero-mark">
             <span className="auth-hero-logo">
@@ -297,6 +298,7 @@ export const AuthScreen = () => {
               </div>
             )}
           </div>
+        </div>
         </div>
       </div>
     </div>
