@@ -10,6 +10,16 @@
   overflow: hidden;
 }
 
+/* Full-screen tool (the bot node editor). Its edges are set here rather than
+   inline because the bottom one changes on mobile — see the dock note below. */
+.bot-studio-shell {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+}
+
 
 /* ================================
    UTILITY CLASSES
@@ -74,6 +84,19 @@
     padding: 0 var(--spacing-sm);
     overflow-x: auto;
     overflow-y: hidden;
+  }
+
+  /*
+   * Full-screen tools have to stop above the dock.
+   *
+   * The dock is fixed at the bottom with z-index 100; a tool at `inset: 0`
+   * sits under it, so its last 60px are covered. Nothing looks clipped —
+   * there is no scrollbar to reach, because the content does fit its box; the
+   * box is simply behind the dock. That is what hid the node inspector's
+   * lower half and its delete button.
+   */
+  .bot-studio-shell {
+    bottom: calc(60px + env(safe-area-inset-bottom, 0px));
   }
 
   .server-sidebar .server-list {

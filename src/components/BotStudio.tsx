@@ -684,8 +684,10 @@ const Shell: React.FC<{
   onClose: () => void;
   children: React.ReactNode;
 }> = ({ title, actions, onClose, children }) => (
-  <div style={{
-    position: 'fixed', inset: 0, zIndex: 50, display: 'flex', flexDirection: 'column',
+  // Positioning lives in the stylesheet: on mobile the bottom edge has to clear
+  // the dock, and an inline `inset: 0` would always win over that rule.
+  <div className="bot-studio-shell" style={{
+    zIndex: 50, display: 'flex', flexDirection: 'column',
     background: 'var(--bg-primary, #1e1f22)',
   }}>
     <div style={{
