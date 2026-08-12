@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useCallback, useLayoutEffect, useMemo } from 'react';
+import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { Hash, Send, Pin, Trash2, CornerUpLeft, Plus, MoreHorizontal, X, Download, FileText, FileImage, FileVideo, FileAudio, File, ChevronLeft, ChevronDown, Reply, Copy, Flag, Clock, Ban, UserX, VolumeX, Volume1, User, BarChart3, CheckSquare, MapPin, Pencil } from 'lucide-react';
 import { MessageEditModal } from './MessageEditModal';
 import { RichMessage } from './RichMessage';
@@ -15,6 +15,7 @@ import { ProfileModal, type ProfileUser } from './ProfileModal';
 import ConfirmModal from './ConfirmModal';
 import { getDraftText, setDraftText, getDraftFiles, setDraftFiles } from '../utils/drafts';
 import type { GuildMessage, GuildMember, GuildRole } from '../types';
+import { useAnchoredMenu } from './useAnchoredMenu';
 
 const MAX_FILES = 10;
 
@@ -164,45 +165,20 @@ const GuildMessageContextMenu: React.FC<{
   authorMutedUntil?: string | null;
 }> = ({ menu, isOwn, myRole, authorRole, onClose, onReply, onEdit, onDelete, onPin, onCopy, onProfile, onKick, onBlock, onMute, onUnmute, authorMutedUntil }) => {
   const tr = useTranslation();
-  const ref = useRef<HTMLDivElement>(null);
+  const { ref, style: position, portal } = useAnchoredMenu(menu, onClose);
 
   const isAdmin = myRole === 'owner' || myRole === 'admin';
   const canManageAuthor = isAdmin && !isOwn && authorRole !== 'owner' && !(myRole === 'admin' && authorRole === 'admin');
   const canPin = isAdmin;
   const canDelete = isOwn || isAdmin;
 
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [onClose]);
-
-  const [adjustedPos, setAdjustedPos] = useState({ x: menu.x, y: menu.y });
-  useLayoutEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const { width, height } = el.getBoundingClientRect();
-    const vw = window.innerWidth;
-    const vh = window.innerHeight - 68;
-    setAdjustedPos({
-      x: Math.min(Math.max(menu.x, 8), vw - width - 8),
-      y: Math.min(Math.max(menu.y, 8), vh - height),
-    });
-  }, [menu.x, menu.y]);
-
   const style: React.CSSProperties = {
-    position: 'fixed',
-    top: adjustedPos.y,
-    left: adjustedPos.x,
-    zIndex: 9000,
+    ...position,
     background: 'var(--bg-primary, #1a1a2e)',
     border: '1px solid var(--border-color, #333)',
     borderRadius: 10,
     boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
     minWidth: 180,
-    overflow: 'hidden',
     padding: '4px 0',
   };
 
@@ -226,7 +202,7 @@ const GuildMessageContextMenu: React.FC<{
 
   const sep = <div style={{ height: 1, background: 'var(--border-color)', margin: '4px 0' }} />;
 
-  return (
+  return portal(
     <div ref={ref} style={style}>
       {item(<User size={15} />, tr('guild_view_profile'), () => onProfile(menu.msg))}
       {item(<Reply size={15} />, tr('chat_reply'), () => onReply(menu.msg))}

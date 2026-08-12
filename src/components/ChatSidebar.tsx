@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback, useLayoutEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Sun, Moon, Search, Menu, UserPlus, Check, X, LogOut,
   Phone, Video, Ban, BellOff, Copy, Trash2, UserMinus, Volume2, PhoneOff,
@@ -8,6 +8,7 @@ import { useTranslation } from '../i18n/useTranslation';
 import ConfirmModal from './ConfirmModal';
 import type { ServerUser } from '../types';
 import { AccountBadge, accountDisplayName } from './BotBadge';
+import { useAnchoredMenu } from './useAnchoredMenu';
 
 // ── Mobile detection ─────────────────────────────────────────────────────────
 
@@ -301,28 +302,7 @@ const FriendContextMenu: React.FC<{
   const [showDeleteDialogConfirm, setShowDeleteDialogConfirm] = useState(false);
   const [deleteLoginInput, setDeleteLoginInput] = useState('');
   const tr = useTranslation();
-  const ref = useRef<HTMLDivElement>(null);
-  const [adjustedPos, setAdjustedPos] = useState({ x: ctx?.x ?? 0, y: ctx?.y ?? 0 });
-
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [onClose]);
-
-  useLayoutEffect(() => {
-    const el = ref.current;
-    if (!el || !ctx) return;
-    const { width, height } = el.getBoundingClientRect();
-    const vw = window.innerWidth;
-    const vh = window.innerHeight - 68;
-    setAdjustedPos({
-      x: Math.min(Math.max(ctx.x, 8), vw - width - 8),
-      y: Math.min(Math.max(ctx.y, 8), vh - height),
-    });
-  }, [ctx?.x, ctx?.y]);
+  const { ref, style: position, portal } = useAnchoredMenu(ctx, onClose);
 
   if (!ctx) return null;
   const { friend } = ctx;
@@ -399,7 +379,7 @@ const FriendContextMenu: React.FC<{
   const isMuted = getMuteExpiry(friend.id) > Date.now();
 
   const s: React.CSSProperties = {
-    position: 'fixed', top: adjustedPos.y, left: adjustedPos.x,
+    ...position,
     zIndex: 9100,
     background: 'var(--bg-primary)',
     border: '1px solid var(--border-color)',
@@ -417,7 +397,7 @@ const FriendContextMenu: React.FC<{
   const h = (e: React.MouseEvent<HTMLButtonElement>) => (e.currentTarget.style.background = 'var(--bg-secondary)');
   const l = (e: React.MouseEvent<HTMLButtonElement>) => (e.currentTarget.style.background = 'none');
 
-  return (
+  return portal(
     <div ref={ref} style={s}>
       {/* Header */}
       <div style={{ padding: '8px 14px 6px', borderBottom: '1px solid var(--border-color)', marginBottom: 2 }}>
@@ -562,29 +542,10 @@ const BlockedContextMenu: React.FC<{
   onClose: () => void;
 }> = ({ ctx, onClose }) => {
   const { currentServerIP, authToken, setCurrentChat, currentChat, chatConversationId, unblockUser, removeBlockedContact, currentUser } = useApp();
-  const ref = useRef<HTMLDivElement>(null);
-  const [adjustedPos, setAdjustedPos] = useState({ x: ctx?.x ?? 0, y: ctx?.y ?? 0 });
   const [showDeleteDialogConfirm, setShowDeleteDialogConfirm] = useState(false);
   const [deleteLoginInput, setDeleteLoginInput] = useState('');
   const tr = useTranslation();
-
-  useLayoutEffect(() => {
-    const el = ref.current;
-    if (!el || !ctx) return;
-    const { width, height } = el.getBoundingClientRect();
-    const vw = window.innerWidth;
-    const vh = window.innerHeight - 68;
-    setAdjustedPos({
-      x: Math.min(Math.max(ctx.x, 8), vw - width - 8),
-      y: Math.min(Math.max(ctx.y, 8), vh - height),
-    });
-  }, [ctx?.x, ctx?.y]);
-
-  useEffect(() => {
-    const h = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) onClose(); };
-    document.addEventListener('mousedown', h);
-    return () => document.removeEventListener('mousedown', h);
-  }, [onClose]);
+  const { ref, style: position, portal } = useAnchoredMenu(ctx, onClose);
 
   if (!ctx) return null;
   const { user } = ctx;
@@ -631,7 +592,7 @@ const BlockedContextMenu: React.FC<{
   };
 
   const s: React.CSSProperties = {
-    position: 'fixed', top: adjustedPos.y, left: adjustedPos.x, zIndex: 9100,
+    ...position, zIndex: 9100,
     background: 'var(--bg-primary)', border: '1px solid var(--border-color)',
     borderRadius: 10, boxShadow: '0 8px 32px rgba(0,0,0,0.6)',
     minWidth: 200, padding: '4px 0',
@@ -645,7 +606,7 @@ const BlockedContextMenu: React.FC<{
   const h = (e: React.MouseEvent<HTMLButtonElement>) => (e.currentTarget.style.background = 'var(--bg-secondary)');
   const l = (e: React.MouseEvent<HTMLButtonElement>) => (e.currentTarget.style.background = 'none');
 
-  return (
+  return portal(
     <div ref={ref} style={s}>
       <div style={{ padding: '8px 14px 6px', borderBottom: '1px solid var(--border-color)', marginBottom: 2 }}>
         <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>{user.nickname || user.username}</div>

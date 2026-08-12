@@ -1,10 +1,11 @@
-import React, { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { Settings, Home, Plus, LogIn, X, Compass, Rss, LogOut, Trash2, Folder, FolderMinus, NotebookPen, Bot } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { useTranslation } from '../i18n/useTranslation';
 import ConfirmModal from './ConfirmModal';
 import type { Guild, LayoutEntry } from '../types';
 import { openSferonik } from '../utils/botsApi';
+import { useAnchoredMenu } from './useAnchoredMenu';
 
 function CreateGuildModal({ onClose }: { onClose: () => void }) {
   const { createGuild, selectGuild } = useApp();
@@ -194,6 +195,41 @@ type RenderItem =
   | { type: 'guild'; guild: Guild }
   | { type: 'folder'; folder: { id: string; name: string; color?: string; guilds: Guild[] } };
 
+type AddAction = 'server' | 'channel' | 'join-server' | 'join-channel';
+
+/**
+ * The "+" menu at the foot of the server bar. Its own component so it can use
+ * the shared anchoring hook — the version inlined here wrote its clamped
+ * position back over the anchor it had just been given, so the second pass
+ * clamped an already-clamped point and the menu crept up the screen.
+ */
+const AddMenu: React.FC<{
+  pos: { x: number; y: number };
+  anchorButton: React.RefObject<HTMLButtonElement | null>;
+  onClose: () => void;
+  onPick: (what: AddAction) => void;
+}> = ({ pos, anchorButton, onClose, onPick }) => {
+  const tr = useTranslation();
+  const { ref, style, portal } = useAnchoredMenu(pos, onClose, anchorButton);
+
+  return portal(
+    <div ref={ref} className="context-menu" style={{ ...style, minWidth: 180, zIndex: 9999 }}>
+      <button className="context-menu-item" onClick={() => onPick('server')}>
+        <Plus size={14} /> {tr('guild_create_server')}
+      </button>
+      <button className="context-menu-item" onClick={() => onPick('channel')}>
+        <Rss size={14} /> {tr('guild_create_channel')}
+      </button>
+      <button className="context-menu-item" onClick={() => onPick('join-server')}>
+        <LogIn size={14} /> {tr('guild_join_server')}
+      </button>
+      <button className="context-menu-item" onClick={() => onPick('join-channel')}>
+        <Rss size={14} /> {tr('guild_join_channel')}
+      </button>
+    </div>
+  );
+};
+
 export const ServerSidebar: React.FC = () => {
   const {
     currentServer, setCurrentServer, isMobileSidebarOpen, guilds, selectGuild,
@@ -243,7 +279,6 @@ export const ServerSidebar: React.FC = () => {
   const [showAddMenu, setShowAddMenu] = useState(false);
   const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null);
   const addBtnRef = useRef<HTMLButtonElement>(null);
-  const addMenuRef = useRef<HTMLDivElement>(null);
 
   // Server bar = ordered list of top-level items (guilds + folders), synced via
   // serverLayout. Drag reorders top-level items; folders are created/edited via
@@ -407,29 +442,6 @@ export const ServerSidebar: React.FC = () => {
     return () => document.removeEventListener('mousedown', close);
   }, [openFolder]);
 
-  useLayoutEffect(() => {
-    const el = addMenuRef.current;
-    if (!el || !menuPos) return;
-    const { width, height } = el.getBoundingClientRect();
-    const vw = window.innerWidth;
-    const vh = window.innerHeight - 68;
-    const x = Math.min(Math.max(menuPos.x, 8), vw - width - 8);
-    const y = Math.min(Math.max(menuPos.y, 8), vh - height);
-    if (x !== menuPos.x || y !== menuPos.y) setMenuPos({ x, y });
-  }, [menuPos?.x, menuPos?.y]);
-
-  useEffect(() => {
-    if (!showAddMenu) return;
-    const handler = (e: MouseEvent) => {
-      if (addMenuRef.current && !addMenuRef.current.contains(e.target as Node) &&
-          addBtnRef.current && !addBtnRef.current.contains(e.target as Node)) {
-        setShowAddMenu(false);
-      }
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [showAddMenu]);
-
   return (
     <>
       <aside className={`server-sidebar ${isMobileSidebarOpen ? 'mobile-open' : ''}`}>
@@ -554,24 +566,18 @@ export const ServerSidebar: React.FC = () => {
       </aside>
 
       {showAddMenu && menuPos && (
-        <div
-          ref={addMenuRef}
-          className="context-menu"
-          style={{ position: 'fixed', left: menuPos.x, top: menuPos.y, minWidth: 180, zIndex: 9999 }}
-        >
-          <button className="context-menu-item" onClick={() => { setShowAddMenu(false); setShowCreate(true); }}>
-            <Plus size={14} /> {tr('guild_create_server')}
-          </button>
-          <button className="context-menu-item" onClick={() => { setShowAddMenu(false); setShowCreateChannel(true); }}>
-            <Rss size={14} /> {tr('guild_create_channel')}
-          </button>
-          <button className="context-menu-item" onClick={() => { setShowAddMenu(false); setShowJoin(true); }}>
-            <LogIn size={14} /> {tr('guild_join_server')}
-          </button>
-          <button className="context-menu-item" onClick={() => { setShowAddMenu(false); setShowJoinChannel(true); }}>
-            <Rss size={14} /> {tr('guild_join_channel')}
-          </button>
-        </div>
+        <AddMenu
+          pos={menuPos}
+          anchorButton={addBtnRef}
+          onClose={() => setShowAddMenu(false)}
+          onPick={what => {
+            setShowAddMenu(false);
+            if (what === 'server') setShowCreate(true);
+            else if (what === 'channel') setShowCreateChannel(true);
+            else if (what === 'join-server') setShowJoin(true);
+            else setShowJoinChannel(true);
+          }}
+        />
       )}
 
       {guildMenu && (() => {

@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Hash, Volume2, Plus, Trash2, LogOut, Copy, Users, ChevronDown, ChevronRight, ChevronLeft, Crown, Shield, UserPlus, Ban, User, MicOff, Settings, Headphones, VolumeX, Volume1, BellOff, Bell } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { useTranslation } from '../i18n/useTranslation';
@@ -7,6 +7,7 @@ import { UserProfile } from './ChatSidebar';
 import { GuildSettingsModal } from './GuildSettings';
 import type { GuildMember, GuildRole } from '../types';
 import { AccountBadge, accountDisplayName } from './BotBadge';
+import { useAnchoredMenu } from './useAnchoredMenu';
 
 // ── Member context menu ──────────────────────────────────────────────────────
 function MemberContextMenu({
@@ -22,39 +23,14 @@ function MemberContextMenu({
 }) {
   const { kickMember, setMemberRole, blockUser, sendFriendRequest, friends, userIDonServer, assignMemberRole, removeMemberRole, currentServerIP, authToken } = useApp();
   const tr = useTranslation();
-  const ref = useRef<HTMLDivElement>(null);
+  const { ref, style: position, portal } = useAnchoredMenu(pos, onClose);
   const [showRoles, setShowRoles] = useState(false);
   const isFriend = friends.some(f => String(f.id) === member.id);
   const isSelf = member.id === userIDonServer;
   const canManage = (myRole === 'owner' || myRole === 'admin') && !isSelf && member.role !== 'owner';
 
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [onClose]);
-
-  const [adjustedPos, setAdjustedPos] = useState({ x: pos.x, y: pos.y });
-  useLayoutEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const { width } = el.getBoundingClientRect();
-    const vw = window.innerWidth;
-    const vh = window.innerHeight;
-    setAdjustedPos({
-      x: Math.min(Math.max(pos.x, 8), vw - width - 8),
-      y: Math.min(Math.max(pos.y, 8), vh - 40),
-    });
-  }, [pos.x, pos.y]);
-
-  const spaceBelow = window.innerHeight - adjustedPos.y - 8;
-  const menuY = spaceBelow < 300 ? Math.max(8, adjustedPos.y - (300 - spaceBelow)) : adjustedPos.y;
-  const menuMaxH = `calc(100vh - ${menuY}px - 8px)`;
-
-  return (
-    <div ref={ref} style={{ position: 'fixed', left: adjustedPos.x, top: menuY, minWidth: 190, maxWidth: 250, zIndex: 9999, maxHeight: menuMaxH, overflowY: 'auto', overflowX: 'hidden', background: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: 8, boxShadow: '0 10px 40px rgba(0,0,0,0.3)', padding: 4 }}>
+  return portal(
+    <div ref={ref} style={{ ...position, minWidth: 190, maxWidth: 250, zIndex: 9999, overflowX: 'hidden', background: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: 8, boxShadow: '0 10px 40px rgba(0,0,0,0.3)', padding: 4 }}>
       <button className="context-menu-item" onClick={() => { onOpenProfile(); onClose(); }}>
         <User size={13} /> {tr('guild_view_profile')}
       </button>

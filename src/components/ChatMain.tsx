@@ -53,6 +53,7 @@ import { getDraftText, setDraftText, getDraftFiles, setDraftFiles } from '../uti
 import { censorPlain } from '../utils/censor';
 import { BlurredMedia } from './BlurredMedia';
 import { pickRecorderFormat, mediaUnsupportedReason, describeMediaError } from '../utils/recording';
+import { useAnchoredMenu } from './useAnchoredMenu';
 
 // Maps a settings page key to its translation key, so the mobile settings
 // header shows a translated title instead of the raw page id.
@@ -1210,40 +1211,15 @@ const MessageContextMenu: React.FC<{
   onCopy: (text: string) => void;
 }> = ({ menu, isOwn, onClose, onReply, onEdit, onDelete, onPin, onReport, onCopy }) => {
   const tr = useTranslation();
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [onClose]);
-
-  const [adjustedPos, setAdjustedPos] = useState({ x: menu.x, y: menu.y });
-  useLayoutEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const { width, height } = el.getBoundingClientRect();
-    const vw = window.innerWidth;
-    const vh = window.innerHeight - 68;
-    setAdjustedPos({
-      x: Math.min(Math.max(menu.x, 8), vw - width - 8),
-      y: Math.min(Math.max(menu.y, 8), vh - height),
-    });
-  }, [menu.x, menu.y]);
+  const { ref, style: position, portal } = useAnchoredMenu(menu, onClose);
 
   const style: React.CSSProperties = {
-    position: 'fixed',
-    top: adjustedPos.y,
-    left: adjustedPos.x,
-    zIndex: 9000,
+    ...position,
     background: 'var(--bg-primary, #1a1a2e)',
     border: '1px solid var(--border-color, #333)',
     borderRadius: 10,
     boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
     minWidth: 180,
-    overflow: 'hidden',
     padding: '4px 0',
   };
 
@@ -1265,7 +1241,7 @@ const MessageContextMenu: React.FC<{
     </button>
   );
 
-  return (
+  return portal(
     <div ref={ref} style={style}>
       {item(<Reply size={15} />, tr('chat_reply'), () => onReply(menu.msg))}
       {isOwn && (!menu.msg.message_type || menu.msg.message_type === 'text' || menu.msg.message_type === 'todo') &&
