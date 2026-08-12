@@ -10,7 +10,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Bot as BotIcon, Check, Copy, Download, Key, Loader2, Plus, Save, Trash2, X, ZoomIn, ZoomOut,
+  Bot as BotIcon, Check, Copy, Download, Key, Loader2, Maximize2, Plus, Save, Trash2, X, ZoomIn, ZoomOut,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { useTranslation } from '../i18n/useTranslation';
@@ -25,8 +25,58 @@ import { loadFlow, saveFlow, unlockBot } from '../utils/botsApi';
 const NODE_WIDTH = 190;
 const NODE_HEIGHT = 92;
 const GRID = 20;
+/** Breathing room between a node and the edge of the canvas. */
+const PAD = 24;
+/** How much of the graph must stay on screen; panning cannot push past this. */
+const KEEP_VISIBLE = 80;
+// The floor is low enough that "fit" can actually frame a graph someone has
+// spread out; at 0.4 a wide flow simply could not be shown whole, which
+// defeated the point of having the control.
+const MIN_SCALE = 0.2;
+const MAX_SCALE = 1.8;
 
 const uid = () => Math.random().toString(36).slice(2, 10);
+
+interface View { x: number; y: number; scale: number }
+interface Box { x: number; y: number; w: number; h: number }
+
+// The edge SVG is a fixed 8000×8000 plane centred on the origin; a node outside
+// it keeps its position but its connections stop being drawn.
+const PLANE = 4000 - NODE_WIDTH - GRID;
+const clampToPlane = (v: number) => Math.min(PLANE, Math.max(-PLANE, v));
+
+/** Bounding box of the whole graph, in graph coordinates. */
+function nodeBounds(nodes: BotNode[]): Box | null {
+  if (!nodes.length) return null;
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const n of nodes) {
+    x0 = Math.min(x0, n.x);
+    y0 = Math.min(y0, n.y);
+    x1 = Math.max(x1, n.x + NODE_WIDTH);
+    y1 = Math.max(y1, n.y + NODE_HEIGHT);
+  }
+  return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+}
+
+/**
+ * Stop a pan from carrying the graph off the canvas entirely.
+ *
+ * Panning was unbounded, so one long drag could leave an empty grid with no
+ * indication of which way the work went. At least KEEP_VISIBLE pixels of the
+ * graph's bounding box now stay inside the canvas on every side.
+ */
+function clampView(view: View, bounds: Box | null, vw: number, vh: number): View {
+  if (!bounds) return view;
+  const w = bounds.w * view.scale;
+  const h = bounds.h * view.scale;
+  const left = bounds.x * view.scale;
+  const top = bounds.y * view.scale;
+  return {
+    ...view,
+    x: Math.min(vw - KEEP_VISIBLE - left, Math.max(KEEP_VISIBLE - left - w, view.x)),
+    y: Math.min(vh - KEEP_VISIBLE - top, Math.max(KEEP_VISIBLE - top - h, view.y)),
+  };
+}
 
 /** Phone-sized layout: canvas on top, inspector as a bottom sheet. */
 const useIsNarrow = () => {
@@ -72,7 +122,7 @@ export const BotStudio: React.FC<Props> = ({ onClose }) => {
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const [language, setLanguage] = useState<TargetLanguage>('python');
 
-  const [view, setView] = useState({ x: 0, y: 0, scale: 1 });
+  const [view, setView] = useState<View>({ x: 0, y: 0, scale: 1 });
   const canvasRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{ kind: 'node' | 'canvas'; id?: string; startX: number; startY: number; originX: number; originY: number } | null>(null);
 
@@ -106,19 +156,35 @@ export const BotStudio: React.FC<Props> = ({ onClose }) => {
   // ── graph editing ───────────────────────────────────────────────────────
   const addNode = useCallback((type: BotNodeType) => {
     const rect = canvasRef.current?.getBoundingClientRect();
-    const cx = ((rect ? rect.width / 2 : 300) - view.x) / view.scale - NODE_WIDTH / 2;
-    const cy = ((rect ? rect.height / 2 : 220) - view.y) / view.scale - NODE_HEIGHT / 2;
+    const vw = rect?.width ?? 600;
+    const vh = rect?.height ?? 440;
+    // The visible area, expressed in graph coordinates.
+    const left = (PAD - view.x) / view.scale;
+    const top = (PAD - view.y) / view.scale;
+    const right = (vw - PAD - view.x) / view.scale - NODE_WIDTH;
+    const bottom = (vh - PAD - view.y) / view.scale - NODE_HEIGHT;
+
     const id = uid();
     setGraph(g => {
-      // Every node is placed at the centre of the view, so without this they
-      // would stack exactly on top of each other and look like one node.
-      let x = Math.round(cx / GRID) * GRID;
-      let y = Math.round(cy / GRID) * GRID;
-      while (g.nodes.some(n => Math.abs(n.x - x) < NODE_WIDTH && Math.abs(n.y - y) < NODE_HEIGHT)) {
-        x += GRID * 2;
-        y += GRID * 2;
+      const snap = (v: number) => Math.round(v / GRID) * GRID;
+      const free = (x: number, y: number) => !g.nodes.some(
+        n => Math.abs(n.x - x) < NODE_WIDTH && Math.abs(n.y - y) < NODE_HEIGHT,
+      );
+
+      // Fill the visible area row by row. The old version nudged each new node
+      // one step further down-right until it found a gap, which walked them
+      // straight off the canvas after a handful of nodes.
+      let spot: { x: number; y: number } | null = null;
+      for (let y = snap(top); y <= bottom && !spot; y += NODE_HEIGHT + GRID) {
+        for (let x = snap(left); x <= right; x += NODE_WIDTH + GRID) {
+          if (free(x, y)) { spot = { x, y }; break; }
+        }
       }
-      return { ...g, nodes: [...g.nodes, { id, type, x, y, data: {} }] };
+      // Nowhere free on screen: put it in the middle and let the reader move
+      // it. Still inside the viewport, which is the part that matters.
+      if (!spot) spot = { x: snap((left + right) / 2), y: snap((top + bottom) / 2) };
+
+      return { ...g, nodes: [...g.nodes, { id, type, x: spot.x, y: spot.y, data: {} }] };
     });
     setSelected(id);
     setPalette(false);
@@ -179,10 +245,16 @@ export const BotStudio: React.FC<Props> = ({ onClose }) => {
     const dx = e.clientX - drag.startX;
     const dy = e.clientY - drag.startY;
     if (drag.kind === 'canvas') {
-      setView(v => ({ ...v, x: drag.originX + dx, y: drag.originY + dy }));
+      const rect = canvasRef.current?.getBoundingClientRect();
+      setView(v => clampView(
+        { ...v, x: drag.originX + dx, y: drag.originY + dy },
+        nodeBounds(graph.nodes), rect?.width ?? 0, rect?.height ?? 0,
+      ));
     } else if (drag.id) {
-      const x = drag.originX + dx / view.scale;
-      const y = drag.originY + dy / view.scale;
+      // Keep the node on the plane the edge SVG covers; past its edge the node
+      // would still be there but its connections would stop being drawn.
+      const x = clampToPlane(drag.originX + dx / view.scale);
+      const y = clampToPlane(drag.originY + dy / view.scale);
       setGraph(g => ({
         ...g,
         nodes: g.nodes.map(n => (n.id === drag.id ? { ...n, x, y } : n)),
@@ -207,7 +279,32 @@ export const BotStudio: React.FC<Props> = ({ onClose }) => {
   };
 
   const zoom = (factor: number) =>
-    setView(v => ({ ...v, scale: Math.min(1.8, Math.max(0.4, +(v.scale * factor).toFixed(2))) }));
+    setView(v => ({ ...v, scale: Math.min(MAX_SCALE, Math.max(MIN_SCALE, +(v.scale * factor).toFixed(2))) }));
+
+  /**
+   * Frame the whole graph.
+   *
+   * The reliable way back when a node has ended up somewhere you cannot see —
+   * previously there was none, and a node dragged far enough out was simply
+   * lost until the flow was reloaded.
+   */
+  const fitToView = useCallback(() => {
+    const bounds = nodeBounds(graph.nodes);
+    const rect = canvasRef.current?.getBoundingClientRect();
+    if (!bounds || !rect) return;
+    const scale = Math.min(
+      MAX_SCALE,
+      Math.max(MIN_SCALE, Math.min(
+        (rect.width - PAD * 2) / bounds.w,
+        (rect.height - PAD * 2) / bounds.h,
+      )),
+    );
+    setView({
+      scale,
+      x: rect.width / 2 - (bounds.x + bounds.w / 2) * scale,
+      y: rect.height / 2 - (bounds.y + bounds.h / 2) * scale,
+    });
+  }, [graph.nodes]);
 
   // ── persistence & export ────────────────────────────────────────────────
   const commands = useMemo(() => graphCommands(graph), [graph]);
@@ -460,6 +557,14 @@ export const BotStudio: React.FC<Props> = ({ onClose }) => {
           <div style={{ position: 'absolute', right: 12, bottom: 12, display: 'flex', flexDirection: 'column', gap: 6 }}>
             <button onClick={() => zoom(1.15)} style={roundButton} title={t('Приблизить', 'Zoom in')}><ZoomIn size={16} /></button>
             <button onClick={() => zoom(0.87)} style={roundButton} title={t('Отдалить', 'Zoom out')}><ZoomOut size={16} /></button>
+            <button
+              onClick={fitToView}
+              disabled={!graph.nodes.length}
+              style={{ ...roundButton, opacity: graph.nodes.length ? 1 : 0.4 }}
+              title={t('Показать всю схему', 'Fit the whole flow')}
+            >
+              <Maximize2 size={16} />
+            </button>
           </div>
         </div>
 
