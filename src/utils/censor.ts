@@ -21,6 +21,7 @@ import {
   PROFANITY_ROOTS, PROFANITY_WORDS, EXPLICIT_ROOTS, EXPLICIT_WORDS,
   CTA_KEYWORDS, CALL_TO_ACTION_RE, CODE_KEYWORDS, CODE_REQUEST_RE,
   DISABLE_VERBS, DISABLE_NOUNS, EXCEPTIONS,
+  CJK_PROFANITY, CJK_EXPLICIT, CJK_CTA, CJK_CODE,
 } from '../data/censorWords';
 
 /** Who the explicit-content filter applies to. */
@@ -319,6 +320,25 @@ function isBad(s: string, lists: Lists): boolean {
   return hits(s, lists.subs) || hitsWhole(s, lists.words);
 }
 
+/**
+ * Chinese terms in force, longest first.
+ *
+ * Longest-first matters: "妈的" sits inside "他妈的", and masking the longer
+ * span first means the shorter one finds nothing left to re-mask, so the
+ * asterisk run comes out the length of the phrase people actually wrote.
+ */
+function activeCjkTerms(cfg: CensorConfig, authorId?: string): string[] {
+  const terms: string[] = [];
+  if (cfg.blur_profanity) terms.push(...CJK_PROFANITY);
+  if (explicitApplies(cfg, authorId)) terms.push(...CJK_EXPLICIT);
+  if (cfg.blur_calls_to_action) terms.push(...CJK_CTA);
+  if (cfg.blur_code_requests) terms.push(...CJK_CODE);
+  return terms.sort((a, b) => b.length - a.length);
+}
+
+/** Cheap pre-check: no Han characters means the whole pass can be skipped. */
+const CJK_RE = /\p{Script=Han}/u;
+
 function activePhraseRes(cfg: CensorConfig): RegExp[] {
   const res: RegExp[] = [];
   if (cfg.blur_calls_to_action) res.push(...CALL_TO_ACTION_RE);
@@ -368,6 +388,28 @@ function linkable(gap: string, a: Token, b: Token): boolean {
   return a.raw.length <= 2 && b.raw.length <= 2;
 }
 
+// Stands in for a character whose fold is not exactly one UTF-16 unit (ﬁ → fi).
+// It appears in no keyword and is not `\s`, so it can neither be matched nor
+// bridge a phrase regex's `\s+`; its only job is to hold the position.
+const FOLD_PLACEHOLDER = '\u0000';
+
+/**
+ * Lowercase and strip diacritics, one UTF-16 unit in, one out.
+ *
+ * That 1:1 guarantee is what makes a match index in the result usable as an
+ * index into `chars` — which is why that array is split per UTF-16 unit rather
+ * than per code point. `tokenize` reports regex offsets, and those are UTF-16
+ * too; mixing the two units put every offset after an emoji one place out.
+ */
+function flatFold(chars: string[]): string {
+  return chars
+    .map(ch => {
+      const f = ch.normalize('NFKD').replace(/\p{M}+/gu, '').toLowerCase();
+      return f.length === 1 ? f : FOLD_PLACEHOLDER;
+    })
+    .join('');
+}
+
 function maskRange(chars: string[], start: number, end: number) {
   for (let i = start; i < end; i++) if (!/\s/.test(chars[i])) chars[i] = MASK_SENTINEL;
 }
@@ -382,7 +424,10 @@ function maskRange(chars: string[], start: number, end: number) {
 export function censorToSentinel(text: string, cfg: CensorConfig = getCensorConfig(), authorId?: string): string {
   if (!cfg.blur_enabled || !text) return text;
   const lists = activeLists(cfg, authorId);
-  const chars = Array.from(text);
+  // Split per UTF-16 unit, not per code point: `tokenize` and the phrase
+  // regexes both report UTF-16 offsets, and indexing a code-point array with
+  // them shifts every position after an emoji.
+  const chars = text.split('');
   const tokens = tokenize(text);
 
   // Pass 1 — each word on its own.
@@ -403,24 +448,34 @@ export function censorToSentinel(text: string, cfg: CensorConfig = getCensorConf
     }
   }
 
-  // Pass 3 — multi-word phrases, matched on a 1:1 folded view so the offsets
-  // still line up with the original string.
+  // Passes 3 and 4 both work on a 1:1 folded view of the text — strictly one
+  // character in, one out (lowercase + drop diacritics) — so a match index in
+  // `folded` is also a valid index into the original string.
   const phraseRes = activePhraseRes(cfg);
-  if (phraseRes.length) {
-    // Strictly 1:1 per character (lowercase + drop diacritics), so a match
-    // index in `folded` is also a valid index into the original string.
-    const folded = Array.from(text)
-      .map(ch => {
-        const f = ch.normalize('NFKD').replace(/\p{M}+/gu, '').toLowerCase();
-        return f.length === 1 ? f : ch;
-      })
-      .join('');
+  const cjkTerms = CJK_RE.test(text) ? activeCjkTerms(cfg, authorId) : [];
+  if (phraseRes.length || cjkTerms.length) {
+    const folded = flatFold(chars);
+
+    // Pass 3 — multi-word phrases.
     for (const re of phraseRes) {
       re.lastIndex = 0;
       let m: RegExpExecArray | null;
       while ((m = re.exec(folded)) !== null) {
         maskRange(chars, m.index, m.index + m[0].length);
         if (m[0].length === 0) re.lastIndex++;
+      }
+    }
+
+    // Pass 4 — Chinese. There is no whitespace to tokenize on, so terms are
+    // located directly and only their own characters are masked; the sentence
+    // around them stays readable.
+    for (const term of cjkTerms) {
+      let from = 0;
+      for (;;) {
+        const at = folded.indexOf(term, from);
+        if (at === -1) break;
+        maskRange(chars, at, at + term.length);
+        from = at + term.length;
       }
     }
   }
@@ -445,7 +500,13 @@ export function isExplicitMedia(
   const scan = (s?: string) => {
     if (!s) return false;
     // File names arrive as "my.hot_pic-2.jpg", so split on separators too.
-    return tokenize(s.replace(/\.[a-z0-9]{2,4}$/i, '')).some(t => isBad(t.raw, lists));
+    const stem = s.replace(/\.[a-z0-9]{2,4}$/i, '');
+    if (tokenize(stem).some(t => isBad(t.raw, lists))) return true;
+    // Chinese has nothing for the tokenizer to split on, so it is matched
+    // whole — otherwise a caption like "色情照片" reads as one harmless word.
+    if (!CJK_RE.test(stem)) return false;
+    const folded = flatFold(stem.split(''));
+    return CJK_EXPLICIT.some(term => folded.includes(term));
   };
   return scan(opts.text) || scan(opts.filename);
 }
