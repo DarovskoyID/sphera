@@ -1,0 +1,108 @@
+/* ================================
+   LOADING SKELETONS
+   ================================
+   One shimmer definition for the whole app. The sweep is a background-position
+   animation on a gradient — cheap, and it does not touch layout.
+*/
+
+.skeleton {
+  display: block;
+  flex: none;
+  background: linear-gradient(
+    90deg,
+    var(--skeleton-base) 0%,
+    var(--skeleton-sheen) 50%,
+    var(--skeleton-base) 100%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-sweep 1.4s ease-in-out infinite;
+  --skeleton-base: rgba(127, 127, 127, 0.13);
+  --skeleton-sheen: rgba(127, 127, 127, 0.24);
+}
+
+body.dark-theme .skeleton {
+  --skeleton-base: rgba(255, 255, 255, 0.06);
+  --skeleton-sheen: rgba(255, 255, 255, 0.13);
+}
+
+@keyframes skeleton-sweep {
+  from { background-position: 200% 0; }
+  to   { background-position: -200% 0; }
+}
+
+/* Motion is the point of a shimmer, but it is also exactly the kind of looping
+   movement reduced-motion asks us to drop. The placeholder stays; it just sits
+   still at its base tone. */
+@media (prefers-reduced-motion: reduce) {
+  .skeleton { animation: none; background: var(--skeleton-base); }
+}
+
+/* ── message list ──────────────────────────────────────────────────────── */
+
+.skeleton-messages {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 18px 16px;
+}
+
+.skeleton-bubble-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+.skeleton-bubble-row.is-own { justify-content: flex-end; }
+
+.skeleton-bubble {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 11px 13px;
+  border-radius: 14px;
+  background: var(--bg-secondary);
+  min-width: 90px;
+}
+
+.skeleton-bubble-row.is-own .skeleton-bubble {
+  background: color-mix(in srgb, var(--accent-primary, #5865f2) 14%, var(--bg-secondary));
+}
+
+/* ── generic list rows (sidebars, member lists, server lists) ──────────── */
+
+.skeleton-list { display: flex; flex-direction: column; gap: 4px; padding: 8px; }
+
+.skeleton-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 10px;
+}
+
+.skeleton-row-text {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+}
+
+/* ── cards (explore grid, feed posts) ──────────────────────────────────── */
+
+.skeleton-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 12px;
+  padding: 12px 0;
+}
+
+.skeleton-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border-radius: 14px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+}

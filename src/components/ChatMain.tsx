@@ -54,6 +54,7 @@ import { censorPlain } from '../utils/censor';
 import { BlurredMedia } from './BlurredMedia';
 import { pickRecorderFormat, mediaUnsupportedReason, describeMediaError } from '../utils/recording';
 import { useAnchoredMenu } from './useAnchoredMenu';
+import { MessageListSkeleton } from './Skeleton';
 
 // Maps a settings page key to its translation key, so the mobile settings
 // header shows a translated title instead of the raw page id.
@@ -1556,7 +1557,7 @@ const MessagesContainer: React.FC<{
   searchQuery: string;
   scrollToRef?: React.MutableRefObject<((id: string) => void) | null>;
 }> = ({ onReply, onEditText, searchQuery, scrollToRef }) => {
-  const { chatMessages, userIDonServer, loadOlderMessages, deleteMessage, pinMessage, reportMessage, customEmojis, currentChat, chatConversationId, editMessage, setCallActive, setVideoActive, setCallTargetId } = useApp();
+  const { chatMessages, chatLoading, userIDonServer, loadOlderMessages, deleteMessage, pinMessage, reportMessage, customEmojis, currentChat, chatConversationId, editMessage, setCallActive, setVideoActive, setCallTargetId } = useApp();
   // Text edits happen inline in the composer (lifted to ChatView); only to-do
   // lists open the structured editor here.
   const [editingTodo, setEditingTodo] = useState<ChatMessageType | null>(null);
@@ -1712,7 +1713,8 @@ const MessagesContainer: React.FC<{
       )}
       <div className="messages-container" ref={containerRef} onScroll={handleScroll}>
         <div className="messages-list">
-          {filteredMessages.length === 0 && (
+          {chatLoading && <MessageListSkeleton />}
+          {!chatLoading && filteredMessages.length === 0 && (
             <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-secondary)' }}>
               {searchQuery.trim() ? tr('chat_no_search_results') : tr('chat_no_messages')}
             </div>

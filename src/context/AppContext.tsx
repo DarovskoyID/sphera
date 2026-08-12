@@ -350,6 +350,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       chatMessages: [],
       chatConversationId: null,
       chatBlockedByOther: false,
+      chatLoading: false,
       customEmojis: [],
       guilds: [],
       serverLayout: [],
@@ -816,9 +817,21 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     }
 
     if (!state.currentChat || !state.authToken) {
-      setState(prev => ({ ...prev, chatMessages: [], chatConversationId: null, chatBlockedByOther: false }));
+      setState(prev => ({
+        ...prev, chatMessages: [], chatConversationId: null,
+        chatBlockedByOther: false, chatLoading: false,
+      }));
       return;
     }
+
+    // setCurrentChat already clears the outgoing conversation, but the chat can
+    // also change from a notification tap or a re-init, so the guarantee is
+    // repeated here for whatever path got us in.
+    setState(prev => (
+      prev.chatConversationId === null && prev.chatMessages.length === 0
+        ? (prev.chatLoading ? prev : { ...prev, chatLoading: true })
+        : { ...prev, chatMessages: [], chatConversationId: null, chatBlockedByOther: false, chatLoading: true }
+    ));
 
     let cancelled = false;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -836,7 +849,10 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
         if (cancelled) return;
         if (convoRes.status === 403) {
           // No prior conversation exists and we're blocked — nothing to show
-          setState(prev => ({ ...prev, chatBlockedByOther: true, chatMessages: [], chatConversationId: null }));
+          setState(prev => ({
+            ...prev, chatBlockedByOther: true, chatMessages: [],
+            chatConversationId: null, chatLoading: false,
+          }));
           return;
         }
         if (!convoRes.ok) handleAuthError(convoRes.status);
@@ -857,7 +873,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
           state.currentServerIP
         );
         if (cancelled) return;
-        setState(prev => ({ ...prev, chatMessages: msgs.map(enrichCallMessage) }));
+        setState(prev => ({ ...prev, chatMessages: msgs.map(enrichCallMessage), chatLoading: false }));
         // Seed the last-ID ref so polling knows where to start
         const last = msgs.filter(m => !String(m.id).startsWith('optimistic-')).at(-1);
         if (last) chatLastMsgId.current = String(last.id);
@@ -1154,7 +1170,12 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
             });
           } catch { /* ignore */ }
         }, 5000);
-      } catch (e) { reportError(e); }
+      } catch (e) {
+        // Never leave the chat stuck on its loading state because of a failed
+        // request — an empty conversation is at least honest about what we have.
+        if (!cancelled) setState(prev => ({ ...prev, chatLoading: false }));
+        reportError(e);
+      }
     };
 
     initChat();
@@ -3097,7 +3118,28 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
   };
 
   const setCurrentChat = (chatId: string) => {
-    setState(prev => ({ ...prev, currentChat: chatId, currentView: 'home', currentServer: 'home', mobileActivePanel: 'chat-view' as MobilePanel }));
+    setState(prev => {
+      const next = {
+        ...prev,
+        currentChat: chatId,
+        currentView: 'home',
+        currentServer: 'home',
+        mobileActivePanel: 'chat-view' as MobilePanel,
+      };
+      if (String(prev.currentChat) === String(chatId)) return next;
+      // Drop the outgoing conversation in the SAME update that switches to the
+      // new one. Loading history takes two round-trips, and until this was done
+      // here every one of those frames still painted the previous chat — worse,
+      // chatConversationId still pointed at it, so a message sent during that
+      // window went to the conversation the reader had just left.
+      return {
+        ...next,
+        chatMessages: [],
+        chatConversationId: null,
+        chatBlockedByOther: false,
+        chatLoading: true,
+      };
+    });
   };
 
   const setCurrentChannel = (channel: string) => setState(prev => ({ ...prev, currentChannel: channel }));

@@ -373,6 +373,8 @@ export interface AppState {
   chatMessages: ChatMessage[];
   chatConversationId: string | null;
   chatBlockedByOther: boolean;
+  /** A conversation is being opened: its history has not arrived yet. */
+  chatLoading: boolean;
   customEmojis: CustomEmoji[];
   guilds: Guild[];
   serverLayout: LayoutEntry[];
