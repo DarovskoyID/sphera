@@ -22,6 +22,7 @@ import {
   CTA_KEYWORDS, CALL_TO_ACTION_RE, CODE_KEYWORDS, CODE_REQUEST_RE,
   DISABLE_VERBS, DISABLE_NOUNS, EXCEPTIONS,
   CJK_PROFANITY, CJK_EXPLICIT, CJK_CTA, CJK_CODE,
+  TRANSLIT_PROFANITY, TRANSLIT_EXPLICIT, TRANSLIT_DISABLE_VERBS, TRANSLIT_DISABLE_NOUNS,
 } from '../data/censorWords';
 
 /** Who the explicit-content filter applies to. */
@@ -194,12 +195,61 @@ function fold(s: string): string {
     .replace(/(.)\1{2,}/gu, '$1');
 }
 
+// Phonetic Latin → Cyrillic. Longest sequences first, so "shch" is consumed
+// before "sh" and "ya" before "a".
+//
+// This is a SEPARATE mechanism from the lookalike tables above, and the
+// difference is the whole point. Those map by shape — "и" is folded to "u"
+// because it looks like one. Transliteration maps by sound: "u" is "у". Both
+// are needed, and neither substitutes for the other. Without this view "suka"
+// folded to "сика" and matched nothing at all.
+const TRANSLIT: Array<[string, string]> = [
+  ['shch', 'щ'], ['sch', 'щ'], ['zh', 'ж'], ['kh', 'х'], ['ch', 'ч'], ['sh', 'ш'],
+  ['ts', 'ц'], ['yo', 'ё'], ['yu', 'ю'], ['ya', 'я'], ['ye', 'е'], ['ju', 'ю'],
+  ['ja', 'я'], ['jo', 'ё'], ['je', 'е'],
+  ['a', 'а'], ['b', 'б'], ['v', 'в'], ['g', 'г'], ['d', 'д'], ['e', 'е'], ['z', 'з'],
+  ['i', 'и'], ['j', 'й'], ['k', 'к'], ['l', 'л'], ['m', 'м'], ['n', 'н'], ['o', 'о'],
+  ['p', 'п'], ['r', 'р'], ['s', 'с'], ['t', 'т'], ['u', 'у'], ['f', 'ф'], ['h', 'х'],
+  ['c', 'к'], ['w', 'в'], ['x', 'кс'], ['q', 'к'],
+];
+
+const TRANSLIT_VOWELS = 'аеёиоуыэюя';
+const HAS_LATIN = /[a-z]/;
+
+/** Sound-alike Cyrillic reading of a Latin string. */
+function translit(base: string): string {
+  let out = '';
+  let i = 0;
+  while (i < base.length) {
+    let hit = false;
+    // Multigraphs win, and they have to be tried before the single-letter rule
+    // below — otherwise the "y" of "blyat" is eaten on its own and "ya" never
+    // gets the chance to become "я".
+    for (const [from, to] of TRANSLIT) {
+      if (base.startsWith(from, i)) { out += to; i += from.length; hit = true; break; }
+    }
+    if (hit) continue;
+    // A leftover "y" is the one letter whose reading depends on where it sits:
+    // a vowel before it makes it the glide "й" ("huy"), otherwise it is "ы".
+    if (base[i] === 'y') {
+      out += TRANSLIT_VOWELS.includes(out[out.length - 1]) ? 'й' : 'ы';
+    } else {
+      out += base[i];
+    }
+    i += 1;
+  }
+  return out;
+}
+
 /**
- * Two script-folded views of a string. A root matches if it appears in either,
- * so "xyй" (Latin x/y), "с0сать" (zero for о) and "fuсk" (Cyrillic с) all land
- * on their canonical form.
+ * Three folded views of a string. A root matches if it appears in any of them.
+ *
+ * The first two are the lookalike folds, which catch "xyй" (Latin x/y),
+ * "с0сать" (zero for о) and "fuсk" (Cyrillic с). The third reads Latin
+ * phonetically, which is what catches plain transliteration — "suka",
+ * "pizdec", "poshel na huy".
  */
-function variants(s: string): [string, string] {
+function variants(s: string): [string, string, string] {
   const hit = variantCache.get(s);
   if (hit) return hit;
 
@@ -211,9 +261,16 @@ function variants(s: string): [string, string] {
     cyr += LAT_TO_CYR[ch] ?? (leet ? LAT_TO_CYR[leet] ?? leet : ch);
     lat += CYR_TO_LAT[ch] ?? leet ?? ch;
   }
+  // Transliteration only means anything for a string that has Latin in it.
+  // The result goes back through `fold` so it lands in exactly the same
+  // canonical space as the keywords: NFKD turns "й" into "и", so a keyword
+  // written "хуй" is stored as "хуи" and a translit reading of "huy" has to
+  // arrive as "хуи" too, or the two never meet.
+  const tr = HAS_LATIN.test(base) ? fold(translit(base)) : cyr;
   // Collapse doubles too — evasion by letter doubling ("сууука" survives the
   // 3+ collapse above as "суука") should still land on the root.
-  const out: [string, string] = [cyr.replace(/(.)\1+/gu, '$1'), lat.replace(/(.)\1+/gu, '$1')];
+  const squeeze = (v: string) => v.replace(/(.)\1+/gu, '$1');
+  const out: [string, string, string] = [squeeze(cyr), squeeze(lat), squeeze(tr)];
   remember(variantCache, s, out, 4000);
   return out;
 }
@@ -221,7 +278,7 @@ function variants(s: string): [string, string] {
 // Folding is pure and the same handful of words come round again and again —
 // every token of every visible message, once per active list. It is the single
 // hottest thing in the render path, so the result is kept.
-const variantCache = new Map<string, [string, string]>();
+const variantCache = new Map<string, [string, string, string]>();
 
 /**
  * Insert into a bounded cache, evicting the oldest entry once it is full.
@@ -284,8 +341,8 @@ function fuzzyContains(hay: string, kw: string): boolean {
 // otherwise they can never match it: NFKD turns "й" into "и"+breve, so the
 // literal "обойд" would be compared against a folded "обоиди". Cached, since
 // the lists are constant.
-const kwCache = new Map<string, [string, string]>();
-function kwVariants(kw: string): [string, string] {
+const kwCache = new Map<string, [string, string, string]>();
+function kwVariants(kw: string): [string, string, string] {
   let v = kwCache.get(kw);
   if (!v) { v = variants(kw); kwCache.set(kw, v); }
   return v;
@@ -305,6 +362,26 @@ function hits(s: string, roots: string[]): boolean {
     return fuzzyContains(cyr, rc) || fuzzyContains(lat, rl);
   });
 }
+
+/**
+ * Does the phonetic reading of `s` carry one of these stems?
+ *
+ * Kept apart from `hits` because it is fed its own, narrower lists: reading an
+ * English word phonetically lands it somewhere in Cyrillic whether it means to
+ * or not, so the general stem lists cannot be reused here. See the
+ * TRANSLIT_* lists for what that rules out and why.
+ */
+function hitsTranslit(s: string, roots: string[]): boolean {
+  if (!s || !roots.length) return false;
+  const tr = variants(s)[2];
+  if (!tr) return false;
+  // Nobody transliterates the soft sign, so "фильтр" arrives as "filtr" and
+  // has to be compared against a stem with the ь taken out. Dropping it on the
+  // keyword side handles every such word at once instead of one at a time.
+  return roots.some(r => fuzzyContains(tr, noSoftSign(kwVariants(r)[0])));
+}
+
+const noSoftSign = (v: string) => (v.includes('ь') || v.includes('ъ') ? v.replace(/[ьъ]/g, '') : v);
 
 /**
  * Does either script-variant of `s` equal one of `kws` as a WHOLE word
@@ -329,17 +406,25 @@ function hitsWhole(s: string, kws: string[]): boolean {
 
 const EXCEPTION_SET = new Set(EXCEPTIONS.map(w => variants(w)[0]));
 
-/** The stem list (substring match) and keyword list (whole-word match) in force. */
-interface Lists { subs: string[]; words: string[] }
+/**
+ * The lists in force: stems (substring match), keywords (whole-word match),
+ * and the narrower stems matched against a phonetic reading of Latin text.
+ */
+interface Lists { subs: string[]; words: string[]; translit: string[] }
 
 function activeLists(cfg: CensorConfig, authorId?: string): Lists {
   const subs: string[] = [];
   const words: string[] = [];
-  if (cfg.blur_profanity) { subs.push(...PROFANITY_ROOTS); words.push(...PROFANITY_WORDS); }
-  if (explicitApplies(cfg, authorId)) { subs.push(...EXPLICIT_ROOTS); words.push(...EXPLICIT_WORDS); }
+  const tr: string[] = [];
+  if (cfg.blur_profanity) {
+    subs.push(...PROFANITY_ROOTS); words.push(...PROFANITY_WORDS); tr.push(...TRANSLIT_PROFANITY);
+  }
+  if (explicitApplies(cfg, authorId)) {
+    subs.push(...EXPLICIT_ROOTS); words.push(...EXPLICIT_WORDS); tr.push(...TRANSLIT_EXPLICIT);
+  }
   if (cfg.blur_calls_to_action) words.push(...CTA_KEYWORDS);
   if (cfg.blur_code_requests) words.push(...CODE_KEYWORDS);
-  return { subs, words };
+  return { subs, words, translit: tr };
 }
 
 /** Should this word (or joined run) be masked? Exceptions always win. */
@@ -347,7 +432,7 @@ function isBad(s: string, lists: Lists): boolean {
   if (!s) return false;
   const [cyr] = variants(s);
   if (EXCEPTION_SET.has(cyr)) return false;
-  return hits(s, lists.subs) || hitsWhole(s, lists.words);
+  return hits(s, lists.subs) || hitsWhole(s, lists.words) || hitsTranslit(s, lists.translit);
 }
 
 /**
@@ -406,7 +491,12 @@ export function isFullBlur(text: string, cfg: CensorConfig = getCensorConfig()):
 
   // Strip every separator: defeats "о т к л ю ч и", "от-клю-чи", "от_клю_чи".
   const flat = text.slice(0, MAX_SCAN).replace(/[^\p{L}\p{N}]+/gu, '');
-  const value = hits(flat, DISABLE_VERBS) && hits(flat, DISABLE_NOUNS);
+  // A verb AND a noun are both required, which is what makes it safe to read
+  // the message phonetically too: "otkluchi filtr" masks, an English sentence
+  // that happens to land on one of the stems does not.
+  const value =
+    (hits(flat, DISABLE_VERBS) && hits(flat, DISABLE_NOUNS))
+    || (hitsTranslit(flat, TRANSLIT_DISABLE_VERBS) && hitsTranslit(flat, TRANSLIT_DISABLE_NOUNS));
   remember(fullBlurCache, text, { epoch, value }, 2000);
   return value;
 }

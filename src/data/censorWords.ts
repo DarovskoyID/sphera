@@ -223,6 +223,43 @@ export const DISABLE_NOUNS = [
   '过滤', '屏蔽', '审查', '隐私', '设置', '打码', '马赛克',
 ];
 
+// ── Transliteration ──────────────────────────────────────────────────────────
+// Russian written in Latin letters — "suka", "blyat", "poshel na huy". The
+// engine reads such text phonetically into Cyrillic and matches it against the
+// stems below.
+//
+// This is deliberately its OWN list rather than a reuse of PROFANITY_ROOTS, and
+// the reason is false positives: an English word read phonetically lands
+// somewhere in Cyrillic whether it means to or not. Measured against ordinary
+// English, "southern" becomes "соутхерн" and hits "херн"; "success" becomes
+// "сукес" and hits "суке"; "hue" becomes "хуе". Only stems that survive that
+// test belong here — which is why "суке", "суку" and "херн" are absent even
+// though they are perfectly good Cyrillic stems.
+
+export const TRANSLIT_PROFANITY = [
+  'сука', 'суки', 'сучк', 'сучар', 'блят', 'бляд', 'пизд', 'писд',
+  'хуй', 'хуе', 'хуя', 'хуи', 'нахуй', 'похуй', 'охуе', 'ахуе',
+  'ебал', 'ебан', 'ебат', 'ебуч', 'заеб', 'выеб', 'наеб', 'уеб', 'доеб',
+  'мудак', 'мудил', 'пидор', 'пидар', 'гандон', 'гондон', 'долбоеб',
+  'шлюх', 'шлух', 'шалав', 'залуп', 'дроч', 'мраз', 'гнид', 'ушлеп',
+];
+
+export const TRANSLIT_EXPLICIT = [
+  'порно', 'порну', 'сиськ', 'титьк', 'минет', 'трахн', 'трахат',
+  'голая', 'голые', 'нюдс', 'мастурб', 'хентай', 'вагин', 'пенис', 'сперм',
+];
+
+// Long enough that an English word is very unlikely to land on them, and a
+// whole-message mask needs a verb AND a noun anyway.
+// "ю" is routinely written as plain "u" rather than "yu" — "otkluchi", "blur" —
+// so the lazy spelling gets its own entry next to the careful one.
+export const TRANSLIT_DISABLE_VERBS = [
+  'отключ', 'отклуч', 'выключ', 'виключ', 'виклуч', 'убер', 'убир', 'сними', 'обход', 'обойд',
+];
+export const TRANSLIT_DISABLE_NOUNS = [
+  'фильтр', 'цензур', 'блюр', 'блур', 'настройк', 'звездочк', 'маскиров',
+];
+
 // ── Chinese ──────────────────────────────────────────────────────────────────
 // Matched as exact substrings against the message, and masking covers only the
 // characters that matched. Everything above relies on a tokenizer that splits
@@ -277,4 +314,7 @@ export const EXCEPTIONS = [
   // "gratis", "clave", "senha", "codigo" are everyday words outside a phishing
   // sentence; the phrase regexes above catch the real requests.
   'clavecin', 'claveles', 'codigos',
+  // Words whose phonetic reading lands on a Russian stem by accident.
+  // "hue" reads as "хуе", "sukiyaki" carries "суки".
+  'hue', 'hues', 'sukiyaki', 'sukiyakis',
 ];
