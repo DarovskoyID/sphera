@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { EyeOff } from 'lucide-react';
 import { useTranslation } from '../i18n/useTranslation';
-import { useCensorConfig, isExplicitMedia, explicitApplies } from '../utils/censor';
+import { useCensorConfig, isExplicitMedia, explicitMediaApplies } from '../utils/censor';
 import { classifyMedia, type Verdict } from '../utils/nsfwDetect';
 import { useCensorOff } from './CensorScope';
 
@@ -40,7 +40,8 @@ export const BlurredMedia: React.FC<{
   const censorOff = useCensorOff();
   const [revealed, setRevealed] = useState(false);
 
-  const applies = !censorOff && cfg.blur_enabled && explicitApplies(cfg, authorId);
+  // Media you sent yourself is covered too — see explicitMediaApplies.
+  const applies = !censorOff && cfg.blur_enabled && explicitMediaApplies(cfg, authorId);
   const flaggedByText = applies && isExplicitMedia({ filename, text, authorId }, cfg);
   // Only worth classifying when the filter is on and wording didn't already decide.
   const shouldClassify = applies && !flaggedByText && !!src;

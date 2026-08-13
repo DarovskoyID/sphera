@@ -145,6 +145,25 @@ export function explicitApplies(cfg: CensorConfig, authorId?: string): boolean {
   return id !== selfId && !friendIds.has(id);
 }
 
+/**
+ * The same question for a photo or video, where your own counts.
+ *
+ * Text you wrote needs no cover: you typed it a second ago and you are looking
+ * at it either way. A photo is different — it scrolls back past you later, on
+ * a screen someone else may be able to see, and the cover costs one tap. What
+ * settled it is the asymmetry people actually hit: the picture you sent was
+ * covered for the person you sent it to and wide open in your own window.
+ *
+ * The friends rule is untouched. Under "only from non-friends" a friend's
+ * media is still shown; it is only the exemption for *yourself* that goes.
+ */
+export function explicitMediaApplies(cfg: CensorConfig, authorId?: string): boolean {
+  if (cfg.explicit_scope === 'off') return false;
+  if (cfg.explicit_scope === 'everyone') return true;
+  if (authorId === undefined) return true;
+  return !friendIds.has(String(authorId));
+}
+
 // ── mask sentinel ────────────────────────────────────────────────────────────
 // Masking writes this control char instead of '*' so that the markdown renderer
 // downstream cannot re-interpret the mask as syntax (`**` → bold). The leaf
@@ -754,7 +773,7 @@ export function isExplicitMedia(
   opts: { filename?: string; text?: string; authorId?: string },
   cfg: CensorConfig = getCensorConfig(),
 ): boolean {
-  if (!cfg.blur_enabled || !explicitApplies(cfg, opts.authorId)) return false;
+  if (!cfg.blur_enabled || !explicitMediaApplies(cfg, opts.authorId)) return false;
   const lists: Lists = { subs: EXPLICIT_ROOTS, words: EXPLICIT_WORDS, translit: TRANSLIT_EXPLICIT };
   const scan = (s?: string) => {
     if (!s) return false;
