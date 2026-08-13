@@ -85,6 +85,31 @@ export function errName(e: unknown): string {
 }
 
 /**
+ * Is the camera list the real one?
+ *
+ * Before permission is granted a browser hands back placeholders — anonymous
+ * entries, sometimes a single one standing for every camera on the device.
+ * A filled-in label is the signal that permission has landed and the list can
+ * be counted.
+ */
+export function listIsTrustworthy(cams: Array<Pick<MediaDeviceInfo, 'label'>>): boolean {
+  return cams.some(c => !!c.label);
+}
+
+/**
+ * Should the flip button be on screen?
+ *
+ * Hidden when the list can be believed and holds one camera: there is nowhere
+ * to flip to, and a button that cannot work should not be offered. Shown when
+ * the list cannot be believed yet — a wrongly hidden button looks exactly
+ * like a broken one, which is a worse failure and a much harder one to
+ * diagnose from the outside.
+ */
+export function shouldOfferFlip(cams: Array<Pick<MediaDeviceInfo, 'label'>>): boolean {
+  return !listIsTrustworthy(cams) || cams.length > 1;
+}
+
+/**
  * Collapse a run of refusals into something that fits on a phone.
  *
  * Six attempts reporting the same thing came out as the same word repeated
@@ -1021,31 +1046,50 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
   /**
    * Whether to offer the flip at all.
    *
-   * Fails open, which the previous version did not: it hid the button unless
-   * enumerateDevices reported two or more cameras, and that list is not
-   * dependable — browsers report a single "default" entry, or nothing at all,
-   * until they feel like it. A hidden button is indistinguishable from a
-   * broken one, so the button now goes away only when we positively know
-   * there is one camera: the labels are filled in, which only happens once
-   * permission is granted and the list can be believed.
+   * The device list only becomes trustworthy once camera permission has been
+   * granted: before that a browser reports anonymous entries, or one entry
+   * standing for every camera there is. So the button is hidden when the list
+   * can be believed and says there is one camera, and offered when it cannot
+   * be believed — a wrongly hidden button is indistinguishable from a broken
+   * one, and that cost a lot of time here.
+   *
+   * Permission usually lands a moment after our camera starts, so the list is
+   * read again a couple of times rather than once; and again after any flip
+   * attempt, by which point it is certainly populated.
    */
-  const [canFlip, setCanFlip] = useState(true);
+  const [canFlip, setCanFlip] = useState(false);
   useEffect(() => {
     let alive = true;
+    let timers: ReturnType<typeof setTimeout>[] = [];
+
     const check = async () => {
       try {
         const cams = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput');
-        const trustworthy = cams.length > 0 && cams.every(c => !!c.label);
-        if (alive) setCanFlip(!trustworthy || cams.length > 1);
-      } catch { /* cannot tell — keep offering it */ }
+        if (alive) setCanFlip(shouldOfferFlip(cams));
+        return listIsTrustworthy(cams);
+      } catch {
+        if (alive) setCanFlip(true);   // cannot tell — do not hide it
+        return true;
+      }
     };
-    check();
+
+    // Stop re-reading as soon as the list is worth believing.
+    (async () => {
+      if (await check()) return;
+      for (const wait of [500, 1500]) {
+        await new Promise<void>(r => { timers.push(setTimeout(r, wait)); });
+        if (!alive || await check()) return;
+      }
+    })();
+
     navigator.mediaDevices?.addEventListener?.('devicechange', check);
     return () => {
       alive = false;
+      timers.forEach(clearTimeout);
+      timers = [];
       navigator.mediaDevices?.removeEventListener?.('devicechange', check);
     };
-  }, [isVideoActive]);
+  }, [isVideoActive, switchingCamera]);
 
   /**
    * Why the last flip did not happen, shown next to the button.
