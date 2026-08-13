@@ -6,7 +6,7 @@ import ConfirmModal from './ConfirmModal';
 import type { Guild, LayoutEntry } from '../types';
 import { openSferonik } from '../utils/botsApi';
 import { useAnchoredMenu } from './useAnchoredMenu';
-import { LONG_PRESS_SAFE, useIsTouch, useLongPress } from './useLongPress';
+import { LONG_PRESS_SAFE, useDragArm, useIsTouch, useLongPress } from './useLongPress';
 
 function CreateGuildModal({ onClose }: { onClose: () => void }) {
   const { createGuild, selectGuild } = useApp();
@@ -221,6 +221,49 @@ const GuildIconWithMenu: React.FC<{
   );
 };
 
+/** Live boolean for a media query. */
+const useMediaQuery = (query: string): boolean => {
+  const [matches, setMatches] = useState(() => window.matchMedia(query).matches);
+  useEffect(() => {
+    const mq = window.matchMedia(query);
+    const update = () => setMatches(mq.matches);
+    update();
+    mq.addEventListener('change', update);
+    return () => mq.removeEventListener('change', update);
+  }, [query]);
+  return matches;
+};
+
+/**
+ * One reorderable slot in the server bar.
+ *
+ * Its own component because the touch-drag hook cannot be called from inside
+ * the list callback. On desktop it is a plain HTML5 drag source; on touch the
+ * finger arms `onArm` after a second and the parent takes over from there.
+ */
+const ReorderSlot: React.FC<{
+  itemKey: string;
+  draggable: boolean;
+  onArm: (key: string) => void;
+  style: React.CSSProperties;
+  children: React.ReactNode;
+} & Pick<React.HTMLAttributes<HTMLDivElement>,
+  'onDragStart' | 'onDragOver' | 'onDragLeave' | 'onDrop' | 'onDragEnd'>
+> = ({ itemKey, draggable, onArm, style, children, ...dragProps }) => {
+  const arm = useDragArm(useCallback(() => onArm(itemKey), [onArm, itemKey]));
+  return (
+    <div
+      data-drag-key={itemKey}
+      draggable={draggable}
+      {...dragProps}
+      {...arm}
+      style={{ ...LONG_PRESS_SAFE, ...style }}
+    >
+      {children}
+    </div>
+  );
+};
+
 /**
  * The "+" menu at the foot of the server bar. Its own component so it can use
  * the shared anchoring hook — the version inlined here wrote its clamped
@@ -301,6 +344,9 @@ export const ServerSidebar: React.FC = () => {
   const [showJoinChannel, setShowJoinChannel] = useState(false);
   const [showCreateChannel, setShowCreateChannel] = useState(false);
   const isTouch = useIsTouch();
+  // Below this width the stylesheet turns the side bar into a bottom dock, and
+  // the reorder axis turns with it.
+  const horizontalBar = useMediaQuery('(max-width: 768px)');
   const [showAddMenu, setShowAddMenu] = useState(false);
   const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null);
   const addBtnRef = useRef<HTMLButtonElement>(null);
@@ -352,9 +398,6 @@ export const ServerSidebar: React.FC = () => {
 
   const newFolderId = () => `f_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 
-  const draggedGuild = (): Guild | null =>
-    dragKey && dragKey.startsWith('g:') ? (guildById.get(dragKey.slice(2)) || null) : null;
-
   // Pull a guild out of wherever it lives; returns the rest (empty folders dropped)
   // plus the guild. Used by every drag op so a guild can freely move between the
   // top level and folders.
@@ -375,17 +418,31 @@ export const ServerSidebar: React.FC = () => {
 
   // Where a drop lands: near an edge → reorder; over the middle of a server/folder
   // → merge into a folder (never for a diary, and never onto a diary).
-  const computeMode = (targetItem: RenderItem, e: React.DragEvent): 'before' | 'after' | 'into' => {
-    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    const y = e.clientY - rect.top; const h = rect.height || 1;
-    const dg = draggedGuild();
-    const draggingServer = !!dragKey?.startsWith('g:');
+  //
+  // The bar runs down the side on desktop and along the bottom on a phone, so
+  // "edge" means top/bottom in one case and left/right in the other — the axis
+  // follows the same 768px breakpoint the stylesheet turns the bar into a dock.
+  const computeModeAt = (
+    targetItem: RenderItem,
+    dk: string | null,
+    rect: DOMRect,
+    point: { x: number; y: number },
+  ): 'before' | 'after' | 'into' => {
+    const horizontal = window.matchMedia('(max-width: 768px)').matches;
+    const pos = horizontal ? point.x - rect.left : point.y - rect.top;
+    const size = (horizontal ? rect.width : rect.height) || 1;
+    const dg = dk?.startsWith('g:') ? guildById.get(dk.slice(2)) || null : null;
+    const draggingServer = !!dk?.startsWith('g:');
     const draggedIsDiary = !!dg?.is_private;
     const targetIsDiary = targetItem.type === 'guild' && !!targetItem.guild.is_private;
-    const canInto = draggingServer && !draggedIsDiary && !targetIsDiary && dragKey !== keyOf(targetItem);
-    if (canInto && y > h * 0.28 && y < h * 0.72) return 'into';
-    return y < h / 2 ? 'before' : 'after';
+    const canInto = draggingServer && !draggedIsDiary && !targetIsDiary && dk !== keyOf(targetItem);
+    if (canInto && pos > size * 0.28 && pos < size * 0.72) return 'into';
+    return pos < size / 2 ? 'before' : 'after';
   };
+
+  const computeMode = (targetItem: RenderItem, e: React.DragEvent): 'before' | 'after' | 'into' =>
+    computeModeAt(targetItem, dragKey, (e.currentTarget as HTMLElement).getBoundingClientRect(),
+      { x: e.clientX, y: e.clientY });
 
   const applyDrop = (targetItem: RenderItem) => {
     const info = dropInfo; const dk = dragKey;
@@ -441,6 +498,67 @@ export const ServerSidebar: React.FC = () => {
     if (!g) return;
     saveLayout(toLayout([...base, { type: 'guild', guild: g }]));
   };
+
+  // --- Touch reordering -----------------------------------------------------
+  // Touch has no HTML5 drag-and-drop, so once the long press escalates past a
+  // second the finger is tracked by hand: `touchmove` finds the icon underneath
+  // with elementFromPoint, `touchend` drops. The listeners are native and
+  // non-passive because the move has to be preventDefault-ed — otherwise the
+  // dock scrolls sideways under the finger instead of the icon following it.
+  const itemByKey = useMemo(() => {
+    const m = new Map<string, RenderItem>();
+    for (const it of renderItems) m.set(keyOf(it), it);
+    return m;
+  }, [renderItems]);
+
+  // The listeners outlive the render that created them, so they read the live
+  // values through refs rather than a stale closure.
+  const itemByKeyRef = useRef(itemByKey);
+  itemByKeyRef.current = itemByKey;
+  const dropInfoRef = useRef(dropInfo);
+  dropInfoRef.current = dropInfo;
+  const applyDropRef = useRef(applyDrop);
+  applyDropRef.current = applyDrop;
+  const computeModeAtRef = useRef(computeModeAt);
+  computeModeAtRef.current = computeModeAt;
+
+  const startTouchDrag = useCallback((key: string) => {
+    // The menu opened half a second ago; the hold has turned into a drag.
+    setGuildMenu(null);
+    setOpenFolder(null);
+    setDragKey(key);
+    setDropInfo(null);
+
+    const onMove = (ev: TouchEvent) => {
+      const t = ev.touches[0];
+      if (!t) return;
+      ev.preventDefault();
+      const host = (document.elementFromPoint(t.clientX, t.clientY) as HTMLElement | null)
+        ?.closest<HTMLElement>('[data-drag-key]');
+      const targetKey = host?.dataset.dragKey;
+      const target = targetKey && targetKey !== key ? itemByKeyRef.current.get(targetKey) : null;
+      if (!host || !target || !targetKey) { setDropInfo(null); return; }
+      setDropInfo({
+        key: targetKey,
+        mode: computeModeAtRef.current(target, key, host.getBoundingClientRect(), { x: t.clientX, y: t.clientY }),
+      });
+    };
+
+    const onEnd = () => {
+      document.removeEventListener('touchmove', onMove);
+      document.removeEventListener('touchend', onEnd);
+      document.removeEventListener('touchcancel', onEnd);
+      const info = dropInfoRef.current;
+      const target = info ? itemByKeyRef.current.get(info.key) : null;
+      if (target) applyDropRef.current(target);
+      else { setDragKey(null); setDropInfo(null); }
+    };
+
+    document.addEventListener('touchmove', onMove, { passive: false });
+    document.addEventListener('touchend', onEnd);
+    document.addEventListener('touchcancel', onEnd);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const renameFolder = (folderId: string, name: string) => {
     saveLayout(toLayout(renderItems.map(it =>
@@ -519,12 +637,15 @@ export const ServerSidebar: React.FC = () => {
               const isBefore = dropInfo?.key === k && dropInfo.mode === 'before';
               const isAfter = dropInfo?.key === k && dropInfo.mode === 'after';
               const wrap = (children: React.ReactNode) => (
-                <div
+                <ReorderSlot
                   key={k}
+                  itemKey={k}
                   // On touch, `draggable` is what swallowed the long press:
                   // Android starts a native drag and the context menu never
-                  // opens. HTML5 drag does not work there anyway.
+                  // opens. HTML5 drag does not work there anyway — a held
+                  // finger arms `startTouchDrag` instead.
                   draggable={!isTouch}
+                  onArm={startTouchDrag}
                   onDragStart={e => { setDragKey(k); e.dataTransfer.effectAllowed = 'move'; }}
                   onDragOver={e => { e.preventDefault(); e.stopPropagation(); if (dragKey && dragKey !== k) setDropInfo({ key: k, mode: computeMode(item, e) }); }}
                   onDragLeave={() => setDropInfo(prev => prev?.key === k ? null : prev)}
@@ -533,15 +654,25 @@ export const ServerSidebar: React.FC = () => {
                   style={{
                     cursor: 'grab',
                     opacity: dragKey === k ? 0.4 : 1,
-                    borderTop: isBefore ? '2px solid var(--accent-primary)' : '2px solid transparent',
-                    borderBottom: isAfter ? '2px solid var(--accent-primary)' : '2px solid transparent',
+                    // The insertion marker sits on whichever edge the drop
+                    // would land against — the bar is vertical on desktop and
+                    // horizontal in the phone dock.
+                    ...(horizontalBar
+                      ? {
+                        borderLeft: isBefore ? '2px solid var(--accent-primary)' : '2px solid transparent',
+                        borderRight: isAfter ? '2px solid var(--accent-primary)' : '2px solid transparent',
+                      }
+                      : {
+                        borderTop: isBefore ? '2px solid var(--accent-primary)' : '2px solid transparent',
+                        borderBottom: isAfter ? '2px solid var(--accent-primary)' : '2px solid transparent',
+                      }),
                     borderRadius: 8,
                     boxShadow: isInto ? '0 0 0 2px var(--accent-primary)' : 'none',
                     transition: 'box-shadow .12s',
                   }}
                 >
                   {children}
-                </div>
+                </ReorderSlot>
               );
               if (item.type === 'guild') {
                 const guild = item.guild;

@@ -13,7 +13,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
  * drop `draggable` on touch devices, where HTML5 drag-and-drop does not work
  * anyway. Nothing is taken away from desktop.
  */
-export function useLongPress(onFire: (x: number, y: number) => void, ms = 450) {
+export function useLongPress(onFire: (x: number, y: number) => void, ms = 500) {
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fired = useRef(false);
   const origin = useRef<{ x: number; y: number } | null>(null);
@@ -60,6 +60,59 @@ export function useLongPress(onFire: (x: number, y: number) => void, ms = 450) {
   }, []);
 
   return { onTouchStart, onTouchMove, onTouchEnd, onContextMenuCapture, onClickCapture };
+}
+
+/**
+ * The second half of the touch gesture: keep holding and the press becomes a
+ * drag.
+ *
+ * `useLongPress` opens the context menu at half a second. Hold past a second
+ * and `onArm` fires — the caller closes that menu and takes over the finger,
+ * because HTML5 drag-and-drop does not exist on touch and the reorder has to
+ * be tracked by hand from there.
+ *
+ * Sliding before the second is up cancels: at that point the menu is open and
+ * a moving finger means the list is being scrolled, not an icon dragged.
+ */
+export function useDragArm(onArm: (x: number, y: number) => void, ms = 1000) {
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const armed = useRef(false);
+  const origin = useRef<{ x: number; y: number } | null>(null);
+
+  const cancel = useCallback(() => {
+    if (timer.current) { clearTimeout(timer.current); timer.current = null; }
+  }, []);
+
+  useEffect(() => cancel, [cancel]);
+
+  const onTouchStart = useCallback((e: React.TouchEvent) => {
+    const t = e.touches[0];
+    if (!t) return;
+    armed.current = false;
+    origin.current = { x: t.clientX, y: t.clientY };
+    cancel();
+    timer.current = setTimeout(() => {
+      armed.current = true;
+      onArm(t.clientX, t.clientY);
+    }, ms);
+  }, [cancel, ms, onArm]);
+
+  const onTouchMove = useCallback((e: React.TouchEvent) => {
+    const t = e.touches[0];
+    const from = origin.current;
+    if (!t || !from || armed.current) return;
+    if (Math.abs(t.clientX - from.x) > 10 || Math.abs(t.clientY - from.y) > 10) cancel();
+  }, [cancel]);
+
+  const onTouchEnd = useCallback(() => cancel(), [cancel]);
+
+  // Letting go at the end of a drag must not also count as a tap on whatever
+  // the icon opens.
+  const onClickCapture = useCallback((e: React.MouseEvent) => {
+    if (armed.current) { e.preventDefault(); e.stopPropagation(); armed.current = false; }
+  }, []);
+
+  return { onTouchStart, onTouchMove, onTouchEnd, onClickCapture };
 }
 
 /** True on a device whose primary input is a finger. */
