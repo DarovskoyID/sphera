@@ -942,26 +942,92 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
   // Front (user) / back (environment) phone camera. The button flips it by
   // grabbing a new stream and hot-swapping the outgoing track (replaceTrack).
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('user');
+  const [switchingCamera, setSwitchingCamera] = useState(false);
+
+  // Only offer the flip when there is somewhere to flip to. The list is only
+  // complete once camera permission has been granted, so it is re-read when
+  // our camera comes on.
+  const [hasSecondCamera, setHasSecondCamera] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    const check = async () => {
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        if (alive) setHasSecondCamera(devices.filter(d => d.kind === 'videoinput').length > 1);
+      } catch { /* enumeration blocked — leave the button hidden */ }
+    };
+    check();
+    navigator.mediaDevices?.addEventListener?.('devicechange', check);
+    return () => {
+      alive = false;
+      navigator.mediaDevices?.removeEventListener?.('devicechange', check);
+    };
+  }, [isVideoActive]);
+
+  /** The sender carrying our camera — never the screen-share one. */
+  const cameraSender = () =>
+    _call.pc?.getSenders().find(s => s.track?.kind === 'video' && s !== _call.screenSender) || null;
+
+  const openCamera = (mode: 'user' | 'environment', exact: boolean) =>
+    navigator.mediaDevices.getUserMedia({
+      video: { facingMode: exact ? { exact: mode } : { ideal: mode } },
+      audio: false,
+    });
+
   const switchCamera = async () => {
+    if (switchingCamera) return;
     const next = facingMode === 'user' ? 'environment' : 'user';
+    const oldStream = _call.cameraStream;
+    setSwitchingCamera(true);
     try {
-      const newStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: next } }, audio: false });
-      const newTrack = newStream.getVideoTracks()[0];
-      if (!newTrack) return;
-      const pc = _call.pc;
-      const oldTrack = _call.cameraStream?.getVideoTracks()[0];
-      if (pc && oldTrack) {
-        const sender = pc.getSenders().find(s => s.track?.id === oldTrack.id);
-        if (sender) await sender.replaceTrack(newTrack);
+      let newStream: MediaStream;
+      try {
+        // `exact` is what actually moves to the other lens. With `ideal` a
+        // phone is free to hand back the camera it already has open, which is
+        // why the button appeared to do nothing at all.
+        newStream = await openCamera(next, true);
+      } catch {
+        // Most phones cannot hold both cameras open at once, so that request
+        // fails while the first camera is still live. Let go of it and ask
+        // again — this is the path nearly every Android device takes.
+        oldStream?.getVideoTracks().forEach(t => t.stop());
+        newStream = await openCamera(next, true).catch(() => openCamera(next, false));
       }
-      _call.cameraStream?.getTracks().forEach(t => t.stop());
+
+      const newTrack = newStream.getVideoTracks()[0];
+      if (!newTrack) throw new Error('no video track');
+
+      // Matched by kind rather than by track id: the old track may already be
+      // stopped, and an id match breaks after the first successful switch.
+      const sender = cameraSender();
+      if (sender) await sender.replaceTrack(newTrack);
+
+      oldStream?.getTracks().forEach(t => t.stop());
       _call.cameraStream = newStream;
       if (cameraVideoRef.current) {
         cameraVideoRef.current.srcObject = newStream;
         cameraVideoRef.current.play().catch(() => {});
       }
       setFacingMode(next);
-    } catch { /* this device may not have a second camera */ }
+    } catch {
+      // The flip failed after we had already let go of the old camera, so the
+      // call would be left sending a dead track. Put the original one back.
+      if (!_call.cameraStream?.active) {
+        try {
+          const back = await openCamera(facingMode, false);
+          const backTrack = back.getVideoTracks()[0];
+          const sender = cameraSender();
+          if (backTrack && sender) await sender.replaceTrack(backTrack);
+          _call.cameraStream = back;
+          if (cameraVideoRef.current) {
+            cameraVideoRef.current.srcObject = back;
+            cameraVideoRef.current.play().catch(() => {});
+          }
+        } catch { /* nothing left to try */ }
+      }
+    } finally {
+      setSwitchingCamera(false);
+    }
   };
 
   const videoFill: React.CSSProperties = { width: '100%', height: '100%', objectFit: 'contain', display: 'block' };
@@ -1108,11 +1174,13 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
           )}
           {/* Flip phone camera (front ↔ back) — only meaningful while our
               camera is on. Tapping the PiP itself swaps the two views. */}
-          {isVideoActive && (
+          {isVideoActive && hasSecondCamera && (
             <button
               onClick={switchCamera}
+              disabled={switchingCamera}
               title={tr('call_switch_camera')}
-              style={{ position: 'absolute', top: 12, left: 12, zIndex: 5, width: 40, height: 40, borderRadius: '50%', border: 'none', background: 'rgba(0,0,0,0.45)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
+              aria-label={tr('call_switch_camera')}
+              style={{ position: 'absolute', top: 12, left: 12, zIndex: 5, width: 40, height: 40, borderRadius: '50%', border: 'none', background: 'rgba(0,0,0,0.45)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: switchingCamera ? 'default' : 'pointer', opacity: switchingCamera ? 0.5 : 1 }}
             >
               <SwitchCamera size={20} />
             </button>
