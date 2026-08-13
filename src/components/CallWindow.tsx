@@ -1101,6 +1101,59 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
     }
   };
 
+  /**
+   * Drop the whole audio+video capture and take it again, with the camera we
+   * want this time.
+   *
+   * Only reached when the camera has refused every gentler approach as still
+   * in use. The microphone is the last thing holding its capture session, so
+   * it goes as well and comes back on the same breath; the mute state is
+   * carried over so a muted caller does not come back unmuted.
+   *
+   * Returns a video-only stream on success, so the caller's path from here is
+   * the same as any other.
+   */
+  const reopenWholeCapture = async (
+    deviceId: string | undefined,
+    want: 'user' | 'environment',
+    refusals: string[],
+  ): Promise<MediaStream | null> => {
+    const audioSender = _call.pc?.getSenders().find(s => s.track?.kind === 'audio') || null;
+    try { await audioSender?.replaceTrack(null); } catch { /* fine */ }
+    _call.audioStream?.getAudioTracks().forEach(t => { try { t.stop(); } catch { /* gone */ } });
+
+    await new Promise(r => setTimeout(r, 300));
+
+    try {
+      const both = await navigator.mediaDevices.getUserMedia({
+        audio: true,
+        video: deviceId ? { deviceId: { exact: deviceId } } : { facingMode: { ideal: want } },
+      });
+      const audio = both.getAudioTracks()[0] || null;
+      if (audio) {
+        // The mic button is a state on the track, and this is a new track.
+        audio.enabled = isMicActive;
+        _call.audioStream = new MediaStream([audio]);
+        if (audioSender) await audioSender.replaceTrack(audio);
+      }
+      return new MediaStream(both.getVideoTracks());
+    } catch (e) {
+      refusals.push(`whole capture ${errName(e)}`);
+      // The microphone is now off and that is worse than a camera that did not
+      // flip, so get it back whatever happens.
+      try {
+        const mic = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const audio = mic.getAudioTracks()[0];
+        if (audio) {
+          audio.enabled = isMicActive;
+          _call.audioStream = mic;
+          if (audioSender) await audioSender.replaceTrack(audio);
+        }
+      } catch { /* nothing left to try */ }
+      return null;
+    }
+  };
+
   const switchCamera = async () => {
     if (switchingCamera) return;
     const next = facingMode === 'user' ? 'environment' : 'user';
@@ -1135,8 +1188,27 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
         return null;
       };
 
-      // First pass with the current camera still running, so the preview never
-      // goes dark on a phone that can hold both open.
+      // Ask the camera we already hold to become the other one. This is the
+      // one route that needs no second camera open at once, no renegotiation
+      // and no gap in the picture — the track in the sender stays the very
+      // same object, it just points at the other lens. Where a phone supports
+      // it, it is strictly the best answer; where it does not, it throws and
+      // costs nothing.
+      if (oldTrack?.applyConstraints) {
+        try {
+          await oldTrack.applyConstraints({ facingMode: { exact: next } });
+          if (trackDeviceId(oldTrack) !== oldId) {
+            const got = oldTrack.getSettings?.().facingMode;
+            setFacingMode(got === 'user' || got === 'environment' ? got : next);
+            return;
+          }
+          refusals.push('applyConstraints kept the same lens');
+        } catch (e) { refusals.push(`applyConstraints ${errName(e)}`); }
+      }
+
+      // Otherwise open the other camera as a stream of its own. First pass
+      // with the current one still running, so the preview never goes dark on
+      // a phone that can hold both open.
       let newStream = await tryAll();
 
       if (!newStream) {
@@ -1163,6 +1235,19 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
           await new Promise(r => setTimeout(r, wait));
           newStream = await tryAll();
           if (newStream) break;
+        }
+
+        if (!newStream) {
+          // Still "in use" after all of that. The remaining holder is the
+          // capture session itself: the call opens audio and video in one
+          // getUserMedia, and on some Android builds the camera stays tied to
+          // that session for as long as any of its tracks live — and one does,
+          // because it is the call's microphone.
+          //
+          // So the session goes too, microphone and all, and both tracks are
+          // taken again together. Last resort, because it touches the audio of
+          // a live call to fix the video.
+          newStream = await reopenWholeCapture(target?.deviceId, next, refusals);
         }
       }
 
