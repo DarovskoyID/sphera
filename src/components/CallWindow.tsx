@@ -108,18 +108,33 @@ export function summarise(reasons: string[]): string {
  * Exported for its own sake: this is the decision worth checking, and it can
  * be checked without two real cameras attached.
  */
+export function orderCameras(
+  videoInputs: Array<Pick<MediaDeviceInfo, 'deviceId' | 'label'>>,
+  currentId: string,
+  want: 'user' | 'environment',
+): Array<Pick<MediaDeviceInfo, 'deviceId' | 'label'>> {
+  const others = videoInputs.filter(d => d.deviceId && d.deviceId !== currentId);
+  const wanted = want === 'environment' ? BACK_LABEL : FRONT_LABEL;
+  const unwanted = want === 'environment' ? FRONT_LABEL : BACK_LABEL;
+  // Every one of them, best first — not just the best one. A phone that lists
+  // four rear cameras will happily refuse to open the depth sensor or the
+  // macro lens, and stopping at the first choice meant never reaching the one
+  // that does open.
+  const rank = (d: { label: string }) =>
+    wanted.test(d.label) ? 0 : unwanted.test(d.label) ? 2 : 1;
+  return others
+    .map((d, i) => ({ d, i }))                            // keep the list order
+    .sort((a, b) => rank(a.d) - rank(b.d) || a.i - b.i)   // ...within each rank
+    .map(x => x.d);
+}
+
+/** The single best camera to move to, or null when there is nowhere to go. */
 export function chooseCamera(
   videoInputs: Array<Pick<MediaDeviceInfo, 'deviceId' | 'label'>>,
   currentId: string,
   want: 'user' | 'environment',
 ): Pick<MediaDeviceInfo, 'deviceId' | 'label'> | null {
-  const others = videoInputs.filter(d => d.deviceId && d.deviceId !== currentId);
-  if (!others.length) return null;
-  const wanted = want === 'environment' ? BACK_LABEL : FRONT_LABEL;
-  const unwanted = want === 'environment' ? FRONT_LABEL : BACK_LABEL;
-  return others.find(d => wanted.test(d.label))          // says it is the one
-    || others.find(d => !unwanted.test(d.label))         // at least not the other
-    || others[0];                                        // no labels: just move on
+  return orderCameras(videoInputs, currentId, want)[0] || null;
 }
 
 // ── Module-level call state ───────────────────────────────────────────────────
@@ -1114,7 +1129,7 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
    * the same as any other.
    */
   const reopenWholeCapture = async (
-    deviceId: string | undefined,
+    deviceIds: string[],
     want: 'user' | 'environment',
     refusals: string[],
   ): Promise<MediaStream | null> => {
@@ -1124,11 +1139,20 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
 
     await new Promise(r => setTimeout(r, 300));
 
-    try {
-      const both = await navigator.mediaDevices.getUserMedia({
-        audio: true,
-        video: deviceId ? { deviceId: { exact: deviceId } } : { facingMode: { ideal: want } },
-      });
+    // Every candidate again, since this pass is about the session being gone,
+    // not about which lens was asked for.
+    const videoWants: MediaTrackConstraints[] = [
+      ...deviceIds.map(id => ({ deviceId: { exact: id } })),
+      { facingMode: { ideal: want } },
+    ];
+
+    let both: MediaStream | null = null;
+    for (const video of videoWants) {
+      try { both = await navigator.mediaDevices.getUserMedia({ audio: true, video }); break; }
+      catch (e) { refusals.push(`whole capture ${errName(e)}`); }
+    }
+
+    if (both) {
       const audio = both.getAudioTracks()[0] || null;
       if (audio) {
         // The mic button is a state on the track, and this is a new track.
@@ -1137,8 +1161,9 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
         if (audioSender) await audioSender.replaceTrack(audio);
       }
       return new MediaStream(both.getVideoTracks());
-    } catch (e) {
-      refusals.push(`whole capture ${errName(e)}`);
+    }
+
+    {
       // The microphone is now off and that is worse than a camera that did not
       // flip, so get it back whatever happens.
       try {
@@ -1173,13 +1198,15 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
     const refusals: string[] = [];
     try {
       const cams = await listCameras();
-      const target = chooseCamera(cams, oldId, next);
-      // By id first, by facingMode only as a fallback for a browser that hides
-      // the device list.
-      const ways: Array<() => Promise<MediaStream>> = [];
-      if (target) ways.push(() => openById(target.deviceId));
-      ways.push(() => openCamera(next, true));
-      ways.push(() => openCamera(next, false));
+      const candidates = orderCameras(cams, oldId, next);
+      // Each camera by id, best first, then by facingMode for a browser that
+      // hides the device list. All of them, because "the back camera" is
+      // routinely several devices and only some of them open.
+      const ways: Array<() => Promise<MediaStream>> = [
+        ...candidates.map(c => () => openById(c.deviceId)),
+        () => openCamera(next, true),
+        () => openCamera(next, false),
+      ];
 
       const tryAll = async () => {
         for (const way of ways) {
@@ -1247,7 +1274,7 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
           // So the session goes too, microphone and all, and both tracks are
           // taken again together. Last resort, because it touches the audio of
           // a live call to fix the video.
-          newStream = await reopenWholeCapture(target?.deviceId, next, refusals);
+          newStream = await reopenWholeCapture(candidates.map(c => c.deviceId), next, refusals);
         }
       }
 
@@ -1259,9 +1286,13 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
         newStream?.getTracks().forEach(t => t.stop());
         // Say which of the two it was: nothing would open, or something opened
         // and it was the same lens. They need different fixes.
+        // How many cameras were on offer belongs in both messages: "the other
+        // one will not open" and "there is no other one" read identically
+        // otherwise, and they are not the same problem.
+        const seen = `${cams.length} cam${cams.length === 1 ? '' : 's'}`;
         throw new Error(newStream
-          ? `same lens (${cams.length} cam${cams.length === 1 ? '' : 's'})`
-          : summarise(refusals) || 'no camera');
+          ? `same lens (${seen})`
+          : `${summarise(refusals) || 'no camera'} (${seen})`);
       }
 
       if (sender) await sender.replaceTrack(newTrack);
