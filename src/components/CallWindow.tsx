@@ -85,6 +85,19 @@ export function errName(e: unknown): string {
 }
 
 /**
+ * Collapse a run of refusals into something that fits on a phone.
+ *
+ * Six attempts reporting the same thing came out as the same word repeated
+ * six times, wide enough to be clipped by its own box — which lost the tail,
+ * where a *different* reason would have been the interesting part.
+ */
+export function summarise(reasons: string[]): string {
+  const counts = new Map<string, number>();
+  for (const r of reasons) counts.set(r, (counts.get(r) || 0) + 1);
+  return [...counts].map(([r, n]) => (n > 1 ? `${r} ×${n}` : r)).join(', ');
+}
+
+/**
  * Which camera to move to, named by device id rather than by facingMode.
  *
  * facingMode is a request a phone may quietly decline: it accepts
@@ -1065,12 +1078,40 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
     }
   };
 
+  /**
+   * Let go of the camera — properly.
+   *
+   * Stopping the one track we happened to be holding is not enough: the
+   * sender, the preview element and the other streams the track was split
+   * into all keep the device open, and the phone then answers the next
+   * request with NotReadableError.
+   */
+  const releaseCamera = async (sender: RTCRtpSender | null) => {
+    // Off the wire first. A sender holds its track until it is given another
+    // one — or null, which is what this says.
+    if (sender) { try { await sender.replaceTrack(null); } catch { /* fine */ } }
+
+    // Off the screen. An element still rendering the stream counts as a user.
+    if (cameraVideoRef.current) cameraVideoRef.current.srcObject = null;
+
+    // And every copy of the track, not just the first one on the stream we
+    // were tracking.
+    for (const s of [_call.cameraStream, _call.localMediaStream]) {
+      s?.getVideoTracks().forEach(t => { try { t.stop(); } catch { /* already gone */ } });
+    }
+  };
+
   const switchCamera = async () => {
     if (switchingCamera) return;
     const next = facingMode === 'user' ? 'environment' : 'user';
     const oldStream = _call.cameraStream;
     const oldTrack = oldStream?.getVideoTracks()[0] || null;
     const oldId = trackDeviceId(oldTrack);
+    // Held onto now, before anything is released: cameraSender() finds the
+    // sender by the track it is carrying, and releasing takes that track away.
+    // Looked up afterwards it comes back null, and the new camera would never
+    // reach the other side.
+    const sender = cameraSender();
     setSwitchingCamera(true);
     setFlipError(null);
     // Every reason a request was turned down, kept so the last one can be
@@ -1099,14 +1140,30 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
       let newStream = await tryAll();
 
       if (!newStream) {
-        // It cannot, so let the current one go and ask again. This is the pass
-        // that actually succeeds on most Android phones — and the reason the
-        // preview blanks for a moment.
-        oldTrack?.stop();
-        // The hardware needs a beat to be released; without this the retry
-        // hits the same "already in use" error it was meant to escape.
-        await new Promise(r => setTimeout(r, 150));
-        newStream = await tryAll();
+        // It cannot. Reported as NotReadableError on every attempt, which is
+        // the device saying it is still in use — and it was, because stopping
+        // one track is not the same as letting the camera go. Three other
+        // things were still holding it:
+        //
+        //   • the sender on the peer connection, which keeps its track until
+        //     it is handed something else (or nothing) to send;
+        //   • the <video> element, still rendering the stream;
+        //   • the other MediaStreams the same track was split into — the
+        //     original getUserMedia asked for audio and video together and the
+        //     video track lives on in localMediaStream too.
+        //
+        // All of them go, then the camera is asked for again.
+        await releaseCamera(sender);
+
+        // And it is not released the instant stop() returns. Rather than guess
+        // one delay, the request is retried on a widening one; a phone that
+        // needs half a second is common, and the alternative is telling the
+        // user it failed while the camera was merely still closing.
+        for (const wait of [200, 400, 800]) {
+          await new Promise(r => setTimeout(r, wait));
+          newStream = await tryAll();
+          if (newStream) break;
+        }
       }
 
       const newTrack = newStream?.getVideoTracks()[0] || null;
@@ -1119,12 +1176,9 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
         // and it was the same lens. They need different fixes.
         throw new Error(newStream
           ? `same lens (${cams.length} cam${cams.length === 1 ? '' : 's'})`
-          : refusals.join('/') || 'no camera');
+          : summarise(refusals) || 'no camera');
       }
 
-      // Matched by kind rather than by track id: the old track may already be
-      // stopped, and an id match breaks after the first successful switch.
-      const sender = cameraSender();
       if (sender) await sender.replaceTrack(newTrack);
 
       oldStream?.getTracks().forEach(t => t.stop());
@@ -1142,7 +1196,8 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
             ? await openById(oldId).catch(() => openCamera(facingMode, false))
             : await openCamera(facingMode, false);
           const backTrack = back.getVideoTracks()[0];
-          const sender = cameraSender();
+          // The sender captured above, not a fresh lookup: by now it is
+          // carrying nothing, so it can no longer be found by its track.
           if (backTrack && sender) await sender.replaceTrack(backTrack);
           useStream(back);
         } catch { /* nothing left to try */ }
