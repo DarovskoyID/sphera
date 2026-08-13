@@ -613,12 +613,14 @@ export const BotStudio: React.FC<Props> = ({ onClose }) => {
       {palette && (
         <>
           <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.5)', zIndex: 60 }} onClick={() => setPalette(false)} />
-          <div style={{
-            position: 'fixed', zIndex: 61,
+          {/* The sheet's own edges live in layout.css: on a phone its bottom has
+              to clear the server dock, and an inline `bottom` would win over
+              that rule. */}
+          <div className={narrow ? 'bot-node-palette is-sheet' : 'bot-node-palette'} style={{
             ...(narrow
-              ? { left: 0, right: 0, bottom: 0, borderRadius: '16px 16px 0 0', maxHeight: '70vh' }
+              ? {}
               : { left: '50%', top: '50%', transform: 'translate(-50%,-50%)', width: 420, borderRadius: 16, maxHeight: '70vh' }),
-            overflowY: 'auto', padding: 14,
+            padding: 14,
             background: 'var(--bg-secondary, #2b2d31)', border: '1px solid var(--border-color)',
           }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>

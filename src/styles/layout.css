@@ -21,6 +21,24 @@
 }
 
 
+/* Node-type picker in the bot editor. Same reason as the shell above: the
+   phone variant is a bottom sheet, and a sheet at `bottom: 0` has its last
+   rows hidden behind the dock, with no scrollbar to reach them. */
+.bot-node-palette {
+  position: fixed;
+  z-index: 61;
+  overflow-y: auto;
+}
+
+.bot-node-palette.is-sheet {
+  left: 0;
+  right: 0;
+  bottom: 0;
+  border-radius: 16px 16px 0 0;
+  max-height: 70vh;
+}
+
+
 /* ================================
    UTILITY CLASSES
    ================================ */
@@ -97,6 +115,13 @@
    */
   .bot-studio-shell {
     bottom: calc(60px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .bot-node-palette.is-sheet {
+    bottom: calc(60px + env(safe-area-inset-bottom, 0px));
+    /* 70vh of a phone screen still ran past the dock; cap by what is actually
+       left above it, minus a little breathing room at the top. */
+    max-height: calc(100svh - 60px - env(safe-area-inset-bottom, 0px) - 48px);
   }
 
   .server-sidebar .server-list {
