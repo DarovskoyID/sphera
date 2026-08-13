@@ -568,6 +568,107 @@ function activePhraseRes(cfg: CensorConfig): RegExp[] {
 
 const MAX_SCAN = 4000; // guard against pathological input
 
+/**
+ * A character deliberately written *as* a censor mark, standing in for a
+ * letter.
+ *
+ * Narrower than the set the word-level pass uses, and for two reasons. A dot
+ * or a hyphen is ordinary punctuation, so this pass would wake up on nearly
+ * every sentence ever typed — measured at 3 ms a message, which a screenful
+ * of them cannot afford. And it is not needed: those characters are already
+ * handled a line above, where every separator is stripped out. Nobody hides a
+ * letter behind a comma; they reach for an asterisk.
+ *
+ * Two copies of it: the global one is stateful, so the cheap "is there one at
+ * all" test gets its own.
+ */
+const MASK_CHAR_G = /[*#@$%&•]/gu;
+const MASK_CHAR_RE = /[*#@$%&•]/u;
+
+/** Longest run of stand-ins credited; past this the message is mostly noise. */
+const MAX_RUN_SLOTS = 8;
+
+/** Slot reading of a whole message, at most this long — appeals are short. */
+const MAX_SLOT_SCAN = 400;
+
+/**
+ * The message as letters and slots: each stand-in symbol becomes a slot,
+ * spaces and ordinary punctuation are dropped as before.
+ *
+ * Folding runs per letter-run rather than over the whole string, because
+ * `variants` collapses repeated characters — a run of five slots would come
+ * back as one, and with it the room for the five letters it is hiding.
+ */
+function slotFlat(text: string, pick: 0 | 1): string {
+  let out = '';
+  let last = 0;
+  const re = /[\p{L}\p{N}]+/gu;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    const slots = (text.slice(last, m.index).match(MASK_CHAR_G) || []).length;
+    out += ANY.repeat(Math.min(slots, MAX_RUN_SLOTS)) + variants(m[0])[pick];
+    last = m.index + m[0].length;
+  }
+  const tail = (text.slice(last).match(MASK_CHAR_G) || []).length;
+  return out + ANY.repeat(Math.min(tail, MAX_RUN_SLOTS));
+}
+
+/**
+ * Does any contiguous stretch of `hay` spell `kw`, with every slot free to
+ * stand for one character or for none?
+ *
+ * Both readings at once is the point. "откл*ч*" hides two letters inside the
+ * word; "отк*л***" pads it with stand-ins that correspond to nothing. Trying
+ * only one reading — which is all the old code did, deleting every symbol —
+ * misses whichever case it did not assume.
+ *
+ * Run as a small automaton over the message: `reach[j]` is the most real
+ * letters any path has used to match the first `j` characters of the keyword,
+ * or -1 where no path exists. Position 0 restarts on every character, which is
+ * what makes this a substring search.
+ */
+function spells(hay: string, kw: string): boolean {
+  const m = kw.length;
+  if (!m) return false;
+  // Half the keyword has to have actually been typed. Slots match anything, so
+  // without this a row of asterisks would spell every word on the list.
+  const needLiterals = Math.max(3, Math.ceil(m / 2));
+  if (m < 3) return false;
+
+  let reach = new Int32Array(m + 1).fill(-1);
+  reach[0] = 0;
+  const next = new Int32Array(m + 1);
+
+  for (let i = 0; i < hay.length; i++) {
+    const c = hay[i];
+    next.fill(-1);
+    next[0] = 0;
+    for (let j = 0; j <= m; j++) {
+      const here = reach[j];
+      if (here < 0) continue;
+      if (c === ANY) {
+        // Skip the slot, or spend it on the next keyword character.
+        if (here > next[j]) next[j] = here;
+        if (j < m && here > next[j + 1]) next[j + 1] = here;
+      } else if (j < m && c === kw[j]) {
+        if (here + 1 > next[j + 1]) next[j + 1] = here + 1;
+      }
+    }
+    reach.set(next);
+    if (reach[m] >= needLiterals) return true;
+  }
+  return reach[m] >= needLiterals;
+}
+
+/** Does the slot reading of the message carry one of these stems? */
+function hitsSlots(hays: [string, string], roots: string[]): boolean {
+  for (const pick of [0, 1] as const) {
+    const hay = hays[pick];
+    for (const r of roots) if (spells(hay, kwVariants(r)[pick])) return true;
+  }
+  return false;
+}
+
 // ── result caches ────────────────────────────────────────────────────────────
 // Both entry points run on every render of every visible message, and the work
 // is not cheap: tokenizing, folding, and fuzzy-matching against several hundred
@@ -585,6 +686,21 @@ function cacheKey(text: string, authorId?: string): string {
   return `${authorId ?? ''}/${text}`;
 }
 
+/**
+ * The slot reading of the whole message: a verb and a noun, both spelled
+ * through stand-in symbols.
+ *
+ * Guarded on cost, because unlike the passes above this one walks the message
+ * once per keyword. A message with no stand-ins in it has nothing here that
+ * the plain pass did not already see, and a long one is not an appeal to
+ * switch the filter off — those are short.
+ */
+function slotPassSays(text: string): boolean {
+  if (text.length > MAX_SLOT_SCAN || !MASK_CHAR_RE.test(text)) return false;
+  const hays: [string, string] = [slotFlat(text, 0), slotFlat(text, 1)];
+  return hitsSlots(hays, DISABLE_VERBS) && hitsSlots(hays, DISABLE_NOUNS);
+}
+
 /** True when the whole message should be masked (disable-the-filter appeals). */
 export function isFullBlur(text: string, cfg: CensorConfig = getCensorConfig()): boolean {
   if (!cfg.blur_enabled || !cfg.blur_disable_requests || !text) return false;
@@ -599,7 +715,12 @@ export function isFullBlur(text: string, cfg: CensorConfig = getCensorConfig()):
   // that happens to land on one of the stems does not.
   const value =
     (hits(flat, DISABLE_VERBS) && hits(flat, DISABLE_NOUNS))
-    || (hitsTranslit(flat, TRANSLIT_DISABLE_VERBS) && hitsTranslit(flat, TRANSLIT_DISABLE_NOUNS));
+    || (hitsTranslit(flat, TRANSLIT_DISABLE_VERBS) && hitsTranslit(flat, TRANSLIT_DISABLE_NOUNS))
+    // And again reading the stand-in symbols as the letters they hide, rather
+    // than as separators to throw away: "отк*ю** в на*тр*йках". Needing a verb
+    // AND a noun is what makes this safe to run so loosely — one stray match
+    // is not enough on its own.
+    || slotPassSays(text);
   remember(fullBlurCache, text, { epoch, value }, 2000);
   return value;
 }
