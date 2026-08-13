@@ -63,6 +63,39 @@ let _attachRemoteRef: { current: (stream: MediaStream) => void } | null = null;
 let _attachRemoteScreenRef: { current: (stream: MediaStream) => void } | null = null;
 let _clearRemoteScreenRef: { current: () => void } | null = null;
 
+// ── Camera choice ─────────────────────────────────────────────────────────────
+
+// Labels are the only clue to which lens is which, once facingMode has proved
+// unreliable. They are empty until camera permission is granted, which the
+// last fallback below covers.
+const BACK_LABEL = /back|rear|environment|задн/i;
+const FRONT_LABEL = /front|user|фронт|перед/i;
+
+/**
+ * Which camera to move to, named by device id rather than by facingMode.
+ *
+ * facingMode is a request a phone may quietly decline: it accepts
+ * `exact: environment`, opens the front camera anyway and reports success —
+ * which is what "black screen, then the front camera again" was. A device id
+ * names one physical camera and cannot be reinterpreted.
+ *
+ * Exported for its own sake: this is the decision worth checking, and it can
+ * be checked without two real cameras attached.
+ */
+export function chooseCamera(
+  videoInputs: Array<Pick<MediaDeviceInfo, 'deviceId' | 'label'>>,
+  currentId: string,
+  want: 'user' | 'environment',
+): Pick<MediaDeviceInfo, 'deviceId' | 'label'> | null {
+  const others = videoInputs.filter(d => d.deviceId && d.deviceId !== currentId);
+  if (!others.length) return null;
+  const wanted = want === 'environment' ? BACK_LABEL : FRONT_LABEL;
+  const unwanted = want === 'environment' ? FRONT_LABEL : BACK_LABEL;
+  return others.find(d => wanted.test(d.label))          // says it is the one
+    || others.find(d => !unwanted.test(d.label))         // at least not the other
+    || others[0];                                        // no labels: just move on
+}
+
 // ── Module-level call state ───────────────────────────────────────────────────
 // Lives outside React so WebRTC connection survives component unmount/remount
 // when the user navigates away from the chat while a call is active.
@@ -974,28 +1007,71 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
       audio: false,
     });
 
+  const openById = (deviceId: string) =>
+    navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: deviceId } }, audio: false });
+
+  const trackDeviceId = (t?: MediaStreamTrack | null) => t?.getSettings?.().deviceId || '';
+
+  const pickCamera = async (currentId: string, want: 'user' | 'environment') => {
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      return chooseCamera(devices.filter(d => d.kind === 'videoinput'), currentId, want);
+    } catch { return null; }
+  };
+
+  const useStream = (stream: MediaStream) => {
+    _call.cameraStream = stream;
+    if (cameraVideoRef.current) {
+      cameraVideoRef.current.srcObject = stream;
+      cameraVideoRef.current.play().catch(() => {});
+    }
+  };
+
   const switchCamera = async () => {
     if (switchingCamera) return;
     const next = facingMode === 'user' ? 'environment' : 'user';
     const oldStream = _call.cameraStream;
+    const oldTrack = oldStream?.getVideoTracks()[0] || null;
+    const oldId = trackDeviceId(oldTrack);
     setSwitchingCamera(true);
     try {
-      let newStream: MediaStream;
-      try {
-        // `exact` is what actually moves to the other lens. With `ideal` a
-        // phone is free to hand back the camera it already has open, which is
-        // why the button appeared to do nothing at all.
-        newStream = await openCamera(next, true);
-      } catch {
-        // Most phones cannot hold both cameras open at once, so that request
-        // fails while the first camera is still live. Let go of it and ask
-        // again — this is the path nearly every Android device takes.
-        oldStream?.getVideoTracks().forEach(t => t.stop());
-        newStream = await openCamera(next, true).catch(() => openCamera(next, false));
+      const target = await pickCamera(oldId, next);
+      // By id first, by facingMode only as a fallback for a browser that hides
+      // the device list.
+      const ways: Array<() => Promise<MediaStream>> = [];
+      if (target) ways.push(() => openById(target.deviceId));
+      ways.push(() => openCamera(next, true));
+
+      const tryAll = async () => {
+        for (const way of ways) {
+          try { return await way(); } catch { /* try the next one */ }
+        }
+        return null;
+      };
+
+      // First pass with the current camera still running, so the preview never
+      // goes dark on a phone that can hold both open.
+      let newStream = await tryAll();
+
+      if (!newStream) {
+        // It cannot, so let the current one go and ask again. This is the pass
+        // that actually succeeds on most Android phones — and the reason the
+        // preview blanks for a moment.
+        oldTrack?.stop();
+        // The hardware needs a beat to be released; without this the retry
+        // hits the same "already in use" error it was meant to escape.
+        await new Promise(r => setTimeout(r, 150));
+        newStream = await tryAll();
       }
 
-      const newTrack = newStream.getVideoTracks()[0];
-      if (!newTrack) throw new Error('no video track');
+      const newTrack = newStream?.getVideoTracks()[0] || null;
+      // A phone can accept the request and hand back the very lens we were
+      // already on. That is the failure that looked like "black screen, then
+      // the front camera again" — treat it as a failure, not a switch.
+      if (!newStream || !newTrack || (oldId && trackDeviceId(newTrack) === oldId)) {
+        newStream?.getTracks().forEach(t => t.stop());
+        throw new Error('camera did not change');
+      }
 
       // Matched by kind rather than by track id: the old track may already be
       // stopped, and an id match breaks after the first successful switch.
@@ -1003,26 +1079,22 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
       if (sender) await sender.replaceTrack(newTrack);
 
       oldStream?.getTracks().forEach(t => t.stop());
-      _call.cameraStream = newStream;
-      if (cameraVideoRef.current) {
-        cameraVideoRef.current.srcObject = newStream;
-        cameraVideoRef.current.play().catch(() => {});
-      }
-      setFacingMode(next);
+      useStream(newStream);
+      // Believe the camera over our own bookkeeping where it says anything.
+      const got = newTrack.getSettings?.().facingMode;
+      setFacingMode(got === 'user' || got === 'environment' ? got : next);
     } catch {
-      // The flip failed after we had already let go of the old camera, so the
-      // call would be left sending a dead track. Put the original one back.
+      // We may have let the old camera go before failing, which would leave
+      // the call sending a dead track. Put the original one back.
       if (!_call.cameraStream?.active) {
         try {
-          const back = await openCamera(facingMode, false);
+          const back = oldId
+            ? await openById(oldId).catch(() => openCamera(facingMode, false))
+            : await openCamera(facingMode, false);
           const backTrack = back.getVideoTracks()[0];
           const sender = cameraSender();
           if (backTrack && sender) await sender.replaceTrack(backTrack);
-          _call.cameraStream = back;
-          if (cameraVideoRef.current) {
-            cameraVideoRef.current.srcObject = back;
-            cameraVideoRef.current.play().catch(() => {});
-          }
+          useStream(back);
         } catch { /* nothing left to try */ }
       }
     } finally {
