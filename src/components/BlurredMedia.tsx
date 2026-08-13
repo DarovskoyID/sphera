@@ -49,9 +49,23 @@ export const BlurredMedia: React.FC<{
   useEffect(() => {
     if (!shouldClassify || !src) return;
     let alive = true;
+    let timer: ReturnType<typeof setTimeout>;
     setVerdict('pending');
-    classifyMedia(mediaKey || src, src, !!isVideo).then(v => { if (alive) setVerdict(v); });
-    return () => { alive = false; };
+
+    // 'unknown' means the check could not run, not that the picture is fine —
+    // the cover stays up and we try again shortly. Without this a photo shows
+    // in the clear on whichever device happened to lose the race, which is
+    // how the same photo ended up blurred for one person and not the other.
+    const attempt = () => {
+      classifyMedia(mediaKey || src, src, !!isVideo).then(v => {
+        if (!alive) return;
+        if (v === 'unknown') { timer = setTimeout(attempt, 1500); return; }
+        setVerdict(v);
+      });
+    };
+    attempt();
+
+    return () => { alive = false; clearTimeout(timer); };
   }, [shouldClassify, src, mediaKey, isVideo]);
 
   if (!applies || revealed) return <>{children}</>;

@@ -8,7 +8,12 @@
 // Callers should treat "not yet classified" as unsafe and keep the media hidden
 // until a verdict arrives, so explicit content never flashes on screen.
 
-export type Verdict = 'safe' | 'explicit';
+/**
+ * 'unknown' means the check did not get to run — the model was still
+ * downloading and failed, the tab ran out of memory, the decode lost a race.
+ * It is not "safe": callers keep the cover on and come back for another go.
+ */
+export type Verdict = 'safe' | 'explicit' | 'unknown';
 
 // nsfwjs returns probabilities over these five classes.
 type Predictions = Array<{ className: string; probability: number }>;
@@ -138,11 +143,25 @@ function grabVideoFrame(src: string): Promise<HTMLCanvasElement> {
 }
 
 /**
+ * How many times one piece of media may fail before we stop hiding it.
+ *
+ * A failure used to resolve straight to 'safe', which is why the same photo
+ * could be covered on one device and shown in the clear on another: whether
+ * the 3.5 MB of weights finished downloading decided it, silently. Failures
+ * are retried instead, and only a media item that has failed this many times
+ * is let through — a device that genuinely cannot run the model must not end
+ * up hiding every picture forever.
+ */
+const MAX_ATTEMPTS = 3;
+const attempts = new Map<string, number>();
+
+/**
  * Classify one image or video. `key` identifies the media for caching (use the
  * stable attachment URL, not a transient blob URL).
  *
- * On any failure — model unavailable, decode error — resolves to 'safe' so a
- * broken classifier cannot permanently hide someone's photos.
+ * Returns 'unknown' when the check could not run — the caller keeps the media
+ * hidden and asks again. Only after `MAX_ATTEMPTS` failures does it give up
+ * and answer 'safe'.
  */
 export function classifyMedia(key: string, src: string, isVideo: boolean): Promise<Verdict> {
   const hit = cache.get(key);
@@ -156,8 +175,15 @@ export function classifyMedia(key: string, src: string, isVideo: boolean): Promi
       const el = isVideo ? await grabVideoFrame(src) : await decodeImage(src);
       const verdict = judge(await model.classify(el as HTMLImageElement));
       cache.set(key, verdict);
+      attempts.delete(key);
       return verdict;
     } catch {
+      const failed = (attempts.get(key) || 0) + 1;
+      attempts.set(key, failed);
+      if (failed < MAX_ATTEMPTS) return 'unknown';
+      // Out of retries: remember it, so the queue is not chewing through the
+      // same hopeless item on every scroll.
+      cache.set(key, 'safe');
       return 'safe';
     }
   });
