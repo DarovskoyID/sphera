@@ -12,6 +12,7 @@
 // diacritics, zero-width chars, homoglyphs, leetspeak, stretched letters) and is
 // additionally tested:
 //   • joined across separators  — "о т к л ю ч и", "с*у*ка", "х.у.й"
+//   • with symbols read as the letters they hide — "с*ка", "б**дь", "f*ck"
 //   • fuzzily (bounded edit distance) — "конеденциальности", "atkluchi"
 // Masking always writes back over ranges of the ORIGINAL string, so offsets and
 // whitespace shape are preserved regardless of how the text was normalized.
@@ -337,6 +338,89 @@ function fuzzyContains(hay: string, kw: string): boolean {
   return false;
 }
 
+// ── symbols standing in for letters ──────────────────────────────────────────
+// "с*ка", "б**дь", "пи*дец", "f*ck". Pass 2 already rejoins a word split by
+// punctuation, but that reads the symbol as a separator and deletes it, which
+// turns "с*ка" into "ска" — a word that matches nothing. Here the symbol is
+// read the other way, as a letter someone declined to type: it becomes a slot
+// that matches any one character.
+//
+// Both readings are tried, because both are real. Nothing else changes: a
+// candidate with no slot in it is left to the passes above.
+
+// Not \u0001 - that is the mask sentinel, and the two must never collide.
+const ANY = '\u0002';
+
+/** A run of symbols short enough to be hiding letters rather than punctuating. */
+const MASK_RUN_RE = /^[*@#$%&+!?._\-–—•·^~]{1,3}$/u;
+
+/** Longest typed piece, and longest whole run, still read as one hidden word. */
+const MAX_WILD_PART = 5;
+const MAX_WILD_LEN = 16;
+
+/**
+ * How many letters a run may be hiding in total.
+ *
+ * Two covers what people actually write ("б**дь"). Beyond that the shape stops
+ * being a word with letters knocked out and becomes a spelled-out sequence —
+ * "S.M.A.R.T.", "до-ре-ми-фа-соль" — which, given enough slots, can be read as
+ * almost anything.
+ */
+const MAX_WILD_SLOTS = 2;
+
+/**
+ * Equal, treating a slot as any character — but only while the slots stay a
+ * minority of the word.
+ *
+ * Without that budget a slot-heavy window matches almost anything: "1.2.3-beta"
+ * folds to a candidate whose middle reads "?e?", which is two thirds guesswork
+ * and duly matched "sex". Half the word has to have actually been typed —
+ * enough room for "б**дь", not enough for a three-letter root read out of two
+ * guesses.
+ */
+function eqWild(a: string, b: string): boolean {
+  if (a.length !== b.length || b.length < 3) return false;
+  let slots = 0;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] === ANY) {
+      // A slot on the edge of the match is guesswork about a letter that was
+      // never even nearly typed: "-ми" is not evidence of a word ending in
+      // "ми". The hidden letter has to sit between two typed ones.
+      if (i === 0 || i === a.length - 1) return false;
+      slots++;
+      continue;
+    }
+    if (a[i] !== b[i]) return false;
+  }
+  return slots > 0 && slots <= Math.floor(b.length / 2);
+}
+
+function containsWild(hay: string, kw: string): boolean {
+  if (kw.length > hay.length) return false;
+  for (let i = 0; i + kw.length <= hay.length; i++) {
+    if (eqWild(hay.slice(i, i + kw.length), kw)) return true;
+  }
+  return false;
+}
+
+/**
+ * Does a candidate carrying slots match a list entry?
+ *
+ * Deliberately exact apart from the slots — no typo tolerance on top. A slot
+ * already matches anything, and stacking edit distance on that would start
+ * masking ordinary words that happen to sit next to a dash.
+ */
+function isBadWild(cyr: string, lat: string, lists: Lists): boolean {
+  if (!cyr.includes(ANY)) return false;
+  return lists.subs.some(r => {
+    const [rc, rl] = kwVariants(r);
+    return containsWild(cyr, rc) || containsWild(lat, rl);
+  }) || lists.words.some(w => {
+    const [wc, wl] = kwVariants(w);
+    return eqWild(cyr, wc) || eqWild(lat, wl);
+  });
+}
+
 // Keywords must be folded through the exact same pipeline as the input,
 // otherwise they can never match it: NFKD turns "й" into "и"+breve, so the
 // literal "обойд" would be compared against a folded "обоиди". Cached, since
@@ -583,15 +667,40 @@ export function censorToSentinel(text: string, cfg: CensorConfig = getCensorConf
     if (isBad(t.raw, lists)) maskRange(chars, t.start, t.end);
   }
 
-  // Pass 2 — words re-joined across separators (spacing / markdown splitting).
+  // Pass 2 — words re-joined across separators (spacing / markdown splitting),
+  // and the same runs read the other way, with each separating symbol kept as
+  // a slot for the letter it is hiding ("с*ка", "б**дь").
   for (let i = 0; i < tokens.length; i++) {
     let joined = tokens[i].raw;
+    let wildCyr = variants(tokens[i].raw)[0];
+    let wildLat = variants(tokens[i].raw)[1];
+    // Someone hiding a letter writes a short word with a symbol in it. A run
+    // whose pieces are long words is a hyphenated phrase — "по-настоящему",
+    // which otherwise reads as "по?н" and lands on a root. So the slot view is
+    // only offered while the run still looks like one short word.
+    let wildSlots = 0;
+    let wildOk = tokens[i].raw.length <= MAX_WILD_PART;
+
     for (let j = i + 1; j < tokens.length; j++) {
       const gap = text.slice(tokens[j - 1].end, tokens[j].start);
       if (!linkable(gap, tokens[j - 1], tokens[j])) break;
       joined += tokens[j].raw;
       if (joined.length >= 3 && isBad(joined, lists)) {
         maskRange(chars, tokens[i].start, tokens[j].end);
+      }
+
+      if (wildOk && MASK_RUN_RE.test(gap) && tokens[j].raw.length <= MAX_WILD_PART
+          && wildSlots + gap.length <= MAX_WILD_SLOTS) {
+        wildSlots += gap.length;
+        wildCyr += ANY.repeat(gap.length) + variants(tokens[j].raw)[0];
+        wildLat += ANY.repeat(gap.length) + variants(tokens[j].raw)[1];
+        if (wildCyr.length <= MAX_WILD_LEN && isBadWild(wildCyr, wildLat, lists)) {
+          maskRange(chars, tokens[i].start, tokens[j].end);
+        }
+      } else {
+        // A gap that is not a mask run ends the slot reading; the plain join
+        // above carries on regardless.
+        wildOk = false;
       }
     }
   }
