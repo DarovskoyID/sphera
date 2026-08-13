@@ -300,7 +300,9 @@ input[readonly] {
   width: fit-content;
   max-width: 100%;
   flex-direction: row;
-  align-items: center;
+  /* Метка может занять две-три строки — коробка тогда должна остаться у первой
+     строки, а не уехать в середину абзаца. */
+  align-items: flex-start;
   gap: var(--spacing-sm);
   margin: var(--spacing-xs) 0;
   cursor: pointer;
@@ -326,8 +328,12 @@ input[readonly] {
 
 /* Коробка */
 .ui-checkbox-box {
+  /* Без flex: 0 0 коробку сжимает длинная метка, и галочка вылезает наружу. */
+  flex: 0 0 22px;
   width: 22px;
   height: 22px;
+  /* Прижимаем к оптическому центру первой строки метки (16.1px × 1.2). */
+  margin-top: -1px;
   border-radius: var(--radius-sm);
 
   background: linear-gradient(
