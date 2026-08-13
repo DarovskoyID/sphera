@@ -494,6 +494,7 @@ export const ru: Translations = {
   call_maximize: 'Развернуть окно звонка',
   call_switch_view: 'Сменить вид',
   call_switch_camera: 'Перевернуть камеру',
+  call_switch_camera_failed: 'Не удалось сменить камеру',
   call_tile_restore: 'Восстановить',
   call_tile_expand: 'На весь экран',
   call_info: 'Информация о соединении',

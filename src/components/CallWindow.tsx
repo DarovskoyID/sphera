@@ -72,6 +72,19 @@ const BACK_LABEL = /back|rear|environment|задн/i;
 const FRONT_LABEL = /front|user|фронт|перед/i;
 
 /**
+ * The browser's own word for why a request was refused, fit for the screen.
+ * Exported alongside `chooseCamera` so the text a user will be reading back
+ * can be checked.
+ */
+export function errName(e: unknown): string {
+  if (e && typeof e === 'object' && 'name' in e) {
+    const n = String((e as { name: unknown }).name);
+    if (n && n !== 'Error') return n;
+  }
+  return e instanceof Error && e.message ? e.message : 'unknown';
+}
+
+/**
  * Which camera to move to, named by device id rather than by facingMode.
  *
  * facingMode is a request a phone may quietly decline: it accepts
@@ -977,17 +990,26 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('user');
   const [switchingCamera, setSwitchingCamera] = useState(false);
 
-  // Only offer the flip when there is somewhere to flip to. The list is only
-  // complete once camera permission has been granted, so it is re-read when
-  // our camera comes on.
-  const [hasSecondCamera, setHasSecondCamera] = useState(false);
+  /**
+   * Whether to offer the flip at all.
+   *
+   * Fails open, which the previous version did not: it hid the button unless
+   * enumerateDevices reported two or more cameras, and that list is not
+   * dependable — browsers report a single "default" entry, or nothing at all,
+   * until they feel like it. A hidden button is indistinguishable from a
+   * broken one, so the button now goes away only when we positively know
+   * there is one camera: the labels are filled in, which only happens once
+   * permission is granted and the list can be believed.
+   */
+  const [canFlip, setCanFlip] = useState(true);
   useEffect(() => {
     let alive = true;
     const check = async () => {
       try {
-        const devices = await navigator.mediaDevices.enumerateDevices();
-        if (alive) setHasSecondCamera(devices.filter(d => d.kind === 'videoinput').length > 1);
-      } catch { /* enumeration blocked — leave the button hidden */ }
+        const cams = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput');
+        const trustworthy = cams.length > 0 && cams.every(c => !!c.label);
+        if (alive) setCanFlip(!trustworthy || cams.length > 1);
+      } catch { /* cannot tell — keep offering it */ }
     };
     check();
     navigator.mediaDevices?.addEventListener?.('devicechange', check);
@@ -996,6 +1018,23 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
       navigator.mediaDevices?.removeEventListener?.('devicechange', check);
     };
   }, [isVideoActive]);
+
+  /**
+   * Why the last flip did not happen, shown next to the button.
+   *
+   * Silence was the real problem here: every failure was swallowed, so a
+   * phone that refuses the second camera looked exactly like a dead button,
+   * and there was nothing to go on. The browser's own error name
+   * (NotReadableError, OverconstrainedError, NotAllowedError…) says which it
+   * is, so it is put on screen rather than into a console nobody can open on
+   * a phone.
+   */
+  const [flipError, setFlipError] = useState<string | null>(null);
+  useEffect(() => {
+    if (!flipError) return;
+    const t = setTimeout(() => setFlipError(null), 6000);
+    return () => clearTimeout(t);
+  }, [flipError]);
 
   /** The sender carrying our camera — never the screen-share one. */
   const cameraSender = () =>
@@ -1012,11 +1051,10 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
 
   const trackDeviceId = (t?: MediaStreamTrack | null) => t?.getSettings?.().deviceId || '';
 
-  const pickCamera = async (currentId: string, want: 'user' | 'environment') => {
+  const listCameras = async (): Promise<MediaDeviceInfo[]> => {
     try {
-      const devices = await navigator.mediaDevices.enumerateDevices();
-      return chooseCamera(devices.filter(d => d.kind === 'videoinput'), currentId, want);
-    } catch { return null; }
+      return (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput');
+    } catch { return []; }
   };
 
   const useStream = (stream: MediaStream) => {
@@ -1034,17 +1072,24 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
     const oldTrack = oldStream?.getVideoTracks()[0] || null;
     const oldId = trackDeviceId(oldTrack);
     setSwitchingCamera(true);
+    setFlipError(null);
+    // Every reason a request was turned down, kept so the last one can be
+    // shown. Without it a phone that simply refuses the second camera is
+    // indistinguishable from a button that is not wired up.
+    const refusals: string[] = [];
     try {
-      const target = await pickCamera(oldId, next);
+      const cams = await listCameras();
+      const target = chooseCamera(cams, oldId, next);
       // By id first, by facingMode only as a fallback for a browser that hides
       // the device list.
       const ways: Array<() => Promise<MediaStream>> = [];
       if (target) ways.push(() => openById(target.deviceId));
       ways.push(() => openCamera(next, true));
+      ways.push(() => openCamera(next, false));
 
       const tryAll = async () => {
         for (const way of ways) {
-          try { return await way(); } catch { /* try the next one */ }
+          try { return await way(); } catch (e) { refusals.push(errName(e)); }
         }
         return null;
       };
@@ -1070,7 +1115,11 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
       // the front camera again" — treat it as a failure, not a switch.
       if (!newStream || !newTrack || (oldId && trackDeviceId(newTrack) === oldId)) {
         newStream?.getTracks().forEach(t => t.stop());
-        throw new Error('camera did not change');
+        // Say which of the two it was: nothing would open, or something opened
+        // and it was the same lens. They need different fixes.
+        throw new Error(newStream
+          ? `same lens (${cams.length} cam${cams.length === 1 ? '' : 's'})`
+          : refusals.join('/') || 'no camera');
       }
 
       // Matched by kind rather than by track id: the old track may already be
@@ -1083,7 +1132,8 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
       // Believe the camera over our own bookkeeping where it says anything.
       const got = newTrack.getSettings?.().facingMode;
       setFacingMode(got === 'user' || got === 'environment' ? got : next);
-    } catch {
+    } catch (e) {
+      setFlipError(errName(e));
       // We may have let the old camera go before failing, which would leave
       // the call sending a dead track. Put the original one back.
       if (!_call.cameraStream?.active) {
@@ -1246,7 +1296,7 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
           )}
           {/* Flip phone camera (front ↔ back) — only meaningful while our
               camera is on. Tapping the PiP itself swaps the two views. */}
-          {isVideoActive && hasSecondCamera && (
+          {isVideoActive && canFlip && (
             <button
               onClick={switchCamera}
               disabled={switchingCamera}
@@ -1256,6 +1306,20 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
             >
               <SwitchCamera size={20} />
             </button>
+          )}
+          {/* Why it did not flip. On a phone there is no console to open, so
+              the browser's own reason has to go on the screen. */}
+          {flipError && (
+            <div
+              role="status"
+              style={{
+                position: 'absolute', top: 58, left: 12, zIndex: 5, maxWidth: 'calc(100% - 24px)',
+                padding: '6px 10px', borderRadius: 8, background: 'rgba(0,0,0,0.7)',
+                color: '#fff', fontSize: 12, lineHeight: 1.35,
+              }}
+            >
+              {tr('call_switch_camera_failed')}: {flipError}
+            </div>
           )}
         </div>
         );

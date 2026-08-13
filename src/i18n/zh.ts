@@ -83,4 +83,5 @@ export const zh: Translations = {
 
   chat_today: '今天',
   chat_yesterday: '昨天',
+  call_switch_camera_failed: '无法切换摄像头',
 };

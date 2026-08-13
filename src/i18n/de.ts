@@ -220,6 +220,7 @@ export const de: Translations = {
   call_maximize: 'Anruffenster maximieren',
   call_switch_view: 'Ansicht wechseln',
   call_switch_camera: 'Kamera wechseln',
+  call_switch_camera_failed: 'Kamera konnte nicht gewechselt werden',
   call_tile_restore: 'Wiederherstellen',
   call_tile_expand: 'Auf volles Fenster vergrößern',
   call_info: 'Verbindungsinfo',

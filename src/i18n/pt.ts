@@ -83,4 +83,5 @@ export const pt: Translations = {
 
   chat_today: 'Hoje',
   chat_yesterday: 'Ontem',
+  call_switch_camera_failed: 'Não foi possível trocar de câmera',
 };
