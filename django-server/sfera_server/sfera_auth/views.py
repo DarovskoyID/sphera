@@ -1334,9 +1334,66 @@ def data_export_download(request, export_id):
 # anything the extra precision would buy.
 
 
+#: The household's own channels. A text one for talking and one for the notes
+#: and to-do lists the family keeps between them — the second is a plain text
+#: channel too, because the todo and note messages the composer already sends
+#: live in one.
+FAMILY_CHANNELS = [('family', 'text', 0), ('notes', 'text', 1), ('Family', 'voice', 2)]
+
+
 def _family_of(user):
     membership = getattr(user, 'family_membership', None)
     return membership.family if membership else None
+
+
+def _ensure_family_guild(family_row, owner):
+    """The family's server, created on first need.
+
+    Not discoverable — a household is not a community anyone should be able to
+    stumble into from the explore page — but an ordinary server otherwise, so
+    it gets the normal chat rather than the diary view that `is_private` marks.
+    """
+    from sfera_messages.models import Guild, GuildChannel, GuildMembership
+
+    if family_row.guild_id:
+        return family_row.guild
+
+    guild = Guild.objects.create(
+        name=family_row.name, owner=owner,
+        is_personal_channel=False, is_private=False, is_discoverable=False,
+    )
+    for name, channel_type, position in FAMILY_CHANNELS:
+        GuildChannel.objects.create(
+            guild=guild, name=name, channel_type=channel_type, position=position,
+        )
+    GuildMembership.objects.get_or_create(
+        guild=guild, user=owner, defaults={'role': 'owner'},
+    )
+    family_row.guild = guild
+    family_row.save(update_fields=['guild'])
+    return guild
+
+
+def _sync_family_guild(family_row, user, joining):
+    """Put someone in the family's server, or take them out.
+
+    Membership of the household and membership of its server are the same
+    thing, so neither is managed separately. Adults are admins there; a child
+    is a member, which is what keeps the channel list out of their hands.
+    """
+    from sfera_messages.models import GuildMembership
+
+    guild = family_row.guild
+    if not guild:
+        return
+    if not joining:
+        GuildMembership.objects.filter(guild=guild, user=user).exclude(role='owner').delete()
+        return
+
+    role = 'admin' if not is_child(user) else 'member'
+    GuildMembership.objects.get_or_create(
+        guild=guild, user=user, defaults={'role': role},
+    )
 
 
 def _is_parent(user):
@@ -1388,6 +1445,7 @@ def _family_payload(family_row, request):
     return {
         'id': str(family_row.id),
         'name': family_row.name,
+        'guild_id': str(family_row.guild_id) if family_row.guild_id else '',
         # The code adds a second parent, so only parents are shown it.
         'invite_code': family_row.invite_code if is_parent else '',
         'my_role': request.user.family_membership.role,
@@ -1424,6 +1482,7 @@ def family(request):
 
     new_family = Family.objects.create(name=name, created_by=request.user)
     FamilyMembership.objects.create(family=new_family, user=request.user, role='parent')
+    _ensure_family_guild(new_family, request.user)
     audit_event(request, 'family_created')
     return Response(
         {'family': _family_payload(new_family, request)},
@@ -1449,6 +1508,9 @@ def family_join(request):
         return Response({'error': 'Unknown code'}, status=status.HTTP_404_NOT_FOUND)
 
     FamilyMembership.objects.create(family=target, user=request.user, role='parent')
+    # Families made before the household had a server of its own get one here.
+    _ensure_family_guild(target, target.created_by or request.user)
+    _sync_family_guild(target, request.user, joining=True)
     audit_event(request, 'family_joined')
     return Response({'family': _family_payload(target, request)})
 
@@ -1500,6 +1562,9 @@ def family_add_child(request):
     # child's first visit to the settings screen to bring one into existence.
     child_settings, _ = UserSettings.objects.get_or_create(user=child)
     enforce_child_settings(child_settings)
+
+    _ensure_family_guild(family_row, request.user)
+    _sync_family_guild(family_row, child, joining=True)
 
     audit_event(request, 'family_child_created', metadata={'child': str(child.id)})
     return Response(
@@ -1593,6 +1658,7 @@ def family_remove_member(request, user_id):
                 status=status.HTTP_409_CONFLICT,
             )
 
+    _sync_family_guild(family_row, membership.user, joining=False)
     membership.delete()
     audit_event(request, 'family_member_removed', metadata={'member': str(user_id)})
 

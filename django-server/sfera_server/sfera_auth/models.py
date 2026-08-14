@@ -69,6 +69,13 @@ class Family(models.Model):
     # Redeemed by another adult to join as a second parent. A code rather than
     # adding them by name: nobody is put in a family without doing something.
     invite_code = models.CharField(max_length=16, unique=True, blank=True)
+    # The household's own server: a shared chat, and the notes channel with it.
+    # Referred to by name rather than imported, because sfera_messages already
+    # points back here for its user model.
+    guild = models.ForeignKey(
+        'sfera_messages.Guild', on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='family',
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     def save(self, *args, **kwargs):

@@ -373,6 +373,8 @@ interface FamilyApproval {
 interface FamilyData {
   id: string;
   name: string;
+  /** The household's own server. Empty only for a family made before it had one. */
+  guild_id: string;
   invite_code: string;
   my_role: 'parent' | 'child';
   members: FamilyMemberRow[];
@@ -382,7 +384,7 @@ interface FamilyData {
 const FamilySettings: React.FC = () => {
   const tr = useTranslation();
   const isRu = tr('settings_formatting') === 'Подсказки';
-  const { currentServerIP, authToken } = useApp();
+  const { currentServerIP, authToken, guilds, selectGuild, setCurrentView, setCurrentSettingsPage } = useApp();
 
   const [family, setFamily] = useState<FamilyData | null>(null);
   const [loaded, setLoaded] = useState(false);
@@ -491,6 +493,7 @@ const FamilySettings: React.FC = () => {
 
   const isParent = family.my_role === 'parent';
   const children = family.members.filter(m => m.role === 'child');
+  const familyGuild = guilds.find(g => String(g.id) === family.guild_id);
 
   return (
     <section>
@@ -535,6 +538,28 @@ const FamilySettings: React.FC = () => {
               </button>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* The household's own chat */}
+      {familyGuild && (
+        <div style={card}>
+          <h3 style={sectionH3}>{isRu ? 'Семейный чат' : 'Family chat'}</h3>
+          <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: '0 0 12px' }}>
+            {isRu
+              ? 'Закрытый сервер только для вас: общий чат, канал заметок и голосовая комната. В поиске серверов его не видно.'
+              : 'A closed server just for you: the chat, a notes channel and a voice room. It is not listed in the server search.'}
+          </p>
+          <button
+            style={btnPrimary}
+            onClick={() => {
+              setCurrentSettingsPage('');
+              setCurrentView('home');
+              selectGuild(familyGuild);
+            }}
+          >
+            {isRu ? 'Открыть' : 'Open'}
+          </button>
         </div>
       )}
 
