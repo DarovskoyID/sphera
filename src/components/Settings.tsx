@@ -331,7 +331,7 @@ export const Settings: React.FC = () => {
           {currentSettingsPage === 'binds' && <BindsSettings />}
           {currentSettingsPage === 'exportImport' && <ExportImportSettings />}
           {currentSettingsPage === 'servers' && <ServersSettings />}
-          {currentSettingsPage === 'family' && <Placeholder title="Family Center" />}
+          {currentSettingsPage === 'family' && <FamilySettings />}
           {currentSettingsPage === 'integration' && <Placeholder title="Integrations" />}
           {currentSettingsPage === 'apps' && <Placeholder title="Connected Apps" />}
           {currentSettingsPage === 'nitro' && <Placeholder title="Nitro" />}
@@ -342,6 +342,305 @@ export const Settings: React.FC = () => {
         </div>
       </div>
     </SettingsCtx.Provider>
+  );
+};
+
+
+// ==================== Family centre ====================
+//
+// A household: some adults, and the children whose accounts they manage. What
+// a child's account gets is the content filter locked on and friendships that
+// wait for a parent — see the server for both. This screen is the parent's
+// view of that, and the child's explanation of it.
+
+interface FamilyMemberRow {
+  id: string;
+  role: 'parent' | 'child';
+  birth_date: string | null;
+  user: { id: string; username: string; nickname: string; avatar: string };
+}
+
+interface FamilyApproval {
+  id: string;
+  child_asked: boolean;
+  child: { username: string; nickname: string };
+  other: { username: string; nickname: string };
+}
+
+interface FamilyData {
+  id: string;
+  name: string;
+  invite_code: string;
+  my_role: 'parent' | 'child';
+  members: FamilyMemberRow[];
+  pending_approvals: FamilyApproval[];
+}
+
+const FamilySettings: React.FC = () => {
+  const tr = useTranslation();
+  const isRu = tr('settings_formatting') === 'Подсказки';
+  const { currentServerIP, authToken } = useApp();
+
+  const [family, setFamily] = useState<FamilyData | null>(null);
+  const [loaded, setLoaded] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<{ text: string; type: 'ok' | 'err' } | null>(null);
+
+  const [familyName, setFamilyName] = useState('');
+  const [joinCode, setJoinCode] = useState('');
+  const [childName, setChildName] = useState('');
+  const [childLogin, setChildLogin] = useState('');
+  const [childPassword, setChildPassword] = useState('');
+  const [childBirth, setChildBirth] = useState('');
+  const [copied, setCopied] = useState(false);
+
+  /** Every endpoint here answers with the whole family, so one handler does. */
+  const call = useCallback(async (path: string, body?: unknown): Promise<boolean> => {
+    setBusy(true); setMsg(null);
+    try {
+      const res = await fetch(`${currentServerIP}/api/auth/family/${path}`, {
+        method: body === undefined ? 'GET' : 'POST',
+        headers: {
+          Authorization: `Bearer ${authToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setMsg({ text: data.error || tr('sp_save_fail'), type: 'err' });
+        return false;
+      }
+      setFamily(data.family ?? null);
+      return true;
+    } catch {
+      setMsg({ text: tr('sp_save_fail'), type: 'err' });
+      return false;
+    } finally {
+      setBusy(false);
+      setLoaded(true);
+    }
+  }, [currentServerIP, authToken, tr]);
+
+  useEffect(() => { if (authToken) void call(''); }, [authToken, call]);
+
+  const addChild = async () => {
+    const ok = await call('children/', {
+      username: childLogin.trim(),
+      password: childPassword,
+      nickname: childName.trim(),
+      birth_date: childBirth || null,
+    });
+    if (ok) {
+      setChildName(''); setChildLogin(''); setChildPassword(''); setChildBirth('');
+      setMsg({ text: isRu ? 'Аккаунт создан.' : 'Account created.', type: 'ok' });
+    }
+  };
+
+  if (!loaded) return <section><h1>{tr('settings_family')}</h1><ListSkeleton rows={3} /></section>;
+
+  // ── Not in a family yet ────────────────────────────────────────────────────
+  if (!family) {
+    return (
+      <section>
+        <h1>{tr('settings_family')}</h1>
+        <p>{isRu
+          ? 'Семья — это взрослые и детские аккаунты, которыми они управляют. У ребёнка фильтр сообщений всегда включён, а новые друзья появляются только с вашего разрешения.'
+          : 'A family is some adults and the child accounts they manage. A child always has the message filter on, and only gains friends you have agreed to.'}</p>
+
+        <div style={card}>
+          <h3 style={sectionH3}>{isRu ? 'Создать семью' : 'Start a family'}</h3>
+          <div style={{ marginBottom: 12 }}>
+            <div style={fieldLabel}>{isRu ? 'Название' : 'Name'}</div>
+            <input style={fieldInput} value={familyName} maxLength={60}
+              onChange={e => setFamilyName(e.target.value)}
+              placeholder={isRu ? 'Например: Ивановы' : 'For example: the Ivanovs'} />
+          </div>
+          <button style={{ ...btnPrimary, opacity: busy || !familyName.trim() ? 0.6 : 1 }}
+            disabled={busy || !familyName.trim()}
+            onClick={() => void call('', { name: familyName.trim() })}>
+            {isRu ? 'Создать' : 'Create'}
+          </button>
+        </div>
+
+        <div style={card}>
+          <h3 style={sectionH3}>{isRu ? 'Присоединиться по коду' : 'Join with a code'}</h3>
+          <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: '0 0 12px' }}>
+            {isRu
+              ? 'Второй взрослый вводит код семьи и получает те же права.'
+              : 'A second adult enters the family code and gets the same rights.'}
+          </p>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <input style={fieldInput} value={joinCode}
+              onChange={e => setJoinCode(e.target.value)} placeholder={isRu ? 'Код' : 'Code'} />
+            <button style={{ ...btnSecondary, opacity: busy || !joinCode.trim() ? 0.6 : 1 }}
+              disabled={busy || !joinCode.trim()}
+              onClick={() => void call('join/', { invite_code: joinCode.trim() })}>
+              {isRu ? 'Войти' : 'Join'}
+            </button>
+          </div>
+        </div>
+
+        {msg && <div style={statusMsg(msg.type)}>{msg.text}</div>}
+      </section>
+    );
+  }
+
+  const isParent = family.my_role === 'parent';
+  const children = family.members.filter(m => m.role === 'child');
+
+  return (
+    <section>
+      <h1>{family.name}</h1>
+      <p>{isParent
+        ? (isRu
+          ? 'Взрослые управляют детскими аккаунтами: фильтр сообщений у ребёнка всегда включён, а заявки в друзья проходят через вас.'
+          : 'The adults here manage the child accounts: a child always has the message filter on, and friend requests come to you.')
+        : (isRu
+          ? 'Вашим аккаунтом управляют родители. Фильтр сообщений включён всегда, а новые друзья добавляются с их разрешения.'
+          : 'Your account is managed by a parent. The message filter is always on, and new friends need their agreement.')}</p>
+
+      {/* Requests waiting on a parent */}
+      {isParent && (
+        <div style={card}>
+          <h3 style={sectionH3}>{isRu ? 'Заявки в друзья' : 'Friend requests'}</h3>
+          {family.pending_approvals.length === 0 ? (
+            <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: 0 }}>
+              {isRu ? 'Ничего не ждёт вашего решения.' : 'Nothing is waiting for you.'}
+            </p>
+          ) : family.pending_approvals.map(approval => (
+            <div key={approval.id} style={{
+              display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
+              padding: '10px 0', borderBottom: '1px solid var(--border-color)',
+            }}>
+              <span style={{ flex: 1, minWidth: 200, fontSize: 13, color: 'var(--text-primary)' }}>
+                {approval.child_asked
+                  ? (isRu
+                    ? `${approval.child.nickname || approval.child.username} хочет добавить @${approval.other.username}`
+                    : `${approval.child.nickname || approval.child.username} wants to add @${approval.other.username}`)
+                  : (isRu
+                    ? `@${approval.other.username} хочет добавить ${approval.child.nickname || approval.child.username}`
+                    : `@${approval.other.username} wants to add ${approval.child.nickname || approval.child.username}`)}
+              </span>
+              <button style={btnPrimary} disabled={busy}
+                onClick={() => void call(`approvals/${approval.id}/`, { approve: true })}>
+                {isRu ? 'Разрешить' : 'Allow'}
+              </button>
+              <button style={btnSecondary} disabled={busy}
+                onClick={() => void call(`approvals/${approval.id}/`, { approve: false })}>
+                {isRu ? 'Отклонить' : 'Refuse'}
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Who is in the family */}
+      <div style={card}>
+        <h3 style={sectionH3}>{isRu ? 'Участники' : 'Members'}</h3>
+        {family.members.map(member => (
+          <div key={member.id} style={{
+            display: 'flex', alignItems: 'center', gap: 10,
+            padding: '9px 0', borderBottom: '1px solid var(--border-color)',
+          }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 14, color: 'var(--text-primary)' }}>
+                {member.user.nickname || member.user.username}
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+                @{member.user.username} · {member.role === 'parent'
+                  ? (isRu ? 'взрослый' : 'adult')
+                  : (isRu ? 'ребёнок' : 'child')}
+              </div>
+            </div>
+            {isParent && (
+              <button style={btnDanger} disabled={busy}
+                onClick={() => void call(`members/${member.user.id}/remove/`, {})}>
+                {isRu ? 'Убрать' : 'Remove'}
+              </button>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {isParent && (
+        <>
+          {/* Add a child */}
+          <div style={card}>
+            <h3 style={sectionH3}>{isRu ? 'Добавить ребёнка' : 'Add a child'}</h3>
+            <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: '0 0 14px' }}>
+              {isRu
+                ? 'Вы создаёте аккаунт и задаёте пароль. Почты у него нет, так что пароль восстанавливаете тоже вы.'
+                : 'You create the account and choose the password. It has no email address, so resetting the password is yours to do as well.'}
+            </p>
+            <div style={{ marginBottom: 12 }}>
+              <div style={fieldLabel}>{tr('sp_display_name')}</div>
+              <input style={fieldInput} value={childName} maxLength={50}
+                onChange={e => setChildName(e.target.value)} />
+            </div>
+            <div style={{ marginBottom: 12 }}>
+              <div style={fieldLabel}>{tr('sp_username')}</div>
+              <input style={fieldInput} value={childLogin} autoComplete="off"
+                onChange={e => setChildLogin(e.target.value)} />
+            </div>
+            <div style={{ marginBottom: 12 }}>
+              <div style={fieldLabel}>{tr('sp_new_password')}</div>
+              <input type="password" style={fieldInput} value={childPassword} autoComplete="new-password"
+                onChange={e => setChildPassword(e.target.value)} />
+            </div>
+            <div style={{ marginBottom: 16 }}>
+              <div style={fieldLabel}>{isRu ? 'Дата рождения' : 'Date of birth'}</div>
+              <input type="date" style={fieldInput} value={childBirth}
+                onChange={e => setChildBirth(e.target.value)} />
+            </div>
+            <button style={{ ...btnPrimary, opacity: busy || !childLogin.trim() || !childPassword ? 0.6 : 1 }}
+              disabled={busy || !childLogin.trim() || !childPassword}
+              onClick={() => void addChild()}>
+              {isRu ? 'Создать аккаунт' : 'Create the account'}
+            </button>
+          </div>
+
+          {/* The code that adds a second adult */}
+          <div style={card}>
+            <h3 style={sectionH3}>{isRu ? 'Код семьи' : 'Family code'}</h3>
+            <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: '0 0 12px' }}>
+              {isRu
+                ? 'Передайте его второму взрослому — он получит те же права, включая решения по заявкам.'
+                : 'Give it to a second adult; they get the same rights, including deciding on requests.'}
+            </p>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <code style={{
+                flex: 1, padding: '10px 12px', background: 'var(--bg-primary)',
+                border: '1px solid var(--border-color)', borderRadius: 6,
+                color: 'var(--text-primary)', fontSize: 14, letterSpacing: 1,
+              }}>{family.invite_code}</code>
+              <button style={btnSecondary} onClick={() => {
+                navigator.clipboard.writeText(family.invite_code)
+                  .then(() => { setCopied(true); setTimeout(() => setCopied(false), 1400); })
+                  .catch(() => { /* the code is on screen regardless */ });
+              }}>
+                {copied ? (isRu ? 'Скопировано' : 'Copied') : (isRu ? 'Скопировать' : 'Copy')}
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* What a child cannot change, said plainly rather than left to be
+          discovered by finding the switches greyed out. */}
+      {(isParent && children.length > 0) || !isParent ? (
+        <div style={card}>
+          <h3 style={sectionH3}>{isRu ? 'Что включено у ребёнка' : 'What is on for a child'}</h3>
+          <ul style={{ margin: 0, paddingLeft: 20, fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.7 }}>
+            <li>{isRu ? 'Фильтр мата и откровенного содержимого — для всех собеседников' : 'The profanity and explicit-content filter, for everyone they talk to'}</li>
+            <li>{isRu ? 'Скрытие сообщений, которые уговаривают отключить фильтр' : 'Messages that talk them into switching the filter off are hidden'}</li>
+            <li>{isRu ? 'Новые друзья — только с разрешения взрослого' : 'New friends only with an adult’s agreement'}</li>
+          </ul>
+        </div>
+      ) : null}
+
+      {msg && <div style={statusMsg(msg.type)}>{msg.text}</div>}
+    </section>
   );
 };
 

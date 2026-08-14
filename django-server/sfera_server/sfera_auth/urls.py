@@ -48,4 +48,10 @@ urlpatterns = [
     path('emojis/<uuid:emoji_id>/', views.emoji_delete),
     # FCM device token (POST = register, DELETE = unregister)
     path('fcm-token/', views.fcm_token),
+    # Family centre
+    path('family/', views.family),
+    path('family/join/', views.family_join),
+    path('family/children/', views.family_add_child),
+    path('family/approvals/<uuid:friendship_id>/', views.family_approval),
+    path('family/members/<uuid:user_id>/remove/', views.family_remove_member),
 ]

@@ -35,6 +35,7 @@ class AuthRateThrottle(AnonRateThrottle):
 from .models import (
     User, Friendship, BlockedUser, UserDevice, UserSettings, CustomEmoji,
     FcmToken, DataExport, EmailVerificationCode, SecurityAuditLog,
+    Family, FamilyMembership, is_child, enforce_child_settings,
 )
 from .serializers import (
     RegisterSerializer, UserSerializer, MeSerializer, FriendshipSerializer,
@@ -662,28 +663,45 @@ def friend_request_send(request):
                 {'error': 'Already friends'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        if existing.status == 'pending':
+        if existing.status in ('pending', 'awaiting_parent'):
             return Response(
                 {'error': 'Request already pending'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
         if existing.status == 'rejected':
-            existing.status = 'pending'
+            # Asking again after a refusal is a fresh request, and goes back
+            # past the parent if a child is involved — including when it was
+            # the parent who refused it the first time.
+            waits = is_child(request.user) or is_child(to_user)
+            existing.status = 'awaiting_parent' if waits else 'pending'
             existing.from_user = request.user
             existing.to_user = to_user
             existing.save()
             friendship_data = FriendshipSerializer(existing, context={'request': request}).data
-            _push_friend_event(str(to_user_id), 'friend-request', friendship_data)
+            if not waits:
+                _push_friend_event(str(to_user_id), 'friend-request', friendship_data)
             return Response(friendship_data)
 
     # Bots can't accept anything: adding one is immediate, not a request.
     is_bot = getattr(to_user, 'account_type', 'user') == 'bot'
+    # A child on either side means a parent decides first — and until they do,
+    # the other party is not told the request exists. That holds whichever
+    # direction it came from: a stranger should not learn that an account is a
+    # child's by watching whether their request is delivered.
+    needs_parent = not is_bot and (is_child(request.user) or is_child(to_user))
+
+    if is_bot:
+        new_status = 'accepted'
+    elif needs_parent:
+        new_status = 'awaiting_parent'
+    else:
+        new_status = 'pending'
+
     friendship = Friendship.objects.create(
-        from_user=request.user, to_user=to_user,
-        status='accepted' if is_bot else 'pending',
+        from_user=request.user, to_user=to_user, status=new_status,
     )
     friendship_data = FriendshipSerializer(friendship, context={'request': request}).data
-    if not is_bot:
+    if not is_bot and not needs_parent:
         # Notify recipient in real time so their pending requests update immediately
         _push_friend_event(str(to_user_id), 'friend-request', friendship_data)
     return Response(friendship_data, status=status.HTTP_201_CREATED)
@@ -1047,6 +1065,11 @@ def user_settings_get(request):
     settings, _ = UserSettings.objects.get_or_create(
         user=request.user,
     )
+    # On read too, not only on write. A child moved into a family after turning
+    # the filter off would otherwise keep it off until they next happened to
+    # save this page.
+    if is_child(request.user):
+        enforce_child_settings(settings)
     return Response(UserSettingsSerializer(settings).data)
 
 
@@ -1061,6 +1084,12 @@ def user_settings_update(request):
     )
     if serializer.is_valid():
         serializer.save()
+        # The child's settings screen is not read-only — they can still choose
+        # a theme and a language. It simply does not get to turn the filter
+        # off, so the locked values go back after every save.
+        if is_child(request.user):
+            enforce_child_settings(settings)
+            return Response(UserSettingsSerializer(settings).data)
         return Response(serializer.data)
     return Response(
         serializer.errors, status=status.HTTP_400_BAD_REQUEST,
@@ -1292,3 +1321,281 @@ def data_export_download(request, export_id):
         content_type='application/json',
     )
     return response
+
+
+# ── Family centre ────────────────────────────────────────────────────────────
+# A household: some adults, and the children whose accounts they manage. What a
+# child's account gets is the content filter locked on at its widest scope, and
+# friendships that do not happen until a parent says so.
+#
+# Any parent may act for any child in the family. Pairing each child with one
+# particular adult breaks the moment the other parent is the one holding the
+# phone, and the failure mode — a request nobody can approve — is worse than
+# anything the extra precision would buy.
+
+
+def _family_of(user):
+    membership = getattr(user, 'family_membership', None)
+    return membership.family if membership else None
+
+
+def _is_parent(user):
+    membership = getattr(user, 'family_membership', None)
+    return bool(membership and membership.role == 'parent')
+
+
+def _family_payload(family_row, request):
+    """The whole family screen in one answer."""
+    memberships = (
+        FamilyMembership.objects
+        .filter(family=family_row)
+        .select_related('user')
+        .order_by('role', 'joined_at')
+    )
+    members = [{
+        'id': str(m.user.id),
+        'role': m.role,
+        'birth_date': m.birth_date,
+        'joined_at': m.joined_at,
+        'user': UserSerializer(m.user, context={'request': request}).data,
+    } for m in memberships]
+
+    child_ids = [m.user_id for m in memberships if m.role == 'child']
+    waiting = (
+        Friendship.objects
+        .filter(status='awaiting_parent')
+        .filter(Q(from_user_id__in=child_ids) | Q(to_user_id__in=child_ids))
+        .select_related('from_user', 'to_user')
+        .order_by('created_at')
+    )
+    approvals = [{
+        'id': str(f.id),
+        'created_at': f.created_at,
+        # Who in this family the request concerns, and who the outsider is.
+        'child': UserSerializer(
+            f.from_user if f.from_user_id in child_ids else f.to_user,
+            context={'request': request},
+        ).data,
+        'other': UserSerializer(
+            f.to_user if f.from_user_id in child_ids else f.from_user,
+            context={'request': request},
+        ).data,
+        # True when the child asked, false when someone asked the child.
+        'child_asked': f.from_user_id in child_ids,
+    } for f in waiting]
+
+    is_parent = _is_parent(request.user)
+    return {
+        'id': str(family_row.id),
+        'name': family_row.name,
+        # The code adds a second parent, so only parents are shown it.
+        'invite_code': family_row.invite_code if is_parent else '',
+        'my_role': request.user.family_membership.role,
+        'members': members,
+        'pending_approvals': approvals if is_parent else [],
+    }
+
+
+@api_view(['GET', 'POST'])
+@permission_classes([IsAuthenticated])
+def family(request):
+    """GET the caller's family, or POST to start one."""
+    existing = _family_of(request.user)
+
+    if request.method == 'GET':
+        if not existing:
+            return Response({'family': None})
+        return Response({'family': _family_payload(existing, request)})
+
+    if existing:
+        return Response(
+            {'error': 'You are already in a family'},
+            status=status.HTTP_409_CONFLICT,
+        )
+    if is_child(request.user):
+        return Response(
+            {'error': 'Only an adult can start a family'},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+
+    name = str(request.data.get('name', '')).strip()[:60]
+    if not name:
+        return Response({'error': 'name required'}, status=status.HTTP_400_BAD_REQUEST)
+
+    new_family = Family.objects.create(name=name, created_by=request.user)
+    FamilyMembership.objects.create(family=new_family, user=request.user, role='parent')
+    audit_event(request, 'family_created')
+    return Response(
+        {'family': _family_payload(new_family, request)},
+        status=status.HTTP_201_CREATED,
+    )
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+@throttle_classes([AuthRateThrottle])
+def family_join(request):
+    """Redeem an invite code and join as a second parent."""
+    if _family_of(request.user):
+        return Response(
+            {'error': 'You are already in a family'},
+            status=status.HTTP_409_CONFLICT,
+        )
+    code = str(request.data.get('invite_code', '')).strip()
+    try:
+        target = Family.objects.get(invite_code=code)
+    except Family.DoesNotExist:
+        audit_event(request, 'family_join_failed')
+        return Response({'error': 'Unknown code'}, status=status.HTTP_404_NOT_FOUND)
+
+    FamilyMembership.objects.create(family=target, user=request.user, role='parent')
+    audit_event(request, 'family_joined')
+    return Response({'family': _family_payload(target, request)})
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+@throttle_classes([AuthRateThrottle])
+def family_add_child(request):
+    """Create an account for a child and put it under this family's care.
+
+    The parent chooses the password, because the account belongs to someone who
+    may be too young to keep one — and there is no email on it, so the ordinary
+    reset route does not apply.
+    """
+    family_row = _family_of(request.user)
+    if not family_row or not _is_parent(request.user):
+        return Response(
+            {'error': 'Only a parent can add a child'},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+
+    username = str(request.data.get('username', '')).strip()
+    password = str(request.data.get('password', ''))
+    nickname = str(request.data.get('nickname', '')).strip()[:50]
+    birth_date = request.data.get('birth_date') or None
+
+    if not username or not password:
+        return Response(
+            {'error': 'username and password required'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    if User.objects.filter(username__iexact=username).exists():
+        return Response(
+            {'error': 'That username is taken'},
+            status=status.HTTP_409_CONFLICT,
+        )
+    try:
+        validate_password(password)
+    except DjangoValidationError as exc:
+        return Response({'error': ' '.join(exc.messages)}, status=status.HTTP_400_BAD_REQUEST)
+
+    child = User.objects.create_user(
+        username=username, password=password, nickname=nickname or username,
+    )
+    FamilyMembership.objects.create(
+        family=family_row, user=child, role='child', birth_date=birth_date,
+    )
+    # Create the settings row now and lock it, rather than waiting for the
+    # child's first visit to the settings screen to bring one into existence.
+    child_settings, _ = UserSettings.objects.get_or_create(user=child)
+    enforce_child_settings(child_settings)
+
+    audit_event(request, 'family_child_created', metadata={'child': str(child.id)})
+    return Response(
+        {'family': _family_payload(family_row, request)},
+        status=status.HTTP_201_CREATED,
+    )
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def family_approval(request, friendship_id):
+    """Approve or refuse a friendship a child is party to.
+
+    Approving does not make them friends — it only lets the request continue as
+    an ordinary one, which the other side still has to accept.
+    """
+    family_row = _family_of(request.user)
+    if not family_row or not _is_parent(request.user):
+        return Response(
+            {'error': 'Only a parent can decide this'},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+
+    child_ids = list(
+        FamilyMembership.objects
+        .filter(family=family_row, role='child')
+        .values_list('user_id', flat=True)
+    )
+    try:
+        friendship = Friendship.objects.get(
+            Q(from_user_id__in=child_ids) | Q(to_user_id__in=child_ids),
+            id=friendship_id, status='awaiting_parent',
+        )
+    except Friendship.DoesNotExist:
+        return Response({'error': 'Request not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    if not request.data.get('approve'):
+        friendship.status = 'rejected'
+        friendship.save(update_fields=['status'])
+        audit_event(request, 'family_friend_refused')
+        return Response({'family': _family_payload(family_row, request)})
+
+    friendship.status = 'pending'
+    friendship.save(update_fields=['status'])
+    audit_event(request, 'family_friend_approved')
+
+    # Only now does the other side hear about it.
+    _push_friend_event(
+        str(friendship.to_user_id), 'friend-request',
+        FriendshipSerializer(friendship, context={'request': request}).data,
+    )
+    return Response({'family': _family_payload(family_row, request)})
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def family_remove_member(request, user_id):
+    """Take someone out of the family.
+
+    A parent may remove anyone; anyone may remove themselves. Removing a child
+    leaves their account in place — it stops being managed, it does not stop
+    existing — but the last parent cannot walk out and leave children behind
+    with nobody to approve anything.
+    """
+    family_row = _family_of(request.user)
+    if not family_row:
+        return Response({'error': 'You are not in a family'}, status=status.HTTP_404_NOT_FOUND)
+
+    leaving_self = str(user_id) == str(request.user.id)
+    if not leaving_self and not _is_parent(request.user):
+        return Response(
+            {'error': 'Only a parent can remove someone else'},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+
+    try:
+        membership = FamilyMembership.objects.get(family=family_row, user_id=user_id)
+    except FamilyMembership.DoesNotExist:
+        return Response({'error': 'Not in this family'}, status=status.HTTP_404_NOT_FOUND)
+
+    if membership.role == 'parent':
+        others = (
+            FamilyMembership.objects
+            .filter(family=family_row, role='parent')
+            .exclude(pk=membership.pk)
+        )
+        children = FamilyMembership.objects.filter(family=family_row, role='child')
+        if not others.exists() and children.exists():
+            return Response(
+                {'error': 'The last parent cannot leave while there are children'},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+    membership.delete()
+    audit_event(request, 'family_member_removed', metadata={'member': str(user_id)})
+
+    if leaving_self:
+        return Response({'family': None})
+    return Response({'family': _family_payload(family_row, request)})

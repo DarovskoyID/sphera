@@ -1,4 +1,5 @@
 import os
+import secrets
 import uuid
 
 from django.conf import settings
@@ -52,9 +53,106 @@ class User(AbstractUser):
         return self.username
 
 
+class Family(models.Model):
+    """A household: some adults, and the children whose accounts they manage.
+
+    Deliberately flat. Any parent may act for any child in the family, because
+    the alternative — pairing each child with one particular adult — breaks the
+    moment the other parent is the one holding the phone.
+    """
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    name = models.CharField(max_length=60)
+    created_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True,
+        related_name='families_created',
+    )
+    # Redeemed by another adult to join as a second parent. A code rather than
+    # adding them by name: nobody is put in a family without doing something.
+    invite_code = models.CharField(max_length=16, unique=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def save(self, *args, **kwargs):
+        if not self.invite_code:
+            self.invite_code = secrets.token_urlsafe(9)[:12]
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return self.name
+
+
+class FamilyMembership(models.Model):
+    ROLE_CHOICES = [('parent', 'Parent'), ('child', 'Child')]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    family = models.ForeignKey(
+        Family, on_delete=models.CASCADE, related_name='memberships',
+    )
+    # One family per person. Someone in two households at once has no single
+    # answer to "who approves this", and the feature rests on there being one.
+    user = models.OneToOneField(
+        User, on_delete=models.CASCADE, related_name='family_membership',
+    )
+    role = models.CharField(max_length=6, choices=ROLE_CHOICES, default='parent')
+    birth_date = models.DateField(null=True, blank=True)
+    joined_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.user} in {self.family} ({self.role})"
+
+
+def is_child(user):
+    """Is this account managed by a parent?
+
+    Anonymous users and users outside a family are not, which is what makes it
+    safe to call from anywhere without checking first.
+    """
+    if not user or not getattr(user, 'is_authenticated', False):
+        return False
+    membership = getattr(user, 'family_membership', None)
+    return bool(membership and membership.role == 'child')
+
+
+#: Settings a child's account does not get to choose. The content filter is the
+#: point of the whole arrangement, so it is on, at its widest scope, and stays
+#: there whatever the child's settings screen is asked to save.
+CHILD_ENFORCED_SETTINGS = {
+    'scan_messages_everyone': True,
+    'scan_messages_non_friends': False,
+    'scan_messages_off': False,
+    'blur_enabled': True,
+    'blur_profanity': True,
+    'blur_calls_to_action': True,
+    'blur_code_requests': True,
+    'blur_disable_requests': True,
+}
+
+
+def enforce_child_settings(settings_row):
+    """Put the locked settings back, whatever they were changed to.
+
+    Called on read as well as on write. A child who was moved into a family
+    after turning the filter off would otherwise keep it off until the next
+    time they happened to save that page.
+    """
+    changed = [
+        name for name, value in CHILD_ENFORCED_SETTINGS.items()
+        if getattr(settings_row, name) != value
+    ]
+    if not changed:
+        return settings_row
+    for name in changed:
+        setattr(settings_row, name, CHILD_ENFORCED_SETTINGS[name])
+    settings_row.save(update_fields=changed)
+    return settings_row
+
+
 class Friendship(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     STATUS_CHOICES = [
+        # A request involving a child, waiting for one of their parents. The
+        # other party is not told about it, and the child cannot act on it,
+        # until a parent has said yes.
+        ('awaiting_parent', 'Awaiting a parent'),
         ('pending', 'Pending'),
         ('accepted', 'Accepted'),
         ('rejected', 'Rejected'),
@@ -69,7 +167,7 @@ class Friendship(models.Model):
         related_name='received_friend_requests',
     )
     status = models.CharField(
-        max_length=10, choices=STATUS_CHOICES, default='pending',
+        max_length=16, choices=STATUS_CHOICES, default='pending',
     )
     created_at = models.DateTimeField(auto_now_add=True)
 
