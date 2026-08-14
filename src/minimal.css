@@ -351,8 +351,16 @@ body {
     top: 0 !important;
     left: 0 !important;
     right: 0 !important;
-    width: 100vw !important;
-    max-width: 100vw !important;
+    /* Sized to the container, not the viewport.
+       On a phone the body carries zoom: 1.05 (accessibility.css), and #root is
+       counter-sized to 100vw / 1.05 so the app still fits. A panel written in
+       100vw ignores that: it measures the screen and is then multiplied by the
+       zoom on the way out, landing 5% wider than the screen it is supposed to
+       fill. That is the horizontal scrollbar, and the reason the interface
+       could not be squeezed down to the display. Percentages resolve against
+       #root, which already has the zoom taken out of it. */
+    width: 100% !important;
+    max-width: 100% !important;
     height: calc(100% - 60px) !important;
     max-height: calc(100% - 60px) !important;
     grid-column: 1 / -1 !important;
@@ -368,7 +376,7 @@ body {
     pointer-events: auto;
   }
   .guild-chat-main {
-    transform: translate3d(100vw, 0, 0);
+    transform: translate3d(100%, 0, 0);
     visibility: hidden;
     pointer-events: none;
     z-index: 20;
@@ -381,7 +389,7 @@ body {
     transition-delay: 0s;
   }
   .mobile-panel-guild-channels .guild-chat-main {
-    transform: translate3d(100vw, 0, 0);
+    transform: translate3d(100%, 0, 0);
     visibility: hidden;
     pointer-events: none;
   }
@@ -393,13 +401,13 @@ body {
     transition-delay: 0s;
   }
   .mobile-panel-guild-members .guild-chat-main {
-    transform: translate3d(100vw, 0, 0);
+    transform: translate3d(100%, 0, 0);
     visibility: hidden;
     pointer-events: none;
   }
 
   .mobile-panel-guild-chat .guild-sidebar {
-    transform: translate3d(-100vw, 0, 0);
+    transform: translate3d(-100%, 0, 0);
     visibility: hidden;
     pointer-events: none;
   }
