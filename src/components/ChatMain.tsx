@@ -46,6 +46,7 @@ const DmRichCard: React.FC<{
   );
 };
 import { MessageText, CensoredPlainText } from './EmojiPicker';
+import { HideSelectionButton } from './HideSelectionButton';
 import { UnifiedPicker } from './StickerGifPicker';
 import type { CustomEmoji } from '../types';
 import ConfirmModal from './ConfirmModal';
@@ -2384,6 +2385,16 @@ const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: (
               </button>
             </>
           )}
+          <HideSelectionButton
+            inputRef={composerInputRef}
+            value={message}
+            onChange={next => {
+              // Same split as the textarea's own onChange: an edit in progress
+              // is local state, anything else is the persisted draft.
+              if (editing) setMessage(next); else persistMessage(next);
+              requestAnimationFrame(autoResizeComposer);
+            }}
+          />
           <BotCommandsButton
             token={authToken}
             serverIP={currentServerIP}

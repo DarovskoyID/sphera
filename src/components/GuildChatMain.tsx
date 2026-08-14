@@ -10,6 +10,7 @@ import { useApp, reportError } from '../context/AppContext';
 import { useTranslation } from '../i18n/useTranslation';
 import { MessageText } from './EmojiPicker';
 import { BlurredMedia } from './BlurredMedia';
+import { HideSelectionButton } from './HideSelectionButton';
 import { UnifiedPicker } from './StickerGifPicker';
 import { ProfileModal, type ProfileUser } from './ProfileModal';
 import ConfirmModal from './ConfirmModal';
@@ -442,6 +443,7 @@ export const GuildChatMain: React.FC = () => {
   }, [draftScope]);
   // Saved imperatively (not in an effect) so the draft isn't clobbered on (re)mount / scope switch.
   const persistInput = useCallback((v: string) => { setInput(v); setDraftText(draftScope, v); }, [draftScope]);
+  const composerRef = useRef<HTMLTextAreaElement>(null);
 
   // Inline edit: load the message text into the composer; restore the draft on
   // cancel/save. setInput (not persistInput) keeps the stored draft intact.
@@ -1031,6 +1033,7 @@ export const GuildChatMain: React.FC = () => {
               />
             )}
             <textarea
+              ref={composerRef}
               className="composer-input"
               placeholder={isMuted
                 ? `${tr('guild_muted_until')} ${mutedUntil!.toLocaleString()}`
@@ -1041,6 +1044,11 @@ export const GuildChatMain: React.FC = () => {
               rows={1}
               maxLength={5000}
               disabled={uploading || isMuted}
+            />
+            <HideSelectionButton
+              inputRef={composerRef}
+              value={input}
+              onChange={next => { if (editing) setInput(next); else persistInput(next); }}
             />
             <BotCommandsButton
               token={authToken}

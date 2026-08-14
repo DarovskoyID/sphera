@@ -827,6 +827,7 @@ export const ru: Translations = {
   gallery_close: 'Закрыть',
   gallery_download: 'Скачать',
   spoiler_reveal: 'Нажмите, чтобы показать',
+  spoiler_hide_selection: 'Скрыть выделенный текст',
   code_copied: 'Скопировано',
   code_copy: 'Копировать',
   pcf_channel: 'канал',

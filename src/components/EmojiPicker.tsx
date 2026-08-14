@@ -585,21 +585,68 @@ export const CensoredPlainText: React.FC<{ text: string; authorId?: string }> = 
 const mentionStyle: React.CSSProperties = { background: 'rgba(88,101,242,0.3)', color: '#7289da', borderRadius: 3, padding: '0 2px', fontWeight: 600 };
 const inlineCodeStyle: React.CSSProperties = { background: 'var(--bg-tertiary, rgba(0,0,0,0.3))', borderRadius: 4, padding: '1px 5px', fontFamily: 'monospace', fontSize: '0.9em' };
 
+/**
+ * Text the author chose to hide until the reader asks for it.
+ *
+ * Blurred rather than blacked out. A solid bar says "something is hidden here"
+ * and nothing else; a blur keeps the shape of the sentence — its length, its
+ * line breaks, where it sits in the paragraph — so the message still reads as
+ * a message with one part withheld. The radius is in `em` so it scales with
+ * the text and stays past legibility at any size, and a speckle sits over the
+ * top so a very short spoiler cannot simply be squinted at.
+ *
+ * Reachable from the keyboard: a hidden spoiler is a button in all but name,
+ * and a reader who cannot click one should not be locked out of the message.
+ */
 const Spoiler: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const tr = useTranslation();
   const [revealed, setRevealed] = useState(false);
+  const reveal = () => setRevealed(true);
+
   return (
     <span
-      onClick={e => { e.stopPropagation(); setRevealed(true); }}
+      onClick={revealed ? undefined : (e => { e.stopPropagation(); reveal(); })}
+      onKeyDown={revealed ? undefined : (e => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); reveal(); }
+      })}
+      role={revealed ? undefined : 'button'}
+      tabIndex={revealed ? undefined : 0}
+      aria-label={revealed ? undefined : tr('spoiler_reveal')}
       title={revealed ? undefined : tr('spoiler_reveal')}
       style={{
-        background: revealed ? 'rgba(128,128,128,0.18)' : 'var(--text-primary)',
-        color: revealed ? 'inherit' : 'transparent',
-        borderRadius: 4, padding: '0 3px', cursor: revealed ? 'inherit' : 'pointer',
-        transition: 'background 0.15s, color 0.15s', userSelect: revealed ? 'auto' : 'none',
+        position: 'relative',
+        display: 'inline',
+        borderRadius: 4,
+        padding: '0 3px',
+        cursor: revealed ? 'inherit' : 'pointer',
+        background: revealed ? 'rgba(128,128,128,0.18)' : 'rgba(128,128,128,0.10)',
+        transition: 'background 0.2s',
       }}
     >
-      {children}
+      <span
+        style={{
+          // The blur is what hides the words; the slight transparency keeps a
+          // dark spoiler from reading as a smudge on a light background.
+          filter: revealed ? 'none' : 'blur(0.32em)',
+          opacity: revealed ? 1 : 0.65,
+          userSelect: revealed ? 'auto' : 'none',
+          transition: 'filter 0.22s ease, opacity 0.22s ease',
+          display: 'inline',
+        }}
+      >
+        {children}
+      </span>
+      {!revealed && (
+        <span
+          aria-hidden
+          style={{
+            position: 'absolute', inset: 0, borderRadius: 4, pointerEvents: 'none',
+            backgroundImage: 'radial-gradient(currentColor 0.7px, transparent 0.8px)',
+            backgroundSize: '4px 4px',
+            opacity: 0.35,
+          }}
+        />
+      )}
     </span>
   );
 };

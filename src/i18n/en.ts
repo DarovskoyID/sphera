@@ -854,6 +854,7 @@ export const en = {
   gallery_close: 'Close',
   gallery_download: 'Download',
   spoiler_reveal: 'Click to reveal',
+  spoiler_hide_selection: 'Hide the selected text',
   code_copied: 'Copied',
   code_copy: 'Copy',
   pcf_channel: 'channel',

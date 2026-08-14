@@ -547,6 +547,7 @@ export const es: Translations = {
   gallery_close: 'Cerrar',
   gallery_download: 'Descargar',
   spoiler_reveal: 'Haz clic para mostrar',
+  spoiler_hide_selection: 'Ocultar el texto seleccionado',
   code_copied: 'Copiado',
   code_copy: 'Copiar',
   pcf_channel: 'canal',

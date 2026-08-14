@@ -7,6 +7,7 @@ import { CensorOff } from './CensorScope';
 import { RichMessage } from './RichMessage';
 import { RichComposer } from './RichComposer';
 import { MessageEditModal } from './MessageEditModal';
+import { HideSelectionButton } from './HideSelectionButton';
 import type { GuildMessage, RichMessageType, RichPayload } from '../types';
 
 // Auth-fetched media (images / video) — the diary is private so attachments need
@@ -341,6 +342,7 @@ export const DiaryView: React.FC<{ style?: React.CSSProperties }> = ({ style }) 
                 placeholder={tr('diary_write')}
                 rows={1}
               />
+              <HideSelectionButton inputRef={taRef} value={text} onChange={setText} />
               <button className="composer-icon-btn" title={tr('diary_add_tag')} onClick={() => setShowTag(v => !v)} style={{ position: 'relative', color: showTag ? '#a855f7' : undefined }}>
                 <Tag size={19} />
                 {tags.length > 0 && <span style={{ position: 'absolute', top: 0, right: 0, minWidth: 15, height: 15, padding: '0 3px', borderRadius: 8, background: '#a855f7', color: '#fff', fontSize: 9, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{tags.length}</span>}

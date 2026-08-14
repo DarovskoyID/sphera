@@ -547,6 +547,7 @@ export const zh: Translations = {
   gallery_close: '关闭',
   gallery_download: '下载',
   spoiler_reveal: '点击查看',
+  spoiler_hide_selection: '隐藏所选文字',
   code_copied: '已复制',
   code_copy: '复制',
   pcf_channel: '频道',
