@@ -38,7 +38,7 @@ from .models import (
 )
 from .serializers import (
     RegisterSerializer, UserSerializer, MeSerializer, FriendshipSerializer,
-    ProfileUpdateSerializer, BlockedUserSerializer,
+    ProfileSerializer, ProfileUpdateSerializer, BlockedUserSerializer,
     UserDeviceSerializer, UserSettingsSerializer, CustomEmojiSerializer,
 )
 
@@ -477,8 +477,23 @@ def me(request):
 @permission_classes([IsAuthenticated])
 @parser_classes([MultiPartParser, FormParser, JSONParser])
 def update_profile(request):
+    data = request.data
+    # The avatar and banner arrive as files, so the profile form is multipart,
+    # and multipart has no notion of a list — `links` comes over as a JSON
+    # string. Decode it here so the serializer sees the list it validates.
+    raw_links = data.get('links')
+    if isinstance(raw_links, str):
+        data = data.copy()
+        try:
+            data['links'] = json.loads(raw_links or '[]')
+        except ValueError:
+            return Response(
+                {'links': ['must be valid JSON']},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
     serializer = ProfileUpdateSerializer(
-        request.user, data=request.data, partial=True,
+        request.user, data=data, partial=True,
     )
     if serializer.is_valid():
         serializer.save()
@@ -754,10 +769,31 @@ def mutual_friends(request, user_id):
     )
 
 
+def _friend_ids(user):
+    """Ids of everyone `user` has an accepted friendship with."""
+    friendships = Friendship.objects.filter(
+        Q(from_user=user) | Q(to_user=user), status='accepted',
+    ).values_list('from_user_id', 'to_user_id')
+    ids = set()
+    for from_id, to_id in friendships:
+        ids.add(to_id if from_id == user.id else from_id)
+    return ids
+
+
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def user_profile(request, user_id):
-    """Public profile for any user."""
+    """Everything the profile screen shows about one user.
+
+    One request rather than four. The screen needs the profile, whether the
+    two are friends, who they both know and where they both are, and asking
+    for those separately meant four round-trips before the page settled.
+
+    What is shown depends on the reader. A user who has turned off "show my
+    profile to everyone" is fully visible to friends and reduced to a name and
+    an avatar for everyone else — enough to recognise who is speaking, and no
+    more.
+    """
     try:
         user = User.objects.get(id=user_id)
     except User.DoesNotExist:
@@ -765,9 +801,57 @@ def user_profile(request, user_id):
             {'error': 'User not found'},
             status=status.HTTP_404_NOT_FOUND,
         )
-    return Response(
-        UserSerializer(user, context={'request': request}).data
-    )
+
+    is_self = user.id == request.user.id
+    my_friends = _friend_ids(request.user)
+    is_friend = user.id in my_friends
+
+    settings_row = getattr(user, 'settings', None)
+    public = settings_row is None or settings_row.show_profile_to_everyone
+    full = is_self or is_friend or public
+
+    data = ProfileSerializer(user, context={'request': request}).data
+    if not full:
+        data = {
+            key: value for key, value in data.items()
+            if key in {
+                'id', 'username', 'nickname', 'avatar', 'status',
+                'account_type', 'verification_level', 'verification',
+            }
+        }
+
+    data['is_self'] = is_self
+    data['is_friend'] = is_friend
+    data['restricted'] = not full
+
+    if full and not is_self:
+        mutual_ids = my_friends & _friend_ids(user)
+        data['mutual_friends'] = UserSerializer(
+            User.objects.filter(id__in=mutual_ids),
+            many=True, context={'request': request},
+        ).data
+
+        # Guilds both are in. Private ones are somebody's diary and are never
+        # shared, so they are excluded rather than filtered on the client.
+        from sfera_messages.models import Guild
+        data['mutual_guilds'] = list(
+            Guild.objects
+            .filter(memberships__user=request.user)
+            .filter(memberships__user=user)
+            .exclude(is_private=True)
+            .distinct()
+            .values('id', 'name')[:20]
+        )
+    else:
+        data['mutual_friends'] = []
+        data['mutual_guilds'] = []
+
+    # Gifts are not a feature yet. The profile screen has a shelf for them and
+    # reads it from here, so the shape of the answer is settled now and the
+    # screen will not need touching when they arrive.
+    data['gifts'] = []
+
+    return Response(data)
 
 
 @api_view(['DELETE'])

@@ -59,18 +59,24 @@ class UserSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
+        # Deliberately lean: this is embedded in every message, member list and
+        # friend entry, so anything added here is paid for thousands of times
+        # over. The profile-only fields live in ProfileSerializer below.
         fields = [
             'id', 'username', 'nickname', 'avatar', 'bio', 'status',
             'account_type', 'verification_level', 'verification',
         ]
 
-    def get_avatar(self, obj):
-        if not obj.avatar:
+    def _image(self, image):
+        if not image:
             return ''
         request = self.context.get('request')
         if request:
-            return request.build_absolute_uri(obj.avatar.url)
-        return obj.avatar.url
+            return request.build_absolute_uri(image.url)
+        return image.url
+
+    def get_avatar(self, obj):
+        return self._image(obj.avatar)
 
     def _verification(self, obj):
         cache = getattr(self, '_verif_cache', None)
@@ -88,24 +94,82 @@ class UserSerializer(serializers.ModelSerializer):
         return self._verification(obj)
 
 
-class MeSerializer(UserSerializer):
-    """Like UserSerializer but exposes the owner's private fields."""
+class ProfileSerializer(UserSerializer):
+    """Everything the profile screen shows, and nothing that belongs in a list.
+
+    Fetched one user at a time, so it can afford the banner, the links and the
+    join date that UserSerializer cannot.
+    """
+
+    banner = serializers.SerializerMethodField()
+
+    def get_banner(self, obj):
+        return self._image(obj.banner)
 
     class Meta(UserSerializer.Meta):
-        fields = UserSerializer.Meta.fields + ['email', 'phone', 'date_joined']
+        fields = UserSerializer.Meta.fields + [
+            'banner', 'status_text', 'links', 'date_joined',
+        ]
+
+
+class MeSerializer(ProfileSerializer):
+    """Like ProfileSerializer but exposes the owner's private fields."""
+
+    class Meta(ProfileSerializer.Meta):
+        fields = ProfileSerializer.Meta.fields + ['email', 'phone']
+
+
+#: Most links a profile may carry. Enough for the places people actually are.
+MAX_PROFILE_LINKS = 5
+MAX_LINK_LABEL = 30
+MAX_LINK_URL = 200
 
 
 class ProfileUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ['nickname', 'bio', 'avatar', 'email', 'phone']
+        fields = [
+            'nickname', 'bio', 'avatar', 'banner', 'status_text', 'links',
+            'email', 'phone',
+        ]
         extra_kwargs = {
-            'nickname': {'required': False},
-            'bio': {'required': False},
-            'avatar': {'required': False},
-            'email': {'required': False},
-            'phone': {'required': False},
+            name: {'required': False} for name in fields
         }
+
+    def validate_links(self, value):
+        """Links are free text from the profile owner and end up as anchors.
+
+        So they are checked here rather than trusted at render time: the shape
+        must be right, the scheme must be one a browser will not execute, and
+        the whole thing must stay small. `javascript:` in an href is the reason
+        this method exists.
+        """
+        if value in (None, ''):
+            return []
+        if not isinstance(value, list):
+            raise serializers.ValidationError('links must be a list')
+        if len(value) > MAX_PROFILE_LINKS:
+            raise serializers.ValidationError(
+                f'at most {MAX_PROFILE_LINKS} links'
+            )
+
+        cleaned = []
+        for entry in value:
+            if not isinstance(entry, dict):
+                raise serializers.ValidationError('each link must be an object')
+            url = str(entry.get('url', '')).strip()
+            label = str(entry.get('label', '')).strip()
+            if not url:
+                continue
+            if not url.startswith(('http://', 'https://')):
+                raise serializers.ValidationError(
+                    'links must start with http:// or https://'
+                )
+            cleaned.append({
+                'label': label[:MAX_LINK_LABEL],
+                'url': url[:MAX_LINK_URL],
+            })
+        return cleaned
 
 
 class RegisterSerializer(serializers.ModelSerializer):

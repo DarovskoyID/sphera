@@ -27,7 +27,16 @@ class User(AbstractUser):
     nickname = models.CharField(max_length=50, blank=True, default='')
     phone = models.CharField(max_length=32, blank=True, default='')
     avatar = models.ImageField(upload_to='avatars/', blank=True, null=True)
+    banner = models.ImageField(upload_to='banners/', blank=True, null=True)
     bio = models.CharField(max_length=200, blank=True, default='')
+    # A line the user writes about themselves right now — "back on Monday",
+    # "in a meeting". Distinct from `status` below, which is presence and is
+    # set by the client rather than by hand.
+    status_text = models.CharField(max_length=80, blank=True, default='')
+    # Up to MAX_PROFILE_LINKS entries of {"label": str, "url": str}. A JSON
+    # column rather than a table: they are only ever read and written as a
+    # whole, with the profile, and never queried across users.
+    links = models.JSONField(default=list, blank=True)
     status = models.CharField(
         max_length=10,
         choices=[

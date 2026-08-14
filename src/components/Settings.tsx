@@ -6,6 +6,7 @@ import { useApp, reportError } from '../context/AppContext';
 import { useTranslation } from '../i18n/useTranslation';
 import { languages, type LangCode } from '../i18n';
 import { ListSkeleton } from './Skeleton';
+import { MAX_PROFILE_LINKS, type ProfileLink } from '../types';
 import type { ServerUser } from '../types';
 import { saveNotifPrefs, ensureNotificationPermission } from '../utils/notifications';
 import { saveA11yPrefs, getA11yPrefs, TEXT_SCALE_MIN, TEXT_SCALE_MAX } from '../utils/accessibility';
@@ -432,17 +433,31 @@ const ProfileSettings: React.FC = () => {
   const [pwMsg, setPwMsg] = useState<{ text: string; type: 'ok' | 'err' } | null>(null);
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
+  const [bannerFile, setBannerFile] = useState<File | null>(null);
+  const [bannerPreview, setBannerPreview] = useState<string | null>(null);
+  const [statusText, setStatusText] = useState(currentUser?.status_text || '');
+  const [links, setLinks] = useState<ProfileLink[]>(() => currentUser?.links ?? []);
 
   useEffect(() => {
     setNickname(currentUser?.nickname || '');
     setBio(currentUser?.bio || '');
     setEmail(currentUser?.email || '');
     setPhone(currentUser?.phone || '');
+    setStatusText(currentUser?.status_text || '');
+    setLinks(currentUser?.links ?? []);
   }, [currentUser]);
+
+  const setLink = (at: number, next: ProfileLink) =>
+    setLinks(prev => prev.map((link, i) => (i === at ? next : link)));
 
   const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) { setAvatarFile(file); setAvatarPreview(URL.createObjectURL(file)); }
+  };
+
+  const handleBannerChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) { setBannerFile(file); setBannerPreview(URL.createObjectURL(file)); }
   };
 
   const handleSave = async (e: React.FormEvent) => {
@@ -450,7 +465,12 @@ const ProfileSettings: React.FC = () => {
     try {
       const fd = new FormData(); fd.append('nickname', nickname); fd.append('bio', bio);
       fd.append('email', email); fd.append('phone', phone);
+      fd.append('status_text', statusText);
+      // Multipart has no lists, so the server decodes this one from JSON.
+      // Blank rows are the ones the user added and never filled in.
+      fd.append('links', JSON.stringify(links.filter(link => link.url.trim())));
       if (avatarFile) fd.append('avatar', avatarFile);
+      if (bannerFile) fd.append('banner', bannerFile);
       const res = await fetch(`${currentServerIP}/api/auth/me/update/`, { method: 'PATCH', headers: { 'Authorization': `Bearer ${authToken}` }, body: fd });
       if (!res.ok) throw new Error('Failed');
       const updatedUser = await res.json();
@@ -458,7 +478,8 @@ const ProfileSettings: React.FC = () => {
         ? (updatedUser.avatar.startsWith('http') ? updatedUser.avatar : `${currentServerIP}${updatedUser.avatar}`)
         : (currentUser?.avatar || '');
       setCurrentUser({ ...updatedUser, avatar: avatarUrl });
-      setMsg({ text: tr('sp_saved'), type: 'ok' }); setAvatarFile(null);
+      setMsg({ text: tr('sp_saved'), type: 'ok' });
+      setAvatarFile(null); setBannerFile(null);
     } catch { setMsg({ text: tr('sp_save_fail'), type: 'err' }); }
     setSaving(false);
   };
@@ -475,6 +496,7 @@ const ProfileSettings: React.FC = () => {
   };
 
   const avatarSrc = avatarPreview || currentUser?.avatar || '';
+  const bannerSrc = bannerPreview || currentUser?.banner || '';
 
   return (
     <section>
@@ -482,7 +504,23 @@ const ProfileSettings: React.FC = () => {
       <p>{tr('sp_desc')}</p>
 
       <div style={{ ...card, padding: 0, overflow: 'hidden' }}>
-        <div style={{ height: 88, background: 'var(--bg-tertiary)', borderBottom: '1px solid var(--border-color)' }} />
+        <div style={{
+          height: 88, position: 'relative',
+          background: bannerSrc
+            ? `center / cover no-repeat url(${JSON.stringify(bannerSrc)})`
+            : 'var(--bg-tertiary)',
+          borderBottom: '1px solid var(--border-color)',
+        }}>
+          <label style={{
+            position: 'absolute', top: 8, right: 8, display: 'flex', alignItems: 'center', gap: 6,
+            background: 'rgba(0,0,0,0.5)', borderRadius: 6, padding: '5px 9px',
+            color: '#fff', fontSize: 12, cursor: 'pointer',
+          }}>
+            <Camera size={13} />
+            {isRu ? 'Обложка' : 'Banner'}
+            <input type="file" accept="image/*" onChange={handleBannerChange} style={{ display: 'none' }} />
+          </label>
+        </div>
         <div style={{ padding: '0 20px 20px', marginTop: -40 }}>
           <div style={{ position: 'relative', display: 'inline-block' }}>
             {avatarSrc ? (
@@ -522,6 +560,49 @@ const ProfileSettings: React.FC = () => {
           <div style={{ marginBottom: 16 }}>
             <div style={fieldLabel}>{tr('sp_about')}</div>
             <textarea value={bio} onChange={e => setBio(e.target.value)} placeholder={tr('sp_about_placeholder')} rows={3} style={{ ...fieldInput, resize: 'vertical', fontFamily: 'inherit' }} />
+          </div>
+          <div style={{ marginBottom: 16 }}>
+            <div style={fieldLabel}>{isRu ? 'Статус' : 'Status'}</div>
+            <input
+              style={fieldInput}
+              value={statusText}
+              maxLength={80}
+              onChange={e => setStatusText(e.target.value)}
+              placeholder={isRu ? 'Например: вернусь в понедельник' : 'For example: back on Monday'}
+            />
+          </div>
+          <div style={{ marginBottom: 16 }}>
+            <div style={fieldLabel}>{tr('profile_links')}</div>
+            {links.map((link, i) => (
+              <div key={i} style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+                <input
+                  style={{ ...fieldInput, flex: '0 0 34%' }}
+                  value={link.label}
+                  maxLength={30}
+                  onChange={e => setLink(i, { ...link, label: e.target.value })}
+                  placeholder={isRu ? 'Название' : 'Label'}
+                />
+                <input
+                  style={{ ...fieldInput, flex: 1 }}
+                  value={link.url}
+                  onChange={e => setLink(i, { ...link, url: e.target.value })}
+                  placeholder="https://"
+                />
+                <button
+                  type="button"
+                  onClick={() => setLinks(links.filter((_, at) => at !== i))}
+                  style={{ ...btnSecondary, padding: '0 12px' }}
+                  title={tr('chat_remove')}
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+            {links.length < MAX_PROFILE_LINKS && (
+              <button type="button" style={btnSecondary} onClick={() => setLinks([...links, { label: '', url: '' }])}>
+                + {tr('profile_links')}
+              </button>
+            )}
           </div>
           <div className="streamer-sensitive" style={{ marginBottom: 16 }}>
             <div style={fieldLabel}>{isRu ? 'Электронная почта' : 'Email'}</div>

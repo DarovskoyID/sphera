@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   Sun, Moon, Search, Menu, UserPlus, Check, X, LogOut,
-  Phone, Video, Ban, BellOff, Copy, Trash2, UserMinus, Volume2, PhoneOff,
+  Phone, Ban, BellOff, Copy, Trash2, UserMinus, Volume2, PhoneOff,
 } from 'lucide-react';
 import { useApp, reportError } from '../context/AppContext';
 import { useTranslation } from '../i18n/useTranslation';
@@ -10,6 +10,7 @@ import type { ServerUser } from '../types';
 import { AccountBadge, accountDisplayName } from './BotBadge';
 import { useAnchoredMenu } from './useAnchoredMenu';
 import { ListSkeleton } from './Skeleton';
+import { ProfileModal as SharedProfileModal } from './ProfileModal';
 
 // ── Mobile detection ─────────────────────────────────────────────────────────
 
@@ -89,200 +90,6 @@ const Avatar: React.FC<{ name: string; avatar: string; size?: number }> = ({ nam
         {name[0]?.toUpperCase() ?? '?'}
       </div>
 );
-
-// ── Full Profile Modal ────────────────────────────────────────────────────────
-
-const ProfileModal: React.FC<{
-  friend: FriendInfo;
-  onClose: () => void;
-  onCall: (withVideo: boolean) => void;
-  onRemove: () => void;
-}> = ({ friend, onClose, onCall, onRemove }) => {
-  const { currentServerIP, authToken, friends } = useApp();
-  const tr = useTranslation();
-  const [mutualFriends, setMutualFriends] = useState<ServerUser[]>([]);
-  const [note, setNote] = useState(() => localStorage.getItem(`note_${friend.id}`) ?? '');
-  const displayName = friend.nickname || friend.username;
-
-  useEffect(() => {
-    (async () => {
-      try {
-        const res = await fetch(
-          `${currentServerIP}/api/auth/users/${friend.id}/mutual-friends/`,
-          { headers: { Authorization: `Bearer ${authToken}` } }
-        );
-        if (res.ok) setMutualFriends(await res.json());
-      } catch { /* ignore */ }
-    })();
-  }, [friend.id, currentServerIP, authToken]);
-
-  const isFriend = friends.some(f => String(f.id) === String(friend.id));
-
-  return (
-    <div
-      style={{
-        position: 'fixed', inset: 0, zIndex: 9400,
-        background: 'rgba(0,0,0,0.65)',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-      }}
-      onClick={onClose}
-    >
-      <div
-        style={{
-          background: 'var(--bg-secondary)',
-          borderRadius: 16, overflow: 'hidden',
-          width: 380, maxWidth: '94vw',
-          maxHeight: '88vh', overflowY: 'auto',
-          border: '1px solid var(--border-color)',
-          boxShadow: '0 24px 64px rgba(0,0,0,0.6)',
-        }}
-        onClick={e => e.stopPropagation()}
-      >
-        {/* Banner */}
-        <div style={{
-          height: 80,
-          background: 'var(--bg-tertiary)', borderBottom: '1px solid var(--border-color)',
-          position: 'relative',
-          flexShrink: 0,
-        }}>
-          <button
-            onClick={onClose}
-            style={{
-              position: 'absolute', top: 10, right: 10,
-              background: 'rgba(0,0,0,0.4)', border: 'none', borderRadius: 6,
-              color: '#fff', cursor: 'pointer', padding: 4, display: 'flex',
-            }}
-          >
-            <X size={16} />
-          </button>
-        </div>
-
-        {/* Avatar overlapping banner */}
-        <div style={{ padding: '0 20px 0', marginTop: -40 }}>
-          <div style={{ display: 'flex', alignItems: 'flex-end', gap: 12, marginBottom: 12 }}>
-            <div style={{ position: 'relative', flexShrink: 0 }}>
-              <div style={{
-                width: 80, height: 80, borderRadius: '50%',
-                border: '4px solid var(--bg-secondary)',
-                overflow: 'hidden',
-              }}>
-                <Avatar name={displayName} avatar={friend.avatar} size={80} />
-              </div>
-              <span style={{
-                position: 'absolute', bottom: 4, right: 4,
-                width: 16, height: 16, borderRadius: '50%',
-                background: STATUS_COLOR[friend.status] ?? STATUS_COLOR.offline,
-                border: '3px solid var(--bg-secondary)',
-              }} />
-            </div>
-            <div style={{ paddingBottom: 4, minWidth: 0 }}>
-              <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.2 }}>
-                {displayName}
-              </div>
-              <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>@{friend.username}</div>
-            </div>
-          </div>
-
-          {/* Bio */}
-          {friend.bio && (
-            <div style={{
-              fontSize: 13, color: 'var(--text-secondary)',
-              lineHeight: 1.5, marginBottom: 12,
-              padding: '8px 12px',
-              background: 'var(--bg-tertiary)',
-              borderRadius: 8,
-            }}>
-              {friend.bio}
-            </div>
-          )}
-
-          {/* Action buttons */}
-          <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
-            <button
-              onClick={() => onCall(false)}
-              style={{
-                flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                gap: 6, padding: '9px 0',
-                background: 'var(--accent-primary)', border: 'none', borderRadius: 8,
-                color: '#fff', fontWeight: 600, fontSize: 13, cursor: 'pointer',
-              }}
-            >
-              <Phone size={15} /> {tr('profile_call')}
-            </button>
-            <button
-              onClick={() => onCall(true)}
-              style={{
-                flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                gap: 6, padding: '9px 0',
-                background: 'var(--bg-tertiary)', border: '1px solid var(--border-color)',
-                borderRadius: 8, color: 'var(--text-primary)',
-                fontWeight: 600, fontSize: 13, cursor: 'pointer',
-              }}
-            >
-              <Video size={15} /> {tr('profile_video')}
-            </button>
-            {isFriend && (
-              <button
-                onClick={onRemove}
-                style={{
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  gap: 6, padding: '9px 12px',
-                  background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.3)',
-                  borderRadius: 8, color: '#ef4444',
-                  fontWeight: 600, fontSize: 13, cursor: 'pointer',
-                }}
-                title={tr('profile_remove_friend')}
-              >
-                <UserMinus size={15} />
-              </button>
-            )}
-          </div>
-
-          {/* Note (visible only to me) */}
-          <div style={{ marginBottom: 14 }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-tertiary)', letterSpacing: 0.5, marginBottom: 5, textTransform: 'uppercase' }}>
-              {tr('profile_note')}
-            </div>
-            <textarea
-              value={note}
-              onChange={e => {
-                setNote(e.target.value);
-                localStorage.setItem(`note_${friend.id}`, e.target.value);
-              }}
-              placeholder={tr('profile_note_placeholder')}
-              style={{
-                width: '100%', padding: '8px 10px',
-                background: 'var(--bg-tertiary)', border: '1px solid var(--border-color)',
-                borderRadius: 8, color: 'var(--text-primary)', fontSize: 13,
-                fontFamily: 'inherit', resize: 'vertical', minHeight: 64,
-                outline: 'none',
-              }}
-            />
-          </div>
-
-          {/* Mutual friends */}
-          {mutualFriends.length > 0 && (
-            <div style={{ marginBottom: 16 }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-tertiary)', letterSpacing: 0.5, marginBottom: 8, textTransform: 'uppercase' }}>
-                {mutualFriends.length} {mutualFriends.length !== 1 ? tr('profile_mutual_friends') : tr('profile_mutual_friend')}
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                {mutualFriends.map(mf => (
-                  <div key={mf.id} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <Avatar name={mf.nickname || mf.username} avatar={mf.avatar} size={28} />
-                    <span style={{ fontSize: 13, color: 'var(--text-primary)' }}>
-                      {mf.nickname || mf.username}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-};
 
 // ── Friend Context Menu ───────────────────────────────────────────────────────
 
@@ -678,7 +485,6 @@ export const ChatSidebar: React.FC = () => {
     friends, friendsLoaded, blockedContacts, pendingRequests, sentRequests, sendFriendRequest, acceptFriendRequest,
     rejectFriendRequest, searchUsers,
     setCallActive, setCallTargetId, setVideoActive,
-    removeFriend,
   } = useApp();
   const tr = useTranslation();
   const isMobile = useIsMobile();
@@ -690,7 +496,6 @@ export const ChatSidebar: React.FC = () => {
   const [addError, setAddError] = useState('');
   const [addSuccess, setAddSuccess] = useState('');
   const [showLogoutModal, setShowLogoutModal] = useState(false);
-  const [showRemoveConfirm, setShowRemoveConfirm] = useState(false);
   const [ctxMenu, setCtxMenu] = useState<CtxState>(null);
   const [blockedCtxMenu, setBlockedCtxMenu] = useState<BlockedCtxState>(null);
   const [profileFriend, setProfileFriend] = useState<FriendInfo | null>(null);
@@ -779,18 +584,6 @@ export const ChatSidebar: React.FC = () => {
     setVideoActive(withVideo);
     setCallTargetId(profileFriend.id);
     setCallActive(true);
-  };
-
-  const handleProfileRemove = () => {
-    if (!profileFriend) return;
-    setShowRemoveConfirm(true);
-  };
-
-  const confirmProfileRemove = async () => {
-    if (!profileFriend) return;
-    setShowRemoveConfirm(false);
-    try { await removeFriend(profileFriend.id); } catch (e) { reportError(e); }
-    setProfileFriend(null);
   };
 
   return (
@@ -1051,17 +844,6 @@ export const ChatSidebar: React.FC = () => {
         </div>
       )}
 
-      {showRemoveConfirm && (
-        <ConfirmModal
-          title={tr('remove_friend_title')}
-          message={tr('remove_friend_confirm')}
-          confirmLabel={tr('remove_friend_button')}
-          cancelLabel={tr('cancel')}
-          onConfirm={confirmProfileRemove}
-          onCancel={() => setShowRemoveConfirm(false)}
-        />
-      )}
-
       <UserProfile />
 
       {ctxMenu && (
@@ -1080,11 +862,10 @@ export const ChatSidebar: React.FC = () => {
       )}
 
       {profileFriend && (
-        <ProfileModal
-          friend={profileFriend}
+        <SharedProfileModal
+          user={profileFriend}
           onClose={() => setProfileFriend(null)}
           onCall={handleProfileCall}
-          onRemove={handleProfileRemove}
         />
       )}
     </aside>
@@ -1097,6 +878,9 @@ export const UserProfile: React.FC = () => {
   const { currentUser, currentVoiceChannel, leaveVoiceChannel, setVoiceMuted, voiceLocalStream, currentGuild, isMicActive, isHeadphonesActive, setMicActive, setHeadphonesActive } = useApp();
   const tr = useTranslation();
   const displayName = currentUser?.nickname || currentUser?.username || 'You';
+  // Your own avatar is the one place in the app you always know where to find,
+  // so it is where your own profile opens from.
+  const [showOwnProfile, setShowOwnProfile] = useState(false);
 
   const inVoice = !!currentVoiceChannel;
 
@@ -1140,7 +924,11 @@ export const UserProfile: React.FC = () => {
       </div>
     )}
     <div className="user-profile-section glass-panel">
-      <button className="profile-avatar-btn">
+      <button
+        className="profile-avatar-btn"
+        onClick={() => currentUser && setShowOwnProfile(true)}
+        title={tr('profile_edit')}
+      >
         {currentUser?.avatar
           ? <img src={currentUser.avatar} alt={displayName} />
           : <div style={{ width: 32, height: 32, borderRadius: '50%', background: 'var(--accent-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 700, fontSize: 14 }}>
@@ -1184,6 +972,19 @@ export const UserProfile: React.FC = () => {
         </button>
       </div>
     </div>
+    {showOwnProfile && currentUser && (
+      <SharedProfileModal
+        user={{
+          id: String(currentUser.id),
+          username: currentUser.username,
+          nickname: currentUser.nickname || '',
+          avatar: currentUser.avatar || '',
+          bio: currentUser.bio || '',
+          status: currentUser.status || 'online',
+        }}
+        onClose={() => setShowOwnProfile(false)}
+      />
+    )}
     </>
   );
 };

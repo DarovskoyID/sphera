@@ -19,6 +19,15 @@ export interface VerificationInfo {
   clean_1_year: boolean;
 }
 
+/** One entry in a profile's list of links. */
+export interface ProfileLink {
+  label: string;
+  url: string;
+}
+
+/** Most links a profile may carry — mirrors MAX_PROFILE_LINKS on the server. */
+export const MAX_PROFILE_LINKS = 5;
+
 export interface ServerUser {
   id: string;
   username: string;
@@ -32,6 +41,11 @@ export interface ServerUser {
   date_joined?: string;
   verification_level?: number;
   verification?: VerificationInfo;
+  // Profile-only. Absent from the short form embedded in messages and member
+  // lists, and present on /api/auth/me/ and the profile endpoint.
+  banner?: string;
+  status_text?: string;
+  links?: ProfileLink[];
 }
 
 export interface PendingRequest {
