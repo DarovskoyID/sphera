@@ -1,7 +1,7 @@
 import json
 import secrets
 import threading
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone as dt_timezone
 
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
@@ -24,6 +24,7 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.throttling import AnonRateThrottle
 from rest_framework_simplejwt.exceptions import TokenError
+from rest_framework_simplejwt.settings import api_settings
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer, TokenRefreshSerializer
 from rest_framework_simplejwt.tokens import RefreshToken
 
@@ -160,11 +161,63 @@ _CODE_ALPHABET = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ'
 _CODE_LENGTH = 6
 
 
-def _set_refresh_cookie(response, refresh):
+def is_app_request(request):
+    """Is this the native shell rather than a browser?
+
+    The shells append a product token to the WebView's user agent — see
+    docs/ANDROID_WEBVIEW.md. Nothing security-critical hangs on the answer: it
+    only chooses between two session lifetimes, both of which end on sign-out,
+    a password change or a revoked device. A browser that forged the token
+    would get a session that does not idle out, which is the same thing the
+    user gets by installing the app.
+    """
+    agent = request.META.get('HTTP_USER_AGENT', '')
+    return django_settings.APP_USER_AGENT_TOKEN in agent
+
+
+def _session_lifetime(request):
+    if is_app_request(request):
+        return django_settings.APP_REFRESH_TOKEN_LIFETIME
+    return django_settings.SIMPLE_JWT['REFRESH_TOKEN_LIFETIME']
+
+
+def _with_session_lifetime(refresh, request):
+    """Restamp a refresh token's expiry for the client that asked for it.
+
+    Both the login serializer and the rotation on refresh mint tokens with the
+    lifetime from SIMPLE_JWT, which is the browser's. Re-stamping keeps the jti
+    and the rest of the payload — so blacklisting still recognises the token —
+    and only moves `exp`.
+
+    The matching OutstandingToken row is moved with it. Revoking every session
+    for a user works by walking those rows, and `flushexpiredtokens` deletes
+    the ones that have passed their recorded expiry: leaving an app token's row
+    stamped a day and a half out would quietly drop it from the register while
+    the token itself stayed valid for years, and a password change would no
+    longer sign the phone out.
+    """
+    lifetime = _session_lifetime(request)
+    refresh.set_exp(lifetime=lifetime)
+
+    try:
+        from rest_framework_simplejwt.token_blacklist.models import OutstandingToken
+        OutstandingToken.objects.filter(jti=refresh.payload[api_settings.JTI_CLAIM]).update(
+            token=str(refresh),
+            expires_at=datetime.fromtimestamp(refresh.payload['exp'], tz=dt_timezone.utc),
+        )
+    except Exception:
+        # The register is a convenience for revocation, not the token's
+        # validity. Failing to update it must not fail the sign-in.
+        pass
+
+    return refresh
+
+
+def _set_refresh_cookie(response, refresh, request):
     response.set_cookie(
         django_settings.REFRESH_COOKIE_NAME,
         str(refresh),
-        max_age=int(django_settings.SIMPLE_JWT['REFRESH_TOKEN_LIFETIME'].total_seconds()),
+        max_age=int(_session_lifetime(request).total_seconds()),
         httponly=True,
         secure=django_settings.REFRESH_COOKIE_SECURE,
         samesite=django_settings.REFRESH_COOKIE_SAMESITE,
@@ -190,11 +243,12 @@ def _blacklist_user_refresh_tokens(user):
 
 
 def _auth_response(user, refresh, request, status_code=status.HTTP_200_OK):
+    _with_session_lifetime(refresh, request)
     response = Response({
         'user': UserSerializer(user, context={'request': request}).data,
         'access': str(refresh.access_token),
     }, status=status_code)
-    _set_refresh_cookie(response, refresh)
+    _set_refresh_cookie(response, refresh, request)
     return response
 
 
@@ -306,16 +360,34 @@ def refresh_token(request):
         return Response({'detail': 'refresh cookie missing'}, status=status.HTTP_401_UNAUTHORIZED)
 
     serializer = TokenRefreshSerializer(data={'refresh': refresh_value})
-    if not serializer.is_valid():
+    # A token that is expired, blacklisted or simply malformed makes the
+    # serializer raise TokenError rather than fail validation, and TokenError is
+    # not a DRF exception — left alone it comes back as a 500 with the cookie
+    # still in place. Both are ordinary outcomes here, now more than ever: a
+    # browser idle for a day and a half arrives holding exactly such a token,
+    # and it needs the 401 that sends it to the sign-in screen.
+    try:
+        valid = serializer.is_valid()
+    except TokenError:
+        valid = False
+    if not valid:
         audit_event(request, 'refresh_failed')
-        response = Response(serializer.errors, status=status.HTTP_401_UNAUTHORIZED)
+        response = Response(
+            {'detail': 'refresh token is no longer valid'},
+            status=status.HTTP_401_UNAUTHORIZED,
+        )
         _clear_refresh_cookie(response)
         return response
 
     response = Response({'access': serializer.validated_data['access']})
     rotated = serializer.validated_data.get('refresh')
     if rotated:
-        _set_refresh_cookie(response, rotated)
+        # The rotated token carries the browser lifetime the serializer minted
+        # it with. Re-stamp it, so the app's session keeps not expiring and the
+        # browser's window slides forward another day and a half from now.
+        _set_refresh_cookie(
+            response, _with_session_lifetime(RefreshToken(rotated), request), request,
+        )
     audit_event(request, 'refresh_success')
     return response
 

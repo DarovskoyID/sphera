@@ -287,17 +287,38 @@ REST_FRAMEWORK = {
 
 # JWT access tokens are intentionally short-lived; the web client refreshes them
 # with /api/auth/refresh/ and retries authenticated requests once after 401.
+#
+# The refresh token is what decides how long a session lasts, and it rotates on
+# every refresh — each one carries a fresh lifetime. So the window below is not
+# a deadline but an idle timeout: a browser left alone for a day and a half asks
+# for the password again, while one in use every fifteen minutes never does.
 SIMPLE_JWT = {
     'ACCESS_TOKEN_LIFETIME': timedelta(
         minutes=int(os.environ.get('SFERA_ACCESS_TOKEN_MINUTES', '15'))
     ),
     'REFRESH_TOKEN_LIFETIME': timedelta(
-        days=int(os.environ.get('SFERA_REFRESH_TOKEN_DAYS', '14'))
+        hours=int(os.environ.get('SFERA_REFRESH_TOKEN_HOURS', '36'))
     ),
     'ROTATE_REFRESH_TOKENS': True,
     'BLACKLIST_AFTER_ROTATION': True,
     'UPDATE_LAST_LOGIN': True,
 }
+
+# The mobile app does not expire. A browser is a shared, borrowable thing and an
+# idle timeout is the right default for one; a phone is not, it is already
+# behind a lock screen, and being signed out of a messenger for not opening it
+# over a weekend is not a security posture anyone asked for.
+#
+# Signing out, changing the password and revoking a device all blacklist the
+# token, so this is a lifetime rather than a promise — there is still a way to
+# end the session from either end.
+APP_REFRESH_TOKEN_LIFETIME = timedelta(
+    days=int(os.environ.get('SFERA_APP_REFRESH_TOKEN_DAYS', '3650'))
+)
+
+# The user-agent token the native shells append to identify themselves.
+# See docs/ANDROID_WEBVIEW.md.
+APP_USER_AGENT_TOKEN = os.environ.get('SFERA_APP_UA_TOKEN', 'SferaApp/')
 
 REFRESH_COOKIE_NAME = os.environ.get('SFERA_REFRESH_COOKIE_NAME', 'sfera_refresh')
 REFRESH_COOKIE_PATH = os.environ.get('SFERA_REFRESH_COOKIE_PATH', '/api/auth/')

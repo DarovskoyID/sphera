@@ -177,3 +177,23 @@ override fun onBackPressed() {
     if (webView.canGoBack()) webView.goBack() else super.onBackPressed()
 }
 ```
+
+## 6. Sessions
+
+Inside the shell the session does not expire. In a browser it idles out after
+36 hours, and every refresh — which an open tab does every 15 minutes — slides
+that window forward, so an active user is never signed out mid-sentence and one
+who closed the laptop on Friday is asked for the password on Monday.
+
+The server decides which of the two it is issuing from the user-agent token in
+§1, so the shell has nothing to do beyond setting it. Signing out, changing the
+password and revoking a device still end the session from either side.
+
+The refresh token lives in an `HttpOnly` cookie with a matching `Max-Age`, so
+the shell must persist cookies across restarts or the session is only as long
+as the process:
+
+```kotlin
+CookieManager.getInstance().setAcceptCookie(true)
+CookieManager.getInstance().flush()   // on onPause, and before the app exits
+```
