@@ -486,7 +486,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     localStorage.removeItem(AUTH_TOKEN_KEY);
     // The message cache is plain text on the device; a session ending is
     // exactly when it must stop existing.
-    clearMessageCache();
+    void clearMessageCache();
     setState(prev => ({ ...prev, authToken: '', currentUser: null, friends: [], pendingRequests: [], sentRequests: [], userIDonServer: '', currentChat: '' }));
   }, []);
 
@@ -881,12 +881,27 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
         }
 
         const convoId = convo.id;
-        // Paint the tail we already have while the history request is in
-        // flight. The fetch below replaces it wholesale, so a cached message
-        // deleted meanwhile lives for one round-trip and no longer.
-        const cached = readCachedMessages(convoId);
+        // Start the history request before touching the cache, so the round
+        // trip and the disk read overlap. Reading IndexedDB is quick, but it is
+        // not free, and it would be a poor trade to delay the authoritative
+        // answer in order to paint a placeholder sooner.
+        const history = apiGet(
+          `/api/conversations/${convoId}/messages/`,
+          state.authToken,
+          state.currentServerIP
+        );
+        // Awaited below, but not on every path out of here — a cancelled effect
+        // returns first. Mark it handled so a failure on that path is not an
+        // unhandled rejection.
+        void history.catch(() => {});
+
+        // Paint the tail we already have while that is in flight. The fetch
+        // replaces what it covers, so a cached message deleted meanwhile lives
+        // for one round-trip and no longer.
+        const cached = await readCachedMessages(convoId);
+        if (cancelled) return;
         setState(prev => (
-          cancelled || prev.chatMessages.length
+          prev.chatMessages.length
             ? { ...prev, chatConversationId: convoId }
             : {
               ...prev,
@@ -896,12 +911,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
             }
         ));
 
-        // Load message history
-        const msgs: ChatMessage[] = await apiGet(
-          `/api/conversations/${convoId}/messages/`,
-          state.authToken,
-          state.currentServerIP
-        );
+        const msgs: ChatMessage[] = await history;
         if (cancelled) return;
         setState(prev => ({ ...prev, chatMessages: msgs.map(enrichCallMessage), chatLoading: false }));
         // Seed the last-ID ref so polling knows where to start
@@ -1461,13 +1471,13 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
 
   // Persist the tail of the open conversation so the next visit paints at once.
   //
-  // Debounced: a busy chat changes state many times a second, and localStorage
-  // is synchronous — writing on every change would stall the main thread in
-  // exactly the conversations where responsiveness matters most.
+  // Debounced: a busy chat changes state many times a second, and each write
+  // reads the stored tail back to merge with it — work worth doing once the
+  // conversation settles, not on every keystroke's worth of state change.
   useEffect(() => {
     const convoId = state.chatConversationId;
     if (!convoId || !state.chatMessages.length) return;
-    const timer = setTimeout(() => writeCachedMessages(convoId, state.chatMessages), 1500);
+    const timer = setTimeout(() => { void writeCachedMessages(convoId, state.chatMessages); }, 1500);
     return () => clearTimeout(timer);
   }, [state.chatConversationId, state.chatMessages]);
 
@@ -3338,7 +3348,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     if (!token) {
       // Logout — close all sockets, drop the on-device message cache, and
       // reset to a clean state.
-      clearMessageCache();
+      void clearMessageCache();
       chatWs.current?.close();
       chatWs.current = null;
       signalingWs.current?.close();
