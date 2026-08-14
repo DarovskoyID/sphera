@@ -247,7 +247,9 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
   const [remoteVideoStatus, setRemoteVideoStatus] = useState<string>(
     _call.remoteStream ? 'playing' : 'off'
   );
-  const [, setLocalVideoStatus] = useState<string>(
+  // Read, not just written: our own camera going live is the moment device
+  // labels become available, and the flip button waits on that.
+  const [localVideoStatus, setLocalVideoStatus] = useState<string>(
     _call.cameraStream?.active ? 'playing' : 'off'
   );
   const [windowExpanded, setWindowExpanded] = useState(false);
@@ -1053,9 +1055,16 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
    * be believed — a wrongly hidden button is indistinguishable from a broken
    * one, and that cost a lot of time here.
    *
-   * Permission usually lands a moment after our camera starts, so the list is
-   * read again a couple of times rather than once; and again after any flip
-   * attempt, by which point it is certainly populated.
+   * The catch is *when* to read it. Labels appear once our own camera is
+   * running, and that can be well over a second away — a permission prompt
+   * waits on a person. Reading twice and giving up left the button showing
+   * for the rest of the call on any device slower than that, which is exactly
+   * the "no second camera but the button is there" case.
+   *
+   * So the read is driven by the camera actually starting, and backed by a
+   * poll that keeps going for half a minute, stopping the moment the list is
+   * worth believing. And once more after any flip attempt, by which point it
+   * certainly is.
    */
   const [canFlip, setCanFlip] = useState(false);
   useEffect(() => {
@@ -1076,7 +1085,7 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
     // Stop re-reading as soon as the list is worth believing.
     (async () => {
       if (await check()) return;
-      for (const wait of [500, 1500]) {
+      for (const wait of [300, 700, 1500, 3000, 5000, 10000, 10000]) {
         await new Promise<void>(r => { timers.push(setTimeout(r, wait)); });
         if (!alive || await check()) return;
       }
@@ -1089,7 +1098,7 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
       timers = [];
       navigator.mediaDevices?.removeEventListener?.('devicechange', check);
     };
-  }, [isVideoActive, switchingCamera]);
+  }, [isVideoActive, switchingCamera, localVideoStatus]);
 
   /**
    * Why the last flip did not happen, shown next to the button.
