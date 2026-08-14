@@ -1665,3 +1665,67 @@ def family_remove_member(request, user_id):
     if leaving_self:
         return Response({'family': None})
     return Response({'family': _family_payload(family_row, request)})
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def family_locations(request):
+    """Where everyone in the household is, for those who are sharing.
+
+    Built on the live-location messages the app already sends: sharing with the
+    family means posting one to the family's chat, and this reads back the most
+    recent still-running share from each member. Nothing new is stored, and a
+    share stops the same way any other does — including on its own, at
+    live_until, without anyone having to remember.
+
+    Which means it is opt-in per person and per session, for a parent and a
+    child alike. There is no way here for one member to switch on another's
+    location, and that is deliberate: a tracker a child cannot see or stop is a
+    different feature from the one that was asked for.
+    """
+    from sfera_messages.models import GuildMessage
+    from sfera_messages.rich import MESSAGE_TYPE_LOCATION
+
+    family_row = _family_of(request.user)
+    if not family_row or not family_row.guild_id:
+        return Response({'locations': []})
+
+    member_ids = set(
+        FamilyMembership.objects
+        .filter(family=family_row)
+        .values_list('user_id', flat=True)
+    )
+
+    live = (
+        GuildMessage.objects
+        .filter(
+            channel__guild_id=family_row.guild_id,
+            message_type=MESSAGE_TYPE_LOCATION,
+            author_id__in=member_ids,
+            live_until__gt=timezone.now(),
+        )
+        .select_related('author')
+        # Newest first, so the first row seen for a member is their current one.
+        .order_by('-created_at')
+    )
+
+    seen = set()
+    locations = []
+    for message in live:
+        if message.author_id in seen:
+            continue
+        seen.add(message.author_id)
+        payload = message.payload or {}
+        if not payload.get('live'):
+            continue
+        locations.append({
+            'user': UserSerializer(message.author, context={'request': request}).data,
+            'lat': payload.get('lat'),
+            'lng': payload.get('lng'),
+            'label': payload.get('label', ''),
+            'updated_at': payload.get('updated_at'),
+            'live_until': message.live_until.isoformat(),
+            'is_self': message.author_id == request.user.id,
+        })
+
+    return Response({'locations': locations})

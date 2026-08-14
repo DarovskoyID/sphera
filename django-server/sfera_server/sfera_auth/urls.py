@@ -54,4 +54,5 @@ urlpatterns = [
     path('family/children/', views.family_add_child),
     path('family/approvals/<uuid:friendship_id>/', views.family_approval),
     path('family/members/<uuid:user_id>/remove/', views.family_remove_member),
+    path('family/locations/', views.family_locations),
 ]

@@ -370,6 +370,16 @@ interface FamilyApproval {
   other: { username: string; nickname: string };
 }
 
+interface FamilyLocation {
+  user: { id: string; username: string; nickname: string; avatar: string };
+  lat: number;
+  lng: number;
+  label: string;
+  updated_at: string;
+  live_until: string;
+  is_self: boolean;
+}
+
 interface FamilyData {
   id: string;
   name: string;
@@ -384,13 +394,19 @@ interface FamilyData {
 const FamilySettings: React.FC = () => {
   const tr = useTranslation();
   const isRu = tr('settings_formatting') === 'Подсказки';
-  const { currentServerIP, authToken, guilds, selectGuild, setCurrentView, setCurrentSettingsPage } = useApp();
+  const {
+    currentServerIP, authToken, guilds, selectGuild, setCurrentView,
+    setCurrentSettingsPage, sendRichMessage, currentUser,
+  } = useApp();
 
   const [family, setFamily] = useState<FamilyData | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ text: string; type: 'ok' | 'err' } | null>(null);
 
+  const [locations, setLocations] = useState<FamilyLocation[]>([]);
+  const [sharing, setSharing] = useState(false);
+  const [locationError, setLocationError] = useState('');
   const [familyName, setFamilyName] = useState('');
   const [joinCode, setJoinCode] = useState('');
   const [childName, setChildName] = useState('');
@@ -428,6 +444,24 @@ const FamilySettings: React.FC = () => {
   }, [currentServerIP, authToken, tr]);
 
   useEffect(() => { if (authToken) void call(''); }, [authToken, call]);
+
+  const loadLocations = useCallback(async () => {
+    try {
+      const res = await fetch(`${currentServerIP}/api/auth/family/locations/`, {
+        headers: { Authorization: `Bearer ${authToken}` },
+      });
+      if (res.ok) setLocations((await res.json()).locations ?? []);
+    } catch { /* the list simply stays as it was */ }
+  }, [currentServerIP, authToken]);
+
+  // A share updates every twenty seconds; re-reading on the same order keeps
+  // the list roughly current without polling for its own sake.
+  useEffect(() => {
+    if (!authToken) return;
+    void loadLocations();
+    const timer = setInterval(() => { void loadLocations(); }, 20000);
+    return () => clearInterval(timer);
+  }, [authToken, loadLocations]);
 
   const addChild = async () => {
     const ok = await call('children/', {
@@ -494,6 +528,47 @@ const FamilySettings: React.FC = () => {
   const isParent = family.my_role === 'parent';
   const children = family.members.filter(m => m.role === 'child');
   const familyGuild = guilds.find(g => String(g.id) === family.guild_id);
+  const iShare = locations.some(spot => spot.is_self);
+
+  /**
+   * Share where I am with the household, for the next eight hours.
+   *
+   * This is an ordinary live-location message in the family chat — the same
+   * one the composer sends — so it shows up in the conversation, expires on
+   * its own, and can be stopped from the message like any other.
+   */
+  const shareLocation = async () => {
+    if (!familyGuild) return;
+    const channel = familyGuild.channels?.find(c => c.type === 'text');
+    if (!channel) return;
+    setSharing(true);
+    setLocationError('');
+    try {
+      const position = await new Promise<GeolocationPosition>((resolve, reject) => {
+        if (!navigator.geolocation) { reject(new Error('unsupported')); return; }
+        navigator.geolocation.getCurrentPosition(resolve, reject, {
+          enableHighAccuracy: true, timeout: 15000, maximumAge: 10000,
+        });
+      });
+      await sendRichMessage(
+        { kind: 'guild', guildId: familyGuild.id, channelId: channel.id },
+        'location',
+        {
+          lat: position.coords.latitude,
+          lng: position.coords.longitude,
+          live_minutes: 8 * 60,
+          label: currentUser?.nickname || currentUser?.username || '',
+        },
+      );
+      await loadLocations();
+    } catch {
+      setLocationError(isRu
+        ? 'Не удалось определить местоположение. Проверьте разрешение для сайта.'
+        : 'Could not get a location. Check the permission for this site.');
+    } finally {
+      setSharing(false);
+    }
+  };
 
   return (
     <section>
@@ -560,6 +635,63 @@ const FamilySettings: React.FC = () => {
           >
             {isRu ? 'Открыть' : 'Open'}
           </button>
+        </div>
+      )}
+
+      {/* Where everyone is */}
+      {familyGuild && (
+        <div style={card}>
+          <h3 style={sectionH3}>{isRu ? 'Где все' : 'Where everyone is'}</h3>
+          <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: '0 0 12px' }}>
+            {isRu
+              ? 'Каждый включает это сам и сам выключает. Показать чужое местоположение за человека нельзя — в том числе за ребёнка.'
+              : 'Everyone turns this on for themselves, and off again. Nobody can share another person’s location for them — a child’s included.'}
+          </p>
+
+          {locations.length === 0 ? (
+            <p style={{ fontSize: 13, color: 'var(--text-tertiary)', margin: '0 0 12px' }}>
+              {isRu ? 'Сейчас никто не делится местоположением.' : 'Nobody is sharing right now.'}
+            </p>
+          ) : (
+            <div style={{ marginBottom: 12 }}>
+              {locations.map(spot => (
+                <div key={spot.user.id} style={{
+                  display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
+                  padding: '9px 0', borderBottom: '1px solid var(--border-color)',
+                }}>
+                  <div style={{ flex: 1, minWidth: 180 }}>
+                    <div style={{ fontSize: 14, color: 'var(--text-primary)' }}>
+                      {spot.user.nickname || spot.user.username}
+                      {spot.is_self && <span style={{ color: 'var(--text-tertiary)' }}> · {isRu ? 'вы' : 'you'}</span>}
+                    </div>
+                    <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+                      {spot.label ? `${spot.label} · ` : ''}
+                      {isRu ? 'обновлено' : 'updated'} {new Date(spot.updated_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </div>
+                  </div>
+                  <a
+                    href={`https://www.openstreetmap.org/?mlat=${spot.lat}&mlon=${spot.lng}#map=16/${spot.lat}/${spot.lng}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{ ...btnSecondary, textDecoration: 'none', display: 'inline-block' }}
+                  >
+                    {isRu ? 'На карте' : 'On the map'}
+                  </a>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <button
+            style={{ ...btnPrimary, opacity: sharing ? 0.6 : 1 }}
+            disabled={sharing}
+            onClick={() => void shareLocation()}
+          >
+            {iShare
+              ? (isRu ? 'Продлить на 8 часов' : 'Keep sharing for 8 more hours')
+              : (isRu ? 'Поделиться на 8 часов' : 'Share for 8 hours')}
+          </button>
+          {locationError && <div style={statusMsg('err')}>{locationError}</div>}
         </div>
       )}
 
