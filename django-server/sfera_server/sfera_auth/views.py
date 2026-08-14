@@ -1463,6 +1463,14 @@ def family(request):
     if request.method == 'GET':
         if not existing:
             return Response({'family': None})
+        # Households that predate the family server get one here, and everyone
+        # already in them gets put into it. Doing this on read rather than in a
+        # migration keeps it to families somebody is actually looking at.
+        if not existing.guild_id:
+            _ensure_family_guild(existing, existing.created_by or request.user)
+            for membership in FamilyMembership.objects.filter(family=existing).select_related('user'):
+                _sync_family_guild(existing, membership.user, joining=True)
+            existing.refresh_from_db()
         return Response({'family': _family_payload(existing, request)})
 
     if existing:

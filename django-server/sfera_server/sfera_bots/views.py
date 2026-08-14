@@ -220,6 +220,14 @@ def bot_flow(request, bot_id):
 @permission_classes([IsAuthenticated])
 def sferonik_chat(request):
     """Open (creating if needed) the DM with Сфероник — the developer-tools entry."""
+    # Everything on the other side of this conversation is bot registration,
+    # which a managed account is refused. Opening it would only produce a bot
+    # that answers every command with a 403.
+    if is_child(request.user):
+        return Response(
+            {'error': 'A managed account cannot register bots'},
+            status=status.HTTP_403_FORBIDDEN,
+        )
     bot = ensure_sferonik()
     convo = outbound.dm_conversation_for(request.user, bot.user)
     # Сфероник used to be added as a contact; drop the leftover link so it stops

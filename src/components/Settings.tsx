@@ -396,7 +396,7 @@ const FamilySettings: React.FC = () => {
   const isRu = tr('settings_formatting') === 'Подсказки';
   const {
     currentServerIP, authToken, guilds, selectGuild, setCurrentView,
-    setCurrentSettingsPage, sendRichMessage, currentUser,
+    setCurrentSettingsPage, sendRichMessage, currentUser, loadGuilds,
   } = useApp();
 
   const [family, setFamily] = useState<FamilyData | null>(null);
@@ -433,6 +433,11 @@ const FamilySettings: React.FC = () => {
         return false;
       }
       setFamily(data.family ?? null);
+      // The household's server may have been created by this very call — on a
+      // family made before it existed, or by adding a member. Re-read the
+      // guild list so the button below has something to open.
+      const guildId = data.family?.guild_id;
+      if (guildId && !guilds.some(g => String(g.id) === guildId)) void loadGuilds();
       return true;
     } catch {
       setMsg({ text: tr('sp_save_fail'), type: 'err' });
@@ -441,7 +446,7 @@ const FamilySettings: React.FC = () => {
       setBusy(false);
       setLoaded(true);
     }
-  }, [currentServerIP, authToken, tr]);
+  }, [currentServerIP, authToken, tr, guilds, loadGuilds]);
 
   useEffect(() => { if (authToken) void call(''); }, [authToken, call]);
 

@@ -305,6 +305,7 @@ export const ServerSidebar: React.FC = () => {
   } = useApp();
   const tr = useTranslation();
   const isRu = tr('nav_explore') === 'Исследовать';
+  const isChild = !!currentUser?.is_child;
   // Сфероник lives in the DM list, but it is reached from here: it is a tool,
   // not a contact, so it gets a pinned icon next to Explore.
   const [openingSferonik, setOpeningSferonik] = useState(false);
@@ -616,14 +617,18 @@ export const ServerSidebar: React.FC = () => {
             <Compass size={20} />
           </button>
 
-          <button
-            className="server-icon"
-            onClick={goToSferonik}
-            title={isRu ? 'Сфероник — создание ботов' : 'Sferonik — bot registration'}
-            style={{ opacity: openingSferonik ? 0.6 : 1 }}
-          >
-            <Bot size={20} />
-          </button>
+          {/* Сфероник registers bots, which a managed account cannot do — so
+              the way in goes too, not just the tools it leads to. */}
+          {!isChild && (
+            <button
+              className="server-icon"
+              onClick={goToSferonik}
+              title={isRu ? 'Сфероник — создание ботов' : 'Sferonik — bot registration'}
+              style={{ opacity: openingSferonik ? 0.6 : 1 }}
+            >
+              <Bot size={20} />
+            </button>
+          )}
 
           {/* Scrollable guild list */}
           <div
