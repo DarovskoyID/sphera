@@ -25,6 +25,7 @@ import {
   CJK_PROFANITY, CJK_EXPLICIT, CJK_CTA, CJK_CODE,
   TRANSLIT_PROFANITY, TRANSLIT_EXPLICIT, TRANSLIT_DISABLE_VERBS, TRANSLIT_DISABLE_NOUNS,
 } from '../data/censorWords';
+import { modelSaysAppeal } from './censorModel';
 
 /** Who the explicit-content filter applies to. */
 export type ExplicitScope = 'everyone' | 'non_friends' | 'off';
@@ -720,7 +721,11 @@ export function isFullBlur(text: string, cfg: CensorConfig = getCensorConfig()):
     // than as separators to throw away: "отк*ю** в на*тр*йках". Needing a verb
     // AND a noun is what makes this safe to run so loosely — one stray match
     // is not enough on its own.
-    || slotPassSays(text);
+    || slotPassSays(text)
+    // Last, the classifier — for the appeals that carry no complete stem at
+    // all, which is the one thing everything above depends on. "otkl v
+    // nastroikah" gets past every rule here and does not get past this.
+    || modelSaysAppeal(text);
   remember(fullBlurCache, text, { epoch, value }, 2000);
   return value;
 }
