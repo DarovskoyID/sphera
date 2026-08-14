@@ -543,8 +543,15 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
           ...f,
           status: (pendingStatusRef.current[String(f.id)] ?? f.status) as ServerUser['status'],
         }));
-        setState(prev => ({ ...prev, friends: merged, blockedContacts }));
-      } catch (e) { reportError(e); }
+        setState(prev => ({ ...prev, friends: merged, blockedContacts, friendsLoaded: true }));
+      } catch (e) {
+        // Settled either way. An empty list the reader can act on beats a
+        // skeleton that shimmers forever because one request failed — and an
+        // account with no friends yet has nothing else coming that would set
+        // this, so it would shimmer for the whole session.
+        setState(prev => ({ ...prev, friendsLoaded: true }));
+        reportError(e);
+      }
       try {
         const pending: PendingRequest[] = await apiGet('/api/auth/friends/requests/pending/', state.authToken, state.currentServerIP);
         setState(prev => ({ ...prev, pendingRequests: pending }));
