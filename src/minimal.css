@@ -413,6 +413,30 @@ body {
   html.guild-back-guard .guild-sidebar-header {
     pointer-events: none !important;
   }
+
+  /*
+   * No text field smaller than 16px, ever, on a phone.
+   *
+   * Android and iOS zoom the page in when a field below 16px takes focus.
+   * The zoom does not go away when the field does: you come back out of a
+   * channel and the layout is wider than the screen, shifted, with the edges
+   * cut off, until the page is reloaded. Several fields here set 12px or 13px
+   * and one of them is autofocused.
+   *
+   * The viewport meta already says user-scalable=no, which is meant to
+   * prevent exactly this — but Android ignores it whenever "Force enable
+   * zoom" is on in the accessibility settings, and plenty of phones have it
+   * on. The font size is the part that does not depend on a setting.
+   *
+   * !important because those sizes are set inline, and an ordinary rule
+   * loses to an inline style while an important one does not.
+   */
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):not([type="submit"]):not([type="button"]),
+  textarea,
+  select,
+  [contenteditable="true"] {
+    font-size: 16px !important;
+  }
 }
 
 .message-author,
