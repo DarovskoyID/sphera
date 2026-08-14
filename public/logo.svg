@@ -1,117 +1,37 @@
 <?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Sfera 2.3 — three nodes on an arc, reading as the letter "С". -->
 <svg
+   xmlns="http://www.w3.org/2000/svg"
    width="512"
    height="512"
    viewBox="0 0 512 512"
-   version="1.1"
-   id="svg1"
-   xmlns:xlink="http://www.w3.org/1999/xlink"
-   xmlns="http://www.w3.org/2000/svg">
-  <defs
-     id="defs1">
-    <linearGradient
-       id="swatch5">
-      <stop
-         style="stop-color:#ffffff;stop-opacity:1;"
-         offset="0"
-         id="stop5" />
-    </linearGradient>
-    <linearGradient
-       xlink:href="#swatch5"
-       id="linearGradient5"
-       x1="223.91501"
-       y1="245.16403"
-       x2="293.50296"
-       y2="245.16403"
-       gradientUnits="userSpaceOnUse"
-       gradientTransform="matrix(0.39659924,0,0,0.39659924,93.121068,68.016807)" />
-    <linearGradient
-       xlink:href="#swatch5"
-       id="linearGradient10"
-       gradientUnits="userSpaceOnUse"
-       gradientTransform="matrix(0.39659924,0,0,0.39659924,247.31716,211.28697)"
-       x1="223.91501"
-       y1="245.16403"
-       x2="293.50296"
-       y2="245.16403" />
-    <linearGradient
-       xlink:href="#swatch5"
-       id="linearGradient12"
-       gradientUnits="userSpaceOnUse"
-       gradientTransform="matrix(0.71851487,0,0,0.71851552,70.113651,79.845807)"
-       x1="223.91501"
-       y1="245.16403"
-       x2="293.50296"
-       y2="245.16403" />
-    <linearGradient
-       xlink:href="#swatch5"
-       id="linearGradient13"
-       gradientUnits="userSpaceOnUse"
-       gradientTransform="matrix(0.39659924,0,0,0.39659924,129.49457,-242.0033)"
-       x1="223.91501"
-       y1="245.16403"
-       x2="293.50296"
-       y2="245.16403" />
-  </defs>
-  <g
-     id="layer1">
-    <circle
-       style="fill:#0059ee;fill-opacity:1;stroke-width:12.2575;stroke-linecap:round;stroke-linejoin:round"
-       id="path1"
-       cx="256"
-       cy="256"
-       r="256" />
-    <ellipse
-       style="fill:none;stroke:#ffffff;stroke-width:14;stroke-linecap:round;stroke-linejoin:bevel;stroke-dasharray:none;stroke-opacity:1;paint-order:markers fill stroke"
-       id="path3"
-       cx="81.440979"
-       cy="352.75964"
-       rx="233.25479"
-       ry="39.035385"
-       transform="rotate(-32)" />
-    <circle
-       style="fill:none;stroke:#ffffff;stroke-width:36.965;stroke-linecap:round;stroke-linejoin:bevel;stroke-dasharray:none;stroke-opacity:1;paint-order:markers fill stroke"
-       id="path4"
-       cx="256"
-       cy="256"
-       r="154.14755" />
-    <circle
-       style="fill:url(#linearGradient5);stroke:#ffffff;stroke-width:15.7803;stroke-linecap:round;stroke-linejoin:bevel;stroke-dasharray:none;stroke-opacity:1;paint-order:markers fill stroke"
-       id="path5"
-       cx="195.72487"
-       cy="165.24869"
-       r="5.9091191" />
-    <circle
-       style="fill:url(#linearGradient10);stroke:#ffffff;stroke-width:15.7803;stroke-linecap:round;stroke-linejoin:bevel;stroke-dasharray:none;stroke-opacity:1;paint-order:markers fill stroke"
-       id="path5-8"
-       cx="349.92099"
-       cy="308.51886"
-       r="5.9091191" />
-    <path
-       style="fill:none;stroke:#ffffff;stroke-width:7;stroke-linecap:round;stroke-linejoin:bevel;stroke-dasharray:none;stroke-opacity:1;paint-order:markers fill stroke"
-       d="m 193.88558,163.07076 59.71954,99.17064"
-       id="path11" />
-    <circle
-       style="fill:url(#linearGradient13);stroke:#ffffff;stroke-width:15.7803;stroke-linecap:round;stroke-linejoin:bevel;stroke-dasharray:none;stroke-opacity:1;paint-order:markers fill stroke"
-       id="path5-8-3"
-       cx="232.0984"
-       cy="-144.77139"
-       r="5.9091191"
-       transform="rotate(90)" />
-    <path
-       style="fill:none;stroke:#ffffff;stroke-width:7;stroke-linecap:round;stroke-linejoin:bevel;stroke-dasharray:none;stroke-opacity:1;paint-order:markers fill stroke"
-       d="m 189.85681,171.76195 -45.40823,60.51104"
-       id="path12-4" />
-    <path
-       style="fill:none;stroke:#ffffff;stroke-width:7;stroke-linecap:round;stroke-linejoin:bevel;stroke-dasharray:none;stroke-opacity:1;paint-order:markers fill stroke"
-       d="m 256.09385,257.42963 97.0162,51.99789"
-       id="path12" />
-    <ellipse
-       style="fill:url(#linearGradient12);stroke:#ffffff;stroke-width:41;stroke-linecap:round;stroke-linejoin:bevel;stroke-dasharray:none;stroke-opacity:1;paint-order:markers fill stroke"
-       id="path5-2-5"
-       cx="256"
-       cy="256"
-       rx="10.705492"
-       ry="10.705502" />
-  </g>
+   version="1.1">
+  <path
+     d="m 254.6455,157.79894 c 0,0 -97.74894,-35.21447 -101.5873,99.55556 -3.55575,124.84734 110.39154,104.29629 110.39154,104.29629"
+     fill="none"
+     stroke="#000000"
+     stroke-width="14"
+     stroke-linecap="round"
+     stroke-linejoin="round" />
+  <circle
+     cx="256"
+     cy="160.50793"
+     r="29.121693"
+     fill="#ff1313"
+     stroke="#ff1313"
+     stroke-width="14" />
+  <circle
+     cx="154.46561"
+     cy="256"
+     r="29.121693"
+     fill="#ffba13"
+     stroke="#ffba13"
+     stroke-width="14" />
+  <circle
+     cx="256"
+     cy="356.40738"
+     r="29.121693"
+     fill="#132cff"
+     stroke="#132cff"
+     stroke-width="14" />
 </svg>
