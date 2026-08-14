@@ -83,8 +83,9 @@ const ToolCard: React.FC<{
 export const ExploreServers: React.FC<{ style?: React.CSSProperties }> = ({ style }) => {
   const {
     currentServerIP, authToken, joinGuild, previewGuild, selectGuild, guilds, createPersonalNotes,
-    setCurrentChat, setCurrentView, setMobileActivePanel,
+    setCurrentChat, setCurrentView, setMobileActivePanel, currentUser,
   } = useApp();
+  const isChild = !!currentUser?.is_child;
   // Mirrors MAX_PRIVATE_NOTES on the server, which is the real gate — this only
   // stops the card offering a diary the API would refuse to create.
   const diaryCount = guilds.filter(g => g.is_private).length;
@@ -457,6 +458,11 @@ export const ExploreServers: React.FC<{ style?: React.CSSProperties }> = ({ styl
                   onClick={() => setShowNotes(true)}
                 />
               )}
+              {/* Bot registration and the node editor. A bot is an account
+                  with an API key, able to read and write wherever it is added
+                  — not a thing a managed account gets to create. */}
+              {!isChild && (
+                <>
               <ToolCard
                 icon={<Bot size={20} color="#fff" />}
                 gradient="linear-gradient(135deg,#5865f2,#4752c4)"
@@ -491,6 +497,8 @@ export const ExploreServers: React.FC<{ style?: React.CSSProperties }> = ({ styl
                   : 'Build the logic from nodes and export a Python, C++ or Rust project'}
                 onClick={() => setShowStudio(true)}
               />
+                </>
+              )}
             </div>
           </div>
         )}

@@ -484,10 +484,11 @@ export const ChatSidebar: React.FC = () => {
     isMobileSidebarOpen, toggleMobileSidebar, setAuthToken,
     friends, friendsLoaded, blockedContacts, pendingRequests, sentRequests, sendFriendRequest, acceptFriendRequest,
     rejectFriendRequest, searchUsers,
-    setCallActive, setCallTargetId, setVideoActive,
+    setCallActive, setCallTargetId, setVideoActive, currentUser,
   } = useApp();
   const tr = useTranslation();
   const isMobile = useIsMobile();
+  const isChild = !!currentUser?.is_child;
 
   const [searchQuery, setSearchQuery] = useState('');
   const [showAddFriend, setShowAddFriend] = useState(false);
@@ -799,11 +800,17 @@ export const ChatSidebar: React.FC = () => {
           <div className={`settings-item ${currentSettingsPage === 'integration' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('integration')}>{tr('settings_integration')}</div>
           <div className={`settings-item ${currentSettingsPage === 'notifications' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('notifications')}>{tr('settings_notifications')}</div>
           <div className={`settings-item ${currentSettingsPage === 'apps' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('apps')}>{tr('settings_apps')}</div>
-          <div className="settings-devider" />
-          <div className={`settings-item ${currentSettingsPage === 'nitro' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('nitro')}>{tr('settings_nitro')}</div>
-          <div className={`settings-item ${currentSettingsPage === 'subscribes' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('subscribes')}>{tr('settings_subscribes')}</div>
-          <div className={`settings-item ${currentSettingsPage === 'gifts' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('gifts')}>{tr('settings_gifts')}</div>
-          <div className={`settings-item ${currentSettingsPage === 'payments' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('payments')}>{tr('settings_payments')}</div>
+          {/* Everything that costs money, or spends it. A child's account has
+              no way to pay for any of it and no business being asked to. */}
+          {!isChild && (
+            <>
+              <div className="settings-devider" />
+              <div className={`settings-item ${currentSettingsPage === 'nitro' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('nitro')}>{tr('settings_nitro')}</div>
+              <div className={`settings-item ${currentSettingsPage === 'subscribes' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('subscribes')}>{tr('settings_subscribes')}</div>
+              <div className={`settings-item ${currentSettingsPage === 'gifts' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('gifts')}>{tr('settings_gifts')}</div>
+              <div className={`settings-item ${currentSettingsPage === 'payments' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('payments')}>{tr('settings_payments')}</div>
+            </>
+          )}
           <div className="settings-devider" />
           <div className={`settings-item ${currentSettingsPage === 'view' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('view')}>{tr('settings_appearance')}</div>
           <div className={`settings-item ${currentSettingsPage === 'special' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('special')}>{tr('settings_special')}</div>

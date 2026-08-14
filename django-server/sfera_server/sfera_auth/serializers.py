@@ -115,8 +115,18 @@ class ProfileSerializer(UserSerializer):
 class MeSerializer(ProfileSerializer):
     """Like ProfileSerializer but exposes the owner's private fields."""
 
+    # Whether a parent manages this account. The client hides what a child must
+    # not reach — paid pages, bot creation — and shows the content filter as
+    # locked rather than absent. None of that is the enforcement, which lives
+    # on the server; it is so the screens tell the truth about themselves.
+    is_child = serializers.SerializerMethodField()
+
+    def get_is_child(self, obj):
+        from .models import is_child
+        return is_child(obj)
+
     class Meta(ProfileSerializer.Meta):
-        fields = ProfileSerializer.Meta.fields + ['email', 'phone']
+        fields = ProfileSerializer.Meta.fields + ['email', 'phone', 'is_child']
 
 
 #: Most links a profile may carry. Enough for the places people actually are.

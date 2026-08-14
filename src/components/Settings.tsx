@@ -129,11 +129,14 @@ const statusMsg = (type: 'ok' | 'err'): React.CSSProperties => ({ fontSize: 13, 
 const sectionH3: React.CSSProperties = { margin: '0 0 12px', fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', textTransform: 'uppercase', letterSpacing: 0.5 };
 
 // Checkbox component
-const Check: React.FC<{ label: string; field: keyof SettingsData }> = ({ label, field }) => {
+const Check: React.FC<{ label: string; field: keyof SettingsData; locked?: boolean }> = ({ label, field, locked }) => {
   const { s, toggle } = useSettings();
   return (
-    <label className="ui-checkbox">
-      <input type="checkbox" checked={!!s[field]} onChange={() => toggle(field)} />
+    // Locked settings are shown, not hidden. A child who cannot find the
+    // filter anywhere concludes there isn't one; one who sees it greyed out
+    // knows what is happening and who to ask.
+    <label className="ui-checkbox" style={locked ? { opacity: 0.55, cursor: 'not-allowed' } : undefined}>
+      <input type="checkbox" checked={!!s[field]} disabled={locked} onChange={() => { if (!locked) toggle(field); }} />
       <span className="ui-checkbox-box"></span>
       <span className="ui-checkbox-text">{label}</span>
     </label>
@@ -143,7 +146,7 @@ const Check: React.FC<{ label: string; field: keyof SettingsData }> = ({ label, 
 // Scope picker for the explicit-content filter. The three flags predate this
 // screen and live as separate booleans in the API, so exclusivity is enforced
 // here rather than by the storage shape.
-const ScanScope: React.FC = () => {
+const ScanScope: React.FC<{ locked?: boolean }> = ({ locked }) => {
   const tr = useTranslation();
   const { s, setFields } = useSettings();
   const scope: 'everyone' | 'non_friends' | 'off' =
@@ -157,8 +160,8 @@ const ScanScope: React.FC = () => {
   });
 
   const opt = (value: 'everyone' | 'non_friends' | 'off', label: string) => (
-    <label className="ui-checkbox">
-      <input type="radio" name="scan_scope" checked={scope === value} onChange={() => pick(value)} />
+    <label className="ui-checkbox" style={locked ? { opacity: 0.55, cursor: 'not-allowed' } : undefined}>
+      <input type="radio" name="scan_scope" checked={scope === value} disabled={locked} onChange={() => { if (!locked) pick(value); }} />
       <span className="ui-checkbox-box"></span>
       <span className="ui-checkbox-text">{label}</span>
     </label>
@@ -1024,7 +1027,11 @@ interface BlockedEntry { id: number; blocked: ServerUser; created_at: string; }
 const PrivacySettings: React.FC = () => {
   const tr = useTranslation();
   const { s } = useSettings();
-  const { currentServerIP, authToken, searchUsers, unblockUser, blockedContacts } = useApp();
+  const { currentServerIP, authToken, searchUsers, unblockUser, blockedContacts, currentUser } = useApp();
+  const isRu = tr('settings_formatting') === 'Подсказки';
+  // The server puts these back after every save; showing them as switches that
+  // silently revert would be worse than showing them as locked.
+  const locked = !!currentUser?.is_child;
   const [blocked, setBlocked] = useState<BlockedEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [blockQuery, setBlockQuery] = useState('');
@@ -1070,15 +1077,26 @@ const PrivacySettings: React.FC = () => {
       <h1>{tr('sprv_title')}</h1>
       <p>{tr('sprv_desc')}</p>
 
+      {locked && (
+        <div style={{ ...card, display: 'flex', alignItems: 'center', gap: 10, padding: 14, borderColor: 'var(--accent-primary)' }}>
+          <Shield size={18} style={{ flexShrink: 0, color: 'var(--accent-primary)' }} />
+          <span style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+            {isRu
+              ? 'Фильтром сообщений управляют ваши родители — здесь его нельзя выключить. Всё остальное на этой странице ваше.'
+              : 'The message filter is managed by your parents and cannot be turned off here. The rest of this page is yours.'}
+          </span>
+        </div>
+      )}
+
       <h3 style={sectionH3}>{tr('sprv_blur')}</h3>
       <p>{tr('sprv_blur_desc')}</p>
-      <Check label={tr('sprv_blur_enable')} field="blur_enabled" />
+      <Check label={tr('sprv_blur_enable')} field="blur_enabled" locked={locked} />
       {s.blur_enabled && (
         <div style={{ marginLeft: 26, marginTop: 4, paddingLeft: 12, borderLeft: '2px solid var(--border-color)' }}>
-          <Check label={tr('sprv_blur_profanity')} field="blur_profanity" />
-          <Check label={tr('sprv_blur_cta')} field="blur_calls_to_action" />
-          <Check label={tr('sprv_blur_code')} field="blur_code_requests" />
-          <Check label={tr('sprv_blur_disable')} field="blur_disable_requests" />
+          <Check label={tr('sprv_blur_profanity')} field="blur_profanity" locked={locked} />
+          <Check label={tr('sprv_blur_cta')} field="blur_calls_to_action" locked={locked} />
+          <Check label={tr('sprv_blur_code')} field="blur_code_requests" locked={locked} />
+          <Check label={tr('sprv_blur_disable')} field="blur_disable_requests" locked={locked} />
         </div>
       )}
 
@@ -1088,7 +1106,7 @@ const PrivacySettings: React.FC = () => {
           options below are mutually exclusive (radio semantics). */}
       <h3 style={sectionH3}>{tr('sprv_explicit')}</h3>
       <p>{tr('sprv_explicit_desc')}</p>
-      <ScanScope />
+      <ScanScope locked={locked} />
 
       <div style={divider} />
 

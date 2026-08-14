@@ -24,7 +24,7 @@ from django.core.files.base import ContentFile
 from django.db.models import Q
 from django.http import HttpResponse
 
-from sfera_auth.models import Friendship
+from sfera_auth.models import Friendship, is_child
 from sfera_messages.encryption import decrypt_bytes, encrypt_bytes
 from sfera_messages.models import (
     Attachment, Conversation, Guild, GuildAttachment, GuildChannel,
@@ -75,6 +75,16 @@ def bots(request):
     if request.method == 'GET':
         qs = BotAccount.objects.select_related('user').filter(owner=request.user, is_active=True)
         return Response({'bots': [_bot_view(b) for b in qs]})
+
+    # A bot is an account with an API key that can read and write wherever it
+    # is added. The client hides the tools from a managed account; this is what
+    # stops one being made anyway. Listing them stays allowed — a child moved
+    # into a family after making one can still see and delete what they own.
+    if is_child(request.user):
+        return Response(
+            {'error': 'A managed account cannot create bots'},
+            status=status.HTTP_403_FORBIDDEN,
+        )
 
     display_name = (request.data.get('display_name') or '').strip()
     username = (request.data.get('username') or '').strip()

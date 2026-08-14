@@ -46,6 +46,8 @@ export interface ServerUser {
   banner?: string;
   status_text?: string;
   links?: ProfileLink[];
+  /** A parent manages this account — see the family centre. Only on /me/. */
+  is_child?: boolean;
 }
 
 export interface PendingRequest {
