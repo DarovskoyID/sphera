@@ -13,11 +13,11 @@
 // the single place that has to be called when a session ends.
 
 /** Bump when the set of stores changes; see `STORES`. */
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const DB_NAME = 'sfera-cache';
 
 /** Every object store in the database, each keyed by an `id` property. */
-const STORES = ['messages'] as const;
+const STORES = ['messages', 'diaries'] as const;
 
 export type StoreName = (typeof STORES)[number];
 

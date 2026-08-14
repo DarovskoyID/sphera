@@ -14,6 +14,7 @@ import { saveDisplayPrefs } from '../utils/displayPrefs';
 import { saveCensorConfig, setCensorAudience, scopeFromScanFlags } from '../utils/censor';
 import { sortByDate, insertByDate } from '../utils/messageOrder';
 import { clearMessageCache, readCachedMessages, writeCachedMessages } from '../utils/messageCache';
+import { clearDiaryCache, readCachedDiary, writeCachedDiary } from '../utils/diaryCache';
 import { postNativeTheme, setNativePrefs } from '../utils/nativeBridge';
 import { deviceQuery } from '../utils/device';
 import { toUserMessage, readResponse, setErrorLang } from '../utils/errorManager';
@@ -487,6 +488,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     // The message cache is plain text on the device; a session ending is
     // exactly when it must stop existing.
     void clearMessageCache();
+    void clearDiaryCache();
     setState(prev => ({ ...prev, authToken: '', currentUser: null, friends: [], pendingRequests: [], sentRequests: [], userIDonServer: '', currentChat: '' }));
   }, []);
 
@@ -1480,6 +1482,15 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     const timer = setTimeout(() => { void writeCachedMessages(convoId, state.chatMessages); }, 1500);
     return () => clearTimeout(timer);
   }, [state.chatConversationId, state.chatMessages]);
+
+  // The same for the open diary, so an entry written now is on the device
+  // before the next visit rather than after the one following it.
+  useEffect(() => {
+    const channelId = state.currentGuildChannel?.id;
+    if (!channelId || !state.currentGuild?.is_private || !state.guildMessages.length) return;
+    const timer = setTimeout(() => { void writeCachedDiary(channelId, state.guildMessages); }, 1500);
+    return () => clearTimeout(timer);
+  }, [state.currentGuild?.is_private, state.currentGuildChannel?.id, state.guildMessages]);
 
   // ==================== Signaling WebSocket ====================
   useEffect(() => {
@@ -2930,16 +2941,38 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
   // Load guild channel message history when channel changes
   useEffect(() => {
     if (!state.currentGuild || !state.currentGuildChannel || !state.authToken) return;
-    const { id: guildId } = state.currentGuild;
+    const { id: guildId, is_private: isDiary } = state.currentGuild;
     const { id: channelId } = state.currentGuildChannel;
-    apiGet(`/api/guilds/${guildId}/channels/${channelId}/messages/`, state.authToken, state.currentServerIP)
-      .then((msgs: GuildMessage[]) => setState(prev => {
-        // Merge: keep any WS messages that arrived after the REST snapshot
-        const ids = new Set(msgs.map(m => m.id));
-        const extra = prev.guildMessages.filter(m => !ids.has(m.id));
-        const merged = sortByDate([...msgs, ...extra]);
-        return { ...prev, guildMessages: merged, guildMessagesLoading: false };
-      }))
+
+    const history = apiGet(`/api/guilds/${guildId}/channels/${channelId}/messages/`, state.authToken, state.currentServerIP);
+
+    // A diary is the reader's own writing and nobody else's, so its tail is
+    // kept on the device and painted while the request is in flight. Ordinary
+    // channels are shared and get no such copy.
+    if (isDiary) {
+      void history.catch(() => {});
+      void readCachedDiary(channelId).then(cached => {
+        if (!cached) return;
+        setState(prev => {
+          // The answer beat the disk, or the reader moved on. Either way this
+          // placeholder is no longer wanted.
+          if (prev.currentGuildChannel?.id !== channelId || prev.guildMessages.length) return prev;
+          return { ...prev, guildMessages: cached, guildMessagesLoading: false };
+        });
+      });
+    }
+
+    history
+      .then((msgs: GuildMessage[]) => {
+        if (isDiary) void writeCachedDiary(channelId, msgs);
+        setState(prev => {
+          // Merge: keep any WS messages that arrived after the REST snapshot
+          const ids = new Set(msgs.map(m => m.id));
+          const extra = prev.guildMessages.filter(m => !ids.has(m.id));
+          const merged = sortByDate([...msgs, ...extra]);
+          return { ...prev, guildMessages: merged, guildMessagesLoading: false };
+        });
+      })
       .catch(e => {
         setState(prev => ({ ...prev, guildMessagesLoading: false }));
         reportError(e);
@@ -3349,6 +3382,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       // Logout — close all sockets, drop the on-device message cache, and
       // reset to a clean state.
       void clearMessageCache();
+      void clearDiaryCache();
       chatWs.current?.close();
       chatWs.current = null;
       signalingWs.current?.close();
