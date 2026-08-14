@@ -1,6 +1,11 @@
 // Central notification helpers. Settings checkboxes write their state to
 // localStorage (mirrored from the backend), and the WebSocket handlers in
 // AppContext call into here so the toggles actually take effect.
+//
+// Inside the native shells the system tray is used instead of the browser's
+// notifications — see nativeNotify.
+
+import { nativeNotify } from './nativeBridge';
 
 export interface NotifPrefs {
   enable_all_notifications: boolean;
@@ -66,6 +71,9 @@ export function showDesktopNotification(kind: NotifKind, title: string, body: st
   if (!prefs[KIND_FIELD[kind]]) return;
   // Don't pop a notification for the tab the user is already looking at.
   if (typeof document !== 'undefined' && document.hasFocus()) return;
+  // Inside the mobile app the system tray does this properly, with an icon and
+  // a tap target that reopens the conversation.
+  if (nativeNotify({ kind, title, body })) return;
   if (typeof window === 'undefined' || !('Notification' in window)) return;
   if (Notification.permission !== 'granted') return;
   try {
@@ -81,6 +89,12 @@ export function showCallNotification(callerName: string, withVideo: boolean): vo
   if (!prefs.enable_all_notifications) return;
   // The in-app ringing modal already covers the focused tab.
   if (typeof document !== 'undefined' && document.hasFocus()) return;
+  if (nativeNotify({
+    kind: 'call',
+    title: callerName || 'Incoming call',
+    body: withVideo ? 'Incoming video call' : 'Incoming call',
+    ongoing: true,
+  })) return;
   if (typeof window === 'undefined' || !('Notification' in window)) return;
   if (Notification.permission !== 'granted') return;
   try {

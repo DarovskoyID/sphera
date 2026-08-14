@@ -1,67 +1,202 @@
-// Bridge for exposing WebView-relevant preferences to the native shells
-// (Swift / Kotlin). The "allow scale" preference is the first such value:
-// the native app decides whether to allow pinch-to-zoom, and it reads this.
+// Bridge between the web UI and the native shells (Kotlin / Swift) that host it
+// in a WebView.
 //
-// THREE ways the native side can read the value (pick whichever is easiest):
+// The web side owns a small set of preferences that only the shell can act on —
+// whether pinch-to-zoom is allowed, whether notifications should be delivered by
+// the system rather than the browser, and so on. The UI writes them here; the
+// shell reads them and applies them to the window it owns.
 //
-//   1. Synchronous getter (recommended):
+// ── Reading the preferences from the shell ───────────────────────────────────
+// Three ways, all carrying the same JSON object. Pick whichever fits.
+//
+//   1. Synchronous getter (recommended — always current):
 //        Android (Kotlin):
-//          webView.evaluateJavascript("window.SferaNative.getAllowScale()") { v ->
-//              val allow = v == "true"
+//          webView.evaluateJavascript("window.SferaNative.getPrefs()") { json ->
+//              val prefs = JSONObject(json.trim('"').replace("\\\"", "\""))
 //          }
 //        iOS (Swift):
-//          webView.evaluateJavaScript("window.SferaNative.getAllowScale()") { result, _ in
-//              let allow = (result as? Bool) ?? (result as? String == "true")
-//          }
+//          webView.evaluateJavaScript("window.SferaNative.getPrefs()") { result, _ in }
 //
-//   2. localStorage (read on startup):
-//        key "sfera.allowScale" -> "true" | "false"
+//   2. localStorage, read once at startup, before the page is even loaded:
+//        key "sfera.native.prefs" -> the same JSON object
 //
-//   3. Push callbacks (fired immediately on every change) — implement either
-//      hook on the native side and it will be called:
-//        Android: add a @JavascriptInterface object named `SferaScaleBridge`
-//                 with `fun onAllowScaleChanged(allow: Boolean)`.
-//        iOS:     add a WKScriptMessageHandler named `sferaAllowScale`;
-//                 message body is a Bool.
+//   3. Push callbacks, fired immediately on every change:
+//        Android: add a @JavascriptInterface object named `SferaNativeBridge`
+//                 with `fun onPrefsChanged(json: String)`.
+//        iOS:     add a WKScriptMessageHandler named `sferaPrefs`; the message
+//                 body is the preferences object.
+//
+// A `sfera:nativePrefsChanged` DOM event carries the same payload, for anything
+// on the web side that wants to listen.
+//
+// ── Telling the web UI it is inside the shell ────────────────────────────────
+// Append a product token to the WebView's user agent:
+//     settings.userAgentString = settings.userAgentString + " SferaApp/1"
+// `isNativeShell()` keys off that, so the UI can show shell-only settings and
+// keep the session alive indefinitely. See docs/ANDROID_WEBVIEW.md.
 
-const LS_KEY = 'sfera.allowScale';
+/** Preferences the native shell applies to the window it owns. */
+export interface NativePrefs {
+  /** Allow pinch-to-zoom and text scaling. */
+  allowScale: boolean;
+  /** Deliver notifications through the system tray instead of the browser. */
+  pushNotifications: boolean;
+  /** Vibrate on notifications, long-presses and call events. */
+  haptics: boolean;
+  /** Hold the screen awake during a call. */
+  keepScreenOn: boolean;
+  /** Hide the status and navigation bars (immersive full screen). */
+  immersive: boolean;
+}
+
+const PREFS_KEY = 'sfera.native.prefs';
+/** Written alongside the object so an older shell build keeps working. */
+const LEGACY_SCALE_KEY = 'sfera.allowScale';
+
+export const defaultNativePrefs: NativePrefs = {
+  allowScale: false,
+  pushNotifications: true,
+  haptics: true,
+  keepScreenOn: true,
+  immersive: false,
+};
 
 export type NativeTheme = 'light' | 'dark';
 
 declare global {
   interface Window {
-    SferaNative?: { getAllowScale: () => boolean };
+    SferaNative?: {
+      getPrefs: () => string;
+      getAllowScale: () => boolean;
+    };
+    SferaNativeBridge?: {
+      onPrefsChanged?: (json: string) => void;
+      onNotify?: (json: string) => void;
+      onHaptic?: (json: string) => void;
+    };
     SferaScaleBridge?: { onAllowScaleChanged?: (allow: boolean) => void };
     chrome?: { webview?: { postMessage: (msg: unknown) => void } };
     webkit?: { messageHandlers?: Record<string, { postMessage: (msg: unknown) => void }> };
   }
 }
 
-let allowScale = false;
+let prefs: NativePrefs = { ...defaultNativePrefs };
 
-/** Read the last known value (also restored from localStorage on load). */
-export function getAllowScale(): boolean {
-  return allowScale;
+/** The current preferences. */
+export function getNativePrefs(): NativePrefs {
+  return { ...prefs };
 }
 
-/** Update the value, persist it, expose it globally and notify native shells. */
-export function setAllowScale(value: boolean): void {
-  allowScale = !!value;
-  try { localStorage.setItem(LS_KEY, allowScale ? 'true' : 'false'); } catch { /* ignore */ }
+/**
+ * True when the page is running inside one of the native shells.
+ *
+ * The user agent token is the reliable signal — the JavaScript interfaces are
+ * injected asynchronously and may not exist yet on the first frame.
+ */
+export function isNativeShell(): boolean {
+  if (typeof window === 'undefined') return false;
+  if (/SferaApp\//i.test(navigator.userAgent || '')) return true;
+  return !!(window.SferaNativeBridge || window.webkit?.messageHandlers?.sferaPrefs);
+}
 
-  if (typeof window !== 'undefined') {
-    // 1. Synchronous getter for evaluateJavascript / evaluateJavaScript.
-    window.SferaNative = { getAllowScale: () => allowScale };
+function publish() {
+  if (typeof window === 'undefined') return;
+  const json = JSON.stringify(prefs);
 
-    // 3a. Android @JavascriptInterface push callback.
-    try { window.SferaScaleBridge?.onAllowScaleChanged?.(allowScale); } catch { /* ignore */ }
+  try { localStorage.setItem(PREFS_KEY, json); } catch { /* full or blocked */ }
+  try { localStorage.setItem(LEGACY_SCALE_KEY, prefs.allowScale ? 'true' : 'false'); } catch { /* ignore */ }
 
-    // 3b. iOS WKScriptMessageHandler push callback.
-    try { window.webkit?.messageHandlers?.sferaAllowScale?.postMessage(allowScale); } catch { /* ignore */ }
+  // 1. Synchronous getters for evaluateJavascript / evaluateJavaScript.
+  window.SferaNative = {
+    getPrefs: () => JSON.stringify(prefs),
+    getAllowScale: () => prefs.allowScale,
+  };
 
-    // Also a DOM event, in case anything else wants to listen.
-    try { window.dispatchEvent(new CustomEvent('sfera:allowScaleChanged', { detail: allowScale })); } catch { /* ignore */ }
+  // 3a. Android @JavascriptInterface push callbacks.
+  try { window.SferaNativeBridge?.onPrefsChanged?.(json); } catch { /* ignore */ }
+  try { window.SferaScaleBridge?.onAllowScaleChanged?.(prefs.allowScale); } catch { /* ignore */ }
+
+  // 3b. iOS WKScriptMessageHandler push callbacks.
+  try { window.webkit?.messageHandlers?.sferaPrefs?.postMessage(prefs); } catch { /* ignore */ }
+  try { window.webkit?.messageHandlers?.sferaAllowScale?.postMessage(prefs.allowScale); } catch { /* ignore */ }
+
+  try {
+    window.dispatchEvent(new CustomEvent('sfera:nativePrefsChanged', { detail: { ...prefs } }));
+  } catch { /* ignore */ }
+}
+
+/**
+ * Merge a patch into the preferences and notify the shell.
+ *
+ * A patch that changes nothing is dropped rather than republished: settings are
+ * re-applied on every render pass, and the shell should not be woken for them.
+ */
+export function setNativePrefs(patch: Partial<NativePrefs>): void {
+  let changed = false;
+  const next = { ...prefs };
+  for (const key of Object.keys(defaultNativePrefs) as (keyof NativePrefs)[]) {
+    const value = patch[key];
+    if (value === undefined) continue;
+    if (next[key] !== !!value) { next[key] = !!value; changed = true; }
   }
+  if (!changed) return;
+  prefs = next;
+  publish();
+}
+
+/** The zoom preference on its own — the first one that existed, still used. */
+export function getAllowScale(): boolean {
+  return prefs.allowScale;
+}
+
+/** @see setNativePrefs */
+export function setAllowScale(value: boolean): void {
+  setNativePrefs({ allowScale: value });
+}
+
+/** What the shell is asked to raise in the system tray. */
+export interface NativeNotification {
+  kind: string;
+  title: string;
+  body: string;
+  /** Ring until dismissed, rather than a transient banner. */
+  ongoing?: boolean;
+}
+
+/**
+ * Hand a notification to the shell's system tray.
+ *
+ * Returns false when nobody took it — outside the app, or with the preference
+ * off — and the caller should fall back to the browser Notification API.
+ */
+export function nativeNotify(notification: NativeNotification): boolean {
+  if (typeof window === 'undefined') return false;
+  if (!isNativeShell() || !prefs.pushNotifications) return false;
+
+  const payload = { ...notification, haptics: prefs.haptics };
+  try {
+    if (window.SferaNativeBridge?.onNotify) {
+      window.SferaNativeBridge.onNotify(JSON.stringify(payload));
+      return true;
+    }
+  } catch { /* fall through */ }
+  try {
+    const handler = window.webkit?.messageHandlers?.sferaNotify;
+    if (handler) { handler.postMessage(payload); return true; }
+  } catch { /* fall through */ }
+  return false;
+}
+
+/** Ask the shell to vibrate; falls back to the web Vibration API. */
+export function nativeHaptic(pattern: number | number[] = 15): void {
+  if (typeof window === 'undefined' || !prefs.haptics) return;
+  try {
+    if (window.SferaNativeBridge?.onHaptic) {
+      window.SferaNativeBridge.onHaptic(JSON.stringify(pattern));
+      return;
+    }
+  } catch { /* fall through */ }
+  try { navigator.vibrate?.(pattern); } catch { /* unsupported */ }
 }
 
 function rgbToHex(value: string): string {
@@ -102,6 +237,9 @@ export function postNativeTheme(theme: NativeTheme): void {
     try {
       window.chrome?.webview?.postMessage({ type: 'theme', theme, color });
     } catch { /* ignore */ }
+    // The Android and iOS shells tint their system bars from the same value.
+    try { window.SferaNativeBridge?.onPrefsChanged?.(JSON.stringify({ ...prefs, theme, themeColor: color })); } catch { /* ignore */ }
+    try { window.webkit?.messageHandlers?.sferaTheme?.postMessage({ theme, color }); } catch { /* ignore */ }
   };
 
   send();
@@ -109,13 +247,32 @@ export function postNativeTheme(theme: NativeTheme): void {
   window.setTimeout(send, 80);
 }
 
-/** Initialise from localStorage and install the global getter (call at startup). */
+/**
+ * Restore the preferences and install the getters. Call once at startup, before
+ * the first render, so the shell never reads a default it will have to undo.
+ */
 export function initNativeBridge(): void {
   try {
-    const raw = localStorage.getItem(LS_KEY);
-    if (raw !== null) allowScale = raw === 'true';
-  } catch { /* ignore */ }
+    const raw = localStorage.getItem(PREFS_KEY);
+    if (raw) {
+      const stored = JSON.parse(raw);
+      if (stored && typeof stored === 'object') {
+        for (const key of Object.keys(defaultNativePrefs) as (keyof NativePrefs)[]) {
+          if (typeof stored[key] === 'boolean') prefs[key] = stored[key];
+        }
+      }
+    } else {
+      // Upgrade from the era when zoom was the only preference.
+      const legacy = localStorage.getItem(LEGACY_SCALE_KEY);
+      if (legacy !== null) prefs.allowScale = legacy === 'true';
+    }
+  } catch { /* defaults */ }
+
   if (typeof window !== 'undefined') {
-    window.SferaNative = { getAllowScale: () => allowScale };
+    window.SferaNative = {
+      getPrefs: () => JSON.stringify(prefs),
+      getAllowScale: () => prefs.allowScale,
+    };
+    if (isNativeShell()) document.documentElement.classList.add('native-shell');
   }
 }

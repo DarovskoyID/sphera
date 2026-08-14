@@ -122,8 +122,12 @@ class UserSettings(models.Model):
     theme = models.CharField(max_length=10, default='dark')
     show_timestamps = models.BooleanField(default=True)
     show_avatars = models.BooleanField(default=True)
-    # Mobile (applied by the WebView shell)
+    # Mobile (applied by the WebView shell — see docs/ANDROID_WEBVIEW.md)
     allow_scale = models.BooleanField(default=False)
+    native_push_notifications = models.BooleanField(default=True)
+    native_haptics = models.BooleanField(default=True)
+    native_keep_screen_on = models.BooleanField(default=True)
+    native_immersive = models.BooleanField(default=False)
     # Voice & Video
     auto_input_sensitivity = models.BooleanField(default=True)
     echo_cancellation = models.BooleanField(default=True)

@@ -11,7 +11,7 @@ import { saveNotifPrefs, ensureNotificationPermission } from '../utils/notificat
 import { saveA11yPrefs, getA11yPrefs, TEXT_SCALE_MIN, TEXT_SCALE_MAX } from '../utils/accessibility';
 import { saveDisplayPrefs } from '../utils/displayPrefs';
 import { saveCensorConfig, scopeFromScanFlags } from '../utils/censor';
-import { setAllowScale } from '../utils/nativeBridge';
+import { setNativePrefs, isNativeShell } from '../utils/nativeBridge';
 import {
   getKeybindings, saveKeybindings, resetKeybindings, eventToCombo, comboDisplay,
   actionLabel, ACTION_CATALOG, type KeyBinding, type ActionId,
@@ -55,6 +55,10 @@ interface SettingsData {
   show_timestamps: boolean;
   show_avatars: boolean;
   allow_scale: boolean;
+  native_push_notifications: boolean;
+  native_haptics: boolean;
+  native_keep_screen_on: boolean;
+  native_immersive: boolean;
   auto_input_sensitivity: boolean;
   echo_cancellation: boolean;
   noise_suppression: boolean;
@@ -86,6 +90,7 @@ const defaultSettings: SettingsData = {
   enable_all_notifications: true, notify_direct_messages: true, notify_mentions: true,
   notify_all_server_messages: false, notify_friend_requests: true, sound_message: true, sound_incoming_call: true,
   theme: 'dark', show_timestamps: true, show_avatars: true, allow_scale: false,
+  native_push_notifications: true, native_haptics: true, native_keep_screen_on: true, native_immersive: false,
   auto_input_sensitivity: true, echo_cancellation: true, noise_suppression: true,
   chat_show_timestamps: true, chat_emoji_reactions: true, chat_compact_mode: false, chat_message_spacing: 4,
   data_app_improvements: true, data_personalization: true,
@@ -279,8 +284,17 @@ export const Settings: React.FC = () => {
     });
   }, [s.chat_show_timestamps, s.chat_emoji_reactions, s.chat_compact_mode, s.streamer_mode, s.streamer_hide_info]);
 
-  // Expose the WebView "allow scale" preference to the native shell.
-  useEffect(() => { setAllowScale(s.allow_scale); }, [s.allow_scale]);
+  // Hand the shell-owned preferences to the native app hosting the WebView.
+  useEffect(() => {
+    setNativePrefs({
+      allowScale: s.allow_scale,
+      pushNotifications: s.native_push_notifications,
+      haptics: s.native_haptics,
+      keepScreenOn: s.native_keep_screen_on,
+      immersive: s.native_immersive,
+    });
+  }, [s.allow_scale, s.native_push_notifications, s.native_haptics,
+      s.native_keep_screen_on, s.native_immersive]);
 
   // Mirror + apply accessibility prefs live. (Text size is handled separately by
   // its slider, which writes text_scale/large_text via saveA11yPrefs directly.)
@@ -935,6 +949,7 @@ const AppearanceSettings: React.FC = () => {
   const { setAccentColor, theme, toggleTheme } = useApp();
   const [accent, setAccent] = useState(localStorage.getItem('accentColor') || '#0070F3');
   const isMobile = useIsMobile();
+  const inApp = isNativeShell();
   const isRu = tr('settings_formatting') === 'Подсказки';
 
   const pick = (c: string) => { setAccent(c); setAccentColor(c); };
@@ -979,15 +994,23 @@ const AppearanceSettings: React.FC = () => {
       <h3 style={sectionH3}>{tr('sa_msg_display')}</h3>
       <Check label={tr('sa_timestamps')} field="show_timestamps" />
       <Check label={tr('sa_avatars')} field="show_avatars" />
-      {isMobile && (
+      {(isMobile || inApp) && (
         <>
           <div style={divider} />
-          <h3 style={sectionH3}>{isRu ? 'Мобильное' : 'Mobile'}</h3>
+          <h3 style={sectionH3}>{isRu ? 'Мобильное приложение' : 'Mobile app'}</h3>
           <Check label={isRu ? 'Разрешить масштабирование' : 'Allow zoom & scaling'} field="allow_scale" />
+          <Check label={isRu ? 'Системные уведомления' : 'System notifications'} field="native_push_notifications" />
+          <Check label={isRu ? 'Вибрация' : 'Haptics'} field="native_haptics" />
+          <Check label={isRu ? 'Не гасить экран во время звонка' : 'Keep the screen awake during a call'} field="native_keep_screen_on" />
+          <Check label={isRu ? 'Полноэкранный режим' : 'Full-screen mode'} field="native_immersive" />
           <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: '4px 0 0' }}>
-            {isRu
-              ? 'Позволяет масштабировать интерфейс в мобильном приложении. Масштабирование выполняется самим приложением (WebView).'
-              : 'Lets you pinch-to-zoom and scale the interface in the mobile app. Scaling is handled by the app shell (WebView).'}
+            {inApp
+              ? (isRu
+                ? 'Эти настройки применяет само приложение.'
+                : 'These are applied by the app itself.')
+              : (isRu
+                ? 'Эти настройки применяет мобильное приложение. В браузере они сохраняются, но ничего не меняют.'
+                : 'These are applied by the mobile app. In a browser they are saved but change nothing.')}
           </p>
         </>
       )}

@@ -14,7 +14,7 @@ import { saveDisplayPrefs } from '../utils/displayPrefs';
 import { saveCensorConfig, setCensorAudience, scopeFromScanFlags } from '../utils/censor';
 import { sortByDate, insertByDate } from '../utils/messageOrder';
 import { clearMessageCache, readCachedMessages, writeCachedMessages } from '../utils/messageCache';
-import { postNativeTheme, setAllowScale } from '../utils/nativeBridge';
+import { postNativeTheme, setNativePrefs } from '../utils/nativeBridge';
 import { deviceQuery } from '../utils/device';
 import { toUserMessage, readResponse, setErrorLang } from '../utils/errorManager';
 
@@ -587,7 +587,13 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
           blur_disable_requests: cfg.blur_disable_requests,
           explicit_scope: scopeFromScanFlags(cfg),
         });
-        setAllowScale(!!cfg.allow_scale);
+        setNativePrefs({
+          allowScale: !!cfg.allow_scale,
+          pushNotifications: cfg.native_push_notifications !== false,
+          haptics: cfg.native_haptics !== false,
+          keepScreenOn: cfg.native_keep_screen_on !== false,
+          immersive: !!cfg.native_immersive,
+        });
         const a11y: Partial<A11yPrefs> = {};
         (['high_contrast', 'screen_reader', 'reduce_motion', 'large_text', 'keyboard_outlines'] as const)
           .forEach(k => { if (typeof cfg[k] === 'boolean') (a11y as any)[k] = cfg[k]; });
