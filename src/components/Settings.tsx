@@ -1710,7 +1710,9 @@ const FormattingSettings: React.FC = () => {
     '# Заголовок': isRu ? 'Крупный текст' : 'Large text',
     '> цитата': isRu ? 'Цитата' : 'Quote',
     '- пункт': isRu ? 'Маркированный список' : 'Bulleted list',
-    '||спойлер||': isRu ? 'Скрытый текст (спойлер)' : 'Spoiler',
+    '||спойлер||': isRu
+      ? 'Скрытый текст — или выделите текст и нажмите «глаз» в поле ввода'
+      : 'Hidden text — or select some text and press the eye in the composer',
     '| A | B |': isRu ? 'Таблица (первая строка — заголовок)' : 'Table (first row is the header)',
   };
 

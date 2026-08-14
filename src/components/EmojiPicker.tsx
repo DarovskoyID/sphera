@@ -598,6 +598,39 @@ const inlineCodeStyle: React.CSSProperties = { background: 'var(--bg-tertiary, r
  * Reachable from the keyboard: a hidden spoiler is a button in all but name,
  * and a reader who cannot click one should not be locked out of the message.
  */
+/**
+ * A doubled pipe is the spoiler marker, never a cell boundary.
+ *
+ * Both syntaxes are made of pipes, and the table rule runs first because it is
+ * a block and the spoiler is inline. So a line that is nothing but a hidden
+ * sentence — `||the butler did it||`, which is exactly what the composer's hide
+ * button produces when the whole message is selected — starts and ends with a
+ * pipe and was read as a one-cell table. It came out in a bordered box in bold,
+ * with the text on plain display.
+ *
+ * Judging the line by its single pipes settles it. A hidden sentence has none
+ * left once the spoilers are taken out and is not a table; a real row keeps
+ * its own, and may now carry a spoiler in a cell.
+ */
+const SPOILER_SPAN = /\|\|[\s\S]*?\|\|/g;
+/** A pipe that is not part of a `||` pair. */
+const CELL_PIPE = /(?<!\|)\|(?!\|)/;
+
+function isTableRow(line: string): boolean {
+  if (!/^\s*\|.*\|\s*$/.test(line)) return false;
+  const withoutSpoilers = line.replace(SPOILER_SPAN, '');
+  return (withoutSpoilers.match(/\|/g) || []).length >= 2;
+}
+
+function splitTableRow(line: string): string[] {
+  return line.trim()
+    // Only the outer pipes are the row's own; a `||` at either end belongs to
+    // a spoiler that happens to sit at the edge of a cell.
+    .replace(/^\|(?!\|)/, '').replace(/(?<!\|)\|$/, '')
+    .split(new RegExp(CELL_PIPE.source))
+    .map(cell => cell.trim());
+}
+
 const Spoiler: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const tr = useTranslation();
   const [revealed, setRevealed] = useState(false);
@@ -864,10 +897,10 @@ export function renderRichText(text: string, customEmojis: CustomEmoji[], member
     }
     // Table: consecutive pipe-wrapped rows.  | Name | Age |
     // The first row is the header; a separator row (| --- | --- |) is ignored.
-    if (/^\s*\|.*\|\s*$/.test(line) && (line.match(/\|/g) || []).length >= 2) {
+    if (isTableRow(line)) {
       const rows: string[][] = [];
-      while (i < lines.length && /^\s*\|.*\|\s*$/.test(lines[i]) && (lines[i].match(/\|/g) || []).length >= 2) {
-        const cells = lines[i].trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map(c => c.trim());
+      while (i < lines.length && isTableRow(lines[i])) {
+        const cells = splitTableRow(lines[i]);
         // Skip a markdown separator row like | --- | :---: |
         if (!cells.every(c => c === '' || /^:?-{2,}:?$/.test(c))) rows.push(cells);
         i++;
@@ -909,7 +942,10 @@ export function renderRichText(text: string, customEmojis: CustomEmoji[], member
     // Normal text (group consecutive non-special lines; render each newline as a
     // <br> — a bare "\n" in a <span> collapses to a space otherwise).
     const norm: string[] = [];
-    const isSpecial = (l: string) => l.trim().startsWith('```') || /^#\s+/.test(l) || /^>\s?/.test(l) || /^[-*]\s+/.test(l) || (/^\s*\|.*\|\s*$/.test(l) && (l.match(/\|/g) || []).length >= 2);
+    // Must agree with the branches above, all of them. A line this calls
+    // special that none of them actually consumes is never stepped over, and
+    // the outer loop reads it again forever.
+    const isSpecial = (l: string) => l.trim().startsWith('```') || /^#\s+/.test(l) || /^>\s?/.test(l) || /^[-*]\s+/.test(l) || isTableRow(l);
     while (i < lines.length && !isSpecial(lines[i])) { norm.push(lines[i]); i++; }
     blocks.push(
       <React.Fragment key={`b${start}`}>
