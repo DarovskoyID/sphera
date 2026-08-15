@@ -139,8 +139,11 @@ class ProfileUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = [
-            'nickname', 'bio', 'avatar', 'banner', 'status_text', 'links',
-            'email', 'phone',
+            # `status` is presence, and the owner is the one who decides what
+            # it says — including staying on "offline" while connected. The
+            # model's choices are the whole validation it needs.
+            'nickname', 'bio', 'avatar', 'banner', 'status', 'status_text',
+            'links', 'email', 'phone',
         ]
         extra_kwargs = {
             name: {'required': False} for name in fields
