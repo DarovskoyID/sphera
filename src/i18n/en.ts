@@ -472,6 +472,7 @@ export const en = {
   chat_cannot_send: 'You cannot send messages to this user',
   chat_sending_in: 'Sending in',
   chat_max_files: 'Maximum {n} files per message',
+  chat_drop_files: 'Drop the files here',
   chat_no_search_results: 'No messages match your search.',
   chat_message_deleted: 'Message deleted',
   chat_reply: 'Reply',

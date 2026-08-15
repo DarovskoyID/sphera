@@ -1965,9 +1965,8 @@ const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: (
     }
   }, [recordedUrl, isPlaying, recordMode]);
 
-  const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const selected = Array.from(e.target.files || []);
-    e.target.value = '';
+  // One path for every way a file arrives: the picker, a drop, or a paste.
+  const addFiles = useCallback((selected: File[]) => {
     if (!selected.length) return;
 
     persistPendingFiles(prev => {
@@ -1989,6 +1988,61 @@ const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: (
       return [...prev, ...newEntries];
     });
   }, [persistPendingFiles]);
+
+  const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const selected = Array.from(e.target.files || []);
+    e.target.value = '';
+    addFiles(selected);
+  }, [addFiles]);
+
+  // Ctrl+V of an image (or any file) from the clipboard. Text pastes carry no
+  // items of kind 'file', so typing is left completely alone.
+  const handlePaste = useCallback((e: React.ClipboardEvent) => {
+    if (uploading || recordState !== 'idle') return;
+    const files = Array.from(e.clipboardData?.items || [])
+      .filter(it => it.kind === 'file')
+      .map(it => it.getAsFile())
+      .filter((f): f is File => f != null);
+    if (!files.length) return;
+    e.preventDefault();
+    addFiles(files);
+  }, [addFiles, uploading, recordState]);
+
+  // Drag & drop onto the composer. dragDepth counts enter/leave across child
+  // elements so the highlight does not flicker as the cursor crosses them.
+  const dragDepth = useRef(0);
+  const [dragOver, setDragOver] = useState(false);
+
+  const hasDragFiles = (e: React.DragEvent) =>
+    Array.from(e.dataTransfer?.types || []).includes('Files');
+
+  const handleDragEnter = useCallback((e: React.DragEvent) => {
+    if (!hasDragFiles(e)) return;
+    e.preventDefault();
+    dragDepth.current += 1;
+    setDragOver(true);
+  }, []);
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    if (!hasDragFiles(e)) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    if (!hasDragFiles(e)) return;
+    dragDepth.current = Math.max(0, dragDepth.current - 1);
+    if (dragDepth.current === 0) setDragOver(false);
+  }, []);
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    if (!hasDragFiles(e)) return;
+    e.preventDefault();
+    dragDepth.current = 0;
+    setDragOver(false);
+    if (uploading || recordState !== 'idle') return;
+    addFiles(Array.from(e.dataTransfer.files || []));
+  }, [addFiles, uploading, recordState]);
 
   const removeFile = useCallback((index: number) => {
     persistPendingFiles(prev => {
@@ -2162,7 +2216,25 @@ const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: (
   const formatTime = (s: number) => `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, '0')}`;
 
   return (
-    <div className="message-input-container glass-panel" style={{ flexDirection: 'column', gap: 0, alignItems: 'stretch' }}>
+    <div
+      className="message-input-container glass-panel"
+      style={{ flexDirection: 'column', gap: 0, alignItems: 'stretch', position: 'relative' }}
+      onDragEnter={handleDragEnter}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
+      {dragOver && (
+        <div style={{
+          position: 'absolute', inset: 4, zIndex: 50, pointerEvents: 'none',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+          borderRadius: 12, border: '2px dashed var(--accent-primary)',
+          background: 'var(--bg-secondary)', opacity: 0.96,
+          color: 'var(--accent-primary)', fontSize: 14, fontWeight: 600,
+        }}>
+          <Plus size={18} />{tr('chat_drop_files')}
+        </div>
+      )}
       {/* Editing banner */}
       {editing && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '8px 8px 0', padding: '6px 12px', borderRadius: 8, background: 'var(--bg-secondary)', borderLeft: '3px solid var(--accent-primary)' }}>
@@ -2352,6 +2424,7 @@ const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: (
             maxLength={5000}
             onChange={e => { if (editing) { setMessage(e.target.value); autoResizeComposer(); } else persistMessage(e.target.value); }}
             onKeyDown={handleKeyDown}
+            onPaste={handlePaste}
             disabled={uploading || recordState !== 'idle'}
           />
           {message.length > 4000 && (

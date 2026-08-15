@@ -446,6 +446,7 @@ export const ru: Translations = {
   chat_cannot_send: 'Вы не можете отправлять сообщения этому пользователю',
   chat_sending_in: 'Отправка через',
   chat_max_files: 'Максимум {n} файлов на сообщение',
+  chat_drop_files: 'Отпустите файлы здесь',
   chat_no_search_results: 'Сообщения не найдены.',
   chat_message_deleted: 'Сообщение удалено',
   chat_reply: 'Ответить',

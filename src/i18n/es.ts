@@ -177,6 +177,7 @@ export const es: Translations = {
   chat_cannot_send: 'No puedes enviar mensajes a este usuario',
   chat_sending_in: 'Enviando en',
   chat_max_files: 'Máximo {n} archivos por mensaje',
+  chat_drop_files: 'Suelta los archivos aquí',
   chat_no_search_results: 'Ningún mensaje coincide con tu búsqueda.',
   chat_message_deleted: 'Mensaje eliminado',
   chat_reply: 'Responder',

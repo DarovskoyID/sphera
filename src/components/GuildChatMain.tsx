@@ -610,9 +610,8 @@ export const GuildChatMain: React.FC = () => {
     }
   }, [loadingOlder, hasMore, loadOlderGuildMessages]);
 
-  const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const selected = Array.from(e.target.files || []);
-    e.target.value = '';
+  // One path for every way a file arrives: the picker, a drop, or a paste.
+  const addFiles = useCallback((selected: File[]) => {
     if (!selected.length) return;
     persistPendingFiles(prev => {
       const available = MAX_FILES - prev.length;
@@ -622,6 +621,61 @@ export const GuildChatMain: React.FC = () => {
       return [...prev, ...allowed.map(f => ({ file: f, preview: f.type.startsWith('image/') ? URL.createObjectURL(f) : undefined }))];
     });
   }, [persistPendingFiles]);
+
+  const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const selected = Array.from(e.target.files || []);
+    e.target.value = '';
+    addFiles(selected);
+  }, [addFiles]);
+
+  // Ctrl+V of an image (or any file) from the clipboard. A text paste carries
+  // no items of kind 'file', so typing is left alone.
+  const handlePaste = useCallback((e: React.ClipboardEvent) => {
+    if (uploading || isMuted) return;
+    const files = Array.from(e.clipboardData?.items || [])
+      .filter(it => it.kind === 'file')
+      .map(it => it.getAsFile())
+      .filter((f): f is File => f != null);
+    if (!files.length) return;
+    e.preventDefault();
+    addFiles(files);
+  }, [addFiles, uploading, isMuted]);
+
+  // Drag & drop onto the composer. dragDepth counts enter/leave across child
+  // elements so the highlight does not flicker as the cursor crosses them.
+  const dragDepth = useRef(0);
+  const [dragOver, setDragOver] = useState(false);
+
+  const hasDragFiles = (e: React.DragEvent) =>
+    Array.from(e.dataTransfer?.types || []).includes('Files');
+
+  const handleDragEnter = useCallback((e: React.DragEvent) => {
+    if (!hasDragFiles(e)) return;
+    e.preventDefault();
+    dragDepth.current += 1;
+    setDragOver(true);
+  }, []);
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    if (!hasDragFiles(e)) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    if (!hasDragFiles(e)) return;
+    dragDepth.current = Math.max(0, dragDepth.current - 1);
+    if (dragDepth.current === 0) setDragOver(false);
+  }, []);
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    if (!hasDragFiles(e)) return;
+    e.preventDefault();
+    dragDepth.current = 0;
+    setDragOver(false);
+    if (uploading || isMuted) return;
+    addFiles(Array.from(e.dataTransfer.files || []));
+  }, [addFiles, uploading, isMuted]);
 
   const removeFile = useCallback((i: number) => {
     persistPendingFiles(prev => {
@@ -979,7 +1033,25 @@ export const GuildChatMain: React.FC = () => {
       )}
 
       {/* Input */}
-      <div className="message-input-area" style={{ flexDirection: 'column', gap: 0, alignItems: 'stretch' }}>
+      <div
+        className="message-input-area"
+        style={{ flexDirection: 'column', gap: 0, alignItems: 'stretch', position: 'relative' }}
+        onDragEnter={handleDragEnter}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+      >
+        {dragOver && (
+          <div style={{
+            position: 'absolute', inset: 4, zIndex: 50, pointerEvents: 'none',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+            borderRadius: 12, border: '2px dashed var(--accent-primary)',
+            background: 'var(--bg-secondary)', opacity: 0.96,
+            color: 'var(--accent-primary)', fontSize: 14, fontWeight: 600,
+          }}>
+            <Plus size={18} />{tr('chat_drop_files')}
+          </div>
+        )}
         <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', width: '100%', position: 'relative' }}>
           <input ref={fileInputRef} type="file" multiple style={{ display: 'none' }} onChange={handleFileSelect} />
           <div className="composer-bar" style={{ opacity: isMuted ? 0.6 : 1 }}>
@@ -1041,6 +1113,7 @@ export const GuildChatMain: React.FC = () => {
               value={input}
               onChange={handleInputChange}
               onKeyDown={handleKey}
+              onPaste={handlePaste}
               rows={1}
               maxLength={5000}
               disabled={uploading || isMuted}

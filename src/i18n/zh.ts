@@ -178,6 +178,7 @@ export const zh: Translations = {
   chat_cannot_send: '你无法向该用户发送消息',
   chat_sending_in: '将在以下时间后发送',
   chat_max_files: '每条消息最多 {n} 个文件',
+  chat_drop_files: '将文件拖放到这里',
   chat_no_search_results: '没有符合搜索条件的消息。',
   chat_message_deleted: '消息已删除',
   chat_reply: '回复',
