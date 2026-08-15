@@ -3,6 +3,7 @@
    ================================ */
 
 .user-profile-section {
+  position: relative;
   padding: var(--spacing-md);
   border-top: 1px solid var(--border-color);
   display: grid;
@@ -26,11 +27,26 @@
   transition: all var(--transition-normal);
 }
 
-.profile-avatar-btn img {
+/* Both the photo and the fallback initial fill the button. Sized any smaller,
+   they leave the status dot pinned to the button's corner instead of the
+   circle's edge — which is what made it look detached. */
+.profile-avatar-btn img,
+.profile-avatar-btn > div {
   width: 100%;
   height: 100%;
   border-radius: var(--radius-full);
   object-fit: cover;
+}
+
+/* The footer sits on --bg-tertiary, so the ring that separates the dot from
+   its background has to be that colour, not the panel's. */
+.user-profile-section .status-indicator {
+  width: 12px;
+  height: 12px;
+  bottom: 0;
+  right: 0;
+  border-width: 2.5px;
+  border-color: var(--bg-tertiary);
 }
 
 .profile-avatar-btn:hover {
@@ -52,22 +68,97 @@
   text-overflow: ellipsis;
 }
 
+/* Текст статуса обрезается многоточием, а не переносится на вторую строку
+   в узкой панели. */
 .profile-status {
-  font-size: 13.8px;
+  font-size: 13px;
   color: var(--text-secondary);
   min-width: 0;
   white-space: nowrap;
   overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-/* Точка статуса не сжимается, текст статуса обрезается многоточием, а не
-   переносится на вторую строку в узкой панели. */
-.profile-status > :first-child {
-  flex-shrink: 0;
+/* ── Setting your own status ─────────────────────────────────────────────
+   The name and status line double as the control: nothing new appears in the
+   footer until it is pointed at.
+*/
+.profile-status-btn {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
 }
-.profile-status > span:last-child {
-  overflow: hidden;
-  text-overflow: ellipsis;
+
+.profile-status-btn .profile-status {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.profile-status-caret {
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+}
+
+.profile-status-btn:hover .profile-status,
+.profile-status-btn:focus-visible .profile-status {
+  color: var(--text-primary);
+}
+
+.profile-status-btn:hover .profile-status-caret,
+.profile-status-btn:focus-visible .profile-status-caret {
+  opacity: 1;
+}
+
+.status-menu {
+  position: absolute;
+  z-index: 8001;
+  left: var(--spacing-sm);
+  right: var(--spacing-sm);
+  bottom: calc(100% + 6px);
+  padding: 5px;
+  border-radius: var(--radius-md);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+}
+
+.status-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 8px 10px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 13.5px;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.status-menu-item:hover {
+  background: var(--hover-bg);
+}
+
+.status-menu-item.active {
+  color: var(--accent-primary);
+}
+
+.status-menu-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: var(--radius-full);
+  flex-shrink: 0;
 }
 
 .profile-controls {

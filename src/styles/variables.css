@@ -30,6 +30,10 @@
   --notification-bg: #f04747;
   --unread-bg: #0070F3;
 
+  /* The accent as bare channels, for tints: rgba(var(--accent-rgb), .12).
+     Overwritten at runtime whenever the accent colour changes. */
+  --accent-rgb: 0, 112, 243;
+
   /* Spacing */
   --spacing-xs: 4px;
   --spacing-sm: 8px;

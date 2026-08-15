@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   Sun, Moon, Search, Menu, UserPlus, Check, X, LogOut,
-  Phone, Ban, BellOff, Copy, Trash2, UserMinus, Volume2, PhoneOff,
+  Phone, Ban, BellOff, Copy, Trash2, UserMinus, Volume2, PhoneOff, ChevronUp,
 } from 'lucide-react';
 import { useApp, reportError } from '../context/AppContext';
 import { useTranslation } from '../i18n/useTranslation';
@@ -64,17 +64,6 @@ const STATUS_COLOR: Record<string, string> = {
   offline: 'var(--status-offline)',
   blocked: '#f97316',
 };
-
-const StatusDot: React.FC<{ status: string; size?: number }> = ({ status, size = 10 }) => (
-  <span style={{
-    display: 'inline-block',
-    width: size, height: size,
-    borderRadius: '50%',
-    background: STATUS_COLOR[status] ?? STATUS_COLOR.offline,
-    border: '2px solid var(--bg-secondary)',
-    flexShrink: 0,
-  }} />
-);
 
 // ── User Avatar ───────────────────────────────────────────────────────────────
 
@@ -489,71 +478,81 @@ export const ChatSidebar: React.FC = () => {
   const tr = useTranslation();
   const isMobile = useIsMobile();
   const isChild = !!currentUser?.is_child;
+  // Matches the avatar column in chat-sidebar.css, which widens for thumbs.
+  const avatarSize = isMobile ? 44 : 36;
 
   const [searchQuery, setSearchQuery] = useState('');
-  const [showAddFriend, setShowAddFriend] = useState(false);
-  const [addQuery, setAddQuery] = useState('');
   const [searchResults, setSearchResults] = useState<ServerUser[]>([]);
+  const [searching, setSearching] = useState(false);
   const [addError, setAddError] = useState('');
-  const [addSuccess, setAddSuccess] = useState('');
+  const [justAsked, setJustAsked] = useState<string[]>([]);
   const [showLogoutModal, setShowLogoutModal] = useState(false);
   const [ctxMenu, setCtxMenu] = useState<CtxState>(null);
   const [blockedCtxMenu, setBlockedCtxMenu] = useState<BlockedCtxState>(null);
   const [profileFriend, setProfileFriend] = useState<FriendInfo | null>(null);
+
+  const query = searchQuery.trim();
   const filteredFriends = friends.filter(f =>
-    (f.nickname || f.username).toLowerCase().includes(searchQuery.toLowerCase())
+    (f.nickname || f.username).toLowerCase().includes(query.toLowerCase())
   );
   const filteredBlocked = blockedContacts.filter(u =>
-    (u.nickname || u.username).toLowerCase().includes(searchQuery.toLowerCase())
+    (u.nickname || u.username).toLowerCase().includes(query.toLowerCase())
   );
 
   const sidebarTitle = currentView === 'settings'
     ? tr('nav_settings') : tr('nav_direct_messages');
 
-  const handleSearch = async () => {
-    if (!addQuery.trim()) return;
-    setAddError(''); setAddSuccess('');
-    try {
-      const results = await searchUsers(addQuery);
-      setSearchResults(results);
-      if (results.length === 0) setAddError(tr('friends_no_users'));
-    } catch {
-      setAddError(tr('friends_search_failed'));
-    }
-  };
-
-  // Live search: debounce 300ms so users see suggestions as they type
+  // One search box, two jobs. The list above filters as you type; below it,
+  // anyone on the server who is not already a contact is offered — so looking
+  // for someone you have not added yet is the same gesture as finding someone
+  // you have. Two letters is where a name search starts to mean anything.
   useEffect(() => {
-    if (!showAddFriend) return;
-    const q = addQuery.trim();
-    if (!q) {
+    if (currentView !== 'home') return;
+    if (query.length < 2) {
       setSearchResults([]);
       setAddError('');
+      setSearching(false);
       return;
     }
+    setSearching(true);
     const t = setTimeout(async () => {
       setAddError('');
       try {
-        const results = await searchUsers(q);
-        setSearchResults(results);
-        if (results.length === 0) setAddError(tr('friends_no_users'));
+        setSearchResults(await searchUsers(query));
       } catch {
+        setSearchResults([]);
         setAddError(tr('friends_search_failed'));
+      } finally {
+        setSearching(false);
       }
     }, 300);
     return () => clearTimeout(t);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [addQuery, showAddFriend]);
+  }, [query, currentView]);
 
-  const handleSendRequest = async (userId: string) => {
-    setAddError(''); setAddSuccess('');
-    const user = searchResults.find(u => String(u.id) === String(userId));
+  // Anyone already known — a friend, a blocked contact, or you — is in the
+  // list above and has no business appearing again as a stranger to add.
+  const known = new Set<string>([
+    String(currentUser?.id ?? ''),
+    ...friends.map(f => String(f.id)),
+    ...blockedContacts.map(u => String(u.id)),
+  ]);
+  const strangers = searchResults.filter(u => !known.has(String(u.id)));
+  const askedIds = new Set<string>([
+    ...sentRequests.map(u => String(u.id)),
+    ...justAsked,
+  ]);
+
+  const handleSendRequest = async (user: ServerUser) => {
+    setAddError('');
+    // Marked as asked straight away: the row answers the tap, and the server
+    // list catches up on its own.
+    setJustAsked(prev => [...prev, String(user.id)]);
     try {
-      await sendFriendRequest(userId, user);
-      setAddSuccess(tr('friends_request_sent'));
-      setSearchResults([]); setAddQuery('');
+      await sendFriendRequest(String(user.id), user);
     } catch (e: any) {
-      setAddError(e.message || 'Error sending request');
+      setJustAsked(prev => prev.filter(id => id !== String(user.id)));
+      setAddError(e.message || tr('friends_search_failed'));
     }
   };
 
@@ -590,195 +589,187 @@ export const ChatSidebar: React.FC = () => {
   return (
     <aside className={`chat-sidebar ${isMobileSidebarOpen ? 'mobile-open' : ''}`}>
       <div className="chat-sidebar-header">
-        <button className="icon-btn glass-btn mobile-hamburger-btn" onClick={toggleMobileSidebar} title={tr('nav_menu')}>
+        {/* No `glass-btn` here: the header reads better with the buttons bare
+            until they are pointed at. */}
+        <button className="icon-btn mobile-hamburger-btn" onClick={toggleMobileSidebar} title={tr('nav_menu')}>
           <Menu size={20} />
         </button>
         <h2>{sidebarTitle}</h2>
-        <button className="icon-btn glass-btn" onClick={toggleTheme} title={tr('nav_toggle_theme')}>
-          {theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
+        <button className="icon-btn" onClick={toggleTheme} title={tr('nav_toggle_theme')}>
+          {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
         </button>
       </div>
 
       {currentView === 'home' && (
-        <div className="chat-list">
-          {/* Friend search */}
-          <div className="search-bar glass-panel">
-            <Search size={18} className="search-icon" />
+        <>
+          {/* One field for everyone — the people you have, and the people you
+              have not added yet. */}
+          <div className="sidebar-search">
+            <Search className="search-icon" />
             <input
               type="text"
-              placeholder={tr('friends_search')}
+              placeholder={tr('friends_search_any')}
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
             />
+            {searchQuery && (
+              <button
+                className="sidebar-search-clear"
+                onClick={() => setSearchQuery('')}
+                title={tr('cancel')}
+              >
+                <X size={12} />
+              </button>
+            )}
           </div>
 
-          {/* Sent requests */}
-          {sentRequests.length > 0 && (
-            <>
-              <div className="section-title">{tr('friends_requests_sent')} ({sentRequests.length})</div>
-              {sentRequests.map(user => (
-                <div key={user.id} className="chat-item" style={{ gap: 8, alignItems: 'center' }}>
-                  <div className="chat-avatar">
-                    <Avatar name={user.nickname || user.username} avatar={user.avatar} size={36} />
-                  </div>
-                  <div className="chat-info" style={{ flex: 1 }}>
-                    <div className="chat-name">{accountDisplayName(user)}<AccountBadge account={user} /></div>
-                    <div className="chat-message">{tr('friends_request_pending')}</div>
-                  </div>
+          <div className="chat-list">
+            {/* Incoming requests. Someone is waiting on an answer, so they sit
+                above everything else and carry their two buttons with them. */}
+            {pendingRequests.length > 0 && (
+              <>
+                <div className="section-title">
+                  {tr('friends_requests')} · {pendingRequests.length}
                 </div>
-              ))}
-            </>
-          )}
-
-          {/* Pending requests */}
-          {pendingRequests.length > 0 && (
-            <>
-              <div className="section-title">
-                {tr('friends_requests')} ({pendingRequests.length})
-              </div>
-              {pendingRequests.map(req => (
-                <div key={req.id} className="chat-item" style={{ gap: 8, alignItems: 'center' }}>
-                  <div className="chat-avatar" style={{ position: 'relative' }}>
-                    <Avatar
-                      name={req.from_user.nickname || req.from_user.username}
-                      avatar={req.from_user.avatar}
-                      size={36}
-                    />
-                    <span style={{
-                      position: 'absolute', bottom: -1, right: -1,
-                      width: 10, height: 10, borderRadius: '50%',
-                      background: STATUS_COLOR[req.from_user.status] ?? STATUS_COLOR.offline,
-                      border: '2px solid var(--bg-secondary)',
-                    }} />
-                  </div>
-                  <div className="chat-info" style={{ flex: 1 }}>
-                    <div className="chat-name">{req.from_user.nickname || req.from_user.username}</div>
-                    <div className="chat-message">{tr('friends_wants_to_be')}</div>
-                  </div>
-                  <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-                    <button className="icon-btn glass-btn" style={{ color: '#22c55e', padding: 4 }}
-                      onClick={() => handleAccept(req.id)} title={tr('friends_accept')}>
-                      <Check size={16} />
-                    </button>
-                    <button className="icon-btn glass-btn" style={{ color: '#ef4444', padding: 4 }}
-                      onClick={() => handleReject(req.id)} title={tr('friends_decline')}>
-                      <X size={16} />
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </>
-          )}
-
-          <div className="section-title" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <span>{tr('friends_direct_messages')}</span>
-            <button
-              className="icon-btn glass-btn" style={{ padding: 2 }}
-              onClick={() => { setShowAddFriend(v => !v); setAddError(''); setAddSuccess(''); setSearchResults([]); setAddQuery(''); }}
-              title={tr('friends_add')}
-            >
-              <UserPlus size={16} />
-            </button>
-          </div>
-
-          {showAddFriend && (
-            <div style={{ padding: '8px 12px', display: 'flex', flexDirection: 'column', gap: 6 }}>
-              <div style={{ display: 'flex', gap: 6 }}>
-                <input
-                  className="field-input"
-                  type="text"
-                  placeholder={tr('friends_search_placeholder')}
-                  value={addQuery}
-                  onChange={e => setAddQuery(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && handleSearch()}
-                  style={{ flex: 1 }}
-                />
-              </div>
-              {addError && <div style={{ color: '#ef4444', fontSize: 12 }}>{addError}</div>}
-              {addSuccess && <div style={{ color: '#22c55e', fontSize: 12 }}>{addSuccess}</div>}
-              {searchResults.map(u => (
-                <div key={u.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <Avatar name={u.nickname || u.username} avatar={u.avatar} size={28} />
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 13, color: 'var(--text-primary)', fontWeight: 600 }}>
-                      {u.nickname || u.username}
+                {pendingRequests.map(req => (
+                  <div key={req.id} className="chat-item">
+                    <div className="chat-avatar">
+                      <Avatar
+                        name={req.from_user.nickname || req.from_user.username}
+                        avatar={req.from_user.avatar}
+                        size={avatarSize}
+                      />
                     </div>
-                    <div style={{ color: 'var(--text-secondary)', fontSize: 11 }}>@{u.username}</div>
+                    <div className="chat-info">
+                      <div className="chat-name">{req.from_user.nickname || req.from_user.username}</div>
+                      <div className="chat-message">{tr('friends_wants_to_be')}</div>
+                    </div>
+                    <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                      <button className="chat-item-action" style={{ color: '#22c55e' }}
+                        onClick={() => handleAccept(req.id)} title={tr('friends_accept')}>
+                        <Check size={16} />
+                      </button>
+                      <button className="chat-item-action" style={{ color: '#ef4444' }}
+                        onClick={() => handleReject(req.id)} title={tr('friends_decline')}>
+                        <X size={16} />
+                      </button>
+                    </div>
                   </div>
-                  <button style={{ padding: '5px 12px', fontSize: 11, fontWeight: 600, borderRadius: 6, border: 'none', cursor: 'pointer', background: 'var(--accent-primary)', color: '#fff', flexShrink: 0 }}
-                    onClick={() => handleSendRequest(u.id)}>{tr('friends_add_btn')}</button>
+                ))}
+              </>
+            )}
+
+            {/* Until the first fetch settles the list is empty for a reason we
+                cannot tell apart from "no friends yet" — so say neither. */}
+            {!friendsLoaded && friends.length === 0 && <ListSkeleton rows={5} avatarSize={avatarSize} />}
+
+            {filteredFriends.length > 0 && (
+              <div className="section-title">{tr('friends_direct_messages')}</div>
+            )}
+
+            {filteredFriends.map(friend => (
+              <div
+                key={friend.id}
+                className={`chat-item ${String(currentChat) === String(friend.id) ? 'active' : ''}`}
+                onClick={() => setCurrentChat(friend.id)}
+                onContextMenu={e => handleFriendContextMenu(e, friend as FriendInfo)}
+              >
+                <div className="chat-avatar">
+                  <Avatar name={friend.nickname || friend.username} avatar={friend.avatar} size={avatarSize} />
+                  <span style={{
+                    position: 'absolute', bottom: -1, right: -1,
+                    width: 11, height: 11, borderRadius: '50%',
+                    background: STATUS_COLOR[friend.status] ?? STATUS_COLOR.offline,
+                    border: '2px solid var(--bg-secondary)',
+                  }} />
                 </div>
-              ))}
-            </div>
-          )}
-
-          {/* Until the first fetch settles the list is empty for a reason we
-              cannot tell apart from "no friends yet" — so say neither. */}
-          {!friendsLoaded && friends.length === 0 && <ListSkeleton rows={5} avatarSize={36} />}
-
-          {/* Unified list: friends + blocked contacts */}
-          {filteredFriends.map(friend => (
-            <div
-              key={friend.id}
-              className={`chat-item ${String(currentChat) === String(friend.id) ? 'active' : ''}`}
-              onClick={() => setCurrentChat(friend.id)}
-              onContextMenu={e => handleFriendContextMenu(e, friend as FriendInfo)}
-            >
-              <div className="chat-avatar" style={{ position: 'relative' }}>
-                <Avatar name={friend.nickname || friend.username} avatar={friend.avatar} size={36} />
-                <span style={{
-                  position: 'absolute', bottom: -1, right: -1,
-                  width: 11, height: 11, borderRadius: '50%',
-                  background: STATUS_COLOR[friend.status] ?? STATUS_COLOR.offline,
-                  border: '2px solid var(--bg-secondary)',
-                }} />
-              </div>
-              <div className="chat-info">
-                <div className="chat-name" style={{ display: 'flex', alignItems: 'center', minWidth: 0 }}>
-                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {accountDisplayName(friend)}
-                  </span>
-                  <AccountBadge account={friend} />
-                </div>
-                <div className="chat-message" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <StatusDot status={friend.status} size={7} />
-                  <span>{tr((`status_${friend.status ?? 'offline'}`) as any)}</span>
-                </div>
-              </div>
-            </div>
-          ))}
-
-          {friendsLoaded && filteredFriends.length === 0 && filteredBlocked.length === 0 && !showAddFriend && pendingRequests.length === 0 && (
-            <div style={{ padding: '16px 12px', color: 'var(--text-secondary)', fontSize: 13, textAlign: 'center' }}>
-              {tr('friends_none')} <UserPlus size={12} style={{ display: 'inline' }} />
-            </div>
-          )}
-
-          {/* Blocked contacts — kept visible so the user can still read the history */}
-          {filteredBlocked.length > 0 && (
-            <>
-              <div style={{ padding: '8px 12px 2px', fontSize: 10, fontWeight: 700, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'flex', alignItems: 'center', gap: 4 }}>
-                <Ban size={10} /> {tr('status_blocked')}
-              </div>
-              {filteredBlocked.map(user => (
-                <div
-                  key={user.id}
-                  className={`chat-item ${String(currentChat) === String(user.id) ? 'active' : ''}`}
-                  onClick={() => setCurrentChat(user.id)}
-                  onContextMenu={e => handleBlockedContextMenu(e, user as FriendInfo)}
-                >
-                  <div className="chat-avatar" style={{ position: 'relative' }}>
-                    <Avatar name={user.nickname || user.username} avatar={user.avatar} size={36} />
+                <div className="chat-info">
+                  <div className="chat-name" style={{ display: 'flex', alignItems: 'center', minWidth: 0 }}>
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {accountDisplayName(friend)}
+                    </span>
+                    <AccountBadge account={friend} />
                   </div>
-                  <div className="chat-info">
-                    <div className="chat-name">{accountDisplayName(user)}<AccountBadge account={user} /></div>
-                    <div className="chat-message" style={{ fontSize: 11, color: '#f97316' }}>{tr('status_blocked')}</div>
+                  <div className="chat-message">
+                    {tr((`status_${friend.status ?? 'offline'}`) as any)}
                   </div>
                 </div>
-              ))}
-            </>
-          )}
-        </div>
+              </div>
+            ))}
+
+            {/* Blocked contacts — kept visible so the user can still read the history */}
+            {filteredBlocked.length > 0 && (
+              <>
+                <div className="section-title"><Ban size={11} /> {tr('status_blocked')}</div>
+                {filteredBlocked.map(user => (
+                  <div
+                    key={user.id}
+                    className={`chat-item ${String(currentChat) === String(user.id) ? 'active' : ''}`}
+                    onClick={() => setCurrentChat(user.id)}
+                    onContextMenu={e => handleBlockedContextMenu(e, user as FriendInfo)}
+                  >
+                    <div className="chat-avatar">
+                      <Avatar name={user.nickname || user.username} avatar={user.avatar} size={avatarSize} />
+                    </div>
+                    <div className="chat-info">
+                      <div className="chat-name">{accountDisplayName(user)}<AccountBadge account={user} /></div>
+                      <div className="chat-message" style={{ color: '#f97316' }}>{tr('status_blocked')}</div>
+                    </div>
+                  </div>
+                ))}
+              </>
+            )}
+
+            {/* Everyone else on the server who matched. No separate screen for
+                adding a friend — the search you already typed found them. */}
+            {query.length >= 2 && (strangers.length > 0 || searching || !!addError) && (
+              <>
+                <div className="section-title">{tr('friends_discover')}</div>
+                {strangers.map(u => {
+                  const asked = askedIds.has(String(u.id));
+                  return (
+                    <div key={u.id} className="chat-item" style={{ cursor: 'default' }}>
+                      <div className="chat-avatar">
+                        <Avatar name={u.nickname || u.username} avatar={u.avatar} size={avatarSize} />
+                      </div>
+                      <div className="chat-info">
+                        <div className="chat-name" style={{ display: 'flex', alignItems: 'center', minWidth: 0 }}>
+                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {accountDisplayName(u)}
+                          </span>
+                          <AccountBadge account={u} />
+                        </div>
+                        <div className="chat-message">@{u.username}</div>
+                      </div>
+                      <button
+                        className="chat-item-add"
+                        disabled={asked}
+                        title={asked ? tr('friends_request_pending') : tr('friends_add')}
+                        onClick={() => handleSendRequest(u)}
+                      >
+                        {asked
+                          ? <Check size={16} />
+                          : <><UserPlus size={13} />{tr('friends_add_btn')}</>}
+                      </button>
+                    </div>
+                  );
+                })}
+                {searching && strangers.length === 0 && !addError && (
+                  <div className="sidebar-hint">{tr('loading')}</div>
+                )}
+                {addError && <div className="sidebar-hint" style={{ color: '#ef4444' }}>{addError}</div>}
+              </>
+            )}
+
+            {/* Nothing matched anywhere — say which of the two silences it is. */}
+            {friendsLoaded && filteredFriends.length === 0 && filteredBlocked.length === 0
+              && pendingRequests.length === 0 && strangers.length === 0 && !searching && !addError && (
+              <div className="sidebar-hint">
+                {query ? tr('friends_no_users') : tr('friends_none_hint')}
+              </div>
+            )}
+          </div>
+        </>
       )}
 
       {currentView === 'server' && (
@@ -881,13 +872,44 @@ export const ChatSidebar: React.FC = () => {
 
 // ── User Profile Footer ───────────────────────────────────────────────────────
 
+/** The four states a person may put themselves in, in the order they read. */
+const STATUS_CHOICES = ['online', 'idle', 'dnd', 'offline'] as const;
+
 export const UserProfile: React.FC = () => {
-  const { currentUser, currentVoiceChannel, leaveVoiceChannel, setVoiceMuted, voiceLocalStream, currentGuild, isMicActive, isHeadphonesActive, setMicActive, setHeadphonesActive } = useApp();
+  const {
+    currentUser, currentVoiceChannel, leaveVoiceChannel, setVoiceMuted, voiceLocalStream,
+    currentGuild, isMicActive, isHeadphonesActive, setMicActive, setHeadphonesActive,
+    currentServerIP, authToken, setCurrentUser,
+  } = useApp();
   const tr = useTranslation();
   const displayName = currentUser?.nickname || currentUser?.username || 'You';
   // Your own avatar is the one place in the app you always know where to find,
   // so it is where your own profile opens from.
   const [showOwnProfile, setShowOwnProfile] = useState(false);
+  const [statusMenu, setStatusMenu] = useState(false);
+
+  const myStatus = currentUser?.status ?? 'offline';
+
+  // Presence is the owner's to declare. The row paints the new state before
+  // the server answers — if the request fails the next `me` fetch corrects it,
+  // and a status that lags a click feels broken.
+  const chooseStatus = async (next: (typeof STATUS_CHOICES)[number]) => {
+    setStatusMenu(false);
+    if (!currentUser || next === myStatus) return;
+    const previous = myStatus;
+    setCurrentUser({ ...currentUser, status: next });
+    try {
+      const res = await fetch(`${currentServerIP}/api/auth/me/update/`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${authToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: next }),
+      });
+      if (!res.ok) throw new Error('status update failed');
+    } catch (e) {
+      setCurrentUser({ ...currentUser, status: previous });
+      reportError(e);
+    }
+  };
 
   const inVoice = !!currentVoiceChannel;
 
@@ -938,19 +960,42 @@ export const UserProfile: React.FC = () => {
       >
         {currentUser?.avatar
           ? <img src={currentUser.avatar} alt={displayName} />
-          : <div style={{ width: 32, height: 32, borderRadius: '50%', background: 'var(--accent-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 700, fontSize: 14 }}>
+          : <div style={{ borderRadius: '50%', background: 'var(--accent-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 700, fontSize: 16, lineHeight: 1 }}>
               {displayName[0].toUpperCase()}
             </div>
         }
         <span className={`status-indicator ${currentUser?.status ?? 'online'}`} />
       </button>
-      <div className="profile-info">
+      {/* The status line is the control for it — the thing you want to change
+          is the thing you click. */}
+      <button className="profile-info profile-status-btn" onClick={() => setStatusMenu(v => !v)}>
         <div className="profile-name">{displayName}</div>
-        <div className="profile-status" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-          <StatusDot status={currentUser?.status ?? 'online'} size={7} />
-          <span>{tr((`status_${currentUser?.status ?? 'online'}`) as any)}</span>
+        {/* No second dot here: the one on the avatar already says it, and two
+            markers on one line only fight each other. */}
+        <div className="profile-status">
+          <span>{tr((`status_${myStatus}`) as any)}</span>
+          <ChevronUp size={12} className="profile-status-caret" />
         </div>
-      </div>
+      </button>
+
+      {statusMenu && (
+        <>
+          <div style={{ position: 'fixed', inset: 0, zIndex: 8000 }} onClick={() => setStatusMenu(false)} />
+          <div className="status-menu">
+            {STATUS_CHOICES.map(key => (
+              <button
+                key={key}
+                className={`status-menu-item ${key === myStatus ? 'active' : ''}`}
+                onClick={() => chooseStatus(key)}
+              >
+                <span className="status-menu-dot" style={{ background: STATUS_COLOR[key] }} />
+                {tr((`status_${key}`) as any)}
+                {key === myStatus && <Check size={14} style={{ marginLeft: 'auto' }} />}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
       <div className="profile-controls">
         <button
           className={`profile-icon-btn glass-btn ${!isMicActive ? 'muted' : ''}`}

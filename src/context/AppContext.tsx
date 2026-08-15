@@ -153,6 +153,10 @@ function applyAccent(color: string) {
   document.documentElement.style.setProperty('--accent-hover', shadeColor(color, -15));
   document.documentElement.style.setProperty('--accent-active', shadeColor(color, -25));
   const [r, g, b] = hexToRgb(color);
+  // Exposed as bare channels so stylesheets can tint with the accent at any
+  // opacity — `rgba(var(--accent-rgb), .12)` — which `var(--accent-primary)`
+  // alone cannot do.
+  document.documentElement.style.setProperty('--accent-rgb', `${r}, ${g}, ${b}`);
   const isDark = document.body.classList.contains('dark-theme');
   const msgOwn = isDark
     ? `rgba(${r}, ${g}, ${b}, 0.18)`

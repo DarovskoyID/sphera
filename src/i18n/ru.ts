@@ -70,6 +70,9 @@ export const ru: Translations = {
   friends_request_pending: 'Запрос отправлен',
   friends_requests_sent: 'ОТПРАВЛЕННЫЕ ЗАПРОСЫ',
   friends_none: 'Пока нет друзей. Нажмите +, чтобы добавить.',
+  friends_search_any: 'Поиск',
+  friends_discover: 'Нет в контактах',
+  friends_none_hint: 'Здесь появятся ваши диалоги. Найдите человека по имени или логину в поиске выше.',
 
   call_incoming: 'Входящий вызов',
   call_calling_you: 'вызывает вас...',

@@ -216,18 +216,41 @@ body {
   height: 18px;
 }
 
+/* The one search field in the DM list. Two class levels so it beats the
+   universal input rules further down this file, which would otherwise give it
+   its own border and padding inside the pill. */
+.chat-sidebar .sidebar-search input {
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  padding: 0;
+  font-size: 14px;
+  color: var(--text-primary);
+}
+
+.chat-sidebar .sidebar-search input:focus {
+  border: none;
+  outline: none;
+}
+
+@media (max-width: 768px) {
+  .chat-sidebar .sidebar-search input {
+    font-size: 16px;
+  }
+}
+
 .section-title {
   color: var(--text-tertiary);
-  font-size: 12.6px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
   text-transform: uppercase;
 }
 
 .chat-item,
 .channel-item,
 .settings-item {
-  border-radius: 8px;
+  border-radius: 10px;
   transition: background var(--transition-fast);
 }
 .chat-item:hover,
@@ -235,10 +258,15 @@ body {
 .settings-item:hover {
   background: var(--hover-bg);
 }
-.chat-item.active,
 .channel-item.active,
 .settings-item.active {
   background: var(--active-bg);
+  color: var(--text-primary);
+}
+/* The open conversation is tinted with the accent instead of filled grey —
+   it reads as selected from across the room without shouting. */
+.chat-item.active {
+  background: rgba(var(--accent-rgb), 0.12);
   color: var(--text-primary);
 }
 

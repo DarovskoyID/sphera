@@ -73,6 +73,9 @@ export const en = {
   friends_request_pending: 'Request sent',
   friends_requests_sent: 'SENT REQUESTS',
   friends_none: 'No friends yet. Click + to add someone.',
+  friends_search_any: 'Search',
+  friends_discover: 'Not in your contacts',
+  friends_none_hint: 'Your conversations show up here. Search above for anyone by name or login.',
 
   // Call
   call_incoming: 'Incoming Call',
