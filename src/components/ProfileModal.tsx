@@ -80,7 +80,7 @@ const Avatar: React.FC<{ name: string; avatar: string; size?: number }> = ({ nam
         width: size, height: size, borderRadius: '50%',
         background: 'var(--accent-primary)',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
-        color: '#fff', fontWeight: 700, fontSize: size * 0.38, flexShrink: 0,
+        color: '#fff', fontWeight: 700, fontSize: size * 0.38, lineHeight: 1, flexShrink: 0,
       }}>
         {name[0]?.toUpperCase() ?? '?'}
       </div>
@@ -211,19 +211,30 @@ export const ProfileModal: React.FC<{
           {/* Identity */}
           <div style={{ display: 'flex', alignItems: 'flex-end', gap: 12, marginBottom: 12 }}>
             <div style={{ position: 'relative', flexShrink: 0 }}>
-              <div style={{ width: 80, height: 80, borderRadius: '50%', border: '4px solid var(--bg-secondary)', overflow: 'hidden' }}>
+              {/* 88, not 80: `box-sizing: border-box` is global, so a 80-wide
+                  ring leaves only 72 inside and the avatar was clipped off
+                  centre — which is what tipped the initial out of its circle. */}
+              <div style={{ width: 88, height: 88, borderRadius: '50%', border: '4px solid var(--bg-secondary)', overflow: 'hidden' }}>
                 <Avatar name={displayName} avatar={profile.avatar} size={80} />
               </div>
               <span style={{
-                position: 'absolute', bottom: 4, right: 4,
+                position: 'absolute', bottom: 6, right: 6,
                 width: 16, height: 16, borderRadius: '50%',
                 background: STATUS_COLOR[profile.status] ?? STATUS_COLOR.offline,
                 border: '3px solid var(--bg-secondary)',
               }} />
             </div>
-            <div style={{ paddingBottom: 4, minWidth: 0 }}>
-              <div style={{ fontSize: 19, fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.2 }}>
-                {displayName}<AccountBadge account={profile} size="md" />
+            <div style={{ paddingBottom: 4, minWidth: 0, flex: 1 }}>
+              <div style={{
+                fontSize: 19, fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.2,
+                display: 'flex', alignItems: 'center',
+              }}>
+                {/* A long name shortens rather than shoving the badge, the
+                    @name and the status out past the card's edge. */}
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {displayName}
+                </span>
+                <AccountBadge account={profile} size="md" />
               </div>
               <UsernameChip username={profile.username} />
               <div style={{ fontSize: 12, color: STATUS_COLOR[profile.status] ?? STATUS_COLOR.offline, marginTop: 2 }}>
