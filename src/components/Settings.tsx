@@ -813,9 +813,8 @@ const FamilySettings: React.FC = () => {
 
 const VerificationCard: React.FC<{ user: ServerUser | null; isRu: boolean }> = ({ user, isRu }) => {
   const v = user?.verification;
-  const level = v?.level ?? user?.verification_level ?? 0;
 
-  const criteria = [
+  const rawCriteria = [
     {
       lvl: 1,
       done: v?.has_email ?? false,
@@ -841,6 +840,22 @@ const VerificationCard: React.FC<{ user: ServerUser | null; isRu: boolean }> = (
         : 'No complaints for over a year and registered over a year ago',
     },
   ];
+
+  // The ladder is climbed in order: level n only counts once every level
+  // below it is met. Showing level 3 ticked while level 2 is still open would
+  // promise a standing the account does not actually have.
+  let ladderBroken = false;
+  const criteria = rawCriteria.map(c => {
+    const done = c.done && !ladderBroken;
+    if (!done) ladderBroken = true;
+    return { ...c, done };
+  });
+
+  // Without the per-criterion detail there is nothing to count, so fall back
+  // to whatever the server reported.
+  const level = v
+    ? criteria.filter(c => c.done).length
+    : (user?.verification_level ?? 0);
 
   return (
     <div style={card}>
