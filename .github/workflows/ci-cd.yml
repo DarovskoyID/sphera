@@ -172,7 +172,10 @@ jobs:
           mode="${DEPLOY_MODE:-ssl}"
           env_file="${DEPLOY_ENV_FILE:-/etc/sfera/deploy.env}"
           domain="${SFERA_DOMAIN:-}"
-          mail_mode="${SFERA_MAIL_MODE:-}"
+          # Default to self-hosted mail under our domain — without this the
+          # deploy would fall back to start-common's built-in 'yandex' default
+          # and clobber the own-server setup on every run.
+          mail_mode="${SFERA_MAIL_MODE:-own}"
           ssh -i ~/.ssh/sfera_deploy -p "$port" "$user@$DEPLOY_HOST" \
             "set -euo pipefail
              cd '$app_dir'
@@ -182,7 +185,7 @@ jobs:
              set -a
              [ -f '$env_file' ] && . '$env_file'
              ${domain:+export SFERA_DOMAIN='$domain'}
-             ${mail_mode:+export SFERA_MAIL_MODE='$mail_mode'}
+             export SFERA_MAIL_MODE='$mail_mode'
              set +a
              bash scripts/linux/start-common.sh '$mode'"
 
