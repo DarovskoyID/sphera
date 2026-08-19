@@ -150,20 +150,43 @@ interface Rect { top: number; left: number; width: number; height: number; }
  * first sign-in and can be replayed from settings.
  */
 export const OnboardingTour: React.FC = () => {
-  const { authToken, language } = useApp();
+  const { authToken, language, currentServerIP } = useApp();
   const isRu = language === 'ru';
   const [open, setOpen] = useState(false);
   const [step, setStep] = useState(0);
   const [rect, setRect] = useState<Rect | null>(null);
   const advancingRef = useRef(false);
+  const decidedRef = useRef(false);
 
-  // First launch after registration: no flag yet and the user is signed in.
+  // First launch after registration. "Completed" is the account's own flag on
+  // the server, so clearing the browser's cookies/local storage does NOT bring
+  // the tour back — a returning account is recognised as having seen it.
   useEffect(() => {
-    if (authToken && !localStorage.getItem(SEEN_KEY)) {
-      setStep(0);
-      setOpen(true);
-    }
-  }, [authToken]);
+    if (!authToken || !currentServerIP || decidedRef.current) return;
+    if (localStorage.getItem(SEEN_KEY)) { decidedRef.current = true; return; }
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`${currentServerIP}/api/auth/settings/`, {
+          headers: { Authorization: `Bearer ${authToken}` },
+        });
+        if (!res.ok || cancelled) return;
+        const cfg = await res.json();
+        decidedRef.current = true;
+        if (cfg.onboarding_completed) {
+          // Already done on another device / before the cookies were cleared —
+          // cache it locally and never show it here.
+          localStorage.setItem(SEEN_KEY, '1');
+        } else if (!cancelled) {
+          setStep(0);
+          setOpen(true);
+        }
+      } catch {
+        // Offline or the server is unreachable — don't pop the tour on a guess.
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [authToken, currentServerIP]);
 
   // Replay from settings.
   useEffect(() => {
@@ -175,7 +198,15 @@ export const OnboardingTour: React.FC = () => {
   const finish = useCallback(() => {
     localStorage.setItem(SEEN_KEY, '1');
     setOpen(false);
-  }, []);
+    // Remember it on the account too, so a cleared browser won't replay it.
+    if (authToken && currentServerIP) {
+      fetch(`${currentServerIP}/api/auth/settings/update/`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${authToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ onboarding_completed: true }),
+      }).catch(() => undefined);
+    }
+  }, [authToken, currentServerIP]);
 
   const current = STEPS[step];
   const goNext = useCallback(() => {

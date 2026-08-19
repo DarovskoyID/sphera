@@ -272,6 +272,9 @@ class UserSettings(models.Model):
     keyboard_outlines = models.BooleanField(default=False)
     # Language
     language = models.CharField(max_length=5, default='en')
+    # Onboarding — the first-launch tour is marked done here, on the account, so
+    # it does not come back after the browser's local storage is cleared.
+    onboarding_completed = models.BooleanField(default=False)
 
     def __str__(self):
         return f"Settings for {self.user}"
