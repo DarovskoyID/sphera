@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef, createContext, useCont
 import { Shield, ShieldCheck, Monitor, Smartphone, Tablet, Trash2, UserX, Camera, Upload, Play, Square, RotateCcw, Server, CheckCircle2, Circle, Clock, Mic, Video, Volume2, Download, Plus } from 'lucide-react';
 import { ServerSelector } from './ServerSelector';
 import { MessageText } from './EmojiPicker';
+import { CensorOff } from './CensorScope';
 import { useApp, reportError } from '../context/AppContext';
 import { useTranslation } from '../i18n/useTranslation';
 import { languages, type LangCode } from '../i18n';
@@ -1935,7 +1936,7 @@ const FormattingSettings: React.FC = () => {
                 {r.syntax.replace(/\\n/g, '\n')}
               </code>
               <div style={{ fontSize: 14, color: 'var(--text-primary)', whiteSpace: 'pre-wrap', wordBreak: 'break-word', minWidth: 0, flex: isMobile ? '1 1 140px' : undefined }}>
-                <MessageText text={r.example} customEmojis={customEmojis} />
+                <CensorOff><MessageText text={r.example} customEmojis={customEmojis} /></CensorOff>
               </div>
             </div>
           </div>
