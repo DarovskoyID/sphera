@@ -359,14 +359,25 @@ SFERA_TURN_PASS = os.environ.get('SFERA_TURN_PASS', 'sferaturn123')
 # When SMTP credentials are supplied via the environment we send real mail;
 # otherwise (local dev) the code is printed to the server console so the flow
 # is testable without an SMTP server.
+def _env_flag(name, default=False):
+    raw = os.environ.get(name)
+    if raw is None or raw == '':
+        return default
+    return raw.lower() in ('1', 'true', 'yes')
+
+
 EMAIL_HOST = os.environ.get('EMAIL_HOST', '')
 if EMAIL_HOST:
     EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
     EMAIL_PORT = int(os.environ.get('EMAIL_PORT', '587'))
     EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', '')
     EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
-    EMAIL_USE_TLS = os.environ.get('EMAIL_USE_TLS', 'true').lower() in ('1', 'true', 'yes')
-    EMAIL_USE_SSL = os.environ.get('EMAIL_USE_SSL', '').lower() in ('1', 'true', 'yes')
+    # TLS and SSL are mutually exclusive — Django raises and sends nothing if
+    # both are on. SSL wins when set (port 465), and TLS defaults on only when
+    # SSL is off (port 587/STARTTLS). A deployment that sets just one flag can
+    # no longer accidentally end up with both enabled.
+    EMAIL_USE_SSL = _env_flag('EMAIL_USE_SSL', default=(EMAIL_PORT == 465))
+    EMAIL_USE_TLS = False if EMAIL_USE_SSL else _env_flag('EMAIL_USE_TLS', default=True)
 else:
     EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
 
