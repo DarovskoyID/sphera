@@ -958,6 +958,19 @@ Windows — `scripts\windows\stop-all.bat`, macOS — `scripts/macos/stop-all.sh
 4. Дальше обычный деплой (push в `main` или `deploy: true`) с `SFERA_MAIL_MODE=own`
    пропишет Django отправку через локальный Postfix — коды пойдут под вашим доменом.
 
+Обычный деплой **не** переустанавливает Postfix и не трогает DKIM-ключ — только
+переприменяет обвязку (drop-in `EMAIL_*` для Django, guard на порт 25). Сам
+почтовый сервер ставится один раз через `setup_mail`.
+
+**Проверка после деплоя.** Каждый деплой прогоняет шаг **Mail health check**
+([`mail-healthcheck.sh`](scripts/linux/mail-healthcheck.sh)): смотрит, как Django
+настроен на отправку, поднят ли Postfix/OpenDKIM, не зарублен ли исходящий 25,
+отвечает ли SMTP баннером и сходится ли PTR/FCrDNS. Шаг не блокирует деплой —
+проблемы выводятся как `warning`. Чтобы вдобавок отправить **реальное** тестовое
+письмо, запустите workflow вручную и укажите адрес в поле `mail_test_to` — в логе
+шага будет результат и очередь Postfix. Тот же скрипт можно гонять руками:
+`sudo bash scripts/linux/mail-healthcheck.sh [--send you@example.com]`.
+
 Проверка после DNS: `dig +short TXT mail._domainkey.<домен>` и заголовки
 доставленного письма — `spf=pass dkim=pass`.
 

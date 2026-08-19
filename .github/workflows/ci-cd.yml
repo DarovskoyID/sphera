@@ -16,6 +16,12 @@ on:
           for SFERA_DOMAIN, then print the SPF/DKIM/DMARC records to add to DNS
         type: boolean
         default: false
+      mail_test_to:
+        description: >-
+          Optional — after deploy, send a real test email to this address and
+          show the Postfix queue (leave empty to only run the non-sending check)
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -179,3 +185,25 @@ jobs:
              ${mail_mode:+export SFERA_MAIL_MODE='$mail_mode'}
              set +a
              bash scripts/linux/start-common.sh '$mode'"
+
+      # Post-deploy sanity: is mail actually working? Non-blocking — a failed
+      # check annotates a warning but never fails a good deploy. Pass a
+      # recipient via the mail_test_to input to also send a real test email.
+      - name: Mail health check
+        if: env.DEPLOY_SKIP != '1'
+        continue-on-error: true
+        env:
+          DEPLOY_HOST: ${{ secrets.SFERA_DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.SFERA_DEPLOY_USER }}
+          DEPLOY_PORT: ${{ secrets.SFERA_DEPLOY_PORT }}
+          DEPLOY_PATH: ${{ vars.SFERA_DEPLOY_PATH }}
+          MAIL_TEST_TO: ${{ inputs.mail_test_to }}
+        run: |
+          user="${DEPLOY_USER:-root}"
+          port="${DEPLOY_PORT:-22}"
+          app_dir="${DEPLOY_PATH:-/opt/sfera}"
+          to="${MAIL_TEST_TO:-}"
+          ssh -i ~/.ssh/sfera_deploy -p "$port" "$user@$DEPLOY_HOST" \
+            "set -uo pipefail
+             cd '$app_dir'
+             sudo bash scripts/linux/mail-healthcheck.sh ${to:+--send '$to'}"
