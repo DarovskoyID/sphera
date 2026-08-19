@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, useRef } from 'react';
+import React, { useEffect, useLayoutEffect, useState, useCallback, useRef } from 'react';
 import { X } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 
@@ -157,6 +157,8 @@ export const OnboardingTour: React.FC = () => {
   const [rect, setRect] = useState<Rect | null>(null);
   const advancingRef = useRef(false);
   const decidedRef = useRef(false);
+  const cardRef = useRef<HTMLDivElement>(null);
+  const [cardH, setCardH] = useState(220);
 
   // First launch after registration. "Completed" is the account's own flag on
   // the server, so clearing the browser's cookies/local storage does NOT bring
@@ -260,6 +262,13 @@ export const OnboardingTour: React.FC = () => {
     return () => document.removeEventListener('click', onClick, true);
   }, [open, current, goNext]);
 
+  // Measure the card so placement can keep it fully on-screen and off the dock.
+  useLayoutEffect(() => {
+    if (!open) return;
+    const h = cardRef.current?.offsetHeight;
+    if (h && Math.abs(h - cardH) > 1) setCardH(h);
+  });
+
   if (!open) return null;
 
   const isLast = step === STEPS.length - 1;
@@ -275,17 +284,30 @@ export const OnboardingTour: React.FC = () => {
   const mask: React.CSSProperties = { position: 'fixed', background: 'rgba(0,0,0,0.62)', zIndex: 300000 };
   const swallow = (e: React.MouseEvent) => { e.stopPropagation(); e.preventDefault(); };
 
-  // Tooltip placement: prefer below the hole, flip above if there is no room,
-  // and centre it when the step has no target.
+  // Tooltip placement uses the card's *measured* height (its text varies, and a
+  // fixed guess overlapped the mobile dock). Prefer below the hole, flip above
+  // when there isn't room, and fall back to the roomier side; centre it when the
+  // step has no target.
   const CARD_W = Math.min(380, vw - 24);
+  const GAP = 12;
   let cardTop: number;
   let cardLeft: number;
   if (hole) {
-    const below = vh - (hole.top + hole.height);
-    cardTop = below > 240 ? hole.top + hole.height + 12 : Math.max(12, hole.top - 12 - 240);
+    const belowSpace = vh - (hole.top + hole.height);
+    const aboveSpace = hole.top;
+    if (belowSpace >= cardH + GAP) {
+      cardTop = hole.top + hole.height + GAP;
+    } else if (aboveSpace >= cardH + GAP) {
+      cardTop = hole.top - GAP - cardH;
+    } else if (aboveSpace >= belowSpace) {
+      cardTop = Math.max(12, hole.top - GAP - cardH);
+    } else {
+      cardTop = Math.min(vh - cardH - 12, hole.top + hole.height + GAP);
+    }
+    cardTop = Math.max(12, Math.min(cardTop, vh - cardH - 12));
     cardLeft = Math.min(Math.max(12, hole.left + hole.width / 2 - CARD_W / 2), vw - CARD_W - 12);
   } else {
-    cardTop = vh / 2 - 140;
+    cardTop = Math.max(12, vh / 2 - cardH / 2);
     cardLeft = vw / 2 - CARD_W / 2;
   }
 
@@ -315,7 +337,7 @@ export const OnboardingTour: React.FC = () => {
       )}
 
       {/* Tooltip / control card. */}
-      <div style={{
+      <div ref={cardRef} style={{
         position: 'fixed', top: cardTop, left: cardLeft, width: CARD_W, zIndex: 300003,
         background: 'var(--bg-secondary, #2b2d31)', border: '1px solid var(--border-color)',
         borderRadius: 14, padding: 18, boxShadow: '0 18px 50px rgba(0,0,0,0.5)',
