@@ -235,6 +235,17 @@ export const ru: Translations = {
   onb_s5_title: 'Всё под вашим контролем',
   onb_s5_body: 'Настройте приватность, фильтр контента, уведомления и устройства в настройках. Ваш аккаунт — ваши правила.',
 
+  // Voice room — screen share & camera
+  gvr_someone: 'Кто-то',
+  gvr_you: 'Вы',
+  gvr_screen: 'Экран',
+  gvr_minimize: 'Свернуть',
+  gvr_expand: 'Развернуть видео',
+  gvr_share_screen: 'Показать экран',
+  gvr_stop_screen: 'Остановить показ',
+  gvr_start_camera: 'Включить камеру',
+  gvr_stop_camera: 'Выключить камеру',
+
   sn_title: 'Уведомления',
   sn_desc: 'Настройте способ получения уведомлений',
   sn_desktop: 'Уведомления на рабочем столе',

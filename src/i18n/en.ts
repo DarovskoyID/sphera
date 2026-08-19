@@ -246,6 +246,17 @@ export const en = {
   onb_s5_title: 'You are in control',
   onb_s5_body: 'Tune privacy, the content filter, notifications and devices in Settings. Your account, your rules.',
 
+  // Voice room — screen share & camera
+  gvr_someone: 'Someone',
+  gvr_you: 'You',
+  gvr_screen: 'Screen',
+  gvr_minimize: 'Minimize',
+  gvr_expand: 'Expand video',
+  gvr_share_screen: 'Share your screen',
+  gvr_stop_screen: 'Stop sharing',
+  gvr_start_camera: 'Turn on camera',
+  gvr_stop_camera: 'Turn off camera',
+
   // Settings - Notifications
   sn_title: 'Notifications',
   sn_desc: 'Control how you receive notifications',
