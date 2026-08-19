@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useCallback, useRef, createContext, useContext } from 'react';
-import { Shield, ShieldCheck, Monitor, Smartphone, Tablet, Trash2, UserX, Camera, Upload, Play, Square, RotateCcw, Server, CheckCircle2, Circle, Clock, Mic, Video, Volume2, Download, Plus } from 'lucide-react';
+import { Shield, ShieldCheck, Monitor, Smartphone, Tablet, Trash2, UserX, Camera, Upload, Play, Square, RotateCcw, Server, CheckCircle2, Circle, Clock, Mic, Video, Volume2, Download, Plus, Sparkles } from 'lucide-react';
 import { ServerSelector } from './ServerSelector';
 import { MessageText } from './EmojiPicker';
 import { CensorOff } from './CensorScope';
+import { replayOnboarding } from './OnboardingTour';
 import { useApp, reportError } from '../context/AppContext';
 import { useTranslation } from '../i18n/useTranslation';
 import { languages, type LangCode } from '../i18n';
@@ -1620,6 +1621,16 @@ const AppearanceSettings: React.FC = () => {
           </p>
         </>
       )}
+      <div style={divider} />
+      <h3 style={sectionH3}>{tr('onb_settings_label')}</h3>
+      <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: '0 0 10px' }}>{tr('onb_settings_desc')}</p>
+      <button
+        type="button"
+        onClick={replayOnboarding}
+        style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '8px 14px', borderRadius: 8, background: 'var(--bg-tertiary)', color: 'var(--text-primary)', border: '1px solid var(--border-color)', fontSize: 14, cursor: 'pointer' }}
+      >
+        <Sparkles size={15} /> {tr('onb_replay')}
+      </button>
     </section>
   );
 };

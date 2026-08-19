@@ -12,6 +12,7 @@ import { CallWindow } from './components/CallWindow';
 import { GuildVoiceRoom } from './components/GuildVoiceRoom';
 import { ExploreServers } from './components/ExploreServers';
 import { PersonalChannelFeed } from './components/PersonalChannelFeed';
+import { OnboardingTour } from './components/OnboardingTour';
 import { DiaryView } from './components/DiaryView';
 import { Volume2, PhoneOff } from 'lucide-react';
 import { applyA11y } from './utils/accessibility';
@@ -295,6 +296,7 @@ function AppContent() {
       {currentVoiceChannel && <GuildVoiceRoom />}
       <ToastContainer />
       <GuildKickNotification />
+      <OnboardingTour />
     </div>
   );
 }

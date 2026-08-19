@@ -227,6 +227,25 @@ export const en = {
   sdev_revoke_confirm: 'Sign out of all sessions on every device? This will log you out here too.',
   sdev_revoke_button: 'Sign out everywhere',
 
+  // Onboarding tour
+  onb_skip: 'Skip',
+  onb_back: 'Back',
+  onb_next: 'Next',
+  onb_done: 'Get started',
+  onb_settings_label: 'Intro tour',
+  onb_settings_desc: 'New here, or want a refresher? Walk through the basics again.',
+  onb_replay: 'Replay the intro tour',
+  onb_s1_title: 'Welcome to Sfera',
+  onb_s1_body: 'A quick tour of the essentials — it only takes a moment, and you can replay it any time from Appearance settings.',
+  onb_s2_title: 'Messages and friends',
+  onb_s2_body: 'Direct messages, voice and video calls all live in the home tab. Add friends and start a conversation right away.',
+  onb_s3_title: 'Servers and channels',
+  onb_s3_body: 'Join or create servers from the dock. Every server has text and voice channels, plus your own personal channel and private diary.',
+  onb_s4_title: 'Voice and video',
+  onb_s4_body: 'Hop into a voice channel to talk, share your screen, or turn on your camera — no call to set up, just join and go.',
+  onb_s5_title: 'You are in control',
+  onb_s5_body: 'Tune privacy, the content filter, notifications and devices in Settings. Your account, your rules.',
+
   // Settings - Notifications
   sn_title: 'Notifications',
   sn_desc: 'Control how you receive notifications',
