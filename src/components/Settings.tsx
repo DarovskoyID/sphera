@@ -317,7 +317,7 @@ export const Settings: React.FC = () => {
 
   return (
     <SettingsCtx.Provider value={{ s, toggle, setField, setFields }}>
-      <div className="settings-container">
+      <div className="settings-container" data-tour="settings-view">
         <div className="settings-list">
           {currentSettingsPage === 'profile' && <ProfileSettings />}
           {currentSettingsPage === 'content' && <PrivacySettings />}

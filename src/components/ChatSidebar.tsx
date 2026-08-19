@@ -587,7 +587,7 @@ export const ChatSidebar: React.FC = () => {
   };
 
   return (
-    <aside className={`chat-sidebar ${isMobileSidebarOpen ? 'mobile-open' : ''}`}>
+    <aside className={`chat-sidebar ${isMobileSidebarOpen ? 'mobile-open' : ''}`} data-tour="dm-sidebar">
       <div className="chat-sidebar-header">
         {/* No `glass-btn` here: the header reads better with the buttons bare
             until they are pointed at. */}

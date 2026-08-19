@@ -588,13 +588,14 @@ export const ServerSidebar: React.FC = () => {
 
   return (
     <>
-      <aside className={`server-sidebar ${isMobileSidebarOpen ? 'mobile-open' : ''}`}>
+      <aside className={`server-sidebar ${isMobileSidebarOpen ? 'mobile-open' : ''}`} data-tour="server-dock">
         <div className="server-list">
           {/* Pinned top: Settings + DMs */}
           <button
             className={`server-icon ${currentServer === 'settings' ? 'active' : ''}`}
             onClick={() => setCurrentServer('settings')}
             title={tr('nav_settings')}
+            data-tour="nav-settings"
           >
             <Settings size={20} />
           </button>
@@ -603,6 +604,7 @@ export const ServerSidebar: React.FC = () => {
             className={`server-icon ${currentServer === 'home' ? 'active' : ''}`}
             onClick={() => setCurrentServer('home')}
             title={tr('nav_direct_messages')}
+            data-tour="nav-home"
           >
             <Home size={20} />
           </button>
@@ -613,6 +615,7 @@ export const ServerSidebar: React.FC = () => {
             className={`server-icon ${currentServer === 'explore' ? 'active' : ''}`}
             onClick={() => setCurrentServer('explore')}
             title={tr('nav_explore')}
+            data-tour="nav-explore"
           >
             <Compass size={20} />
           </button>
@@ -714,6 +717,7 @@ export const ServerSidebar: React.FC = () => {
 
             <button
               ref={addBtnRef}
+              data-tour="nav-add"
               className="server-icon server-icon-add"
               onClick={() => {
                 const r = addBtnRef.current?.getBoundingClientRect();

@@ -337,7 +337,7 @@ export const ExploreServers: React.FC<{ style?: React.CSSProperties }> = ({ styl
   };
 
   return (
-    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'var(--bg-primary)', ...style }}>
+    <div data-tour="explore-view" style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'var(--bg-primary)', ...style }}>
       {showStudio && <BotStudio onClose={() => setShowStudio(false)} />}
       {showNotes && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,0,0,.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }} onClick={() => setShowNotes(false)}>
