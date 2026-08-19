@@ -10,6 +10,12 @@ on:
         description: Deploy after CI
         type: boolean
         default: false
+      setup_mail:
+        description: >-
+          One-time — install the self-hosted mail server (Postfix + OpenDKIM)
+          for SFERA_DOMAIN, then print the SPF/DKIM/DMARC records to add to DNS
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -83,7 +89,8 @@ jobs:
     runs-on: ubuntu-latest
     if: >
       (github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.SFERA_DEPLOY_ENABLED == 'true') ||
-      (github.event_name == 'workflow_dispatch' && inputs.deploy == true)
+      (github.event_name == 'workflow_dispatch' && inputs.deploy == true) ||
+      (github.event_name == 'workflow_dispatch' && inputs.setup_mail == true)
     steps:
       - name: Install SSH key
         env:
@@ -105,6 +112,31 @@ jobs:
           chmod 600 ~/.ssh/sfera_deploy
           ssh-keyscan -p "$port" -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts
 
+      # One-time bootstrap of the self-hosted mail server for the domain. Runs
+      # only when the workflow is dispatched with setup_mail=true. Installs
+      # Postfix + OpenDKIM (idempotent) and prints the SPF/DKIM/DMARC records to
+      # this job's log — copy them into your DNS zone. After this, a normal
+      # deploy with SFERA_MAIL_MODE=own wires Django to send via it.
+      - name: Bootstrap self-hosted mail (one-time)
+        if: env.DEPLOY_SKIP != '1' && inputs.setup_mail == true
+        env:
+          DEPLOY_HOST: ${{ secrets.SFERA_DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.SFERA_DEPLOY_USER }}
+          DEPLOY_PORT: ${{ secrets.SFERA_DEPLOY_PORT }}
+          DEPLOY_PATH: ${{ vars.SFERA_DEPLOY_PATH }}
+          SFERA_DOMAIN: ${{ vars.SFERA_DOMAIN }}
+        run: |
+          user="${DEPLOY_USER:-root}"
+          port="${DEPLOY_PORT:-22}"
+          app_dir="${DEPLOY_PATH:-/opt/sfera}"
+          domain="${SFERA_DOMAIN:-}"
+          ssh -i ~/.ssh/sfera_deploy -p "$port" "$user@$DEPLOY_HOST" \
+            "set -euo pipefail
+             cd '$app_dir'
+             git fetch --prune origin main
+             git reset --hard origin/main
+             sudo env ${domain:+MAIL_DOMAIN='$domain'} bash scripts/linux/mail-install.sh"
+
       - name: Deploy main on server
         if: env.DEPLOY_SKIP != '1'
         env:
@@ -114,12 +146,16 @@ jobs:
           DEPLOY_PATH: ${{ vars.SFERA_DEPLOY_PATH }}
           DEPLOY_MODE: ${{ vars.SFERA_DEPLOY_MODE }}
           DEPLOY_ENV_FILE: ${{ vars.SFERA_DEPLOY_ENV_FILE }}
+          SFERA_DOMAIN: ${{ vars.SFERA_DOMAIN }}
+          SFERA_MAIL_MODE: ${{ vars.SFERA_MAIL_MODE }}
         run: |
           user="${DEPLOY_USER:-root}"
           port="${DEPLOY_PORT:-22}"
           app_dir="${DEPLOY_PATH:-/opt/sfera}"
           mode="${DEPLOY_MODE:-ssl}"
           env_file="${DEPLOY_ENV_FILE:-/etc/sfera/deploy.env}"
+          domain="${SFERA_DOMAIN:-}"
+          mail_mode="${SFERA_MAIL_MODE:-}"
           ssh -i ~/.ssh/sfera_deploy -p "$port" "$user@$DEPLOY_HOST" \
             "set -euo pipefail
              cd '$app_dir'
@@ -128,5 +164,7 @@ jobs:
              git reset --hard origin/main
              set -a
              [ -f '$env_file' ] && . '$env_file'
+             ${domain:+export SFERA_DOMAIN='$domain'}
+             ${mail_mode:+export SFERA_MAIL_MODE='$mail_mode'}
              set +a
              bash scripts/linux/start-common.sh '$mode'"

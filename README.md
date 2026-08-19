@@ -935,10 +935,31 @@ Windows — `scripts\windows\stop-all.bat`, macOS — `scripts/macos/stop-all.sh
 | `SFERA_DEPLOY_PATH` | Каталог на сервере (по умолчанию `/opt/sfera`) |
 | `SFERA_DEPLOY_MODE` | `ssl` или `http` (по умолчанию `ssl`) |
 | `SFERA_DEPLOY_ENV_FILE` | Файл окружения на сервере (по умолчанию `/etc/sfera/deploy.env`) |
+| `SFERA_DOMAIN` | Ваш домен: `From` писем становится `no-reply@<домен>`, идёт в `ALLOWED_HOSTS`, CSRF и realm TURN |
+| `SFERA_MAIL_MODE` | Режим почты для деплоя: `own` (свой Postfix под доменом), `yandex` или `off` |
 
 Если секреты не заданы, шаг деплоя пропускается с предупреждением, а не валит
 пайплайн. Отдельный workflow [`security.yml`](.github/workflows/security.yml)
 гоняет проверки безопасности.
+
+### Почта под своим доменом через CI/CD
+
+Чтобы письма уходили от `no-reply@<ваш-домен>` со своего сервера (SPF/DKIM/DMARC),
+без внешнего релея:
+
+1. Задайте переменные репозитория `SFERA_DOMAIN` = ваш домен и `SFERA_MAIL_MODE` = `own`.
+2. Один раз запустите workflow **CI/CD** вручную (`Run workflow`) с галкой
+   **`setup_mail`**. Шаг зайдёт на сервер и выполнит
+   [`mail-install.sh`](scripts/linux/mail-install.sh) для `SFERA_DOMAIN`: поднимет
+   Postfix (только `127.0.0.1:25`) + OpenDKIM и **напечатает в лог job'а DNS-записи**
+   (A, SPF, DKIM, DMARC) и напоминание про PTR.
+3. Добавьте эти записи в DNS-зону домена (PTR/rDNS — в панели хостера). Подождите
+   распространения (до ~часа).
+4. Дальше обычный деплой (push в `main` или `deploy: true`) с `SFERA_MAIL_MODE=own`
+   пропишет Django отправку через локальный Postfix — коды пойдут под вашим доменом.
+
+Проверка после DNS: `dig +short TXT mail._domainkey.<домен>` и заголовки
+доставленного письма — `spf=pass dkim=pass`.
 
 ---
 
