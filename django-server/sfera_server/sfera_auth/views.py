@@ -151,7 +151,42 @@ def track_device(request):
             UserDevice.objects.filter(pk=device.pk).update(
                 device_name=name, device_type=dtype,
             )
+
+    # A genuinely new device — but not the account's very first one, which is
+    # just the sign-up itself — is worth telling the owner about, in case it
+    # is not them.
+    if created and user.devices.exclude(pk=device.pk).exists():
+        try:
+            _notify_new_login(user, name, ip)
+        except Exception:
+            pass
     return device
+
+
+def _notify_new_login(user, device_name, ip):
+    """Email the account owner that a new device just signed in."""
+    email = getattr(user, 'email', '') or ''
+    if not email:
+        return
+    when = timezone.now().strftime('%d.%m.%Y %H:%M UTC')
+    subject = 'Сфера — новый вход в аккаунт'
+    body = (
+        f'Здравствуйте, {user.username}!\n\n'
+        f'В ваш аккаунт в Сфере только что вошли с нового устройства:\n\n'
+        f'  Устройство: {device_name}\n'
+        f'  IP-адрес: {ip}\n'
+        f'  Время: {when}\n\n'
+        f'Если это были вы — всё в порядке, письмо можно проигнорировать.\n'
+        f'Если это были не вы — смените пароль и завершите все сеансы '
+        f'в настройках безопасности как можно скорее.'
+    )
+    send_mail(
+        subject,
+        body,
+        getattr(django_settings, 'DEFAULT_FROM_EMAIL', None),
+        [email],
+        fail_silently=True,
+    )
 
 
 # ==================== Auth ====================
