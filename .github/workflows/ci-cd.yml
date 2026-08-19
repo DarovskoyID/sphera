@@ -73,7 +73,18 @@ jobs:
       - name: Install librdkafka build deps
         # rdkafka (feature cmake-build) собирает librdkafka из исходников —
         # нужны те же либы, что и в ws-gateway/Dockerfile, иначе cargo check падает.
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends cmake libssl-dev libsasl2-dev pkg-config
+        #
+        # Зеркала apt на GitHub-раннерах (azure.archive.ubuntu.com) периодически
+        # висят на ретраях по несколько минут. Это лишь sanity-проверка Rust
+        # (см. следующий шаг — он тоже необязательный), поэтому не даём apt
+        # подвесить весь пайплайн: жёсткий таймаут + не валим job при неудаче.
+        timeout-minutes: 6
+        continue-on-error: true
+        run: |
+          sudo apt-get update -o Acquire::Retries=3 || true
+          sudo apt-get install -y --no-install-recommends \
+            -o Acquire::Retries=3 \
+            cmake libssl-dev libsasl2-dev pkg-config
 
       - name: Check ws-gateway
         working-directory: ws-gateway
