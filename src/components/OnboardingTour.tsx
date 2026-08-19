@@ -289,20 +289,22 @@ export const OnboardingTour: React.FC = () => {
   // when there isn't room, and fall back to the roomier side; centre it when the
   // step has no target.
   const CARD_W = Math.min(380, vw - 24);
-  const GAP = 12;
+  const GAP = 16;
   let cardTop: number;
   let cardLeft: number;
   if (hole) {
     const belowSpace = vh - (hole.top + hole.height);
     const aboveSpace = hole.top;
-    if (belowSpace >= cardH + GAP) {
-      cardTop = hole.top + hole.height + GAP;
-    } else if (aboveSpace >= cardH + GAP) {
-      cardTop = hole.top - GAP - cardH;
-    } else if (aboveSpace >= belowSpace) {
-      cardTop = Math.max(12, hole.top - GAP - cardH);
+    // Put the card in the roomier region and CENTRE it there, rather than
+    // hugging the element — that keeps a clear gap from a bottom dock or a top
+    // bar instead of touching it.
+    if (belowSpace >= aboveSpace) {
+      const regionTop = hole.top + hole.height + GAP;
+      const regionH = vh - regionTop - GAP;
+      cardTop = regionTop + Math.max(0, (regionH - cardH) / 2);
     } else {
-      cardTop = Math.min(vh - cardH - 12, hole.top + hole.height + GAP);
+      const regionH = hole.top - GAP * 2;
+      cardTop = GAP + Math.max(0, (regionH - cardH) / 2);
     }
     cardTop = Math.max(12, Math.min(cardTop, vh - cardH - 12));
     cardLeft = Math.min(Math.max(12, hole.left + hole.width / 2 - CARD_W / 2), vw - CARD_W - 12);
