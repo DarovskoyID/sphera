@@ -1342,9 +1342,25 @@ const DeviceIcon = ({ type }: { type: string }) => {
 
 const DevicesSettings: React.FC = () => {
   const tr = useTranslation();
-  const { currentServerIP, authToken } = useApp();
+  const { currentServerIP, authToken, setAuthToken } = useApp();
   const [devices, setDevices] = useState<DeviceEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  const [confirmRevoke, setConfirmRevoke] = useState(false);
+  const [revoking, setRevoking] = useState(false);
+
+  const handleRevokeAll = async () => {
+    setRevoking(true);
+    try {
+      await fetch(`${currentServerIP}/api/auth/me/sessions/revoke/`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Authorization': `Bearer ${authToken}` },
+      });
+    } catch (e) { reportError(e); }
+    // Revoking every session includes this one: drop the local token so the
+    // app returns to the sign-in screen.
+    setAuthToken('');
+  };
 
   const loadDevices = useCallback(async () => {
     try { const res = await fetch(`${currentServerIP}/api/auth/devices/`, { headers: { 'Authorization': `Bearer ${authToken}` } }); if (res.ok) setDevices(await res.json()); } catch (e) { reportError(e); }
@@ -1394,6 +1410,20 @@ const DevicesSettings: React.FC = () => {
           </div>
         );
       })}
+
+      <div style={{ ...card, marginTop: 24 }}>
+        <div style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: 14 }}>{tr('sdev_revoke_all')}</div>
+        <div style={{ fontSize: 12, color: 'var(--text-secondary)', margin: '4px 0 12px' }}>{tr('sdev_revoke_desc')}</div>
+        {confirmRevoke ? (
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 13, color: 'var(--text-primary)' }}>{tr('sdev_revoke_confirm')}</span>
+            <button type="button" disabled={revoking} onClick={handleRevokeAll} style={{ ...btnDanger, padding: '6px 12px' }}>{tr('sdev_revoke_button')}</button>
+            <button type="button" disabled={revoking} onClick={() => setConfirmRevoke(false)} style={{ padding: '6px 12px', background: 'var(--bg-tertiary)', color: 'var(--text-primary)', border: '1px solid var(--border-color)', borderRadius: 8, fontSize: 13, cursor: 'pointer' }}>{tr('cancel')}</button>
+          </div>
+        ) : (
+          <button type="button" onClick={() => setConfirmRevoke(true)} style={{ ...btnDanger, display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px' }}><Trash2 size={14} /> {tr('sdev_revoke_button')}</button>
+        )}
+      </div>
     </section>
   );
 };

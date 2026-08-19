@@ -222,6 +222,10 @@ export const en = {
   sdev_ip: 'IP',
   sdev_last_active: 'Last active',
   sdev_first_login: 'First login',
+  sdev_revoke_all: 'Sign out of all sessions',
+  sdev_revoke_desc: 'End every active session, including this one. You will need to sign in again.',
+  sdev_revoke_confirm: 'Sign out of all sessions on every device? This will log you out here too.',
+  sdev_revoke_button: 'Sign out everywhere',
 
   // Settings - Notifications
   sn_title: 'Notifications',

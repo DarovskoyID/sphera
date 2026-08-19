@@ -211,6 +211,10 @@ export const ru: Translations = {
   sdev_ip: 'IP',
   sdev_last_active: 'Последняя активность',
   sdev_first_login: 'Первый вход',
+  sdev_revoke_all: 'Выйти из всех сеансов',
+  sdev_revoke_desc: 'Завершить все активные сеансы, включая текущий. Потребуется войти заново.',
+  sdev_revoke_confirm: 'Выйти из всех сеансов на всех устройствах? Вы также выйдете и здесь.',
+  sdev_revoke_button: 'Выйти везде',
 
   sn_title: 'Уведомления',
   sn_desc: 'Настройте способ получения уведомлений',

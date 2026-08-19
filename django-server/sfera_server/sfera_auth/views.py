@@ -588,6 +588,25 @@ def change_password(request):
     return response
 
 
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+@throttle_classes([AuthRateThrottle])
+def revoke_sessions(request):
+    """Sign the account out of every session, this one included.
+
+    Blacklists all outstanding refresh tokens and drops the device records, so
+    a stolen or forgotten session on another machine can no longer refresh.
+    The caller is logged out too — the client clears its tokens and returns to
+    the sign-in screen once this succeeds.
+    """
+    _blacklist_user_refresh_tokens(request.user)
+    request.user.devices.all().delete()
+    audit_event(request, 'sessions_revoked')
+    response = Response({'status': 'ok'})
+    _clear_refresh_cookie(response)
+    return response
+
+
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def users_list(request):

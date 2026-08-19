@@ -10,6 +10,7 @@ urlpatterns = [
     path('me/', views.me),
     path('me/update/', views.update_profile),
     path('me/password/', views.change_password),
+    path('me/sessions/revoke/', views.revoke_sessions),
     path('me/delete/', views.delete_account),
     path('users/', views.users_list),
     # Friends
