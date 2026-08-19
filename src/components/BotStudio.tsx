@@ -118,6 +118,7 @@ export const BotStudio: React.FC<Props> = ({ onClose }) => {
   const [selected, setSelected] = useState<string | null>(null);
   const [pendingPort, setPendingPort] = useState<{ node: string; port: 'out' | 'then' | 'else' } | null>(null);
   const [palette, setPalette] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const [language, setLanguage] = useState<TargetLanguage>('python');
@@ -190,13 +191,50 @@ export const BotStudio: React.FC<Props> = ({ onClose }) => {
     setPalette(false);
   }, [view]);
 
-  const removeNode = useCallback((id: string) => {
+  // Drop the node and every edge touching it, leaving whatever it connected
+  // disconnected.
+  const deleteNodeOnly = useCallback((id: string) => {
     setGraph(g => ({
       nodes: g.nodes.filter(n => n.id !== id),
       edges: g.edges.filter(e => e.from !== id && e.to !== id),
     }));
     setSelected(s => (s === id ? null : s));
+    setPendingDelete(null);
   }, []);
+
+  // Drop the node but heal the flow: every parent that pointed at it is
+  // rewired to each of its children, so the chain keeps running.
+  const deleteAndBridge = useCallback((id: string) => {
+    setGraph(g => {
+      const incoming = g.edges.filter(e => e.to === id);
+      const outgoing = g.edges.filter(e => e.from === id);
+      const bridged = incoming.flatMap(inE =>
+        outgoing.map(outE => ({ id: uid(), from: inE.from, port: inE.port, to: outE.to }))
+      // A parent output port can only hold one edge, so keep the first bridge
+      // minted for each (from, port) pair.
+      ).filter((e, i, arr) => arr.findIndex(o => o.from === e.from && o.port === e.port) === i);
+      return {
+        nodes: g.nodes.filter(n => n.id !== id),
+        edges: [
+          ...g.edges.filter(e => e.from !== id && e.to !== id),
+          // Don't duplicate an edge the parent port already has elsewhere.
+          ...bridged.filter(b => !g.edges.some(e => e.from === b.from && e.port === b.port && e.to !== id)),
+        ],
+      };
+    });
+    setSelected(s => (s === id ? null : s));
+    setPendingDelete(null);
+  }, []);
+
+  const removeNode = useCallback((id: string) => {
+    // Only a node wedged between a parent and a child raises the question of
+    // whether to reconnect — otherwise there is nothing to bridge, so delete
+    // straight away.
+    const hasParent = graph.edges.some(e => e.to === id);
+    const hasChild = graph.edges.some(e => e.from === id);
+    if (hasParent && hasChild) setPendingDelete(id);
+    else deleteNodeOnly(id);
+  }, [graph, deleteNodeOnly]);
 
   const updateData = useCallback((id: string, key: string, value: string) => {
     setGraph(g => ({
@@ -648,6 +686,36 @@ export const BotStudio: React.FC<Props> = ({ onClose }) => {
                   </span>
                 </button>
               ))}
+            </div>
+          </div>
+        </>
+      )}
+
+      {pendingDelete && (
+        <>
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.5)', zIndex: 60 }} onClick={() => setPendingDelete(null)} />
+          <div style={{
+            position: 'fixed', left: '50%', top: '50%', transform: 'translate(-50%,-50%)',
+            width: 380, maxWidth: '90vw', borderRadius: 16, padding: 18, zIndex: 61,
+            background: 'var(--bg-secondary, #2b2d31)', border: '1px solid var(--border-color)',
+          }}>
+            <b style={{ color: 'var(--text-primary)', display: 'block', marginBottom: 8 }}>
+              {t('Удалить узел', 'Delete node')}
+            </b>
+            <p style={{ color: 'var(--text-tertiary)', fontSize: 13, lineHeight: 1.4, margin: '0 0 16px' }}>
+              {t('Этот узел соединяет родительские и дочерние узлы. Соединить их между собой или удалить только этот узел, разорвав связь?',
+                 'This node links its parents and children. Reconnect them together, or just delete this node and break the link?')}
+            </p>
+            <div style={{ display: 'grid', gap: 8 }}>
+              <button onClick={() => deleteAndBridge(pendingDelete)} style={{ ...toolButton, justifyContent: 'center', width: '100%' }}>
+                {t('Соединить родителей с детьми', 'Reconnect parents to children')}
+              </button>
+              <button onClick={() => deleteNodeOnly(pendingDelete)} style={{ ...toolButton, justifyContent: 'center', width: '100%', borderColor: '#ed424555', color: '#ed4245' }}>
+                {t('Удалить только этот узел', 'Delete this node only')}
+              </button>
+              <button onClick={() => setPendingDelete(null)} style={{ ...toolButton, justifyContent: 'center', width: '100%', background: 'transparent' }}>
+                {t('Отмена', 'Cancel')}
+              </button>
             </div>
           </div>
         </>
