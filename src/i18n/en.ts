@@ -256,6 +256,8 @@ export const en = {
   gvr_stop_screen: 'Stop sharing',
   gvr_start_camera: 'Turn on camera',
   gvr_stop_camera: 'Turn off camera',
+  gvr_mute: 'Mute',
+  gvr_unmute: 'Unmute',
 
   // Settings - Notifications
   sn_title: 'Notifications',

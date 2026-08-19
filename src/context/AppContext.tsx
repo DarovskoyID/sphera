@@ -3137,6 +3137,12 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
   const voiceWs = useRef<WebSocket | null>(null);
 
   const joinVoiceChannel = useCallback((channel: GuildChannel) => {
+    // Already in this channel — just focus its view (show the card grid) instead
+    // of tearing down and rejoining. Leaving is done from the disconnect button.
+    if (state.currentVoiceChannel?.id === channel.id) {
+      setState(prev => ({ ...prev, currentGuildChannel: null }));
+      return;
+    }
     if (voiceWs.current) {
       voiceWs.current.close();
       voiceWs.current = null;
@@ -3144,6 +3150,9 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     setState(prev => ({
       ...prev,
       currentVoiceChannel: channel,
+      // Focus the voice view: clearing the text channel makes the main area show
+      // the participant grid.
+      currentGuildChannel: null,
       voiceParticipants: [],
       isCallActive: false,
       callStatus: 'inactive' as const,
@@ -3199,7 +3208,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
         return { ...prev, currentVoiceChannel: null, voiceParticipants: [] };
       });
     };
-  }, [state.currentServerIP, state.authToken, state.currentGuild?.id]);
+  }, [state.currentServerIP, state.authToken, state.currentGuild?.id, state.currentVoiceChannel?.id]);
 
   const leaveVoiceChannel = useCallback(() => {
     voiceWs.current?.close();

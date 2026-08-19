@@ -326,7 +326,7 @@ export const GuildSidebar: React.FC = () => {
     currentGuild, currentGuildChannel, selectGuildChannel,
     createChannel, deleteChannel, updateChannel, deleteGuild, leaveGuild,
     createCategory, deleteCategory, toggleGuildNotifications,
-    joinVoiceChannel, leaveVoiceChannel, currentVoiceChannel,
+    joinVoiceChannel, currentVoiceChannel,
     voiceChannelParticipants, voiceParticipants, currentServerIP, authToken,
     loadGuildRoles, setMobileActivePanel,
   } = useApp();
@@ -550,9 +550,13 @@ export const GuildSidebar: React.FC = () => {
                       <div key={ch.id} style={{ display: 'flex', flexDirection: 'column' }}>
                         <ChannelItem className={`channel-item ${isActive ? 'active' : ''}`} style={{ cursor: 'pointer', position: 'relative' }}
                           onOpen={() => {
-                            if (isActive) return leaveVoiceChannel();
-                            const limit = ch.user_limit ?? 0;
-                            if (limit > 0 && (mergedPresence[ch.id] ?? []).length >= limit) return;
+                            // Clicking the channel you're already in focuses its
+                            // view (handled inside joinVoiceChannel); you leave
+                            // from the disconnect button, Discord-style.
+                            if (!isActive) {
+                              const limit = ch.user_limit ?? 0;
+                              if (limit > 0 && (mergedPresence[ch.id] ?? []).length >= limit) return;
+                            }
                             joinVoiceChannel(ch);
                           }}
                           onMenu={(x, y) => setChannelMenu({ id: ch.id, x, y, type: ch.type, user_limit: ch.user_limit ?? 0 })}>
@@ -616,9 +620,13 @@ export const GuildSidebar: React.FC = () => {
                   <div key={ch.id} style={{ display: 'flex', flexDirection: 'column' }}>
                     <ChannelItem className={`channel-item ${isActive ? 'active' : ''}`} style={{ cursor: 'pointer', position: 'relative' }}
                       onOpen={() => {
-                            if (isActive) return leaveVoiceChannel();
-                            const limit = ch.user_limit ?? 0;
-                            if (limit > 0 && (mergedPresence[ch.id] ?? []).length >= limit) return;
+                            // Clicking the channel you're already in focuses its
+                            // view (handled inside joinVoiceChannel); you leave
+                            // from the disconnect button, Discord-style.
+                            if (!isActive) {
+                              const limit = ch.user_limit ?? 0;
+                              if (limit > 0 && (mergedPresence[ch.id] ?? []).length >= limit) return;
+                            }
                             joinVoiceChannel(ch);
                           }}
                       onMenu={(x, y) => setChannelMenu({ id: ch.id, x, y, type: ch.type, user_limit: ch.user_limit ?? 0 })}>

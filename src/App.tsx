@@ -9,7 +9,7 @@ import { GuildChatMain } from './components/GuildChatMain';
 import { AuthScreen } from './components/AuthScreen';
 import { IncomingCallModal } from './components/IncomingCallModal';
 import { CallWindow } from './components/CallWindow';
-import { GuildVoiceRoom } from './components/GuildVoiceRoom';
+import { VoiceRoomProvider, GuildVoiceStage } from './components/voiceRoom';
 import { ExploreServers } from './components/ExploreServers';
 import { PersonalChannelFeed } from './components/PersonalChannelFeed';
 import { OnboardingTour } from './components/OnboardingTour';
@@ -240,7 +240,7 @@ function useKeybindings() {
 }
 
 function AppContent() {
-  const { authToken, isCallActive, currentView, currentChat, mobileActivePanel, currentGuild, currentVoiceChannel, leaveVoiceChannel } = useApp();
+  const { authToken, isCallActive, currentView, currentChat, mobileActivePanel, currentGuild, currentGuildChannel, currentVoiceChannel, leaveVoiceChannel } = useApp();
   const tr = useTranslation();
   const isMobile = useMobile();
   useKeybindings();
@@ -269,7 +269,11 @@ function AppContent() {
       ) : inGuild ? (
         <>
           <GuildSidebar />
-          <GuildChatMain />
+          {/* Looking at the voice channel you're connected to → the Discord-style
+              card grid; otherwise the text channel (or its welcome screen). */}
+          {currentVoiceChannel && !currentGuildChannel && currentGuild?.channels?.some(c => c.id === currentVoiceChannel.id)
+            ? <GuildVoiceStage />
+            : <GuildChatMain />}
         </>
       ) : (
         <>
@@ -293,7 +297,6 @@ function AppContent() {
       )}
       <IncomingCallModal />
       {isCallActive && !inChat && <CallWindow />}
-      {currentVoiceChannel && <GuildVoiceRoom />}
       <ToastContainer />
       <GuildKickNotification />
       <OnboardingTour />
@@ -304,7 +307,9 @@ function AppContent() {
 function App() {
   return (
     <AppProvider>
-      <AppContent />
+      <VoiceRoomProvider>
+        <AppContent />
+      </VoiceRoomProvider>
     </AppProvider>
   );
 }

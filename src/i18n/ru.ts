@@ -245,6 +245,8 @@ export const ru: Translations = {
   gvr_stop_screen: 'Остановить показ',
   gvr_start_camera: 'Включить камеру',
   gvr_stop_camera: 'Выключить камеру',
+  gvr_mute: 'Выключить микрофон',
+  gvr_unmute: 'Включить микрофон',
 
   sn_title: 'Уведомления',
   sn_desc: 'Настройте способ получения уведомлений',
