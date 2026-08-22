@@ -156,7 +156,13 @@ run_ramp() {
   local max="${RAMP_MAX:-30000}" thr="${RAMP_FAIL_ERRORS:-0.25}"
   local maxconn="${RAMP_MAXCONN:-100}" base="${BASE_URL:-https://127.0.0.1:8000}"
   local report="${RAMP_REPORT:-$HERE/ramp-result.txt}"
-  local probe="$base/status-$(date +%Y-%m-%d)/"
+  # Токен для status/metrics: на проде задан SFERA_STATUS_TOKEN (его требует
+  # сервер В ПУТИ status-<token>/ и как ?token= у /metrics). Если не задан —
+  # legacy-токен = сегодняшняя дата. Без этого проба ловит 404 и ложно решает,
+  # что сервер «упал».
+  local stok="${SFERA_STATUS_TOKEN:-$(date +%Y-%m-%d)}"
+  local probe="$base/status-$stok/"
+  local metrics_url="$base/metrics/?token=$stok"
   local rate="$start" prev_ok=0 fell=0 reason=""
 
   # RAMP_ALL=1 — грузить ВСЁ, что видно в Grafana: каналы+ЛС, онлайн-присутствие,
@@ -203,8 +209,8 @@ run_ramp() {
     sent="$(printf '%s' "$out"  | grep -oE 'отправлено [0-9]+' | grep -oE '[0-9]+' | tail -1)"; sent="${sent:-0}"
     errors="$(printf '%s' "$out" | grep -oE 'ошибок [0-9]+'    | grep -oE '[0-9]+' | tail -1)"; errors="${errors:-0}"
     code="$(curl -sk -o /dev/null -w '%{http_code}' --max-time 8 "$probe" 2>/dev/null || echo 000)"
-    cpu="$(curl -s --max-time 5 http://127.0.0.1:8010/metrics/ 2>/dev/null | grep -oE '^sfera_cpu_percent [0-9.]+'    | awk '{print $2}')"
-    mem="$(curl -s --max-time 5 http://127.0.0.1:8010/metrics/ 2>/dev/null | grep -oE '^sfera_memory_percent [0-9.]+' | awk '{print $2}')"
+    cpu="$(curl -sk --max-time 5 "$metrics_url" 2>/dev/null | grep -oE '^sfera_cpu_percent [0-9.]+'    | awk '{print $2}')"
+    mem="$(curl -sk --max-time 5 "$metrics_url" 2>/dev/null | grep -oE '^sfera_memory_percent [0-9.]+' | awk '{print $2}')"
     echo "    отправлено=$sent ошибок=$errors health=$code CPU=${cpu:-?}% MEM=${mem:-?}%"
 
     total=$((sent + errors))
@@ -218,6 +224,14 @@ run_ramp() {
 
     if [ "$fell" = "1" ]; then
       echo ""
+      # Если отправок было ноль — это почти всегда логин/коннект, а не «отказ».
+      # Показываем реальный вывод стадии, чтобы было видно ПОЧЕМУ (иначе он
+      # проглатывался и приходилось гадать).
+      if [ "$total" -eq 0 ]; then
+        echo "--- вывод последней стадии (seed_load), тут причина 0 отправок: ---"
+        printf '%s\n' "$out" | sed 's/^/    /'
+        echo "-----------------------------------------------------------------"
+      fi
       echo "!!! СЕРВЕР УПАЛ на $rate сообщений/мин — $reason"
       {
         echo "=== sfera ramp result — $(date) ==="
