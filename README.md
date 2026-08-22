@@ -804,6 +804,15 @@ ELASTICSEARCH_URL=http://127.0.0.1:9200
 другой базы, и вход на сервер провалится с результатом 0 из N. На дев-машине
 файл не нужен — там sqlite и есть рабочая база.
 
+**Секреты на проде.** При `SFERA_DEBUG=0` (боевой сервер) Django требует
+`SFERA_SECRET_KEY`, а `seed_load` ещё и шифрует сообщения ключом
+`SFERA_MESSAGE_ENCRYPTION_KEY`. Иначе — падение `ImproperlyConfigured:
+SFERA_SECRET_KEY must be set`. `run.sh` сам подхватывает их из
+`/etc/sfera/secrets.env` (того же файла, что systemd подаёт сервису) — под root
+напрямую, иначе через `sudo`. Если файл в другом месте — укажите
+`SFERA_SECRETS=/путь/secrets.env`, либо просто `export SFERA_SECRET_KEY=…` перед
+запуском.
+
 ### Очистка
 
 Удаляет всё с префиксами `loadtest_` (пользователи) и `[LT] ` (серверы и личные

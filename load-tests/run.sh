@@ -74,6 +74,10 @@ usage() {
 ЗАМЕТКИ:
   • На сервере рядом со скриптом должен быть loadtest.env (PG/ES) — тогда нагрузка
     идёт в ту же БД, что и сервер. Создаётся автоматически при start-common.sh.
+  • На проде (SFERA_DEBUG=0) settings требует SFERA_SECRET_KEY, а seed_load ещё и
+    SFERA_MESSAGE_ENCRYPTION_KEY. Скрипт сам подхватывает их из /etc/sfera/secrets.env
+    (root или sudo). Другой путь — SFERA_SECRETS=/путь/secrets.env, либо просто
+    экспортни SFERA_SECRET_KEY перед запуском.
   • Звонкам нужны пакеты из requirements-loadtest.txt (aiortc/websockets).
 USAGE
 }
@@ -81,6 +85,21 @@ USAGE
 for _a in "$@"; do
   case "$_a" in -h|--help|help) usage; exit 0 ;; esac
 done
+
+# Подхватываем секреты СЕРВЕРА (SFERA_SECRET_KEY, SFERA_MESSAGE_ENCRYPTION_KEY и
+# т.д.), если запускаемся на проде. В проде DEBUG=0 → settings.py требует
+# SFERA_SECRET_KEY, а seed_load ещё и шифрует сообщения ключом
+# SFERA_MESSAGE_ENCRYPTION_KEY. Единственный источник правды — тот же файл,
+# который systemd подаёт сервису (EnvironmentFile=/etc/sfera/secrets.env), поэтому
+# читаем его напрямую (root или sudo). Так секрет не дублируется в репозиторий и
+# всегда совпадает с работающим сервером.
+SFERA_SECRETS="${SFERA_SECRETS:-/etc/sfera/secrets.env}"
+if [ -r "$SFERA_SECRETS" ]; then
+  set -a; . "$SFERA_SECRETS"; set +a
+elif [ -f "$SFERA_SECRETS" ] && command -v sudo >/dev/null 2>&1; then
+  # Файл есть, но не читается напрямую (root-only) — берём через sudo.
+  set -a; . <(sudo cat "$SFERA_SECRETS" 2>/dev/null) || true; set +a
+fi
 
 # Подхватываем БД/поиск-окружение, если есть loadtest.env рядом со скриптом.
 # ВАЖНО: management-команда seed_load должна работать с ТОЙ ЖЕ БД, что и сервер.
