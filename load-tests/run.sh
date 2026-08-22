@@ -264,10 +264,12 @@ PURGE=0
 for a in "$@"; do
   case "$a" in
     --purge|-Purge|-purge) PURGE=1 ;;
-    light|medium|high|custom|rate|ramp) PROFILE="$a" ;;
+    light|medium|high|custom|rate|ramp|botapi|purge) PROFILE="$a" ;;
     *) echo "Неизвестный аргумент: $a" >&2; exit 1 ;;
   esac
 done
+# ./run.sh purge — ТОЛЬКО очистка, без последующего сидирования.
+[ "$PROFILE" = "purge" ] && PURGE=1
 
 echo "manage.py: $MANAGE"
 echo "python:    $PY"
@@ -276,6 +278,8 @@ echo "Профиль:   $PROFILE"
 if [ "$PURGE" = "1" ]; then
   "$PY" "$MANAGE" seed_load --purge
 fi
+# В режиме purge на этом и заканчиваем — данные не сеем.
+[ "$PROFILE" = "purge" ] && exit 0
 
 if [ "$PROFILE" = "ramp" ]; then
   run_ramp

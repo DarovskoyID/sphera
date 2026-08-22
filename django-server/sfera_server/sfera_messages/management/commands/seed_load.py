@@ -263,10 +263,16 @@ class Command(BaseCommand):
             Message.objects.filter(author__username__startswith=USER_PREFIX), 1000)
         g = self._delete_in_batches(Guild.objects.filter(name__startswith=GUILD_PREFIX), 200)
         u = self._delete_in_batches(User.objects.filter(username__startswith=USER_PREFIX), 200)
+        # Временные боты нагрузки (rate/ramp/botapi) — username lt_rate_* / lt_load_*.
+        # Обычно удаляются сами в конце прогона, но после Ctrl-C/сбоя остаются;
+        # удаление User каскадит BotAccount и членства. account_type='bot' — чтобы
+        # случайно не задеть живого пользователя с похожим ником.
+        b = self._delete_in_batches(
+            User.objects.filter(account_type='bot', username__regex=r'^lt_(rate|load)_'), 200)
         es = self._purge_es()
         self.stdout.write(self.style.SUCCESS(
             f'  Удалено: guild-сообщений {gm}, ЛС {dm}, серверов/связей {g}, '
-            f'пользователей/связей {u}. ES: {es}'))
+            f'пользователей/связей {u}, ботов нагрузки {b}. ES: {es}'))
 
     # ── main ─────────────────────────────────────────────────────────────────
 
