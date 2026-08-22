@@ -702,6 +702,22 @@ function slotPassSays(text: string): boolean {
   return hitsSlots(hays, DISABLE_VERBS) && hitsSlots(hays, DISABLE_NOUNS);
 }
 
+/**
+ * Does the text read like natural-language prose (as opposed to ASCII art, a
+ * banner, a code block, a table…)? A real "turn the filter off" appeal is a
+ * sentence — overwhelmingly letters. Art and code are mostly symbols and spaces,
+ * which the char n-gram classifier never saw in training and can misread as an
+ * appeal, masking a perfectly harmless message (e.g. a bot's `/help` banner).
+ * The exact stem and slot passes stay in force regardless — this only decides
+ * whether the fuzzy *model* is allowed an opinion.
+ */
+function looksLikeProse(text: string): boolean {
+  const scan = text.slice(0, MAX_SCAN);
+  const letters = (scan.match(/\p{L}/gu) || []).length;
+  const nonSpace = (scan.match(/\S/gu) || []).length;
+  return nonSpace > 0 && letters / nonSpace >= 0.5;
+}
+
 /** True when the whole message should be masked (disable-the-filter appeals). */
 export function isFullBlur(text: string, cfg: CensorConfig = getCensorConfig()): boolean {
   if (!cfg.blur_enabled || !cfg.blur_disable_requests || !text) return false;
@@ -724,8 +740,9 @@ export function isFullBlur(text: string, cfg: CensorConfig = getCensorConfig()):
     || slotPassSays(text)
     // Last, the classifier — for the appeals that carry no complete stem at
     // all, which is the one thing everything above depends on. "otkl v
-    // nastroikah" gets past every rule here and does not get past this.
-    || modelSaysAppeal(text);
+    // nastroikah" gets past every rule here and does not get past this. Only
+    // consulted for prose: on art / code it misfires and masks harmless text.
+    || (looksLikeProse(text) && modelSaysAppeal(text));
   remember(fullBlurCache, text, { epoch, value }, 2000);
   return value;
 }

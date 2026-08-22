@@ -327,7 +327,17 @@ def _status_json(request):
         'kafka': _kafka_stats(),
         'channel_layer': _channel_layer_stats(),
         'http': _request_stats(),
+        'bot_api': _bot_api_stats(),
         'websockets': _ws_stats(),
+    }
+
+
+def _bot_api_stats():
+    return {
+        'requests_total': _cval('bot_api_requests_total'),
+        'requests_standard': _cval('bot_api_requests_standard'),
+        'requests_premium': _cval('bot_api_requests_premium'),
+        'throttled_total': _cval('bot_api_throttled_total'),
     }
 
 
@@ -448,6 +458,17 @@ function renderCards(d){
     ${h.latency?metricRow('p95 Latency',h.latency.p95_ms+' ms','yellow'):''}
     ${h.latency?metricRow('p99 Latency',h.latency.p99_ms+' ms','red'):''}
   </div>`;
+
+  // Bot API
+  const b=d.bot_api;
+  if(b){
+    cards+=`<div class="card"><h3>Bot API</h3>
+      ${metricRow('Total Requests',(b.requests_total||0).toLocaleString())}
+      ${metricRow('Standard tier',(b.requests_standard||0).toLocaleString(),'blue')}
+      ${metricRow('Premium tier',(b.requests_premium||0).toLocaleString(),'purple')}
+      ${metricRow('Throttled (429)',(b.throttled_total||0).toLocaleString(),'red')}
+    </div>`;
+  }
 
   // WebSocket
   const w=d.websockets;
@@ -624,6 +645,12 @@ def prometheus_metrics(request):
         gauge('sfera_http_latency_p50_ms', req_stats['latency']['p50_ms'], 'HTTP p50 latency ms')
         gauge('sfera_http_latency_p95_ms', req_stats['latency']['p95_ms'], 'HTTP p95 latency ms')
         gauge('sfera_http_latency_p99_ms', req_stats['latency']['p99_ms'], 'HTTP p99 latency ms')
+
+    # Bot API load (cross-process totals from Redis) — two-tier throughput.
+    counter('sfera_bot_api_requests_total', _cval('bot_api_requests_total'), 'Total bot API requests')
+    counter('sfera_bot_api_requests_standard_total', _cval('bot_api_requests_standard'), 'Bot API requests on the standard tier')
+    counter('sfera_bot_api_requests_premium_total', _cval('bot_api_requests_premium'), 'Bot API requests on the premium tier')
+    counter('sfera_bot_api_throttled_total', _cval('bot_api_throttled_total'), 'Bot API requests rejected by rate limiting (429)')
 
     # WebSocket (cross-process totals from Redis)
     counter('sfera_ws_connections_total', _cval('ws_connections_total'), 'Total WS connections')

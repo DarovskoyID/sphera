@@ -1,15 +1,16 @@
 import React, { useEffect, useRef, useCallback, useState, createContext, useContext } from 'react';
-import { Monitor, MonitorOff, Video, VideoOff, PhoneOff, Mic, MicOff } from 'lucide-react';
+import { Monitor, MonitorOff, Video, VideoOff, PhoneOff, Mic, MicOff, ChevronLeft } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { useTranslation } from '../i18n/useTranslation';
 import { getIceServers, getSelectedServerEntry, fetchPoolIceServers } from '../config/network';
 
 const SPEAKING_THRESHOLD = 15; // 0–255 RMS
 
-function AudioEl({ stream }: { stream: MediaStream }) {
+function AudioEl({ stream, muted }: { stream: MediaStream; muted?: boolean }) {
   const ref = useRef<HTMLAudioElement>(null);
   useEffect(() => { if (ref.current) ref.current.srcObject = stream; }, [stream]);
-  return <audio ref={ref} autoPlay style={{ display: 'none' }} />;
+  useEffect(() => { if (ref.current) ref.current.muted = !!muted; }, [muted]);
+  return <audio ref={ref} autoPlay muted={muted} style={{ display: 'none' }} />;
 }
 
 interface PeerEntry {
@@ -45,6 +46,7 @@ export const VoiceRoomProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     setSpeakersActive,
     authToken,
     currentServerIP,
+    isHeadphonesActive,
   } = useApp();
 
   const peers = useRef<Map<string, PeerEntry>>(new Map());
@@ -314,7 +316,7 @@ export const VoiceRoomProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     <Ctx.Provider value={value}>
       {children}
       {currentVoiceChannel && [...remoteStreams.current.entries()].map(([id, stream]) => (
-        <AudioEl key={id} stream={stream} />
+        <AudioEl key={id} stream={stream} muted={!isHeadphonesActive} />
       ))}
     </Ctx.Provider>
   );
@@ -341,7 +343,7 @@ export const GuildVoiceStage: React.FC<{ style?: React.CSSProperties }> = ({ sty
   const {
     currentVoiceChannel, voiceParticipants, SpeakersActive, userIDonServer,
     currentUser, currentServerIP, leaveVoiceChannel, voiceLocalStream,
-    isMicActive, setMicActive,
+    isMicActive, setMicActive, setMobileActivePanel,
   } = useApp();
 
   const toggleMic = () => {
@@ -377,6 +379,15 @@ export const GuildVoiceStage: React.FC<{ style?: React.CSSProperties }> = ({ sty
   return (
     <div className="guild-chat-main" style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, background: 'var(--bg-primary)', ...style }}>
       <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+        <button
+          className="mobile-back-btn"
+          style={{ display: 'none', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', padding: '0 4px 0 0', alignItems: 'center' }}
+          onPointerDown={e => { e.preventDefault(); e.stopPropagation(); setMobileActivePanel('guild-channels'); }}
+          onClick={e => { e.preventDefault(); e.stopPropagation(); setMobileActivePanel('guild-channels'); }}
+          aria-label="Back"
+        >
+          <ChevronLeft size={20} />
+        </button>
         <Monitor size={16} style={{ color: 'var(--accent-primary)' }} />
         <span style={{ fontWeight: 700, color: 'var(--text-primary)', fontSize: 15 }}>{currentVoiceChannel.name}</span>
         <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>· {list.length}</span>
@@ -384,8 +395,8 @@ export const GuildVoiceStage: React.FC<{ style?: React.CSSProperties }> = ({ sty
 
       <div style={{
         flex: 1, minHeight: 0, overflowY: 'auto', padding: 16,
-        display: 'grid', gap: 14, alignContent: 'center', justifyContent: 'center',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+        display: 'grid', gap: 14, alignContent: 'center', justifyContent: 'center', justifyItems: 'center',
+        gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 320px))',
       }}>
         {list.map(p => {
           const vid = videoFor(p.id);
@@ -395,7 +406,7 @@ export const GuildVoiceStage: React.FC<{ style?: React.CSSProperties }> = ({ sty
           const isSelf = p.id === userIDonServer;
           return (
             <div key={p.id} style={{
-              position: 'relative', aspectRatio: '16 / 10', borderRadius: 14, overflow: 'hidden',
+              position: 'relative', width: '100%', maxWidth: 320, aspectRatio: '16 / 10', borderRadius: 14, overflow: 'hidden',
               background: 'var(--bg-secondary, #1e1f22)',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               border: speaking ? '2px solid #3ba55c' : '2px solid transparent',

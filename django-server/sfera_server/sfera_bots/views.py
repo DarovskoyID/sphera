@@ -57,6 +57,7 @@ def _bot_view(account, token=None):
         'avatar': account.user.avatar.url if account.user.avatar else '',
         'commands': account.commands,
         'token_prefix': account.token_prefix,
+        'api_tier': account.api_tier,
         'is_active': account.is_active,
         'is_system': account.is_system,
         'created_at': account.created_at.isoformat(),

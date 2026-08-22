@@ -29,6 +29,8 @@ HELP = (
     'Через меня создаются боты Сферы.\n\n'
     '**Создание**\n'
     '- `/newbot` — создать бота и получить ключ\n'
+    '  При создании выбирается тип API: **стандартный** (обычный лимит) или '
+    '**продвинутый** (премиум, повышенная пропускная способность).\n'
     '- `/mybots` — список ваших ботов\n\n'
     '**Настройка**\n'
     '- `/setcommands <бот>` — команды, которые видны у поля ввода\n'
@@ -198,7 +200,28 @@ def _continue(bot, author, state, text):
             'Окончание `_bot` добавится автоматически, если его нет.'
         )
     if step == 'username':
-        return _create(bot, author, state.get('display_name') or text, text)
+        name = normalize_username(text)
+        if name is None:
+            return (
+                'Юзернейм не подходит. Латиница, цифры и «_», 4–28 символов вместе '
+                'с окончанием `_bot`. Пришлите другой.'
+            )
+        if User.objects.filter(username__iexact=name).exists():
+            return 'Такой юзернейм уже занят. Пришлите другой.'
+        _set_state(bot, author.id, {
+            'step': 'tier',
+            'display_name': state.get('display_name') or name,
+            'username': name,
+        })
+        return _ask_tier(name)
+    if step == 'tier':
+        tier = _parse_tier(text)
+        if tier is None:
+            return (
+                'Не понял тип. Пришлите «1» — стандартный, или «2» — продвинутый '
+                '(премиум).'
+            )
+        return _create(bot, author, state.get('display_name'), state.get('username'), tier)
     if step == 'commands':
         target = BotAccount.objects.filter(id=state.get('bot_id'), owner=author).first()
         if target is None:
@@ -273,13 +296,15 @@ def parse_command_list(text):
     return commands
 
 
-def create_bot(owner, display_name, username):
+def create_bot(owner, display_name, username, api_tier=BotAccount.TIER_STANDARD):
     """Create the bot user + account. Returns (bot, plain_token) or raises ValueError."""
     name = normalize_username(username)
     if name is None:
         raise ValueError('bad username')
     if User.objects.filter(username__iexact=name).exists():
         raise ValueError('username taken')
+    if api_tier not in (BotAccount.TIER_STANDARD, BotAccount.TIER_PREMIUM):
+        api_tier = BotAccount.TIER_STANDARD
     with transaction.atomic():
         bot_user = User.objects.create(
             username=name,
@@ -293,15 +318,40 @@ def create_bot(owner, display_name, username):
         account = BotAccount(
             user=bot_user, owner=owner,
             display_name=(display_name or name)[:64],
+            api_tier=api_tier,
         )
         token = account.set_token()
         account.save()
     return account, token
 
 
-def _create(bot, author, display_name, username):
+def _ask_tier(username):
+    return (
+        f'Юзернейм: @{username}\n\n'
+        'Выберите тип бота — это влияет на пропускную способность его API:\n'
+        '**1. Стандартный** — обычный лимит запросов, подходит большинству ботов.\n'
+        '**2. Продвинутый** (премиум) — повышенный лимит для больших нагрузок '
+        '(платный тариф).\n\n'
+        'Пришлите «1» или «2».'
+    )
+
+
+def _parse_tier(text):
+    t = (text or '').strip().lower().lstrip('#').strip()
+    if t in ('1', 'стандарт', 'стандартный', 'standard', 'обычный', 'обычная', 'basic'):
+        return BotAccount.TIER_STANDARD
+    if t in ('2', 'премиум', 'premium', 'продвинутый', 'pro', 'про', 'advanced'):
+        return BotAccount.TIER_PREMIUM
+    return None
+
+
+def _tier_label(account):
+    return 'Продвинутый (премиум)' if account.api_tier == BotAccount.TIER_PREMIUM else 'Стандартный'
+
+
+def _create(bot, author, display_name, username, api_tier=BotAccount.TIER_STANDARD):
     try:
-        account, token = create_bot(author, display_name, username)
+        account, token = create_bot(author, display_name, username, api_tier)
     except ValueError as exc:
         if str(exc) == 'username taken':
             return 'Такой юзернейм уже занят. Пришлите другой.'
@@ -314,7 +364,8 @@ def _create(bot, author, display_name, username):
     fence = '```'
     return (
         f'# Бот @{username} создан\n'
-        f'**{account.display_name}** готов к работе.\n\n'
+        f'**{account.display_name}** готов к работе.\n'
+        f'Тип API: **{_tier_label(account)}**.\n\n'
         '**Ключ** — нажмите «Копировать» справа сверху:\n'
         f'{fence}\n{token}\n{fence}\n'
         '> Второй раз я его не покажу. Если ключ потерян — `/token '
@@ -419,7 +470,7 @@ def _list_bots(author):
     lines = []
     for b in bots:
         cmds = ', '.join('`/' + c['command'] + '`' for c in b.commands) or '_команд нет_'
-        lines.append(f'- **@{b.user.username}** — {b.display_name}\n  {cmds}')
+        lines.append(f'- **@{b.user.username}** — {b.display_name} · API: {_tier_label(b)}\n  {cmds}')
     return '# Ваши боты\n' + '\n'.join(lines)
 
 

@@ -120,6 +120,15 @@ const UsernameChip: React.FC<{ username: string }> = ({ username }) => {
   );
 };
 
+// Full profiles already fetched this session, keyed by user id. The card is
+// mounted inside server member / voice rows that re-render (and can re-mount)
+// constantly from presence polling and the 80ms speaking-indicator tick. Without
+// this, any re-run repainted the short form and re-fetched — the card visibly
+// jerked between the compact and full layouts. Seeding from the cache means a
+// re-open (or re-mount) shows the full profile immediately, with no flash back
+// to the short form.
+const profileFetchCache = new Map<string, FullProfile>();
+
 export const ProfileModal: React.FC<{
   user: ProfileUser;
   onClose: () => void;
@@ -130,7 +139,9 @@ export const ProfileModal: React.FC<{
     currentServerIP, authToken, friends, sendFriendRequest, removeFriend,
     setCurrentSettingsPage,
   } = useApp();
-  const [profile, setProfile] = useState<FullProfile>(user);
+  const [profile, setProfile] = useState<FullProfile>(
+    () => profileFetchCache.get(String(user.id)) ?? user,
+  );
   const [showRemoveConfirm, setShowRemoveConfirm] = useState(false);
   const [note, setNote] = useState(() => localStorage.getItem(`note_${user.id}`) ?? '');
   const tr = useTranslation();
@@ -143,7 +154,10 @@ export const ProfileModal: React.FC<{
   // Paint with what the caller knew, then replace it with the full profile.
   useEffect(() => {
     let cancelled = false;
-    setProfile(user);
+    // Show the cached full profile if we already have it (no flash back to the
+    // short form); otherwise the caller's short form until the fetch lands.
+    const cached = profileFetchCache.get(String(user.id));
+    setProfile(cached ?? user);
     (async () => {
       try {
         const res = await fetch(
@@ -152,11 +166,19 @@ export const ProfileModal: React.FC<{
         );
         if (!res.ok || cancelled) return;
         const full: FullProfile = await res.json();
-        if (!cancelled) setProfile(prev => ({ ...prev, ...full }));
+        const merged = { ...(cached ?? user), ...full };
+        profileFetchCache.set(String(user.id), merged);
+        if (!cancelled) setProfile(merged);
       } catch { /* the short form stays on screen */ }
     })();
     return () => { cancelled = true; };
-  }, [user, currentServerIP, authToken]);
+    // Key on the user *id*, not the whole object. Callers (e.g. server member
+    // rows) rebuild the `user` prop as a fresh literal on every render, and those
+    // rows re-render constantly from presence polling / WS updates. Depending on
+    // the object identity re-ran this effect each tick — resetting to the short
+    // form and re-fetching — which made the open card visibly twitch.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user.id, currentServerIP, authToken]);
 
   const joined = profile.date_joined
     ? new Date(profile.date_joined).toLocaleDateString(undefined, { year: 'numeric', month: 'long' })

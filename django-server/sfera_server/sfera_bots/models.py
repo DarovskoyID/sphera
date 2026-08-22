@@ -47,6 +47,15 @@ class BotAccount(models.Model):
     commands = models.JSONField(default=list, blank=True)
     token_hash = models.CharField(max_length=64, unique=True, db_index=True)
     token_prefix = models.CharField(max_length=16, blank=True, default='')
+    # API throughput tier. 'standard' is the free bucket sized for ordinary bot
+    # traffic; 'premium' is a higher-rate bucket meant to absorb bursts well above
+    # the normal ceiling (a paid upgrade). The actual per-minute rates live in
+    # settings.DEFAULT_THROTTLE_RATES ('bot_standard' / 'bot_premium') and are
+    # enforced by sfera_bots.throttling.BotRateThrottle.
+    TIER_STANDARD = 'standard'
+    TIER_PREMIUM = 'premium'
+    API_TIER_CHOICES = [(TIER_STANDARD, 'Standard'), (TIER_PREMIUM, 'Premium')]
+    api_tier = models.CharField(max_length=16, choices=API_TIER_CHOICES, default=TIER_STANDARD)
     # System bots (Sferonik) are owned by nobody in practice and can't be deleted.
     is_system = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True)

@@ -274,14 +274,23 @@ REST_FRAMEWORK = {
     # Rate limiting to blunt brute-force / enumeration against auth endpoints.
     'DEFAULT_THROTTLE_CLASSES': (
         'rest_framework.throttling.AnonRateThrottle',
-        'rest_framework.throttling.UserRateThrottle',
+        # Per-user rate, but with bot API traffic carved out (bots are governed by
+        # BotRateThrottle below so a premium bot is not clipped by the user rate).
+        'sfera_bots.throttling.BotAwareUserRateThrottle',
         'rest_framework.throttling.ScopedRateThrottle',
+        # Two-tier bot API: standard (free) vs premium (paid, higher ceiling).
+        # No-ops for non-bot requests.
+        'sfera_bots.throttling.BotRateThrottle',
     ),
     'DEFAULT_THROTTLE_RATES': {
         'anon': os.environ.get('SFERA_THROTTLE_ANON', '60/min'),
         'user': os.environ.get('SFERA_THROTTLE_USER', '1000/min'),
         # Tight bucket for credential / account-sensitive endpoints.
         'auth': os.environ.get('SFERA_THROTTLE_AUTH', '10/min'),
+        # Bot API tiers. Standard is sized for ordinary bot traffic; premium is a
+        # paid upgrade that absorbs bursts well above the standard ceiling.
+        'bot_standard': os.environ.get('SFERA_BOT_THROTTLE_STANDARD', '120/min'),
+        'bot_premium': os.environ.get('SFERA_BOT_THROTTLE_PREMIUM', '2000/min'),
     },
 }
 

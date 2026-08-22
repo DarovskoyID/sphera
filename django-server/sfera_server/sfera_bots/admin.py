@@ -5,8 +5,9 @@ from .models import BotAccount, BotFlow, BotUpdate
 
 @admin.register(BotAccount)
 class BotAccountAdmin(admin.ModelAdmin):
-    list_display = ('display_name', 'user', 'owner', 'is_active', 'is_system', 'created_at')
-    list_filter = ('is_active', 'is_system')
+    list_display = ('display_name', 'user', 'owner', 'api_tier', 'is_active', 'is_system', 'created_at')
+    list_filter = ('api_tier', 'is_active', 'is_system')
+    list_editable = ('api_tier',)
     search_fields = ('display_name', 'user__username', 'owner__username')
     readonly_fields = ('token_hash', 'token_prefix', 'created_at', 'revoked_at')
 

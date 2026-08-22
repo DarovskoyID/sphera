@@ -3140,7 +3140,8 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     // Already in this channel — just focus its view (show the card grid) instead
     // of tearing down and rejoining. Leaving is done from the disconnect button.
     if (state.currentVoiceChannel?.id === channel.id) {
-      setState(prev => ({ ...prev, currentGuildChannel: null }));
+      // On mobile, also slide over to the stage so the participant cards open.
+      setState(prev => ({ ...prev, currentGuildChannel: null, mobileActivePanel: 'guild-chat' as MobilePanel }));
       return;
     }
     if (voiceWs.current) {
@@ -3151,8 +3152,10 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       ...prev,
       currentVoiceChannel: channel,
       // Focus the voice view: clearing the text channel makes the main area show
-      // the participant grid.
+      // the participant grid. On mobile, slide the panel over to it as well so the
+      // participant cards actually open instead of staying behind the channel list.
       currentGuildChannel: null,
+      mobileActivePanel: 'guild-chat' as MobilePanel,
       voiceParticipants: [],
       isCallActive: false,
       callStatus: 'inactive' as const,

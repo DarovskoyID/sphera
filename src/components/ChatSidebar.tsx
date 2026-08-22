@@ -925,8 +925,13 @@ export const UserProfile: React.FC = () => {
   const handleDeafen = () => {
     const next = !isHeadphonesActive;
     setHeadphonesActive(next);
+    // Discord-style: deafening (turning headphones off) also self-mutes the mic,
+    // and un-deafening turns it back on. Incoming audio is muted separately via
+    // isHeadphonesActive on the playback elements.
+    setMicActive(next);
     if (inVoice) {
-      voiceLocalStream.current?.getAudioTracks().forEach(t => { t.enabled = next && isMicActive; });
+      setVoiceMuted(!next);
+      voiceLocalStream.current?.getAudioTracks().forEach(t => { t.enabled = next; });
     }
   };
 
