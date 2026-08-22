@@ -35,6 +35,10 @@ usage() {
   rate       ЖИВАЯ нагрузка по ставке (см. ниже), БЕЗ создания профилей
   ramp       СТРЕСС: постепенно разгоняет ставку ДО ОТКАЗА сервера и пишет в
              отчёт, на каких параметрах сервер упал (см. RAMP_* ниже)
+  botapi     НАГРУЗКА НА BOT API: создаёт временного бота (тариф premium/standard)
+             и бьёт по нему BOT_API запросов, замеряя rps/задержки/429
+             (env: BOT_API=10000 BOT_API_TIER=premium BOT_API_ENDPOINT=me
+              CONCURRENCY=64 BASE_URL=https://127.0.0.1:8000)
 
 ФЛАГИ:
   --purge    сначала удалить старые тестовые данные (loadtest_*), затем сеять
@@ -241,6 +245,18 @@ if [ "$PROFILE" = "rate" ]; then
   ARGS+=(--active-calls "${CALLS:-0}")
   [ -n "${CALL_DURATION:-}" ] && ARGS+=(--call-duration "$CALL_DURATION")
   [ -n "${BASE_URL:-}" ] && ARGS+=(--base-url "$BASE_URL")
+elif [ "$PROFILE" = "botapi" ]; then
+  # Нагрузка на bot API: создаёт временного бота нужного тарифа и бьёт по нему
+  # BOT_API запросов, замеряя rps/задержки/429. Нужен запущенный сервер.
+  BOT_API="${BOT_API:-10000}"
+  echo "Режим botapi: ${BOT_API} запросов, тариф ${BOT_API_TIER:-premium}, эндпоинт ${BOT_API_ENDPOINT:-me}"
+  ARGS+=(--accounts 0 --servers 0 --channels 0 --posts 0 \
+         --server-messages 0 --dm-messages 0 --send-dm 0 \
+         --bot-api "$BOT_API")
+  [ -n "${BOT_API_ENDPOINT:-}" ] && ARGS+=(--bot-api-endpoint "$BOT_API_ENDPOINT")
+  [ -n "${BOT_API_TIER:-}" ] && ARGS+=(--bot-api-tier "$BOT_API_TIER")
+  [ -n "${CONCURRENCY:-}" ] && ARGS+=(--concurrency "$CONCURRENCY")
+  [ -n "${BASE_URL:-}" ] && ARGS+=(--base-url "$BASE_URL")
 elif [ "$PROFILE" != "custom" ]; then
   ENV_FILE="$HERE/$PROFILE.env"
   [ -f "$ENV_FILE" ] || { echo "Профиль не найден: $ENV_FILE" >&2; exit 1; }
@@ -259,6 +275,11 @@ elif [ "$PROFILE" != "custom" ]; then
     [ -n "${DURATION:-}" ] && ARGS+=(--duration "$DURATION")
     [ -n "${RATE_TARGET:-}" ] && ARGS+=(--rate-target "$RATE_TARGET")
   fi
+  # B — нагрузка на bot API (если задано в профиле/окружении)
+  [ -n "${BOT_API:-}" ] && ARGS+=(--bot-api "$BOT_API")
+  [ -n "${BOT_API_ENDPOINT:-}" ] && ARGS+=(--bot-api-endpoint "$BOT_API_ENDPOINT")
+  [ -n "${BOT_API_TIER:-}" ] && ARGS+=(--bot-api-tier "$BOT_API_TIER")
+  [ -n "${CONCURRENCY:-}" ] && ARGS+=(--concurrency "$CONCURRENCY")
   [ -n "${BASE_URL:-}" ] && ARGS+=(--base-url "$BASE_URL")
   [ -n "${SIGNALING_URL:-}" ] && ARGS+=(--signaling-url "$SIGNALING_URL")
   [ -n "${TURN_HOST:-}" ] && ARGS+=(--turn-host "$TURN_HOST")

@@ -104,7 +104,17 @@ class Command(BaseCommand):
         parser.add_argument('--verify-tls', action='store_true',
                             help='проверять TLS-сертификат при --send-dm (по умолчанию выключено)')
         parser.add_argument('--concurrency', type=int, default=8,
-                            help='число параллельных отправителей для --send-dm')
+                            help='число параллельных отправителей для --send-dm / --bot-api')
+        # ── Нагрузка на bot API (тарифы standard/premium) ──
+        parser.add_argument('--bot-api', type=int, default=None,
+                            help='B — число запросов к bot API (создаёт временного бота и бьёт по нему). '
+                                 'Требует запущенный сервер.')
+        parser.add_argument('--bot-api-endpoint', choices=['me', 'chats'], default='me',
+                            help='какой эндпоинт bot API долбить: me (лёгкий, auth+сериализация) или '
+                                 'chats (чтение из БД). По умолчанию me.')
+        parser.add_argument('--bot-api-tier', choices=['standard', 'premium'], default='premium',
+                            help='тариф временного бота: standard (120/мин) или premium (2000/мин). '
+                                 'По умолчанию premium.')
         # ── Активные WebRTC-звонки через TURN ──
         parser.add_argument('--active-calls', type=int, default=None,
                             help='I — сколько одновременных РЕАЛЬНЫХ WebRTC-звонков через TURN держать')
@@ -239,9 +249,10 @@ class Command(BaseCommand):
             rate_duration = _parse_duration(raw_rd)
         batch = opts['batch']
 
-        # N=0 допустимо, если используем уже существующие аккаунты для T/I/R.
-        if N == 0 and not (T or I or R):
-            self.stdout.write(self.style.ERROR('Нечего делать: задайте N > 0 либо T/I/R (с уже созданными аккаунтами).'))
+        B = opts['bot_api'] or 0
+        # N=0 допустимо, если используем уже существующие аккаунты для T/I/R/B.
+        if N == 0 and not (T or I or R or B):
+            self.stdout.write(self.style.ERROR('Нечего делать: задайте N > 0 либо T/I/R/B (с уже созданными аккаунтами).'))
             return
 
         t0 = time.time()
@@ -253,6 +264,8 @@ class Command(BaseCommand):
         self._make_posts(J, personal_channels, users, batch)
         self._make_dms(G, users, batch)
         self._send_dms(T, opts['base_url'], opts['verify_tls'], opts['concurrency'])
+        self._bot_api_load(B, opts['bot_api_endpoint'], opts['bot_api_tier'],
+                           opts['base_url'], opts['verify_tls'], opts['concurrency'])
 
         # Если запрошены и звонки (I), и живая нагрузка (R) — гоняем их ОДНОВРЕМЕННО:
         # звонки в отдельном потоке (свой event-loop), сообщения+присутствие в основном.
@@ -556,6 +569,110 @@ class Command(BaseCommand):
         style = self.style.SUCCESS if fail[0] == 0 else self.style.WARNING
         self.stdout.write(style(
             f'     Отправлено: {ok[0]}, ошибок: {fail[0]} (диалогов: {len(convos)})'))
+
+    # ── Нагрузка на bot API (замер пропускной способности тарифов) ────────────
+
+    def _bot_api_load(self, count, endpoint, tier, base_url, verify_tls, concurrency):
+        """Заводит временного бота нужного тарифа и обстреливает bot API `count`
+        запросами в `concurrency` потоков, замеряя реальную пропускную способность
+        (rps), задержки (p50/p95/p99) и сколько запросов отклонил rate-limit (429).
+
+        Это ответ на вопрос «выдержит ли API N запросов»: 2xx показывают, сколько
+        сервер реально обслужил и с какой задержкой, 429 — сколько срезал лимит
+        тарифа. Чтобы мерить чистую ёмкость сервера БЕЗ лимита, поднимите
+        SFERA_BOT_THROTTLE_PREMIUM (напр. 100000/min) и гоняйте premium.
+        """
+        if not count:
+            return
+
+        try:
+            import requests
+        except ImportError:
+            self.stdout.write(self.style.ERROR('bot-api: нужен пакет requests (pip install requests).'))
+            return
+        try:
+            from urllib3.exceptions import InsecureRequestWarning
+            requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
+        except Exception:
+            pass
+
+        import threading
+        from concurrent.futures import ThreadPoolExecutor
+        from sfera_auth.models import User
+        from sfera_bots.sferonik import create_bot, delete_bot
+
+        base = base_url.rstrip('/')
+        verify = bool(verify_tls)
+
+        owner = (User.objects.filter(username__startswith=USER_PREFIX).first()
+                 or User.objects.filter(is_active=True).exclude(account_type='bot').first())
+        if owner is None:
+            self.stdout.write(self.style.ERROR(
+                'bot-api: нет ни одного пользователя-владельца. Создайте --accounts > 0.'))
+            return
+
+        uniq = uuid.uuid4().hex[:8]
+        try:
+            bot, token = create_bot(owner, f'{GUILD_PREFIX}LoadBot {uniq}', f'lt_load_{uniq}', api_tier=tier)
+        except Exception as e:
+            self.stdout.write(self.style.ERROR(f'bot-api: не удалось создать тестового бота: {e}'))
+            return
+
+        path = {'me': '/api/bots/api/me/', 'chats': '/api/bots/api/chats/'}[endpoint]
+        url = f'{base}{path}'
+        headers = {**CLIENT_HEADER, 'Authorization': f'Bot {token}'}
+
+        self.stdout.write(self.style.MIGRATE_HEADING(
+            f'\nBot API: {count} запросов -> {url}  (тариф {tier}, потоков {concurrency})'))
+
+        lat = []
+        codes = {}
+        lock = threading.Lock()
+
+        def _one(_i):
+            t = time.perf_counter()
+            try:
+                code = requests.get(url, headers=headers, verify=verify, timeout=30).status_code
+            except requests.RequestException:
+                code = 0
+            dt = (time.perf_counter() - t) * 1000.0
+            with lock:
+                lat.append(dt)
+                codes[code] = codes.get(code, 0) + 1
+
+        t0 = time.time()
+        try:
+            with ThreadPoolExecutor(max_workers=max(1, concurrency)) as ex:
+                list(ex.map(_one, range(count)))
+        finally:
+            try:
+                delete_bot(bot)
+            except Exception:
+                pass
+
+        wall = time.time() - t0
+        ok = codes.get(200, 0)
+        throttled = codes.get(429, 0)
+        errors = sum(v for c, v in codes.items() if c == 0 or c >= 500)
+        other = count - ok - throttled - errors
+        rps = count / wall if wall > 0 else 0.0
+        lat.sort()
+
+        def pct(p):
+            if not lat:
+                return 0.0
+            return lat[min(len(lat) - 1, int(len(lat) * p))]
+
+        avg = sum(lat) / len(lat) if lat else 0.0
+        style = self.style.SUCCESS if errors == 0 else self.style.WARNING
+        self.stdout.write(style(
+            f'     Готово за {wall:.1f}s — {rps:.0f} rps\n'
+            f'     2xx: {ok}   429 (лимит): {throttled}   5xx/conn err: {errors}   прочее: {other}\n'
+            f'     Задержка мс — avg {avg:.0f}  p50 {pct(0.5):.0f}  p95 {pct(0.95):.0f}  p99 {pct(0.99):.0f}'))
+        if throttled:
+            self.stdout.write(
+                f'     ⓘ {throttled} запросов отклонены rate-limit (429) — ожидаемо, если скорость выше '
+                f'лимита тарифа {tier}. Для замера чистой ёмкости поднимите SFERA_BOT_THROTTLE_{tier.upper()}.')
 
     # ── Активные WebRTC-звонки через TURN (живая медианагрузка) ───────────────
 

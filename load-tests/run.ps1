@@ -23,6 +23,8 @@ param(
     [int]$Accounts, [int]$Servers, [int]$Channels,
     [int]$Posts, [int]$ServerMessages, [int]$DmMessages,
     [int]$SendDm, [string]$BaseUrl,
+    [int]$BotApi, [ValidateSet('me', 'chats')][string]$BotApiEndpoint,
+    [ValidateSet('standard', 'premium')][string]$BotApiTier, [int]$Concurrency,
     [int]$ActiveCalls, [string]$CallDuration, [string]$SignalingUrl, [string]$TurnHost,
     [switch]$WithVideo,
     [int]$Rate, [string]$Duration, [ValidateSet('guild', 'dm', 'both')][string]$RateTarget,
@@ -151,6 +153,11 @@ if ($BaseUrl)                            { $args += '--base-url';        $args +
 if ($SignalingUrl)                       { $args += '--signaling-url';   $args += $SignalingUrl }
 if ($TurnHost)                           { $args += '--turn-host';       $args += $TurnHost }
 if ($WithVideo)                          { $args += '--with-video' }
+# B — нагрузка на bot API (создаёт временного бота и обстреливает его)
+if ($BotApi)                             { $args += '--bot-api';          $args += $BotApi }
+if ($BotApiEndpoint)                     { $args += '--bot-api-endpoint'; $args += $BotApiEndpoint }
+if ($BotApiTier)                         { $args += '--bot-api-tier';     $args += $BotApiTier }
+if ($Concurrency)                        { $args += '--concurrency';      $args += $Concurrency }
 
 Write-Host "Профиль: $Profile" -ForegroundColor Cyan
 & $py @args
