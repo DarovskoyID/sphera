@@ -29,6 +29,7 @@ param(
     [switch]$WithVideo,
     [int]$Rate, [string]$Duration, [ValidateSet('guild', 'dm', 'both')][string]$RateTarget,
     [int]$Online, [int]$Calls,
+    [int]$RateBots, [string]$StatusToken,
     [switch]$Purge,
     [switch]$Help
 )
@@ -149,6 +150,9 @@ if ($Rate)                               { $args += '--rate';            $args +
 if ($Duration)                           { $args += '--duration';        $args += $Duration }
 if ($RateTarget)                         { $args += '--rate-target';     $args += $RateTarget }
 if ($Online)                             { $args += '--online';          $args += $Online }
+# Трафик на bot API во время rate (по умолчанию 4 потока в самой команде; 0 = выключить)
+if ($PSBoundParameters.ContainsKey('RateBots')) { $args += '--rate-bots'; $args += $RateBots }
+if ($StatusToken)                        { $args += '--status-token';    $args += $StatusToken }
 if ($BaseUrl)                            { $args += '--base-url';        $args += $BaseUrl }
 if ($SignalingUrl)                       { $args += '--signaling-url';   $args += $SignalingUrl }
 if ($TurnHost)                           { $args += '--turn-host';       $args += $TurnHost }

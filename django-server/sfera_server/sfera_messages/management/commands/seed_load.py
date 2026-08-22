@@ -115,6 +115,15 @@ class Command(BaseCommand):
         parser.add_argument('--bot-api-tier', choices=['standard', 'premium'], default='premium',
                             help='тариф временного бота: standard (120/мин) или premium (2000/мин). '
                                  'По умолчанию premium.')
+        # ── Чтобы --rate / ramp задевали ВСЕ панели Grafana ──
+        parser.add_argument('--rate-bots', type=int, default=4,
+                            help='сколько параллельных потоков бьют bot API во время --rate/ramp '
+                                 '(0 = не трогать ботов). По умолчанию 4 — чтобы живая нагрузка '
+                                 'двигала и панели bot API (создаёт временных ботов standard+premium).')
+        parser.add_argument('--status-token', default=None,
+                            help='токен для /metrics (по умолчанию берётся SFERA_STATUS_TOKEN из '
+                                 'окружения). Нужен, чтобы во время --rate/ramp печатать снимок метрик '
+                                 'сервера (CPU/RAM/задержка/online/voice/bot API) прямо в консоль.')
         # ── Активные WebRTC-звонки через TURN ──
         parser.add_argument('--active-calls', type=int, default=None,
                             help='I — сколько одновременных РЕАЛЬНЫХ WebRTC-звонков через TURN держать')
@@ -674,6 +683,40 @@ class Command(BaseCommand):
                 f'     ⓘ {throttled} запросов отклонены rate-limit (429) — ожидаемо, если скорость выше '
                 f'лимита тарифа {tier}. Для замера чистой ёмкости поднимите SFERA_BOT_THROTTLE_{tier.upper()}.')
 
+    def _metrics_snapshot(self, base, verify, token):
+        """Короткая строка ключевых метрик сервера, снятая с /metrics (Prometheus).
+        Возвращает '' если /metrics недоступен (нет токена/сервер не отвечает)."""
+        try:
+            import requests
+        except ImportError:
+            return ''
+        try:
+            r = requests.get(f'{base}/metrics/',
+                             params=({'token': token} if token else None),
+                             verify=verify, timeout=5)
+            if r.status_code != 200:
+                return ''
+        except Exception:
+            return ''
+        vals = {}
+        for line in r.text.splitlines():
+            if not line or line[0] == '#' or ' ' not in line or '{' in line:
+                continue
+            k, _, v = line.partition(' ')
+            vals[k] = v.strip()
+
+        def g(name, d='?'):
+            return vals.get(name, d)
+
+        return (f'CPU {g("sfera_cpu_percent")}%  RAM {g("sfera_memory_percent")}%  '
+                f'p95 {g("sfera_http_latency_p95_ms")}ms  '
+                f'online {g("sfera_online_users")}  voice {g("sfera_voice_users")}  '
+                f'HTTP {g("sfera_http_requests_total")}  '
+                f'botAPI total/std/prem/429: {g("sfera_bot_api_requests_total")}/'
+                f'{g("sfera_bot_api_requests_standard_total")}/'
+                f'{g("sfera_bot_api_requests_premium_total")}/'
+                f'{g("sfera_bot_api_throttled_total")}')
+
     # ── Активные WebRTC-звонки через TURN (живая медианагрузка) ───────────────
 
     def _run_calls(self, I, duration, opts):
@@ -1198,13 +1241,100 @@ class Command(BaseCommand):
                 if presence_tasks:
                     await asyncio.gather(*presence_tasks, return_exceptions=True)
 
+        # ── Параллельно: трафик на bot API + периодический снимок ВСЕХ метрик ──
+        # Чтобы --rate/ramp задевали и панели bot API в Grafana, а показатели
+        # сервера (CPU/RAM/задержка/online/voice/bot API) были видны прямо здесь,
+        # а не только в дашбордах.
+        import threading as _th
+        rate_bots = max(0, int(opts.get('rate_bots') or 0))
+        snap_token = opts.get('status_token') or os.environ.get('SFERA_STATUS_TOKEN')
+        bstats = {'ok': 0, 'throttled': 0, 'fail': 0}
+        temp_bots = []
+        stop_evt = _th.Event()
+        threads = []
+
+        # (1) Трафик на bot API: временные боты standard + premium.
+        if rate_bots > 0:
+            try:
+                from sfera_auth.models import User as _User
+                from sfera_bots.sferonik import create_bot as _create_bot, delete_bot as _delete_bot
+                owner = (_User.objects.filter(username__startswith=USER_PREFIX).first()
+                         or _User.objects.filter(is_active=True).exclude(account_type='bot').first())
+                ep = opts.get('bot_api_endpoint') or 'me'
+                bpath = {'me': '/api/bots/api/me/', 'chats': '/api/bots/api/chats/'}[ep]
+                burl = f'{base}{bpath}'
+                headers_list = []
+                if owner is not None:
+                    for tier in ('standard', 'premium'):
+                        uniq = uuid.uuid4().hex[:8]
+                        try:
+                            b, tok = _create_bot(owner, f'{GUILD_PREFIX}RateBot {tier} {uniq}',
+                                                 f'lt_rate_{tier[:3]}_{uniq}', api_tier=tier)
+                            temp_bots.append(b)
+                            headers_list.append({**CLIENT_HEADER, 'Authorization': f'Bot {tok}'})
+                        except Exception:
+                            pass
+                if headers_list:
+                    def _bot_worker():
+                        import random as _rnd
+                        s = requests.Session()
+                        while not stop_evt.is_set():
+                            h = _rnd.choice(headers_list)
+                            try:
+                                code = s.get(burl, headers=h, verify=verify, timeout=15).status_code
+                            except Exception:
+                                code = 0
+                            if code == 200:
+                                bstats['ok'] += 1
+                            elif code == 429:
+                                bstats['throttled'] += 1
+                                stop_evt.wait(0.2)  # не крутить впустую после лимита
+                            else:
+                                bstats['fail'] += 1
+                                stop_evt.wait(0.2)
+                    for _ in range(rate_bots):
+                        t = _th.Thread(target=_bot_worker, daemon=True)
+                        t.start(); threads.append(t)
+                    self.stdout.write(f'     bot API: {rate_bots} потоков бьют {burl} '
+                                      f'(тарифы standard+premium)')
+                else:
+                    self.stdout.write('     bot API: не удалось создать ботов — трафик ботов пропущен.')
+            except Exception as e:
+                self.stdout.write(f'     bot API трафик не запущен: {e}')
+
+        # (2) Снимок метрик сервера в консоль каждые 15с.
+        def _snapshot_loop():
+            while not stop_evt.wait(15):
+                snap = self._metrics_snapshot(base, verify, snap_token)
+                bot_local = f'  bots(локально ok/429/err): {bstats["ok"]}/{bstats["throttled"]}/{bstats["fail"]}' if rate_bots else ''
+                if snap:
+                    self.stdout.write(f'     [метрики] {snap}{bot_local}')
+                elif bot_local:
+                    self.stdout.write(f'     [метрики] /metrics недоступен (нужен --status-token / SFERA_STATUS_TOKEN).{bot_local}')
+        snap_t = _th.Thread(target=_snapshot_loop, daemon=True)
+        snap_t.start(); threads.append(snap_t)
+
         try:
             asyncio.run(run_all())
         except KeyboardInterrupt:
             self.stdout.write(self.style.WARNING('     Прервано пользователем — останавливаю нагрузку.'))
+        finally:
+            stop_evt.set()
+            for t in threads:
+                t.join(timeout=5)
+            for b in temp_bots:
+                try:
+                    _delete_bot(b)
+                except Exception:
+                    pass
 
         style = self.style.SUCCESS if stats['fail'] == 0 else self.style.WARNING
+        bot_summary = ''
+        if rate_bots:
+            # Не используем слово "ошибок" — режим ramp по нему ищет ошибки ОТПРАВКИ.
+            bot_summary = (f'\n     bot API: 2xx {bstats["ok"]}, 429 (лимит) {bstats["throttled"]}, '
+                           f'сбоев {bstats["fail"]}')
         self.stdout.write(style(
             f'     Готово: отправлено {stats["ok"]} '
             f'(в каналы {stats["guild"]}, в ЛС {stats["dm"]}), ошибок {stats["fail"]} '
-            f'(~{rate}/мин, {duration}с, маршрутов {len(targets)})'))
+            f'(~{rate}/мин, {duration}с, маршрутов {len(targets)}){bot_summary}'))

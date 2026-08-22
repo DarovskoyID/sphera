@@ -52,6 +52,7 @@ usage() {
   ONLINE        держать N онлайн-юзеров (presence)          (0)
   CALLS         реальных WebRTC-звонков через TURN          (0)
   CALL_DURATION длительность звонков                        (—)
+  RATE_BOTS     потоков трафика на bot API (0 = выключить)  (4)
   BASE_URL      адрес сервера для логина/WS                 (https://127.0.0.1:8000)
 
 РЕЖИМ ramp — разгон до отказа (env, дефолты в скобках):
@@ -263,6 +264,9 @@ if [ "$PROFILE" = "rate" ]; then
   # CALLS — реальные WebRTC-звонки через TURN (нужен aiortc); CALL_DURATION — их длительность
   ARGS+=(--active-calls "${CALLS:-0}")
   [ -n "${CALL_DURATION:-}" ] && ARGS+=(--call-duration "$CALL_DURATION")
+  # RATE_BOTS — сколько потоков параллельно бьют bot API (по умолчанию 4, 0 = выключить)
+  [ -n "${RATE_BOTS:-}" ] && ARGS+=(--rate-bots "$RATE_BOTS")
+  [ -n "${STATUS_TOKEN:-}" ] && ARGS+=(--status-token "$STATUS_TOKEN")
   [ -n "${BASE_URL:-}" ] && ARGS+=(--base-url "$BASE_URL")
 elif [ "$PROFILE" = "botapi" ]; then
   # Нагрузка на bot API: создаёт временного бота нужного тарифа и бьёт по нему

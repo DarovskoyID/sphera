@@ -721,6 +721,15 @@ SFERA_BOT_THROTTLE_PREMIUM=1000000/min   # в окружении сервера,
 
 Ничего не сидирует, гоняет нагрузку по готовым данным. Нужен запущенный сервер.
 
+Задевает **все компоненты, что видны в Grafana**: сообщения в каналы/ЛС по WS,
+онлайн-присутствие (`ONLINE`), WebRTC-звонки (`CALLS`) и **bot API** — параллельно
+создаёт временных ботов `standard`+`premium` и бьёт по ним (`RATE_BOTS` потоков,
+по умолчанию 4; `0` — выключить). Каждые 15 с печатает **снимок метрик сервера**
+прямо в консоль — строку `[метрики] CPU.. RAM.. p95.. online.. voice.. HTTP.. botAPI..`
+(берётся с `/metrics`; нужен `SFERA_STATUS_TOKEN`, который `run.sh` подхватывает
+из `/etc/sfera/secrets.env` автоматически). Так все показатели видны и в логе, и в
+дашбордах одновременно.
+
 ```powershell
 .\run.ps1 rate -Rate 600 -Duration 10m -RateTarget both -BaseUrl https://127.0.0.1:8000
 .\run.ps1 rate -Online 50 -Rate 600 -Duration 2m -Calls 5 -CallDuration 2m
@@ -739,13 +748,17 @@ ONLINE=200 RATE=600 DURATION=10m CALLS=10 CALL_DURATION=5m ./run.sh rate
 | `ONLINE` | `-Online` | `0` | Онлайн-пользователей (presence) |
 | `CALLS` | `-Calls` | `0` | Реальных WebRTC-звонков |
 | `CALL_DURATION` | `-CallDuration` | — | Длительность звонков |
+| `RATE_BOTS` | `-RateBots` | `4` | Потоков трафика на bot API (`0` — не трогать ботов) |
+| `STATUS_TOKEN` | `-StatusToken` | из `SFERA_STATUS_TOKEN` | Токен `/metrics` для снимка метрик в консоль |
 | `BASE_URL` | `-BaseUrl` | `https://127.0.0.1:8000` | Адрес сервера |
 
 ### Режим `ramp` — разгон до отказа
 
 Только в `run.sh`. Постепенно повышает ставку стадиями, после каждой проверяет
 здоровье сервера HTTP-пробой и долю ошибок отправки, и записывает в отчёт, на
-каких параметрах сервер сломался.
+каких параметрах сервер сломался. Каждая стадия — это тот же `rate`, поэтому
+**тоже задевает bot API и печатает снимок метрик** (см. выше; отключить трафик
+ботов — `RATE_BOTS=0`).
 
 ```bash
 RAMP_START=600 RAMP_STEP=600 RAMP_STAGE=20s ./run.sh ramp
