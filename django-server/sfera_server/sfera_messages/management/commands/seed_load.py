@@ -251,28 +251,55 @@ class Command(BaseCommand):
             return f'ошибка ({repr(e)[:80]})'
 
     def _purge(self):
+        from django.db.models import Q
+        from django.db.utils import IntegrityError
         from sfera_auth.models import User
         from sfera_messages.models import Guild, GuildMessage, Message
 
         self.stdout.write('Удаление тестовых данных (партиями — безопасно для sqlite/Postgres)...')
-        # Сначала тяжёлые таблицы сообщений (это они переполняли лимит sqlite),
-        # потом серверы и пользователи малыми партиями (их каскад уже лёгкий).
-        gm = self._delete_in_batches(
-            GuildMessage.objects.filter(channel__guild__name__startswith=GUILD_PREFIX), 1000)
-        dm = self._delete_in_batches(
-            Message.objects.filter(author__username__startswith=USER_PREFIX), 1000)
-        g = self._delete_in_batches(Guild.objects.filter(name__startswith=GUILD_PREFIX), 200)
-        u = self._delete_in_batches(User.objects.filter(username__startswith=USER_PREFIX), 200)
-        # Временные боты нагрузки (rate/ramp/botapi) — username lt_rate_* / lt_load_*.
-        # Обычно удаляются сами в конце прогона, но после Ctrl-C/сбоя остаются;
-        # удаление User каскадит BotAccount и членства. account_type='bot' — чтобы
-        # случайно не задеть живого пользователя с похожим ником.
-        b = self._delete_in_batches(
-            User.objects.filter(account_type='bot', username__regex=r'^lt_(rate|load)_'), 200)
+
+        # Кого сносим: тестовые аккаунты loadtest_* и временные боты нагрузки
+        # lt_rate_*/lt_load_* (остаются после Ctrl-C; account_type='bot', чтобы не
+        # задеть живого юзера с похожим ником).
+        user_q = Q(username__startswith=USER_PREFIX) | Q(
+            account_type='bot', username__regex=r'^lt_(rate|load)_')
+        # Автор сообщения — по тем же аккаунтам (через связь author).
+        author_q = (Q(author__username__startswith=USER_PREFIX)
+                    | Q(author__account_type='bot', author__username__regex=r'^lt_(rate|load)_'))
+
+        # Ретраи: сервер живой, и пока чистим, тест/бот/трафик могут вставить новое
+        # сообщение от loadtest-юзера — тогда удаление юзера падает FK-нарушением
+        # (Message.author = CASCADE, но concurrent-вставка после снимка коллектора
+        # ломает COMMIT). Повторяем: сначала добиваем свежие сообщения, затем юзеров.
+        # ВАЖНО: если очистка не сходится — значит нагрузка ЕЩЁ ИДЁТ, останови её.
+        gm = dm = g = u = 0
+        last_err = None
+        for attempt in range(1, 6):
+            try:
+                gm += self._delete_in_batches(
+                    GuildMessage.objects.filter(
+                        Q(channel__guild__name__startswith=GUILD_PREFIX) | author_q), 1000)
+                dm += self._delete_in_batches(Message.objects.filter(author_q), 1000)
+                g += self._delete_in_batches(Guild.objects.filter(name__startswith=GUILD_PREFIX), 200)
+                u += self._delete_in_batches(User.objects.filter(user_q), 200)
+                break
+            except IntegrityError as e:
+                last_err = e
+                if attempt < 5:
+                    self.stdout.write(self.style.WARNING(
+                        f'  Попытка {attempt}: сервер вставил новые данные во время '
+                        f'очистки — повтор через 1с (останови нагрузку, если не сходится).'))
+                    time.sleep(1)
+                else:
+                    self.stdout.write(self.style.ERROR(
+                        '  Очистка не сошлась за 5 попыток — скорее всего нагрузка ЕЩЁ '
+                        'ИДЁТ (rate/ramp/боты). Останови её и повтори --purge.'))
+                    raise last_err
+
         es = self._purge_es()
         self.stdout.write(self.style.SUCCESS(
             f'  Удалено: guild-сообщений {gm}, ЛС {dm}, серверов/связей {g}, '
-            f'пользователей/связей {u}, ботов нагрузки {b}. ES: {es}'))
+            f'пользователей/ботов/связей {u}. ES: {es}'))
 
     # ── main ─────────────────────────────────────────────────────────────────
 
