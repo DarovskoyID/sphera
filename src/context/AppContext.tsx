@@ -3216,7 +3216,15 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
   const leaveVoiceChannel = useCallback(() => {
     voiceWs.current?.close();
     voiceWs.current = null;
-    setState(prev => ({ ...prev, currentVoiceChannel: null, voiceParticipants: [] }));
+    setState(prev => ({
+      ...prev,
+      currentVoiceChannel: null,
+      voiceParticipants: [],
+      // On mobile, if we were looking at the voice stage (no text channel open),
+      // return to the channel list instead of stranding the user on the empty
+      // "выберите канал" welcome screen.
+      mobileActivePanel: prev.currentGuildChannel ? prev.mobileActivePanel : 'guild-channels' as MobilePanel,
+    }));
   }, []);
 
   const setVoiceMuted = useCallback((muted: boolean) => {
