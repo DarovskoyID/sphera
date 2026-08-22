@@ -39,8 +39,12 @@
 Очистка ранее созданных тестовых данных (всё с префиксом loadtest_):
   python manage.py seed_load --purge
 """
+import base64
+import json
 import os
 import random
+import tempfile
+import threading
 import time
 import uuid
 
@@ -52,6 +56,46 @@ from sfera_messages.encryption import encrypt_text
 USER_PREFIX = 'loadtest_'
 GUILD_PREFIX = '[LT] '
 DEFAULT_PASSWORD = 'loadtest123'
+
+# ── Кэш JWT между запусками seed_load ─────────────────────────────────────────
+# Режим ramp зовёт seed_load ЗАНОВО каждую стадию, и каждый раз логинил всех
+# заново. Сотни логинов (особенно с --online) упираются в rate-limit на
+# /api/auth/login/ (anon 60/мин) → на второй стадии «Залогинено 0/N» и ложный
+# «сервер упал». Кэшируем access-токены на диск и переиспользуем, пока живы.
+_LT_TOKEN_LOCK = threading.Lock()
+
+
+def _lt_token_cache_path():
+    return (os.environ.get('SFERA_LT_TOKEN_CACHE')
+            or os.path.join(tempfile.gettempdir(), 'sfera-lt-tokens.json'))
+
+
+def _jwt_exp(token):
+    """Срок жизни access-токена (epoch) из его payload, без проверки подписи."""
+    try:
+        payload = token.split('.')[1]
+        payload += '=' * (-len(payload) % 4)
+        return int(json.loads(base64.urlsafe_b64decode(payload)).get('exp', 0))
+    except Exception:
+        return 0
+
+
+def _lt_load_tokens():
+    try:
+        with open(_lt_token_cache_path()) as f:
+            data = json.load(f)
+            return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _lt_save_tokens(cache):
+    try:
+        with _LT_TOKEN_LOCK:
+            with open(_lt_token_cache_path(), 'w') as f:
+                json.dump(cache, f)
+    except Exception:
+        pass
 
 # AppOnlyMiddleware блокирует HTTP-запросы без этого заголовка.
 CLIENT_HEADER = {'X-Ionik-Client': '1'}
@@ -1072,13 +1116,27 @@ class Command(BaseCommand):
         self.stdout.write(f'     Логинюсь за {len(distinct)} отправителей(я)...')
         _unreachable = {'flag': False}
 
+        # Кэш токенов с прошлых стадий: не логинимся заново, если токен ещё жив
+        # (иначе rate-limit на /api/auth/login/ роняет вторую стадию).
+        _tok_cache = _lt_load_tokens()
+        _now = int(time.time())
+        _reused = {'n': 0}
+
         def _login(uname):
+            hit = _tok_cache.get(uname)
+            if hit and hit.get('exp', 0) - _now > 60:
+                _reused['n'] += 1
+                return uname, hit['token']
             try:
                 r = requests.post(f'{base}/api/auth/login/',
                                   json={'username': uname, 'password': DEFAULT_PASSWORD},
                                   headers=CLIENT_HEADER, verify=verify, timeout=15)
                 if r.status_code == 200:
-                    return uname, r.json().get('access')
+                    tok = r.json().get('access')
+                    if tok:
+                        with _LT_TOKEN_LOCK:
+                            _tok_cache[uname] = {'token': tok, 'exp': _jwt_exp(tok)}
+                        return uname, tok
             except requests.RequestException:
                 _unreachable['flag'] = True
             return uname, None
@@ -1089,7 +1147,9 @@ class Command(BaseCommand):
             for uname, tok in ex.map(_login, list(distinct)):
                 if tok:
                     tokens[uname] = tok
-        self.stdout.write(f'     Залогинено {len(tokens)}/{len(distinct)} за {time.time() - _t0_login:.1f}с')
+        _lt_save_tokens(_tok_cache)
+        self.stdout.write(f'     Залогинено {len(tokens)}/{len(distinct)} за '
+                          f'{time.time() - _t0_login:.1f}с (из кэша: {_reused["n"]})')
         if _unreachable['flag'] and not tokens:
             self.stdout.write(self.style.ERROR(
                 '     Сервер недоступен для логина. Проверьте --base-url и что сервер запущен.'))
@@ -1141,6 +1201,7 @@ class Command(BaseCommand):
                 for uname, tok in ex.map(_login, pres_users):
                     if tok:
                         presence_tokens.append(tok)
+            _lt_save_tokens(_tok_cache)  # сохранить и presence-токены для след. стадий
             self.stdout.write(f'     Онлайн-сессий залогинено: {len(presence_tokens)}')
 
         interval = 60.0 / rate
