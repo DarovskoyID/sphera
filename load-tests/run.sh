@@ -63,6 +63,12 @@ usage() {
   RAMP_TARGET     guild | dm | both                          (guild)
   RAMP_FAIL_ERRORS доля ошибок отправки, считающаяся отказом (0.25)
   RAMP_MAXCONN    число WS-соединений на стадию              (100)
+  RAMP_ALL        1 = грузить ВСЁ (target=both, online=200,  (0)
+                  bots=8, calls=10) — двигает все панели Grafana
+  RAMP_ONLINE     держать N онлайн (presence)                (0)
+  RAMP_BOTS       потоков трафика на bot API (0 = выключить) (4)
+  RAMP_CALLS      реальных WebRTC-звонков (нужен aiortc)     (0)
+  RAMP_CALL_DURATION длительность звонков                    (= RAMP_STAGE)
   RAMP_REPORT     файл отчёта                                (load-tests/ramp-result.txt)
 
 ПРИМЕРЫ:
@@ -147,11 +153,20 @@ done
 # ВНИМАНИЕ: цель режима — довести сервер до отказа. Запускай осознанно.
 run_ramp() {
   local start="${RAMP_START:-600}" step="${RAMP_STEP:-600}" stage="${RAMP_STAGE:-20s}"
-  local max="${RAMP_MAX:-30000}" target="${RAMP_TARGET:-guild}" thr="${RAMP_FAIL_ERRORS:-0.25}"
+  local max="${RAMP_MAX:-30000}" thr="${RAMP_FAIL_ERRORS:-0.25}"
   local maxconn="${RAMP_MAXCONN:-100}" base="${BASE_URL:-https://127.0.0.1:8000}"
   local report="${RAMP_REPORT:-$HERE/ramp-result.txt}"
   local probe="$base/status-$(date +%Y-%m-%d)/"
   local rate="$start" prev_ok=0 fell=0 reason=""
+
+  # RAMP_ALL=1 — грузить ВСЁ, что видно в Grafana: каналы+ЛС, онлайн-присутствие,
+  # боты и WebRTC-звонки (звонкам нужен aiortc и ≥2×RAMP_CALLS тестовых аккаунтов).
+  # Отдельные RAMP_* переопределяют пресет.
+  if [ "${RAMP_ALL:-0}" = "1" ]; then
+    : "${RAMP_TARGET:=both}"; : "${RAMP_ONLINE:=200}"; : "${RAMP_BOTS:=8}"; : "${RAMP_CALLS:=10}"
+  fi
+  local target="${RAMP_TARGET:-guild}" online="${RAMP_ONLINE:-0}"
+  local bots="${RAMP_BOTS:-}" calls="${RAMP_CALLS:-0}" calldur="${RAMP_CALL_DURATION:-$stage}"
 
   # ВАЖНО: внутри ramp отключаем errexit/pipefail — здесь grep/curl легитимно
   # возвращают не-ноль (нет совпадения, недоступный сервер), а решения мы
@@ -162,17 +177,22 @@ run_ramp() {
 
   echo "=== RAMP: разгон до отказа сервера ==="
   echo "  старт=$start/мин шаг=+$step стадия=$stage потолок=$max цель=$target"
-  echo "  порог ошибок=$thr  соединений=$maxconn  отчёт=$report"
+  echo "  порог ошибок=$thr  соединений=$maxconn  онлайн=$online  боты=${bots:-4}  звонки=$calls"
+  echo "  отчёт=$report"
   echo "  ВНИМАНИЕ: режим намеренно валит сервер. Нужны уже засеянные данные (./run.sh light)."
 
   while [ "$rate" -le "$max" ]; do
     echo ""
     echo ">>> стадия: $rate сообщений/мин ($stage)"
     local out sent errors code total cpu mem
-    out="$("$PY" "$MANAGE" seed_load --accounts 0 --servers 0 --channels 0 --posts 0 \
-        --server-messages 0 --dm-messages 0 --send-dm 0 --active-calls 0 \
+    local stage_args=(--accounts 0 --servers 0 --channels 0 --posts 0 \
+        --server-messages 0 --dm-messages 0 --send-dm 0 \
         --rate "$rate" --duration "$stage" --rate-target "$target" \
-        --rate-max-conns "$maxconn" --base-url "$base" 2>&1)"
+        --rate-max-conns "$maxconn" --base-url "$base" \
+        --online "$online" --active-calls "$calls")
+    [ -n "$bots" ] && stage_args+=(--rate-bots "$bots")
+    [ "$calls" != "0" ] && stage_args+=(--call-duration "$calldur")
+    out="$("$PY" "$MANAGE" seed_load "${stage_args[@]}" 2>&1)"
     # Нет каналов/диалогов в БД — это не «отказ сервера», а отсутствие данных.
     if printf '%s' "$out" | grep -q 'Нет целей'; then
       echo "    Нет целей для нагрузки — каналов/диалогов нет в БД."
@@ -206,7 +226,7 @@ run_ramp() {
         echo "Причина:                  $reason"
         echo "Последняя стадия:         отправлено=$sent ошибок=$errors health=$code"
         echo "Метрики сервера:          CPU=${cpu:-?}% MEM=${mem:-?}%"
-        echo "Параметры разгона:        старт=$start шаг=$step стадия=$stage цель=$target соединений=$maxconn"
+        echo "Параметры разгона:        старт=$start шаг=$step стадия=$stage цель=$target соединений=$maxconn онлайн=$online боты=${bots:-4} звонки=$calls"
       } | tee "$report"
       return 0
     fi
