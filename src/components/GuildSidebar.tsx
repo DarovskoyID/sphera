@@ -161,7 +161,7 @@ function MemberRow({ member, myRole, guildId, guildRoles }: { member: GuildMembe
     <>
       <div
         className="member-row"
-        onContextMenu={e => { e.preventDefault(); setMenuPos({ x: e.clientX, y: e.clientY }); }}
+        onContextMenu={e => { e.preventDefault(); e.stopPropagation(); setMenuPos({ x: e.clientX, y: e.clientY }); }}
         onClick={() => setShowProfile(true)}
         style={{ cursor: 'pointer' }}
       >
@@ -281,12 +281,13 @@ function VoiceParticipantRow({ participant, myRole, guildId, members, guildRoles
       <div
         style={{
           display: 'flex', alignItems: 'center', gap: 8,
-          padding: '3px 4px', cursor: 'pointer', borderRadius: 6,
-          outline: isSpeaking ? '2px solid var(--accent-primary)' : '2px solid transparent',
-          background: isSpeaking ? 'rgba(var(--accent-primary-rgb, 88,101,242), 0.08)' : 'transparent',
-          transition: 'outline 0.1s, background 0.1s',
+          padding: '2px 6px', minHeight: 26, boxSizing: 'border-box',
+          cursor: 'pointer', borderRadius: 8,
+          border: isSpeaking ? '1.5px solid var(--accent-primary)' : '1.5px solid transparent',
+          background: isSpeaking ? 'rgba(var(--accent-primary-rgb, 88,101,242), 0.10)' : 'transparent',
+          transition: 'border-color 0.1s, background 0.1s',
         }}
-        onContextMenu={e => { e.preventDefault(); setMenuPos({ x: e.clientX, y: e.clientY }); }}
+        onContextMenu={e => { e.preventDefault(); e.stopPropagation(); setMenuPos({ x: e.clientX, y: e.clientY }); }}
         onClick={() => setShowProfile(true)}
       >
         {participant.avatar ? (

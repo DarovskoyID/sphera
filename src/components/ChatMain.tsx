@@ -1500,7 +1500,7 @@ const MessageRow = React.memo(({ msg, isOwn, isFirstInGroup, onContextMenu, onRe
                 <span className="message-body">
                   {searchQuery?.trim()
                     ? highlightText(msg.content, searchQuery, msg.author?.id)
-                    : <MessageText text={msg.content} customEmojis={customEmojis} authorId={msg.author?.id} />
+                    : <MessageText text={msg.content} customEmojis={customEmojis} authorId={msg.author?.id} isBot={isBot(msg.author)} />
                   }
                 </span>
                 <span className="message-timestamp">{msg.edited && <span style={{ marginRight: 4, opacity: 0.75 }}>{tr('msg_edited')}</span>}{time}</span>

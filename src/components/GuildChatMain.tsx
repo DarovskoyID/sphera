@@ -342,7 +342,7 @@ const GuildMessageRow = React.memo(({ msg, isOwn, isFirstInGroup, onContextMenu,
               )}
               <div className="message-line">
                 <span className="message-body">
-                  <MessageText text={msg.content} customEmojis={customEmojis} members={members} authorId={msg.author?.id} />
+                  <MessageText text={msg.content} customEmojis={customEmojis} members={members} authorId={msg.author?.id} isBot={isBot(msg.author)} />
                 </span>
                 <span className="message-timestamp">{msg.edited && <span style={{ marginRight: 4, opacity: 0.75 }}>{tr('msg_edited')}</span>}{time}</span>
               </div>

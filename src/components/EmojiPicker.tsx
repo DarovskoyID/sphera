@@ -470,7 +470,11 @@ export const MessageText: React.FC<{
   members?: { username: string; nickname: string }[];
   /** Author of the message — decides whether the explicit filter applies. */
   authorId?: string;
-}> = ({ text, customEmojis, members, authorId }) => {
+  /** The author is a bot. Bot output (e.g. a `/help` banner) is controlled by
+   *  its owner and is never a social-engineering appeal, so it is exempt from
+   *  the whole-message "disable the filter" mask. */
+  isBot?: boolean;
+}> = ({ text, customEmojis, members, authorId, isBot }) => {
   const cfg = useCensorConfig();
   const censorOff = useCensorOff();
   if (!text) return null;
@@ -483,7 +487,8 @@ export const MessageText: React.FC<{
 
   // Whole-message masking: appeals to disable the filter are fully hidden and
   // never rich-rendered (so no sticker/GIF/markdown escape hatch survives).
-  if (isFullBlur(clean, cfg)) {
+  // Bots are exempt — their messages are not appeals.
+  if (!isBot && isFullBlur(clean, cfg)) {
     return <span className="blurred-msg" style={blurredStyle}>{fullMask(clean)}</span>;
   }
 
