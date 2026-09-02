@@ -12,7 +12,7 @@ cryptography==49.0.0
 daphne==4.2.2
 Django==5.2.15
 django-cors-headers==4.9.0
-djangorestframework==3.17.1
+djangorestframework==3.17.2
 djangorestframework_simplejwt==5.5.1
 firebase-admin==7.4.0
 hyperlink==21.0.0
