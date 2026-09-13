@@ -6,7 +6,7 @@ from django.test import TestCase, override_settings
 from rest_framework.test import APIClient
 
 from sfera_auth.models import User
-from sfera_modules.models import UserModule
+from sfera_modules.models import InstanceModule, UserModule
 
 from .models import MAX_DIARIES, Diary, DiaryAttachment, DiaryEntry
 
@@ -63,7 +63,7 @@ class DiaryApiTests(TestCase):
     @override_settings(SFERA_MODULES_ENFORCE=True)
     def test_gated_by_install(self):
         self.assertEqual(self._create().status_code, 403)
-        UserModule.objects.create(user=self.user, module_id='diary')
+        InstanceModule.objects.create(module_id='diary')
         self.assertEqual(self._create().status_code, 201)
 
 
