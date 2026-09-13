@@ -31,8 +31,9 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  ci:
-    name: Build and Check
+  core:
+    # The core must stand on its own: no modules checked out at all.
+    name: Core without modules
     runs-on: ubuntu-latest
     env:
       SFERA_DEBUG: '1'
@@ -45,6 +46,47 @@ jobs:
         with:
           node-version: 22
           cache: npm
+
+      - name: Build frontend (core only)
+        run: npm ci && npm run build
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: django-server/requirements.txt
+
+      - name: Install backend dependencies
+        working-directory: django-server
+        run: python -m pip install --upgrade pip && python -m pip install -r requirements.txt
+
+      - name: Django check, migrations and core tests
+        working-directory: django-server/sfera_server
+        run: |
+          python manage.py check
+          python manage.py makemigrations --check --dry-run
+          python manage.py migrate --noinput
+          python manage.py test sfera_modules
+
+  ci:
+    name: Build and Check (with modules)
+    runs-on: ubuntu-latest
+    env:
+      SFERA_DEBUG: '1'
+      SFERA_CORS_ALLOW_ALL: '1'
+      KAFKA_ENABLED: 'false'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Fetch modules pinned in modules.lock.json
+        run: node scripts/modules/fetch.mjs
 
       - name: Install frontend dependencies
         run: npm ci
@@ -64,11 +106,18 @@ jobs:
 
       - name: Compile backend
         working-directory: django-server/sfera_server
-        run: python -m compileall sfera_auth sfera_messages sfera_server
+        run: python -m compileall sfera_auth sfera_messages sfera_modules sfera_signaling sfera_server ../../modules
 
       - name: Django system check
         working-directory: django-server/sfera_server
         run: python manage.py check --deploy
+
+      - name: Migrations and backend tests (core + modules)
+        working-directory: django-server/sfera_server
+        run: |
+          python manage.py makemigrations --check --dry-run
+          python manage.py migrate --noinput
+          python manage.py test sfera_modules $(python -c "from sfera_modules.loader import backend_apps; print(' '.join(backend_apps()))")
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -102,7 +151,7 @@ jobs:
 
   deploy:
     name: Deploy
-    needs: ci
+    needs: [core, ci]
     runs-on: ubuntu-latest
     if: >
       (github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.SFERA_DEPLOY_ENABLED == 'true') ||

@@ -1,0 +1,10 @@
+{
+  "comment": "Module branches deployed with this core. Update with: node scripts/modules/fetch.mjs --update",
+  "modules": {
+    "bots": { "branch": "module/bots", "ref": "" },
+    "channels": { "branch": "module/channels", "ref": "" },
+    "diary": { "branch": "module/diary", "ref": "" },
+    "family": { "branch": "module/family", "ref": "" },
+    "servers": { "branch": "module/servers", "ref": "" }
+  }
+}

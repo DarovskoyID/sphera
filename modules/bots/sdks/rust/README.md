@@ -6,7 +6,7 @@
 
 ```toml
 [dependencies]
-sfera-bot = { path = "../bot-sdks/rust" }
+sfera-bot = { path = "../sdks/rust" }
 ```
 
 ## Ключ

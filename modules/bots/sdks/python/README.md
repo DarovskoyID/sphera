@@ -5,7 +5,7 @@
 ## Установка
 
 ```bash
-pip install ./bot-sdks/python
+pip install ./sdks/python
 ```
 
 ## Ключ

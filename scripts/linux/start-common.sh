@@ -1007,6 +1007,20 @@ start_django() {
     echo "      Hang watchdog: sfera-daphne-healthcheck.timer (every 1 min)"
 }
 
+fetch_modules() {
+    # Modules live on their own branches (module/<id>) and are checked out as
+    # git worktrees into ./modules at the commits pinned in modules.lock.json.
+    # Must run before Django starts (it discovers modules/*/module.json) and
+    # before the frontend build (module UIs are bundled as lazy chunks).
+    log "Fetching modules"
+    cd "$FRONTEND_DIR"
+    if [ -f modules.lock.json ]; then
+        node scripts/modules/fetch.mjs
+    else
+        echo "      modules.lock.json not found — running the core only"
+    fi
+}
+
 build_frontend() {
     log "Building frontend"
     cd "$FRONTEND_DIR"
@@ -1177,6 +1191,7 @@ require_command npm "Install Node.js/npm first, or run scripts/install-deps.sh."
 require_command nginx "Install nginx first, or run scripts/install-deps.sh."
 
 ensure_swap
+fetch_modules
 start_docker
 start_coturn
 start_mail

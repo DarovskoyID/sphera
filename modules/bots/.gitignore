@@ -1,0 +1,3 @@
+sdks/python/build/
+sdks/python/*.egg-info/
+__pycache__/

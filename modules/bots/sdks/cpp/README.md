@@ -14,7 +14,7 @@ ctest --test-dir build
 Подключение из своего проекта:
 
 ```cmake
-add_subdirectory(bot-sdks/cpp sfera_bot_sdk)
+add_subdirectory(sdks/cpp sfera_bot_sdk)
 target_link_libraries(my_bot PRIVATE sfera_bot)
 ```
 

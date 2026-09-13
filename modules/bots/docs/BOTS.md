@@ -100,9 +100,9 @@
 
 | Язык | Каталог | Зависимости |
 |---|---|---|
-| Python 3.9+ | [`bot-sdks/python`](../bot-sdks/python) | нет |
-| Rust 2021 | [`bot-sdks/rust`](../bot-sdks/rust) | ureq, serde |
-| C++17 | [`bot-sdks/cpp`](../bot-sdks/cpp) | libcurl |
+| Python 3.9+ | [`sdks/python`](../sdks/python) | нет |
+| Rust 2021 | [`sdks/rust`](../sdks/rust) | ureq, serde |
+| C++17 | [`sdks/cpp`](../sdks/cpp) | libcurl |
 
 У всех трёх одинаковая модель: `command()`, `on_message()`, `send()`/`reply()`,
 `set_commands()`, `poll()`/`dispatch()` и блокирующий `run()`.
