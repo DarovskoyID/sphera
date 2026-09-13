@@ -7,6 +7,10 @@ on:
   push:
   pull_request:
   workflow_dispatch:
+    inputs:
+      core_ref:
+        description: Core branch or commit to build the module against
+        default: main
 
 permissions:
   contents: read
@@ -27,7 +31,8 @@ jobs:
       - name: Checkout core (main)
         uses: actions/checkout@v4
         with:
-          ref: main
+          # Core to test against: dispatch input, repo variable SFERA_CORE_REF, or main.
+          ref: ${{ inputs.core_ref || vars.SFERA_CORE_REF || 'main' }}
           path: sfera
           fetch-depth: 0
 
