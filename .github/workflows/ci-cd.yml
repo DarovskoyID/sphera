@@ -154,7 +154,8 @@ jobs:
           sudo apt-get update -o Acquire::Retries=3 || true
           sudo apt-get install -y --no-install-recommends \
             -o Acquire::Retries=3 \
-            cmake libssl-dev libsasl2-dev pkg-config
+            cmake libssl-dev libsasl2-dev pkg-config \
+            libcurl4-openssl-dev zlib1g-dev liblz4-dev libzstd-dev
 
       - name: Check ws-gateway
         working-directory: ws-gateway
@@ -162,7 +163,7 @@ jobs:
         # равно по-настоящему собирается в Docker при деплое/установке, а сборка
         # librdkafka на раннере бывает медленной/капризной.
         continue-on-error: true
-        run: cargo check
+        run: cargo test
 
   deploy:
     name: Deploy
