@@ -31,8 +31,13 @@ function loaderFor(id: string) {
   return bundled[`../../../modules/${id}/frontend/index.tsx`];
 }
 
-type State = { loaded: boolean; modules: ModuleInfo[] };
-let state: State = { loaded: false, modules: [] };
+type State = {
+  loaded: boolean;
+  /** Installed modules finished their first activation (or failed). */
+  ready: boolean;
+  modules: ModuleInfo[];
+};
+let state: State = { loaded: false, ready: false, modules: [] };
 const listeners = new Set<() => void>();
 const disposers = new Map<string, (() => void)[]>();
 let conn: { serverIP: string; token: string } | null = null;
@@ -97,33 +102,37 @@ function deactivate(id: string) {
 /** Called by ModuleHost on login / server change. */
 export async function connectModules(serverIP: string, token: string) {
   conn = { serverIP, token };
-  const data = await api('');
-  const modules: ModuleInfo[] = (data.modules as Omit<ModuleInfo, 'active'>[]).map(m => ({
-    ...m,
-    active: disposers.has(m.id),
-  }));
-  set({ loaded: true, modules });
-  // Activate dependencies first.
-  const done = new Set<string>();
-  const visit = async (m: ModuleInfo) => {
-    if (done.has(m.id) || !m.installed) return;
-    done.add(m.id);
-    for (const d of m.deps) {
-      const dep = modules.find(x => x.id === d);
-      if (dep) await visit(dep);
+  try {
+    const data = await api('');
+    const modules: ModuleInfo[] = (data.modules as Omit<ModuleInfo, 'active'>[]).map(m => ({
+      ...m,
+      active: disposers.has(m.id),
+    }));
+    set({ loaded: true, modules });
+    // Activate dependencies first.
+    const done = new Set<string>();
+    const visit = async (m: ModuleInfo) => {
+      if (done.has(m.id) || !m.installed) return;
+      done.add(m.id);
+      for (const d of m.deps) {
+        const dep = modules.find(x => x.id === d);
+        if (dep) await visit(dep);
+      }
+      await activate(m.id);
+    };
+    for (const m of modules) await visit(m);
+    for (const id of [...disposers.keys()]) {
+      if (!modules.some(m => m.id === id && m.installed)) deactivate(id);
     }
-    await activate(m.id);
-  };
-  for (const m of modules) await visit(m);
-  for (const id of [...disposers.keys()]) {
-    if (!modules.some(m => m.id === id && m.installed)) deactivate(id);
+  } finally {
+    set({ ready: true });
   }
 }
 
 export function disconnectModules() {
   for (const id of [...disposers.keys()]) deactivate(id);
   conn = null;
-  set({ loaded: false, modules: [] });
+  set({ loaded: false, ready: false, modules: [] });
 }
 
 export async function installModule(id: string) {
