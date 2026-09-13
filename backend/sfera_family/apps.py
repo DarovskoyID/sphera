@@ -15,10 +15,11 @@ class SferaFamilyConfig(AppConfig):
 
         def can_uninstall(user):
             # Child protection must not be something a click in «Исследовать
-            # сферу» can switch off; parents leave the family first.
+            # сферу» can switch off: the module is instance-wide, so it stays
+            # while any family exists.
             from .models import FamilyMembership
-            if FamilyMembership.objects.filter(user=user).exists():
-                return 'leave the family first'
+            if FamilyMembership.objects.exists():
+                return 'families exist on this instance'
             return None
 
         def has_data(user):

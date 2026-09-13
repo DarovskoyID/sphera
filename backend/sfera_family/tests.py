@@ -3,7 +3,7 @@ from django.test import TestCase, override_settings
 from rest_framework.test import APIClient
 
 from sfera_auth.models import Friendship, User, UserSettings, is_child
-from sfera_modules.models import UserModule
+from sfera_modules.models import InstanceModule, UserModule
 
 from .models import Family, FamilyMembership
 
@@ -43,10 +43,13 @@ class FamilyTests(TestCase):
     @override_settings(SFERA_MODULES_ENFORCE=True)
     def test_family_members_cannot_uninstall_the_module(self):
         self.assertEqual(self.m.post('/api/family/').status_code, 403)  # not installed yet
-        UserModule.objects.create(user=self.mom, module_id='family')
+        InstanceModule.objects.create(module_id='family')
         kid = self._family_with_child()
-        self.assertEqual(self.m.delete('/api/modules/family/install/').status_code, 409)
-        res = app_client(kid).delete('/api/modules/family/install/')
+        # Only the superuser manages modules, and even they cannot remove the
+        # family module while any family exists.
+        self.assertEqual(app_client(kid).delete('/api/modules/family/install/').status_code, 403)
+        root = User.objects.create_superuser(username='root', email='root@x.ru', password='pass12345')
+        res = app_client(root).delete('/api/modules/family/install/')
         self.assertEqual(res.status_code, 409)
         self.assertEqual(res.json()['error'], 'locked')
         self.assertTrue(is_child(kid))
