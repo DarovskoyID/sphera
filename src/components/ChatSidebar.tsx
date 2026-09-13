@@ -9,7 +9,7 @@ import { useApp, reportError } from '../context/AppContext';
 import { useTranslation } from '../i18n/useTranslation';
 import ConfirmModal from './ConfirmModal';
 import type { ServerUser } from '../types';
-import { AccountBadge, accountDisplayName } from './BotBadge';
+import { AccountBadge, SuperuserBadge, accountDisplayName } from './BotBadge';
 import { useAnchoredMenu } from './useAnchoredMenu';
 import { ListSkeleton } from './Skeleton';
 import { ProfileModal as SharedProfileModal } from './ProfileModal';
@@ -476,7 +476,7 @@ export const ChatSidebar: React.FC = () => {
     isMobileSidebarOpen, toggleMobileSidebar, setAuthToken,
     friends, friendsLoaded, blockedContacts, pendingRequests, sentRequests, sendFriendRequest, acceptFriendRequest,
     rejectFriendRequest, searchUsers,
-    setCallActive, setCallTargetId, setVideoActive, currentUser,
+    setCallActive, setCallTargetId, setVideoActive, currentUser, language,
   } = useApp();
   const tr = useTranslation();
   const isMobile = useIsMobile();
@@ -787,6 +787,11 @@ export const ChatSidebar: React.FC = () => {
         <div className="settings-list">
           <div className={`settings-item ${currentSettingsPage === 'profile' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('profile')}>{tr('settings_my_account')}</div>
           <div className={`settings-item ${currentSettingsPage === 'content' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('content')}>{tr('settings_privacy')}</div>
+          {currentUser?.is_superuser && (
+            <div className={`settings-item ${currentSettingsPage === 'admin' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('admin')}>
+              {language === 'ru' ? 'Админ-панель' : 'Admin panel'}
+            </div>
+          )}
           <div className={`settings-item ${currentSettingsPage === 'data' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('data')}>{tr('settings_data')}</div>
           <div className={`settings-item ${currentSettingsPage === 'devices' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('devices')}>{tr('settings_devices')}</div>
           <div className={`settings-item ${currentSettingsPage === 'servers' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('servers')}>{tr('settings_servers')}</div>
@@ -945,7 +950,10 @@ export const UserProfile: React.FC = () => {
       {/* The status line is the control for it — the thing you want to change
           is the thing you click. */}
       <button className="profile-info profile-status-btn" onClick={() => setStatusMenu(v => !v)}>
-        <div className="profile-name">{displayName}</div>
+        <div className="profile-name" style={{ display: 'flex', alignItems: 'center', minWidth: 0 }}>
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{displayName}</span>
+          {currentUser?.is_superuser && <SuperuserBadge />}
+        </div>
         {/* No second dot here: the one on the avatar already says it, and two
             markers on one line only fight each other. */}
         <div className="profile-status">

@@ -361,3 +361,14 @@ class CustomEmoji(models.Model):
 
     def __str__(self):
         return f':{self.name}:'
+
+
+class UserBan(models.Model):
+    """System-wide ban by the superuser: the account is deactivated for everyone."""
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='ban')
+    reason = models.CharField(max_length=500, blank=True, default='')
+    banned_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name='+')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f'ban {self.user_id}'

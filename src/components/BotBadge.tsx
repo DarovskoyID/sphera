@@ -84,30 +84,22 @@ export const AdminBadge: React.FC<{ size?: 'sm' | 'md' }> = ({ size = 'sm' }) =>
   </span>
 );
 
-export const SuperuserBadge: React.FC<{ size?: 'sm' | 'md' }> = ({ size = 'sm' }) => (
-  <span
-    title="Суперпользователь Сферы"
-    style={{
-      display: 'inline-flex', alignItems: 'center', gap: 3, flexShrink: 0,
-      padding: size === 'sm' ? '0 4px' : '1px 6px',
-      marginLeft: 5,
-      borderRadius: 4,
-      background: 'linear-gradient(135deg,#facc15,#f97316)',
-      color: '#1f1300',
-      fontSize: size === 'sm' ? 9 : 10,
-      fontWeight: 800,
-      letterSpacing: '0.6px',
-      lineHeight: size === 'sm' ? '14px' : '16px',
-      textTransform: 'uppercase',
-      verticalAlign: 'middle',
-    }}
-  >
-    <svg width={size === 'sm' ? 9 : 10} height={size === 'sm' ? 9 : 10} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-      <path d="M2 7l5 5 5-8 5 8 5-5-2 13H4z" />
-    </svg>
-    SU
-  </span>
-);
+/** The instance superuser: a small shield in the text colour, name on hover. */
+export const SuperuserBadge: React.FC<{ size?: 'sm' | 'md' }> = ({ size = 'sm' }) => {
+  const px = size === 'sm' ? 13 : 15;
+  return (
+    <span
+      title="Суперпользователь"
+      aria-label="Суперпользователь"
+      style={{ display: 'inline-flex', alignItems: 'center', flexShrink: 0, marginLeft: 5, color: 'var(--text-secondary)', verticalAlign: 'middle' }}
+    >
+      <svg width={px} height={px} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+        <path d="m9 12 2 2 4-4" />
+      </svg>
+    </span>
+  );
+};
 
 /** The badge that matches an account's global role, or nothing for plain users. */
 export const AccountBadge: React.FC<{ account?: AccountLike | null; size?: 'sm' | 'md' }> = ({ account, size }) => {
