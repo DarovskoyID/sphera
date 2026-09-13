@@ -42,3 +42,6 @@ django-server/sfera_server/media/load-tests/loadtest.env
 !.mail.env.example
 django-server/sfera_server/serviceAccountKey.json
 serviceAccountKey.json
+
+# Modules are checked out from their branches (node scripts/modules/fetch.mjs)
+/modules/
