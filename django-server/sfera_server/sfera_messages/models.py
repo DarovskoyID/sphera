@@ -142,6 +142,10 @@ class MessageReport(models.Model):
     reporter = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='reports')
     message = models.ForeignKey(Message, on_delete=models.CASCADE, related_name='reports')
     created_at = models.DateTimeField(auto_now_add=True)
+    # Closed by the superuser in the admin panel.
+    resolved_at = models.DateTimeField(null=True, blank=True)
+    resolved_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name='+')
+    resolution = models.CharField(max_length=16, blank=True, default='')
 
     class Meta:
         unique_together = ('reporter', 'message')

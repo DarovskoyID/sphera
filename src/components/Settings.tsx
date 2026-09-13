@@ -9,6 +9,7 @@ import { useSlot } from '../sdk/slots';
 import { useTranslation } from '../i18n/useTranslation';
 import { languages, type LangCode } from '../i18n';
 import { ListSkeleton } from './Skeleton';
+import { AdminPanel } from './AdminPanel';
 import { MAX_PROFILE_LINKS, type ProfileLink } from '../types';
 import type { ServerUser } from '../types';
 import { saveNotifPrefs, ensureNotificationPermission } from '../utils/notifications';
@@ -323,6 +324,7 @@ export const Settings: React.FC = () => {
         <div className="settings-list">
           {currentSettingsPage === 'profile' && <ProfileSettings />}
           {currentSettingsPage === 'content' && <PrivacySettings />}
+          {currentSettingsPage === 'admin' && <AdminPanel />}
           {currentSettingsPage === 'data' && <DataSettings />}
           {currentSettingsPage === 'devices' && <DevicesSettings />}
           {currentSettingsPage === 'notifications' && <NotificationSettings />}
