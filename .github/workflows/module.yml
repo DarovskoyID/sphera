@@ -66,11 +66,14 @@ jobs:
       - name: Module monitoring (dashboards, alert rules)
         working-directory: sfera
         run: |
+          # Older cores have no per-module monitoring yet.
+          [ -f scripts/modules/monitoring.mjs ] || exit 0
           node scripts/modules/monitoring.mjs --exclude core
           if ls django-server/monitoring/generated/rules/*.yml >/dev/null 2>&1; then
-            docker run --rm --entrypoint promtool \
+            # The glob must expand inside the container.
+            docker run --rm --entrypoint sh \
               -v "$PWD/django-server/monitoring:/m:ro" prom/prometheus:v2.53.0 \
-              check rules /m/generated/rules/*.yml
+              -c 'promtool check rules /m/generated/rules/*.yml'
           fi
 
       - uses: actions/setup-node@v4
