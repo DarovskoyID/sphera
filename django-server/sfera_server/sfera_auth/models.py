@@ -49,6 +49,16 @@ class User(AbstractUser):
         default='offline',
     )
 
+    class Meta(AbstractUser.Meta):
+        swappable = 'AUTH_USER_MODEL'
+        constraints = [
+            # The instance has a single superuser: the one who manages modules
+            # (see manage.py ensure_superuser).
+            models.UniqueConstraint(
+                fields=['is_superuser'], condition=models.Q(is_superuser=True), name='single_superuser',
+            ),
+        ]
+
     def __str__(self):
         return self.username
 

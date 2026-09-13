@@ -1007,6 +1007,33 @@ start_django() {
     echo "      Hang watchdog: sfera-daphne-healthcheck.timer (every 1 min)"
 }
 
+ensure_superuser() {
+    # The instance has exactly one superuser; only they install modules.
+    # Credentials: SFERA_SUPERUSER_USERNAME / SFERA_SUPERUSER_PASSWORD /
+    # SFERA_SUPERUSER_EMAIL from the deploy environment, <repo>/.env or
+    # /etc/sfera/secrets.env. Without them an interactive install asks; a
+    # non-interactive deploy warns and continues. Does nothing once one exists.
+    log "Ensuring the superuser"
+    local no_input=""
+    [ -t 0 ] || no_input="--no-input"
+    (
+        set -a
+        # shellcheck disable=SC1090
+        . <(sudo cat /etc/sfera/secrets.env 2>/dev/null)
+        # shellcheck disable=SC1091
+        [ -f "$PROJECT_ROOT/.env" ] && . "$PROJECT_ROOT/.env"
+        SFERA_DEBUG=0
+        SFERA_DOMAIN="$DOMAIN"
+        SFERA_ALLOWED_HOSTS="$DOMAIN"
+        POSTGRES_DB="$PG_DB"; POSTGRES_USER="$PG_USER"; POSTGRES_PASSWORD="$PG_PASSWORD"
+        POSTGRES_HOST="$PG_HOST"; POSTGRES_PORT="$PG_PORT"
+        ELASTICSEARCH_URL="$ES_URL"
+        set +a
+        cd "$DJANGO_DIR"
+        "$VENV/bin/python" manage.py ensure_superuser $no_input
+    ) || echo "      WARNING: superuser step failed — run: manage.py ensure_superuser"
+}
+
 fetch_modules() {
     # Modules live on their own branches (module/<id>) and are checked out as
     # git worktrees into ./modules at the commits pinned in modules.lock.json.
@@ -1220,6 +1247,7 @@ start_docker
 start_coturn
 start_mail
 start_django
+ensure_superuser
 start_kafka_worker
 write_loadtest_env
 build_frontend

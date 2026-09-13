@@ -7,15 +7,15 @@
     },
     "channels": {
       "branch": "module/channels",
-      "ref": "32ffaed3a88023acd22b30782a9f2bfacd24ef71"
+      "ref": "3eecfc8d2b8d70b3fe03ca4f3c7a9f4188851ebd"
     },
     "diary": {
       "branch": "module/diary",
-      "ref": "b651c267655da54f7a6c4caed9fa01bf13a94066"
+      "ref": "ba3f282cadb715a81651d1e3078e8102eeb2c7c8"
     },
     "family": {
       "branch": "module/family",
-      "ref": "413c2c3b0b69fef9104977ff545ede448ccdfd9f"
+      "ref": "6586704f31eea340ee94ab8baf654f47113f4895"
     },
     "servers": {
       "branch": "module/servers",

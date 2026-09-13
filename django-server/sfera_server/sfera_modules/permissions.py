@@ -1,4 +1,4 @@
-"""Gate module endpoints on the user's installed modules."""
+"""Gate module endpoints on the modules installed on this instance."""
 from functools import wraps
 
 from asgiref.sync import sync_to_async
@@ -6,13 +6,17 @@ from django.conf import settings
 from rest_framework.permissions import BasePermission
 from rest_framework.response import Response
 
-from .models import UserModule
+from .models import InstanceModule
 
 
 def enforced() -> bool:
-    # Off while modules are being migrated out of the monolith: everything
-    # behaves as installed. Turned on together with the «Исследовать сферу» UI.
+    # Off: everything deployed behaves as installed.
     return getattr(settings, 'SFERA_MODULES_ENFORCE', False)
+
+
+def can_manage(user) -> bool:
+    """Only the instance's single superuser installs and removes modules."""
+    return bool(user and user.is_authenticated and user.is_superuser)
 
 
 def has_module(user, module_id: str) -> bool:
@@ -20,16 +24,16 @@ def has_module(user, module_id: str) -> bool:
         return True
     if not user or not user.is_authenticated:
         return False
-    return UserModule.objects.filter(user=user, module_id=module_id).exists()
+    return InstanceModule.objects.filter(module_id=module_id).exists()
 
 
-def installed_ids(user) -> set[str]:
+def installed_ids(user=None) -> set[str]:
     from .loader import discover
 
     present = set(discover())
     if not enforced():
         return present
-    return present & set(UserModule.objects.filter(user=user).values_list('module_id', flat=True))
+    return present & set(InstanceModule.objects.values_list('module_id', flat=True))
 
 
 def requires_module(module_id: str):

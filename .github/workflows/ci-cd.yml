@@ -267,6 +267,10 @@ jobs:
           SFERA_MODULES: ${{ vars.SFERA_MODULES }}
           SFERA_MONITORING_EXCLUDE: ${{ vars.SFERA_MONITORING_EXCLUDE }}
           SFERA_MONITORING: ${{ vars.SFERA_MONITORING }}
+          # Single superuser (manages modules), created once on first deploy.
+          SFERA_SUPERUSER_USERNAME: ${{ secrets.SFERA_SUPERUSER_USERNAME }}
+          SFERA_SUPERUSER_EMAIL: ${{ secrets.SFERA_SUPERUSER_EMAIL }}
+          SFERA_SUPERUSER_PASSWORD: ${{ secrets.SFERA_SUPERUSER_PASSWORD }}
         run: |
           user="${DEPLOY_USER:-root}"
           port="${DEPLOY_PORT:-22}"
@@ -291,6 +295,9 @@ jobs:
              ${SFERA_MODULES:+export SFERA_MODULES='$SFERA_MODULES'}
              ${SFERA_MONITORING_EXCLUDE:+export SFERA_MONITORING_EXCLUDE='$SFERA_MONITORING_EXCLUDE'}
              ${SFERA_MONITORING:+export SFERA_MONITORING='$SFERA_MONITORING'}
+             ${SFERA_SUPERUSER_USERNAME:+export SFERA_SUPERUSER_USERNAME='$SFERA_SUPERUSER_USERNAME'}
+             ${SFERA_SUPERUSER_EMAIL:+export SFERA_SUPERUSER_EMAIL='$SFERA_SUPERUSER_EMAIL'}
+             ${SFERA_SUPERUSER_PASSWORD:+export SFERA_SUPERUSER_PASSWORD='$SFERA_SUPERUSER_PASSWORD'}
              set +a
              bash scripts/linux/start-common.sh '$mode'"
 
