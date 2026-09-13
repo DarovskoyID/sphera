@@ -64,31 +64,41 @@ pub async fn chat_ws(
     }
 
     ws.protocols(["ionik.jwt"])
-        .on_upgrade(move |socket| handle_chat(socket, state, conversation_id, claims.user_id))
+        .on_upgrade(move |socket| handle_chat(socket, state, conversation_id, claims.user_id, token))
 }
 
-async fn handle_chat(socket: WebSocket, state: Arc<AppState>, conversation_id: String, user_id: String) {
+async fn handle_chat(socket: WebSocket, state: Arc<AppState>, conversation_id: String, user_id: String, token: String) {
     metrics::conn_open();
     let room = format!("chat_{}", conversation_id);
     let mut rx = state.hub.join(&room, &user_id);
+    // Replies meant only for this client (e.g. "your message was blocked").
+    let (direct_tx, mut direct_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
 
     let (mut sink, mut stream) = socket.split();
 
-    // Task: forward Hub broadcasts → WS client
+    // Task: forward Hub broadcasts and direct replies → WS client
     let room_clone = room.clone();
     let sink_task = tokio::spawn(async move {
         loop {
-            match rx.recv().await {
-                Ok(msg) => {
-                    if sink.send(Message::Text(msg.to_string().into())).await.is_err() {
+            tokio::select! {
+                direct = direct_rx.recv() => {
+                    let Some(text) = direct else { break };
+                    if sink.send(Message::Text(text.into())).await.is_err() {
                         break;
                     }
-                    metrics::inc(&metrics::MESSAGES_OUT);
                 }
-                Err(RecvError::Lagged(n)) => {
-                    tracing::warn!("Client lagged {} messages in {}", n, room_clone);
-                }
-                Err(RecvError::Closed) => break,
+                received = rx.recv() => match received {
+                    Ok(msg) => {
+                        if sink.send(Message::Text(msg.to_string().into())).await.is_err() {
+                            break;
+                        }
+                        metrics::inc(&metrics::MESSAGES_OUT);
+                    }
+                    Err(RecvError::Lagged(n)) => {
+                        tracing::warn!("Client lagged {} messages in {}", n, room_clone);
+                    }
+                    Err(RecvError::Closed) => break,
+                },
             }
         }
     });
@@ -102,7 +112,7 @@ async fn handle_chat(socket: WebSocket, state: Arc<AppState>, conversation_id: S
         while let Some(Ok(msg)) = stream.next().await {
             match msg {
                 Message::Text(text) => {
-                    handle_chat_message(&state2, &room2, &conv_id2, &user_id2, &text).await;
+                    handle_chat_message(&state2, &room2, &conv_id2, &user_id2, &token, &direct_tx, &text).await;
                 }
                 Message::Close(_) => break,
                 _ => {}
@@ -126,6 +136,8 @@ async fn handle_chat_message(
     room: &str,
     conversation_id: &str,
     user_id: &str,
+    token: &str,
+    reply: &tokio::sync::mpsc::UnboundedSender<String>,
     text: &str,
 ) {
     let data: Value = match serde_json::from_str(text) {
@@ -152,6 +164,23 @@ async fn handle_chat_message(
     let reply_to_id = data.get("reply_to_id").cloned();
 
     if content.is_empty() && attachment_ids.is_empty() {
+        return;
+    }
+
+    // Anti-scam: a code-like message is relayed only if Django agrees nobody in
+    // the chat has just asked for an SMS / verification code (code_guard.py).
+    if has_code_like_digits(&content)
+        && !authorize_ws(
+            state,
+            token,
+            json!({"type": "chat_send_check", "conversation_id": conversation_id, "content": content}),
+        ).await
+    {
+        let _ = reply.send(json!({
+            "type": "message_blocked",
+            "reason": "verification_code",
+            "nonce": nonce,
+        }).to_string());
         return;
     }
 
@@ -208,6 +237,52 @@ async fn handle_chat_message(
         conversation_id,
         &kafka_payload.to_string(),
     ).await;
+}
+
+/// Cheap pre-filter: a run of 3–8 digits (single spaces/dashes allowed inside)
+/// not glued to letters or other digits. Django makes the real decision.
+fn has_code_like_digits(text: &str) -> bool {
+    let chars: Vec<char> = text.chars().collect();
+    let mut i = 0;
+    while i < chars.len() {
+        if !chars[i].is_ascii_digit() || (i > 0 && chars[i - 1].is_alphanumeric()) {
+            i += 1;
+            continue;
+        }
+        let mut digits = 0;
+        let mut j = i;
+        while j < chars.len() {
+            if chars[j].is_ascii_digit() {
+                digits += 1;
+                j += 1;
+            } else if (chars[j] == ' ' || chars[j] == '-') && j + 1 < chars.len() && chars[j + 1].is_ascii_digit() {
+                j += 1;
+            } else {
+                break;
+            }
+        }
+        let glued = j < chars.len() && chars[j].is_alphanumeric();
+        if (3..=8).contains(&digits) && !glued {
+            return true;
+        }
+        i = j.max(i + 1);
+    }
+    false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::has_code_like_digits;
+
+    #[test]
+    fn code_like() {
+        assert!(has_code_like_digits("4821"));
+        assert!(has_code_like_digits("код 482 913"));
+        assert!(!has_code_like_digits("привет"));
+        assert!(!has_code_like_digits("12"));
+        assert!(!has_code_like_digits("abc1234"));
+        assert!(!has_code_like_digits("+7 999 123 45 67 89"));
+    }
 }
 
 // ── Guild WebSocket ─────────────────────────────────────────────────────────

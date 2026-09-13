@@ -104,6 +104,10 @@ class ChatConsumer(AsyncWebsocketConsumer):
         if await self.is_blocked():
             return
 
+        if await self.code_blocked(content):
+            await self.send(text_data=ujson.dumps({'type': 'message_blocked', 'reason': 'verification_code', 'nonce': nonce}))
+            return
+
         attachment_ids = await self.validate_attachment_ids(attachment_ids)
         if attachment_ids is None:
             return
@@ -517,6 +521,11 @@ class ChatConsumer(AsyncWebsocketConsumer):
         if found != set(normalized):
             return None
         return normalized
+
+    @database_sync_to_async
+    def code_blocked(self, content):
+        from .code_guard import should_block
+        return should_block(Conversation.objects.get(id=self.conversation_id), self.scope['user'], content)
 
     @database_sync_to_async
     def save_message(self, plaintext, attachment_ids=None, reply_to_id=None, msg_id=None):

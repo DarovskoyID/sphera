@@ -922,6 +922,14 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
                     : m
                   ),
               }));
+            } else if (data.type === 'message_blocked') {
+              // Anti-scam filter refused our message (a code someone asked for).
+              // Keep it on screen, marked as not delivered.
+              const id = `optimistic-${data.nonce}`;
+              setState(prev => ({
+                ...prev,
+                chatMessages: prev.chatMessages.map(m => m.id === id ? { ...m, blocked_reason: data.reason || 'verification_code' } : m),
+              }));
             } else if (data.type === 'message_status') {
               const ids: string[] = data.ids || [];
               const field: 'delivered_at' | 'read_at' = data.field;
@@ -1231,6 +1239,14 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
           attachment_ids: attachmentIds || [],
           reply_to_id: replyToId || null,
         }),
+      }).then(async res => {
+        if (res.status !== 403) return;
+        const body = await res.json().catch(() => ({}));
+        if (body?.error !== 'code_blocked') return;
+        setState(prev => ({
+          ...prev,
+          chatMessages: prev.chatMessages.map(m => m.id === `optimistic-${nonce}` ? { ...m, blocked_reason: 'verification_code' } : m),
+        }));
       }).catch(() => {});
     }
   }, [state.chatConversationId, state.currentServerIP, state.authToken]);
