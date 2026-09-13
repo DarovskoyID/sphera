@@ -13,6 +13,7 @@ export const BOT_SUFFIX = '_bot';
 interface AccountLike {
   account_type?: AccountType | string;
   username?: string;
+  is_superuser?: boolean;
 }
 
 export const isBot = (account?: AccountLike | null): boolean =>
@@ -83,9 +84,35 @@ export const AdminBadge: React.FC<{ size?: 'sm' | 'md' }> = ({ size = 'sm' }) =>
   </span>
 );
 
+export const SuperuserBadge: React.FC<{ size?: 'sm' | 'md' }> = ({ size = 'sm' }) => (
+  <span
+    title="Суперпользователь Сферы"
+    style={{
+      display: 'inline-flex', alignItems: 'center', gap: 3, flexShrink: 0,
+      padding: size === 'sm' ? '0 4px' : '1px 6px',
+      marginLeft: 5,
+      borderRadius: 4,
+      background: 'linear-gradient(135deg,#facc15,#f97316)',
+      color: '#1f1300',
+      fontSize: size === 'sm' ? 9 : 10,
+      fontWeight: 800,
+      letterSpacing: '0.6px',
+      lineHeight: size === 'sm' ? '14px' : '16px',
+      textTransform: 'uppercase',
+      verticalAlign: 'middle',
+    }}
+  >
+    <svg width={size === 'sm' ? 9 : 10} height={size === 'sm' ? 9 : 10} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <path d="M2 7l5 5 5-8 5 8 5-5-2 13H4z" />
+    </svg>
+    SU
+  </span>
+);
+
 /** The badge that matches an account's global role, or nothing for plain users. */
 export const AccountBadge: React.FC<{ account?: AccountLike | null; size?: 'sm' | 'md' }> = ({ account, size }) => {
   if (isBot(account)) return <BotBadge size={size} />;
+  if (account?.is_superuser) return <SuperuserBadge size={size} />;
   if (isAdminAccount(account)) return <AdminBadge size={size} />;
   return null;
 };

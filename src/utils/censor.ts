@@ -20,7 +20,7 @@
 import { useSyncExternalStore } from 'react';
 import {
   PROFANITY_ROOTS, PROFANITY_WORDS, EXPLICIT_ROOTS, EXPLICIT_WORDS,
-  CTA_KEYWORDS, CALL_TO_ACTION_RE, CODE_KEYWORDS, CODE_REQUEST_RE,
+  CTA_KEYWORDS, CALL_TO_ACTION_RE, CODE_KEYWORDS, CODE_REQUEST_RE, BENIGN_CODE_CONTEXT_RE,
   DISABLE_VERBS, DISABLE_NOUNS, EXCEPTIONS,
   CJK_PROFANITY, CJK_EXPLICIT, CJK_CTA, CJK_CODE,
   TRANSLIT_PROFANITY, TRANSLIT_EXPLICIT, TRANSLIT_DISABLE_VERBS, TRANSLIT_DISABLE_NOUNS,
@@ -558,10 +558,11 @@ function activeCjkTerms(cfg: CensorConfig, authorId?: string): string[] {
 /** Cheap pre-check: no Han characters means the whole pass can be skipped. */
 const CJK_RE = /\p{Script=Han}/u;
 
-function activePhraseRes(cfg: CensorConfig): RegExp[] {
+function activePhraseRes(cfg: CensorConfig, text: string): RegExp[] {
   const res: RegExp[] = [];
   if (cfg.blur_calls_to_action) res.push(...CALL_TO_ACTION_RE);
-  if (cfg.blur_code_requests) res.push(...CODE_REQUEST_RE);
+  // Context: a Wi-Fi password or an intercom code is not a phishing request.
+  if (cfg.blur_code_requests && !BENIGN_CODE_CONTEXT_RE.test(text)) res.push(...CODE_REQUEST_RE);
   return res;
 }
 
@@ -870,7 +871,7 @@ export function censorToSentinel(text: string, cfg: CensorConfig = getCensorConf
   // Passes 3 and 4 both work on a 1:1 folded view of the text — strictly one
   // character in, one out (lowercase + drop diacritics) — so a match index in
   // `folded` is also a valid index into the original string.
-  const phraseRes = activePhraseRes(cfg);
+  const phraseRes = activePhraseRes(cfg, text);
   const cjkTerms = CJK_RE.test(text) ? activeCjkTerms(cfg, authorId) : [];
   if (phraseRes.length || cjkTerms.length) {
     const folded = flatFold(chars);

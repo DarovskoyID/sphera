@@ -207,6 +207,7 @@ def _author_brief(u):
         'avatar': u.avatar.url if getattr(u, 'avatar', None) else '',
         'status': getattr(u, 'status', 'online'),
         'account_type': getattr(u, 'account_type', 'user'),
+        'is_superuser': bool(getattr(u, 'is_superuser', False)),
     }
 
 

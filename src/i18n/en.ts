@@ -435,7 +435,7 @@ export const en = {
   chat_edit_save: 'Save',
   chat_edit_empty: 'Message cannot be empty',
   msg_edited: '(edited)',
-  msg_code_blocked: 'Not sent: this looks like a verification code, and someone in this chat just asked for it. Never share codes from SMS or apps — that\'s how accounts and cards get stolen.',
+  msg_code_blocked: 'Not sent: this looks like a secret code (SMS, bank or app). Never share such codes — that\'s how accounts and money get stolen.',
   chat_copy_text: 'Copy text',
   chat_pin: 'Pin',
   chat_unpin_msg: 'Unpin',
