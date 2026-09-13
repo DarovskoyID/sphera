@@ -1,14 +1,9 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { ListSkeleton, settingsUi, useCore, useT } from '@sfera/sdk';
+import { goTo, ListSkeleton, settingsUi, useCore, useModules, useT } from '@sfera/sdk';
 
 const { card, sectionH3, fieldLabel, fieldInput, btnPrimary, btnSecondary, btnDanger, statusMsg } = settingsUi;
 
-/** Core app state; guild helpers are optional (present while servers exist). */
-function useApp() {
-  return useCore() as ReturnType<typeof useCore> & {
-    guilds?: { id: string }[]; loadGuilds?: () => Promise<void>;
-  };
-}
+const useApp = useCore;
 const useTranslation = useT;
 
 // ==================== Family centre ====================
@@ -57,9 +52,10 @@ export const FamilySettings: React.FC = () => {
   const tr = useTranslation();
   const isRu = tr('settings_formatting') === 'Подсказки';
   const {
-    currentServerIP, authToken, guilds, selectGuild, setCurrentView,
-    setCurrentSettingsPage, currentUser, loadGuilds,
+    currentServerIP, authToken, setCurrentSettingsPage, currentUser,
   } = useApp();
+  // The household chat lives on a server, so it needs the servers module.
+  const hasServers = useModules().modules.some(m => m.id === 'servers' && m.installed);
 
   const [family, setFamily] = useState<FamilyData | null>(null);
   const [loaded, setLoaded] = useState(false);
@@ -95,11 +91,6 @@ export const FamilySettings: React.FC = () => {
         return false;
       }
       setFamily(data.family ?? null);
-      // The household's server may have been created by this very call — on a
-      // family made before it existed, or by adding a member. Re-read the
-      // guild list so the button below has something to open.
-      const guildId = data.family?.guild_id;
-      if (guildId && guilds && !guilds.some(g => String(g.id) === guildId)) void loadGuilds?.();
       return true;
     } catch {
       setMsg({ text: tr('sp_save_fail'), type: 'err' });
@@ -108,7 +99,7 @@ export const FamilySettings: React.FC = () => {
       setBusy(false);
       setLoaded(true);
     }
-  }, [currentServerIP, authToken, tr, guilds, loadGuilds]);
+  }, [currentServerIP, authToken, tr]);
 
   useEffect(() => { if (authToken) void call(''); }, [authToken, call]);
 
@@ -194,7 +185,7 @@ export const FamilySettings: React.FC = () => {
 
   const isParent = family.my_role === 'parent';
   const children = family.members.filter(m => m.role === 'child');
-  const familyGuild = guilds?.find(g => String(g.id) === family.guild_id);
+  const familyGuild = hasServers && family.guild_id ? family.guild_id : null;
   const iShare = locations.some(spot => spot.is_self);
 
   /** Share where I am with the household, for the next eight hours (opt-in, expires on its own). */
@@ -289,8 +280,7 @@ export const FamilySettings: React.FC = () => {
             style={btnPrimary}
             onClick={() => {
               setCurrentSettingsPage('');
-              setCurrentView('home');
-              selectGuild(familyGuild);
+              goTo(familyGuild);
             }}
           >
             {isRu ? 'Открыть' : 'Open'}
