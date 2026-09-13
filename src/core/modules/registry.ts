@@ -35,9 +35,11 @@ type State = {
   loaded: boolean;
   /** Installed modules finished their first activation (or failed). */
   ready: boolean;
+  /** Current user is the instance superuser, the only one who installs modules. */
+  canManage: boolean;
   modules: ModuleInfo[];
 };
-let state: State = { loaded: false, ready: false, modules: [] };
+let state: State = { loaded: false, ready: false, canManage: false, modules: [] };
 const listeners = new Set<() => void>();
 const disposers = new Map<string, (() => void)[]>();
 let conn: { serverIP: string; token: string } | null = null;
@@ -108,7 +110,7 @@ export async function connectModules(serverIP: string, token: string) {
       ...m,
       active: disposers.has(m.id),
     }));
-    set({ loaded: true, modules });
+    set({ loaded: true, canManage: Boolean(data.can_manage), modules });
     // Activate dependencies first.
     const done = new Set<string>();
     const visit = async (m: ModuleInfo) => {
@@ -132,7 +134,7 @@ export async function connectModules(serverIP: string, token: string) {
 export function disconnectModules() {
   for (const id of [...disposers.keys()]) deactivate(id);
   conn = null;
-  set({ loaded: false, ready: false, modules: [] });
+  set({ loaded: false, ready: false, canManage: false, modules: [] });
 }
 
 export async function installModule(id: string) {

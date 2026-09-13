@@ -34,7 +34,7 @@ function pick(map: Record<string, string>, lang: string) {
   return map[lang] || map.en || map.ru || Object.values(map)[0] || '';
 }
 
-function ModuleCard({ m, lang, isRu }: { m: ModuleInfo; lang: string; isRu: boolean }) {
+function ModuleCard({ m, lang, isRu, canManage }: { m: ModuleInfo; lang: string; isRu: boolean; canManage: boolean }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const Icon = MODULE_ICONS[m.icon] ?? Puzzle;
@@ -49,7 +49,7 @@ function ModuleCard({ m, lang, isRu }: { m: ModuleInfo; lang: string; isRu: bool
       setError(body?.error === 'required_by'
         ? `${isRu ? 'Нужен модулям' : 'Required by'}: ${body.modules?.join(', ')}`
         : body?.error === 'locked'
-          ? (isRu ? 'Сейчас удалить нельзя: модуль используется (например, вы состоите в семье)' : 'Cannot be removed while in use (e.g. you are in a family)')
+          ? (isRu ? 'Сейчас удалить нельзя: модуль используется (например, на сервере есть семьи)' : 'Cannot be removed while in use (e.g. families exist)')
           : String((e as Error).message));
     } finally {
       setBusy(false);
@@ -78,7 +78,7 @@ function ModuleCard({ m, lang, isRu }: { m: ModuleInfo; lang: string; isRu: bool
         <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{isRu ? 'Требует' : 'Requires'}: {m.deps.join(', ')}</div>
       )}
       {(error || m.error) && <div style={{ fontSize: 11, color: '#ef4444' }}>{error || m.error}</div>}
-      <button
+      {canManage && <button
         onClick={toggle}
         disabled={busy}
         style={{
@@ -91,7 +91,7 @@ function ModuleCard({ m, lang, isRu }: { m: ModuleInfo; lang: string; isRu: bool
       >
         {m.installed ? <Trash2 size={14} /> : <Download size={14} />}
         {busy ? '…' : m.installed ? (isRu ? 'Удалить' : 'Uninstall') : (isRu ? 'Установить' : 'Install')}
-      </button>
+      </button>}
     </div>
   );
 }
@@ -201,11 +201,16 @@ export const ExploreSphere: React.FC<{ style?: React.CSSProperties }> = ({ style
         {!query && (
           <div style={{ padding: '20px 24px 0' }}>
             <h3 style={sectionTitle}>{isRu ? 'Модули' : 'Modules'}</h3>
+            {modules.loaded && !modules.canManage && sorted.length > 0 && (
+              <div style={{ margin: '-6px 0 12px', fontSize: 12, color: 'var(--text-tertiary)' }}>
+                {isRu ? 'Модули на сервере устанавливает администратор' : 'Modules on this server are managed by the administrator'}
+              </div>
+            )}
             {!modules.loaded ? <CardGridSkeleton cards={3} /> : sorted.length === 0 ? (
               <div style={{ color: 'var(--text-tertiary)', fontSize: 13 }}>{isRu ? 'На этом сервере нет модулей' : 'No modules on this server'}</div>
             ) : (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(230px, 1fr))', gap: 12 }}>
-                {sorted.map(m => <ModuleCard key={m.id} m={m} lang={language} isRu={isRu} />)}
+                {sorted.map(m => <ModuleCard key={m.id} m={m} lang={language} isRu={isRu} canManage={modules.canManage} />)}
               </div>
             )}
           </div>
