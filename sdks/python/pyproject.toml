@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sfera-bot"
+version = "1.1.0"
+description = "Официальная библиотека для ботов мессенджера Сфера"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+keywords = ["sfera", "bot", "chat"]
+dependencies = []
+
+[project.urls]
+Homepage = "https://start-ionik.ru"
+
+[tool.setuptools]
+packages = ["sfera_bot"]
