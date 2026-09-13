@@ -8,7 +8,7 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 
 from sfera_auth.models import User
-from sfera_modules.models import UserModule
+from sfera_modules.models import InstanceModule, UserModule
 
 from .models import MAX_OWNED_CHANNELS, Channel, Post, PostComment, ScheduledPost, Subscription
 from .services import deliver_due
@@ -95,7 +95,7 @@ class ChannelApiTests(TestCase):
     @override_settings(SFERA_MODULES_ENFORCE=True)
     def test_gated_by_install(self):
         self.assertEqual(self.o.post('/api/channels/', {'name': 'x'}, format='json').status_code, 403)
-        UserModule.objects.create(user=self.owner, module_id='channels')
+        InstanceModule.objects.create(module_id='channels')
         self.assertEqual(self.o.post('/api/channels/', {'name': 'x'}, format='json').status_code, 201)
 
 
