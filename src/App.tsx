@@ -10,8 +10,8 @@ import { AuthScreen } from './components/AuthScreen';
 import { IncomingCallModal } from './components/IncomingCallModal';
 import { CallWindow } from './components/CallWindow';
 import { VoiceRoomProvider, GuildVoiceStage } from './components/voiceRoom';
-import { ExploreServers } from './components/ExploreServers';
-import { PersonalChannelFeed } from './components/PersonalChannelFeed';
+import { ExploreSphere } from './core/explore/ExploreSphere';
+import { ServersExploreBridge } from './components/ServersExploreBridge';
 import { OnboardingTour } from './components/OnboardingTour';
 import { Volume2, PhoneOff } from 'lucide-react';
 import { applyA11y } from './utils/accessibility';
@@ -266,9 +266,7 @@ function AppContent() {
       {moduleView ? (
         <moduleView.render style={{ gridColumn: '2 / -1' }} />
       ) : inExplore ? (
-        <ExploreServers style={{ gridColumn: '2 / -1' }} />
-      ) : inGuild && currentGuild?.is_personal_channel ? (
-        <PersonalChannelFeed style={{ gridColumn: '2 / -1' }} />
+        <ExploreSphere style={{ gridColumn: '2 / -1' }} />
       ) : inGuild ? (
         <>
           <GuildSidebar />
@@ -303,6 +301,7 @@ function AppContent() {
       <ToastContainer />
       <GuildKickNotification />
       <ModuleOverlays />
+      <ServersExploreBridge />
       <OnboardingTour />
     </div>
   );

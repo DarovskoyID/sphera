@@ -253,7 +253,6 @@ interface AppContextType extends AppState {
   revokeGuildInvite: (guildId: string, inviteId: string) => Promise<void>;
   loadGuildAuditLog: (guildId: string) => Promise<GuildAuditLogEntry[]>;
   createGuild: (name: string, description?: string) => Promise<Guild | null>;
-  createPersonalChannel: (name: string, description?: string) => Promise<Guild | null>;
   saveLayout: (layout: import('../types').LayoutEntry[]) => void;
   toggleReaction: (guildId: string, messageId: string, emoji: string) => Promise<void>;
   sendRichMessage: (scope: RichScope, type: RichMessageType, payload: Record<string, unknown>, tags?: string[]) => Promise<void>;
@@ -2281,13 +2280,6 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     } catch (e) { reportError(e); return null; }
   }, [state.authToken, state.currentServerIP, apiPost]);
 
-  const createPersonalChannel = useCallback(async (name: string, description = ''): Promise<Guild | null> => {
-    try {
-      const guild: Guild = await apiPost('/api/guilds/', state.authToken, state.currentServerIP, { name, description, is_personal_channel: true });
-      setState(prev => ({ ...prev, guilds: [...prev.guilds, guild] }));
-      return guild;
-    } catch (e) { reportError(e); return null; }
-  }, [state.authToken, state.currentServerIP, apiPost]);
 
   // ── Server-bar layout (ordering + folders), synced per user ────────────────
   const layoutSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -2871,23 +2863,18 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       if (guildChannelWs.current) { guildChannelWs.current.close(); guildChannelWs.current = null; }
       // Connect guild-level presence WS so member/channel events arrive even without a channel open
       _connectGuildPresenceWs(guild, prev.authToken, prev.currentServerIP);
-      // For personal channels, auto-select the first text channel
-      const autoChannel = guild.is_personal_channel ? guild.channels.find(c => c.type === 'text') || null : null;
-      if (autoChannel) {
-        _connectGuildWs(guild, autoChannel, prev.authToken, prev.currentServerIP);
-      }
       return {
         ...prev,
         currentGuild: guild,
-        currentGuildChannel: autoChannel,
+        currentGuildChannel: null,
         guildMessages: [],
         currentView: 'server',
         currentServer: String(guild.id),
         voiceChannelParticipants: {},
-        mobileActivePanel: guild.is_personal_channel ? 'guild-chat' as MobilePanel : 'guild-channels' as MobilePanel,
+        mobileActivePanel: 'guild-channels' as MobilePanel,
       };
     });
-  }, [_connectGuildWs, _connectGuildPresenceWs]);
+  }, [_connectGuildPresenceWs]);
 
   // Open a discoverable guild/channel for preview WITHOUT joining/subscribing.
   const previewGuild = useCallback(async (guildId: string): Promise<boolean> => {
@@ -3496,8 +3483,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       revokeGuildInvite,
       loadGuildAuditLog,
       createGuild,
-      createPersonalChannel,
-        saveLayout,
+          saveLayout,
       toggleReaction,
       sendRichMessage,
       votePoll,

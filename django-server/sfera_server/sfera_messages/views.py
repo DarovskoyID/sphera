@@ -699,33 +699,19 @@ def guild_list_create(request):
     # Diaries moved to the diary module (/api/diary/).
     if request.data.get('is_private'):
         return Response({'error': 'moved', 'detail': 'use /api/diary/diaries/'}, status=status.HTTP_410_GONE)
-    is_private = False
-    is_personal = bool(request.data.get('is_personal_channel', False))
-    # Per-account limits.
-    if is_personal:
-        if Guild.objects.filter(owner=request.user, is_personal_channel=True, is_private=False).count() >= MAX_PERSONAL_CHANNELS:
-            return Response(
-                {'error': 'limit reached', 'detail': f'Можно создать не более {MAX_PERSONAL_CHANNELS} личных каналов'},
-                status=status.HTTP_409_CONFLICT,
-            )
-    else:
-        # Creating a server is limited by how many you OWN, not how many you're in.
-        if Guild.objects.filter(owner=request.user, is_personal_channel=False).count() >= MAX_OWNED_SERVERS:
-            return Response(
-                {'error': 'limit reached', 'detail': f'Можно создать не более {MAX_OWNED_SERVERS} серверов'},
-                status=status.HTTP_409_CONFLICT,
-            )
-    guild = Guild.objects.create(
-        name=name, description=request.data.get('description', ''),
-        owner=request.user, is_personal_channel=is_personal,
-        is_private=is_private, is_discoverable=not is_private,
-    )
+    # Personal channels moved to the channels module (/api/channels/).
+    if request.data.get('is_personal_channel'):
+        return Response({'error': 'moved', 'detail': 'use /api/channels/'}, status=status.HTTP_410_GONE)
+    # Creating a server is limited by how many you OWN, not how many you're in.
+    if Guild.objects.filter(owner=request.user, is_personal_channel=False).count() >= MAX_OWNED_SERVERS:
+        return Response(
+            {'error': 'limit reached', 'detail': f'Можно создать не более {MAX_OWNED_SERVERS} серверов'},
+            status=status.HTTP_409_CONFLICT,
+        )
+    guild = Guild.objects.create(name=name, description=request.data.get('description', ''), owner=request.user)
     GuildMembership.objects.create(guild=guild, user=request.user, role='owner')
-    if is_personal:
-        GuildChannel.objects.create(guild=guild, name='feed', channel_type='text', position=0)
-    else:
-        GuildChannel.objects.create(guild=guild, name='general', channel_type='text', position=0)
-        GuildChannel.objects.create(guild=guild, name='General', channel_type='voice', position=1)
+    GuildChannel.objects.create(guild=guild, name='general', channel_type='text', position=0)
+    GuildChannel.objects.create(guild=guild, name='General', channel_type='voice', position=1)
     return Response(_guild_data(guild, request.user), status=status.HTTP_201_CREATED)
 
 

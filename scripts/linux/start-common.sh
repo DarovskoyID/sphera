@@ -311,8 +311,8 @@ server {
     ssl_protocols TLSv1.2 TLSv1.3;
     ssl_prefer_server_ciphers off;
 
-    # presence/signaling/voice обслуживает Django (Daphne), а не Rust ws-gateway
-    location ~ ^/ws/(signaling/|guild/[0-9a-fA-F-]+/(voice/[0-9a-fA-F-]+/)?\$) {
+    # presence/signaling/voice + module sockets (/ws/m/…) обслуживает Django (Daphne), а не Rust ws-gateway
+    location ~ ^/ws/(signaling/|m/|guild/[0-9a-fA-F-]+/(voice/[0-9a-fA-F-]+/)?\$) {
         proxy_pass http://$DJANGO_PROXY_HOST:$DJANGO_PORT;
         proxy_http_version 1.1;
         proxy_set_header Upgrade \$http_upgrade;
@@ -444,8 +444,8 @@ server {
     listen [::]:$WS_PUBLIC_PORT;
     server_name _;
 
-    # presence/signaling/voice обслуживает Django (Daphne), а не Rust ws-gateway
-    location ~ ^/ws/(signaling/|guild/[0-9a-fA-F-]+/(voice/[0-9a-fA-F-]+/)?\$) {
+    # presence/signaling/voice + module sockets (/ws/m/…) обслуживает Django (Daphne), а не Rust ws-gateway
+    location ~ ^/ws/(signaling/|m/|guild/[0-9a-fA-F-]+/(voice/[0-9a-fA-F-]+/)?\$) {
         proxy_pass http://$DJANGO_PROXY_HOST:$DJANGO_PORT;
         proxy_http_version 1.1;
         proxy_set_header Upgrade \$http_upgrade;

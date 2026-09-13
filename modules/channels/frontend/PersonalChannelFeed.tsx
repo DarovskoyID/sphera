@@ -1,22 +1,13 @@
 import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
-import { RichComposer } from './RichComposer';
-import { RichMessage } from './RichMessage';
-import type { RichMessageType, RichPayload } from '../types';
 import { Send, Plus, X, FileText, Camera, Mic, Circle, Music, Square, ChevronLeft, ChevronRight, Image as ImageIcon, Eye, MessageCircle, Trash2, Settings, MoreVertical, Bell, BellOff, LogOut, SmilePlus, Smile, Play, Pause, BarChart3, CheckSquare, MapPin, User, Pencil } from 'lucide-react';
-import { MessageEditModal } from './MessageEditModal';
-import { EmojiPicker } from './EmojiPicker';
-import { UnifiedPicker } from './StickerGifPicker';
-import { useApp, reportError } from '../context/AppContext';
-import { useTranslation } from '../i18n/useTranslation';
-import { MessageText, CensoredPlainText } from './EmojiPicker';
-import { BlurredMedia } from './BlurredMedia';
-import { isBot } from './BotBadge';
-import { ListSkeleton, MediaSkeleton, Skeleton } from './Skeleton';
-import { getDraftText, setDraftText, getDraftFiles, setDraftFiles, clearDraft } from '../utils/drafts';
-import { pickRecorderFormat, mediaUnsupportedReason, describeMediaError } from '../utils/recording';
-import ConfirmModal from './ConfirmModal';
-import { VoiceMessagePlayer, VideoCirclePlayer } from './ChatMain';
-import type { Guild } from '../types';
+import {
+  BlurredMedia, CensoredPlainText, ConfirmModal, EmojiPicker, ListSkeleton, MediaSkeleton, MessageEditModal,
+  MessageText, RichComposer, RichMessage, Skeleton, UnifiedPicker, VideoCirclePlayer, VoiceMessagePlayer,
+  clearDraft, describeMediaError, getDraftFiles, getDraftText, isBot, mediaUnsupportedReason, pickRecorderFormat,
+  reportError, setDraftFiles, setDraftText, useModuleT as useTranslation, type RichMessageType, type RichPayload,
+} from '@sfera/sdk';
+import { useFeed as useApp } from './useFeed';
+import type { FeedChannel as Guild, Post as GuildMessage, PostComment } from './types';
 
 const QUICK_REACTIONS = ['👍', '❤️', '🔥', '😂', '😮', '👏', '🎉'];
 
@@ -358,7 +349,7 @@ function AttachmentBlock({ att, caption, authorId }: { att: { id: string; filena
 function CommentsModal({ guild, messageId, serverIP, onClose }: { guild: Guild; messageId: string; serverIP: string; onClose: () => void }) {
   const tr = useTranslation();
   const { loadPostComments, addPostComment, deletePostComment, currentUser, postCommentHandler } = useApp();
-  const [comments, setComments] = useState<import('../types').PostComment[]>([]);
+  const [comments, setComments] = useState<PostComment[]>([]);
   const [loading, setLoading] = useState(true);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
@@ -463,11 +454,11 @@ function CommentsModal({ guild, messageId, serverIP, onClose }: { guild: Guild; 
 }
 
 const POST_RICH_KINDS: readonly string[] = ['poll', 'todo', 'contact', 'location'];
-function postIsRich(msg: import('../types').GuildMessage): boolean {
+function postIsRich(msg: GuildMessage): boolean {
   return !!msg.payload && !!msg.message_type && POST_RICH_KINDS.includes(msg.message_type);
 }
 
-function PostCard({ msg, guild, serverIP, onEdit }: { msg: import('../types').GuildMessage; guild: Guild; serverIP: string; onEdit?: (msg: import('../types').GuildMessage) => void }) {
+function PostCard({ msg, guild, serverIP, onEdit }: { msg: GuildMessage; guild: Guild; serverIP: string; onEdit?: (msg: GuildMessage) => void }) {
   const tr = useTranslation();
   const { toggleReaction, registerMessageView, deleteGuildMessage, currentUser, customEmojis,
     currentGuildChannel, votePoll, closePoll, toggleTodoItem, pushLiveLocation, setCurrentChat, fetchPollVoters } = useApp();
@@ -910,12 +901,12 @@ function ChannelSettingsModal({ guild, serverIP, onClose }: { guild: Guild; serv
 
 export const PersonalChannelFeed: React.FC<{ style?: React.CSSProperties }> = ({ style }) => {
   const tr = useTranslation();
-  const { currentGuild, currentGuildChannel, guildMessages, currentServerIP, authToken, currentUser, customEmojis, guilds, joinGuild, sendGuildMessage, scheduleGuildMessage, updateGuild, leaveGuild, toggleGuildNotifications, addOptimisticGuildPost, removeOptimisticGuildPost, resolveGuildPost, sendRichMessage, editMessage, friends } = useApp();
+  const { currentGuild, currentGuildChannel, guildMessages, currentServerIP, currentUser, guilds, joinGuild, sendGuildMessage, scheduleGuildMessage, updateGuild, leaveGuild, toggleGuildNotifications, addOptimisticGuildPost, removeOptimisticGuildPost, resolveGuildPost, sendRichMessage, editMessage, friends, uploadPostFile, publishPost } = useApp();
   const [attachMenu, setAttachMenu] = useState(false);
   const [richType, setRichType] = useState<RichMessageType | null>(null);
   // Text edits happen inline in the composer; to-do posts open the structured editor.
-  const [editingPost, setEditingPost] = useState<import('../types').GuildMessage | null>(null);
-  const [editingTodoPost, setEditingTodoPost] = useState<import('../types').GuildMessage | null>(null);
+  const [editingPost, setEditingPost] = useState<GuildMessage | null>(null);
+  const [editingTodoPost, setEditingTodoPost] = useState<GuildMessage | null>(null);
   const editingIdRef = useRef<string | null>(null);
   const [subscribing, setSubscribing] = useState(false);
   const [confirmLeave, setConfirmLeave] = useState(false);
@@ -1084,34 +1075,18 @@ export const PersonalChannelFeed: React.FC<{ style?: React.CSSProperties }> = ({
   };
 
   const uploadFiles = async (list: File[]): Promise<Att[]> => {
-    if (!currentGuild || !currentGuildChannel) return [];
+    if (!currentGuild) return [];
     const atts: Att[] = [];
     for (const f of list) {
-      const form = new FormData();
-      form.append('file', f, f.name);
-      const res = await fetch(
-        `${currentServerIP}/api/guilds/${currentGuild.id}/channels/${currentGuildChannel.id}/upload/`,
-        { method: 'POST', headers: { Authorization: `Bearer ${authToken}` }, body: form }
-      );
-      if (res.ok) { atts.push(await res.json()); }
+      try { atts.push(await uploadPostFile(f)); } catch (e) { reportError(e); }
     }
     return atts;
   };
 
-  // Post over HTTP (reliable) rather than the chat WS, which can be stale-OPEN
-  // after uploads and silently drop the frame — the reason attachment-heavy
-  // posts sometimes never appeared. Persists synchronously and broadcasts.
-  const postToChannel = async (text: string, attachmentIds: string[]): Promise<import('../types').GuildMessage | null> => {
-    if (!currentGuild || !currentGuildChannel) return null;
-    const res = await fetch(
-      `${currentServerIP}/api/guilds/${currentGuild.id}/channels/${currentGuildChannel.id}/messages/send/`,
-      {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${authToken}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: text, attachment_ids: attachmentIds, reply_to_id: null }),
-      },
-    );
-    return res.ok ? await res.json() : null;
+  // Post over HTTP (reliable) rather than a socket that can be stale-OPEN after uploads.
+  const postToChannel = async (text: string, attachmentIds: string[]): Promise<GuildMessage | null> => {
+    if (!currentGuild) return null;
+    return publishPost(text, attachmentIds);
   };
 
   const handleSend = async () => {
@@ -1145,7 +1120,7 @@ export const PersonalChannelFeed: React.FC<{ style?: React.CSSProperties }> = ({
           // Too many attachments for one post — split into batches of 15 (the
           // first post carries the text). Add each real post straight from the
           // response so the author sees it even if the WS bridge missed them.
-          const reals: import('../types').GuildMessage[] = [];
+          const reals: GuildMessage[] = [];
           for (let i = 0; i < ids.length; i += 15) {
             const real = await postToChannel(i === 0 ? text : '', ids.slice(i, i + 15));
             if (real) reals.push(real);
@@ -1186,7 +1161,7 @@ export const PersonalChannelFeed: React.FC<{ style?: React.CSSProperties }> = ({
   const sendStickerPost = (url: string) => {
     if (stickerSendGuard.current) return;
     stickerSendGuard.current = true;
-    sendGuildMessage(url, undefined, undefined);
+    sendGuildMessage(url);
     setShowPicker(false);
     setTimeout(() => { stickerSendGuard.current = false; }, 500);
   };

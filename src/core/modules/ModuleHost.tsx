@@ -2,10 +2,12 @@ import { useEffect, type ReactNode } from 'react';
 import { useApp } from '../../context/AppContext';
 import { useSlot } from '../../sdk/slots';
 import { connectModules, disconnectModules } from './registry';
+import { bindHost } from '../../sdk/runtime';
 
 /** Loads the user's installed modules and mounts their providers and overlays. */
 export function ModuleHost({ children }: { children: ReactNode }) {
-  const { authToken, currentServerIP } = useApp();
+  const { authToken, currentServerIP, language, setCurrentServer } = useApp();
+  bindHost({ language, navigate: setCurrentServer });
 
   useEffect(() => {
     if (!authToken) {

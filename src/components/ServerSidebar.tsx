@@ -1,10 +1,11 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
-import { Settings, Home, Plus, LogIn, X, Compass, Rss, LogOut, Trash2, Folder, FolderMinus } from 'lucide-react';
+import { Settings, Home, Plus, LogIn, X, Compass, LogOut, Folder, FolderMinus } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { useTranslation } from '../i18n/useTranslation';
 import ConfirmModal from './ConfirmModal';
 import type { Guild, LayoutEntry } from '../types';
 import { RailSlot } from '../core/modules/Slots';
+import { useSlot, type SlotEntry } from '../sdk/slots';
 import { useAnchoredMenu } from './useAnchoredMenu';
 import { LONG_PRESS_SAFE, useDragArm, useIsTouch, useLongPress } from './useLongPress';
 
@@ -56,58 +57,7 @@ function CreateGuildModal({ onClose }: { onClose: () => void }) {
   );
 }
 
-function CreatePersonalChannelModal({ onClose }: { onClose: () => void }) {
-  const { createPersonalChannel, selectGuild } = useApp();
-  const tr = useTranslation();
-  const [name, setName] = useState('');
-  const [desc, setDesc] = useState('');
-  const [loading, setLoading] = useState(false);
-
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!name.trim()) return;
-    setLoading(true);
-    const guild = await createPersonalChannel(name.trim(), desc.trim());
-    setLoading(false);
-    if (guild) { selectGuild(guild); onClose(); }
-  };
-
-  return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-box" onClick={e => e.stopPropagation()} style={{ maxWidth: 400 }}>
-        <div className="modal-header">
-          <span>{tr('guild_create_channel_title')}</span>
-          <button className="icon-btn" onClick={onClose}><X size={18} /></button>
-        </div>
-        <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: '8px 0 12px' }}>
-          {tr('guild_channel_desc')}
-        </p>
-        <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <input
-            className="input-field"
-            placeholder={tr('guild_channel_name')}
-            value={name}
-            onChange={e => setName(e.target.value)}
-            maxLength={100}
-            autoFocus
-          />
-          <input
-            className="input-field"
-            placeholder={tr('guild_description')}
-            value={desc}
-            onChange={e => setDesc(e.target.value)}
-            maxLength={500}
-          />
-          <button className="btn-primary" type="submit" disabled={loading || !name.trim()}>
-            {loading ? tr('guild_creating') : tr('guild_create_channel_btn')}
-          </button>
-        </form>
-      </div>
-    </div>
-  );
-}
-
-function JoinGuildModal({ onClose, channel = false }: { onClose: () => void; channel?: boolean }) {
+function JoinGuildModal({ onClose }: { onClose: () => void }) {
   const { joinGuild, selectGuild } = useApp();
   const tr = useTranslation();
   const [code, setCode] = useState('');
@@ -126,13 +76,13 @@ function JoinGuildModal({ onClose, channel = false }: { onClose: () => void; cha
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-box" onClick={e => e.stopPropagation()} style={{ maxWidth: 400 }}>
         <div className="modal-header">
-          <span>{tr(channel ? 'guild_join_channel_title' : 'guild_join_server_title')}</span>
+          <span>{tr('guild_join_server_title')}</span>
           <button className="icon-btn" onClick={onClose}><X size={18} /></button>
         </div>
         <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: '16px 0 0' }}>
           <input
             className="input-field"
-            placeholder={tr(channel ? 'guild_channel_invite_code' : 'guild_invite_code')}
+            placeholder={tr('guild_invite_code')}
             value={code}
             onChange={e => setCode(e.target.value)}
             autoFocus
@@ -153,19 +103,16 @@ function nameGradient(name: string): string {
 }
 
 function GuildIcon({ guild, active, onClick, serverIP }: { guild: Guild; active: boolean; onClick: () => void; serverIP: string }) {
-  const tr = useTranslation();
   const [broken, setBroken] = useState(false);
   const initials = guild.name.split(' ').filter(Boolean).map(w => w[0]).join('').slice(0, 2).toUpperCase() || guild.name.slice(0, 2).toUpperCase();
   const iconUrl = guild.icon && !broken ? (guild.icon.startsWith('http') ? guild.icon : `${serverIP}${guild.icon}`) : null;
-  const isChannel = guild.is_personal_channel;
-  // Servers = softer squircle, channels = rounder — a simple, modern look.
-  const radius = isChannel ? 14 : 16;
+  const radius = 16;
   return (
     <div style={{ position: 'relative', display: 'flex' }}>
       <button
         className={`server-icon ${active ? 'active' : ''}`}
         onClick={onClick}
-        title={isChannel ? `${guild.name} (${tr('pcf_channel')})` : guild.name}
+        title={guild.name}
         style={{ borderRadius: radius, padding: 0, overflow: 'hidden', background: iconUrl ? 'var(--bg-tertiary)' : nameGradient(guild.name), border: 'none' }}
       >
         {iconUrl ? (
@@ -174,19 +121,6 @@ function GuildIcon({ guild, active, onClick, serverIP }: { guild: Guild; active:
           <span style={{ fontSize: 15, fontWeight: 800, letterSpacing: 0.3, color: '#fff', textShadow: '0 1px 2px rgba(0,0,0,.25)' }}>{initials}</span>
         )}
       </button>
-      {isChannel && (
-        <span
-          title={tr('pcf_personal_channel')}
-          style={{
-            position: 'absolute', bottom: -3, right: -3, width: 17, height: 17, borderRadius: '50%',
-            background: 'var(--accent-primary)', border: '2.5px solid var(--bg-secondary)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none',
-            boxShadow: '0 1px 4px rgba(0,0,0,.3)',
-          }}
-        >
-          <Rss size={8.5} color="#fff" />
-        </span>
-      )}
     </div>
   );
 }
@@ -195,7 +129,7 @@ type RenderItem =
   | { type: 'guild'; guild: Guild }
   | { type: 'folder'; folder: { id: string; name: string; color?: string; guilds: Guild[] } };
 
-type AddAction = 'server' | 'channel' | 'join-server' | 'join-channel';
+type AddAction = 'server' | 'join-server' | { module: SlotEntry<'rail.addAction'> };
 
 /**
  * A server icon whose menu opens on right-click and, on touch, on long press.
@@ -277,21 +211,21 @@ const AddMenu: React.FC<{
 }> = ({ pos, anchorButton, onClose, onPick }) => {
   const tr = useTranslation();
   const { ref, style, portal } = useAnchoredMenu(pos, onClose, anchorButton);
+  const moduleActions = useSlot('rail.addAction');
 
   return portal(
     <div ref={ref} className="context-menu" style={{ ...style, minWidth: 180, zIndex: 9999 }}>
       <button className="context-menu-item" onClick={() => onPick('server')}>
         <Plus size={14} /> {tr('guild_create_server')}
       </button>
-      <button className="context-menu-item" onClick={() => onPick('channel')}>
-        <Rss size={14} /> {tr('guild_create_channel')}
-      </button>
       <button className="context-menu-item" onClick={() => onPick('join-server')}>
         <LogIn size={14} /> {tr('guild_join_server')}
       </button>
-      <button className="context-menu-item" onClick={() => onPick('join-channel')}>
-        <Rss size={14} /> {tr('guild_join_channel')}
-      </button>
+      {moduleActions.map(a => (
+        <button key={`${a.moduleId}:${a.id}`} className="context-menu-item" onClick={() => onPick({ module: a })}>
+          {a.icon} {a.label()}
+        </button>
+      ))}
     </div>
   );
 };
@@ -299,7 +233,7 @@ const AddMenu: React.FC<{
 export const ServerSidebar: React.FC = () => {
   const {
     currentServer, setCurrentServer, isMobileSidebarOpen, guilds, selectGuild,
-    currentServerIP, leaveGuild, deleteGuild, currentUser, serverLayout, saveLayout,
+    currentServerIP, leaveGuild, serverLayout, saveLayout,
   } = useApp();
   const tr = useTranslation();
   // Right-click a server icon (desktop) → context menu → leave / delete.
@@ -317,8 +251,7 @@ export const ServerSidebar: React.FC = () => {
   }, [guildMenu]);
   const [showCreate, setShowCreate] = useState(false);
   const [showJoin, setShowJoin] = useState(false);
-  const [showJoinChannel, setShowJoinChannel] = useState(false);
-  const [showCreateChannel, setShowCreateChannel] = useState(false);
+  const [moduleAction, setModuleAction] = useState<SlotEntry<'rail.addAction'> | null>(null);
   const isTouch = useIsTouch();
   // Below this width the stylesheet turns the side bar into a bottom dock, and
   // the reorder axis turns with it.
@@ -701,32 +634,23 @@ export const ServerSidebar: React.FC = () => {
           onPick={what => {
             setShowAddMenu(false);
             if (what === 'server') setShowCreate(true);
-            else if (what === 'channel') setShowCreateChannel(true);
             else if (what === 'join-server') setShowJoin(true);
-            else setShowJoinChannel(true);
+            else setModuleAction(what.module);
           }}
         />
       )}
 
       {guildMenu && (() => {
         const g = guildMenu.guild;
-        const isOwner = !!currentUser && String(g.owner_id) === String(currentUser.id);
-        const ownsChannel = isOwner && g.is_personal_channel;
         return (
           <div
             ref={guildMenuRef}
             className="context-menu"
             style={{ position: 'fixed', left: Math.min(guildMenu.x, window.innerWidth - 210), top: Math.min(guildMenu.y, window.innerHeight - 120), minWidth: 190, zIndex: 9999 }}
           >
-            {ownsChannel ? (
-              <button className="context-menu-item" style={{ color: '#ef4444' }} onClick={() => { setGuildMenu(null); setConfirmLeave(g); }}>
-                <Trash2 size={14} /> {tr('guild_delete_channel')}
-              </button>
-            ) : (
-              <button className="context-menu-item" style={{ color: '#ef4444' }} onClick={() => { setGuildMenu(null); setConfirmLeave(g); }}>
-                <LogOut size={14} /> {g.is_personal_channel ? tr('pcf_leave_channel') : tr('guild_leave_server')}
-              </button>
-            )}
+            <button className="context-menu-item" style={{ color: '#ef4444' }} onClick={() => { setGuildMenu(null); setConfirmLeave(g); }}>
+              <LogOut size={14} /> {tr('guild_leave_server')}
+            </button>
           </div>
         );
       })()}
@@ -734,22 +658,17 @@ export const ServerSidebar: React.FC = () => {
 
       {confirmLeave && (() => {
         const g = confirmLeave;
-        const isOwner = !!currentUser && String(g.owner_id) === String(currentUser.id);
-        const ownsChannel = isOwner && g.is_personal_channel;
         return (
           <ConfirmModal
-            title={ownsChannel ? tr('guild_delete_channel') : (g.is_personal_channel ? tr('pcf_leave_channel') : tr('guild_leave_server'))}
-            message={ownsChannel
-              ? `${tr('pcf_delete')} «${g.name}»? ${tr('pcf_irreversible')}`
-              : `${tr('pcf_leave')} «${g.name}»?`}
-            confirmLabel={ownsChannel ? tr('guild_delete_channel') : tr('guild_leave_server')}
+            title={tr('guild_leave_server')}
+            message={`${tr('pcf_leave')} «${g.name}»?`}
+            confirmLabel={tr('guild_leave_server')}
             cancelLabel={tr('cancel')}
             onCancel={() => setConfirmLeave(null)}
             onConfirm={async () => {
               const target = g;
               setConfirmLeave(null);
-              if (ownsChannel) { await deleteGuild(target.id); }
-              else { await leaveGuild(target.id); }
+              await leaveGuild(target.id);
             }}
           />
         );
@@ -809,9 +728,8 @@ export const ServerSidebar: React.FC = () => {
       })()}
 
       {showCreate && <CreateGuildModal onClose={() => setShowCreate(false)} />}
-      {showCreateChannel && <CreatePersonalChannelModal onClose={() => setShowCreateChannel(false)} />}
       {showJoin && <JoinGuildModal onClose={() => setShowJoin(false)} />}
-      {showJoinChannel && <JoinGuildModal channel onClose={() => setShowJoinChannel(false)} />}
+      {moduleAction && <moduleAction.render onClose={() => setModuleAction(null)} />}
     </>
   );
 };

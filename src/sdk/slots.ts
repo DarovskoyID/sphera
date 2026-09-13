@@ -12,6 +12,8 @@ export interface SlotMap {
   'main.view': { id: string; match: (route: MainRoute) => boolean; render: ComponentType<{ style?: React.CSSProperties }> };
   /** Settings page + its menu entry. */
   'settings.page': { id: string; label: string | (() => string); icon?: ReactNode; render: ComponentType };
+  /** Item in the rail "+" menu; ender is the dialog it opens. */
+  'rail.addAction': { id: string; order?: number; label: () => string; icon?: ReactNode; render: ComponentType<{ onClose: () => void }> };
   /** Card in «Исследовать сферу». */
   'explore.card': { id: string; order?: number; render: ComponentType };
   /** Search provider in «Исследовать сферу». */
@@ -49,6 +51,7 @@ export interface ExploreSearchResult {
   title: string;
   subtitle?: string;
   avatar?: string | null;
+  badge?: string;
   open: () => void;
 }
 
@@ -60,7 +63,8 @@ export interface ExploreSearchProvider {
 }
 
 export type SlotName = keyof SlotMap;
-type Entry<K extends SlotName> = SlotMap[K] & { moduleId: string };
+export type SlotEntry<K extends SlotName> = SlotMap[K] & { moduleId: string };
+type Entry<K extends SlotName> = SlotEntry<K>;
 
 const entries = new Map<SlotName, Entry<SlotName>[]>();
 const listeners = new Set<() => void>();

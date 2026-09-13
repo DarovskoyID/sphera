@@ -22,9 +22,9 @@ class GuildCreateTests(TransactionTestCase):
         res = self.client.post('/api/guilds/', {'name': 'Дневник', 'is_private': True}, format='json')
         self.assertEqual(res.status_code, 410)
 
-    def test_server_and_personal_channel_are_separate_allowances(self):
+    def test_personal_channels_are_no_longer_created_as_guilds(self):
+        res = self.client.post('/api/guilds/', {'name': 'Канал', 'is_personal_channel': True}, format='json')
+        self.assertEqual(res.status_code, 410)
+
+    def test_server_create(self):
         self.assertEqual(self.client.post('/api/guilds/', {'name': 'Клуб'}, format='json').status_code, 201)
-        self.assertEqual(
-            self.client.post('/api/guilds/', {'name': 'Канал', 'is_personal_channel': True}, format='json').status_code,
-            201,
-        )
