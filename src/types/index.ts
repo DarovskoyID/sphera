@@ -147,6 +147,8 @@ export interface ChatMessage {
   };
   content: string;
   created_at: string;
+  /** Local only: the server refused to deliver this message (e.g. a verification code). */
+  blocked_reason?: string;
   attachments?: ChatAttachment[];
   reply_to?: {
     id: string;

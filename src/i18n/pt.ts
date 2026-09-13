@@ -117,6 +117,7 @@ export const pt: Translations = {
   chat_edit_save: 'Salvar',
   chat_edit_empty: 'A mensagem não pode ficar vazia',
   msg_edited: '(editada)',
+  msg_code_blocked: 'Não enviado: parece um código de verificação que acabaram de pedir. Nunca compartilhe códigos de SMS ou aplicativos.',
   chat_copy_text: 'Copiar texto',
   chat_pin: 'Fixar',
   chat_unpin_msg: 'Desafixar',

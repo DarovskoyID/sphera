@@ -1503,8 +1503,13 @@ const MessageRow = React.memo(({ msg, isOwn, isFirstInGroup, onContextMenu, onRe
                   }
                 </span>
                 <span className="message-timestamp">{msg.edited && <span style={{ marginRight: 4, opacity: 0.75 }}>{tr('msg_edited')}</span>}{time}</span>
-                {isOwn && <ReadReceipt msg={msg} />}
+                {isOwn && !msg.blocked_reason && <ReadReceipt msg={msg} />}
               </div>
+              {msg.blocked_reason && (
+                <div role="alert" style={{ marginTop: 4, padding: '6px 10px', borderRadius: 8, fontSize: 13, lineHeight: 1.35, color: '#fff', background: 'var(--danger, #d9534f)' }}>
+                  {tr('msg_code_blocked')}
+                </div>
+              )}
             </div>
           )}
           {isRichMsg(msg) && (

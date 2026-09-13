@@ -23,6 +23,7 @@ from .models import Conversation, Message, Attachment, MessageReport, MessagePin
 from .models import MESSAGE_TYPE_POLL, MESSAGE_TYPE_TODO, MESSAGE_TYPE_CONTACT, MESSAGE_TYPE_LOCATION
 from .serializers import ConversationSerializer, MessageSerializer, AttachmentSerializer
 from .encryption import encrypt_bytes, decrypt_bytes, encrypt_text
+from . import code_guard
 from . import rich as rich_msg
 from .rich import RichError, rich_fields, poll_view, todo_view, location_view
 from sfera_auth.models import BlockedUser
@@ -221,6 +222,9 @@ def send_message(request, conversation_id):
 
     if not content and not attachment_ids:
         return Response({'error': 'empty message'}, status=status.HTTP_400_BAD_REQUEST)
+
+    if code_guard.should_block(convo, request.user, content):
+        return Response({'error': code_guard.BLOCKED_ERROR}, status=status.HTTP_403_FORBIDDEN)
 
     msg = Message.objects.create(
         conversation=convo,
@@ -533,6 +537,16 @@ def ws_authorize(request):
             Conversation.objects.get(id=conversation_id, participants=request.user)
         except (ValueError, Conversation.DoesNotExist):
             return Response({'error': 'not found'}, status=status.HTTP_404_NOT_FOUND)
+        return Response({'ok': True})
+
+    if ws_type == 'chat_send_check':
+        # Gateway asks before relaying a code-like chat message (see code_guard).
+        try:
+            convo = Conversation.objects.get(id=request.data.get('conversation_id'), participants=request.user)
+        except (ValueError, Conversation.DoesNotExist):
+            return Response({'error': 'not found'}, status=status.HTTP_404_NOT_FOUND)
+        if code_guard.should_block(convo, request.user, str(request.data.get('content') or '')):
+            return Response({'error': code_guard.BLOCKED_ERROR}, status=status.HTTP_403_FORBIDDEN)
         return Response({'ok': True})
 
     # Module sockets proxied by the gateway (e.g. servers: 'guild_channel').
