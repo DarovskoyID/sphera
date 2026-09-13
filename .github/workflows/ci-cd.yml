@@ -91,9 +91,10 @@ jobs:
       - name: Assemble and validate monitoring (core + modules)
         run: |
           node scripts/modules/monitoring.mjs
-          docker run --rm --entrypoint promtool \
+          # The glob must expand inside the container.
+          docker run --rm --entrypoint sh \
             -v "$PWD/django-server/monitoring:/m:ro" prom/prometheus:v2.53.0 \
-            check rules /m/generated/rules/*.yml
+            -c 'promtool check rules /m/generated/rules/*.yml'
 
       - name: Install frontend dependencies
         run: npm ci
