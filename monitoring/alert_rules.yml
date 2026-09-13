@@ -1,0 +1,11 @@
+# Alerts of the bots module. Loaded by Prometheus only when the module's
+# monitoring is installed (scripts/modules/monitoring.mjs).
+groups:
+  - name: sfera-module-bots
+    rules:
+      - alert: BotApiThrottling
+        expr: sum(rate(sfera_bot_api_throttled_total[5m])) > 1
+        for: 10m
+        labels: {severity: warning, module: bots}
+        annotations:
+          summary: "Bot API: больше 1 отказа по лимиту (429) в секунду за 10 минут"

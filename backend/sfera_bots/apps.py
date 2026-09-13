@@ -11,3 +11,4 @@ class SferaBotsConfig(AppConfig):
 
         hooks.message_created.connect(receivers.on_message_created, dispatch_uid='sfera_bots.message_created')
         hooks.conversation_opened.connect(receivers.on_conversation_opened, dispatch_uid='sfera_bots.conversation_opened')
+        hooks.register(hooks.METRICS, 'bots', receivers.metrics)
