@@ -1,0 +1,12 @@
+# Alerts of the servers module. Loaded by Prometheus only when the module's
+# monitoring is installed (scripts/modules/monitoring.mjs).
+groups:
+  - name: sfera-module-servers
+    rules:
+      - alert: VoiceUsersWithoutChannels
+        # Voice state leaked: users are counted in voice but no channel is active.
+        expr: sum(sfera_voice_users) > 0 and sum(sfera_voice_channels_active) == 0
+        for: 5m
+        labels: {severity: warning, module: servers}
+        annotations:
+          summary: "Голос: пользователи числятся в голосе без активных каналов"

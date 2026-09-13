@@ -67,6 +67,8 @@ def _metrics():
     from .voice_state import _voice_channels
 
     guild_qs = Guild.objects.all()
+    voice_channels = len(_voice_channels)
+    voice_users = sum(len([k for k in ch if k != '_guild_id']) for ch in _voice_channels.values())
     return {
         'tables': {
             'guilds': guild_qs.count(),
@@ -78,10 +80,11 @@ def _metrics():
             'attachments': GuildAttachment.objects.count(),
             'scheduled': GuildScheduledMessage.objects.count(),
         },
-        'ws': {
-            'voice_channels_active': len(_voice_channels),
-            'voice_users': sum(len([k for k in ch if k != '_guild_id']) for ch in _voice_channels.values()),
-        },
+        'prometheus': [
+            {'name': 'sfera_voice_channels_active', 'value': voice_channels, 'help': 'Active voice channels'},
+            {'name': 'sfera_voice_users', 'value': voice_users, 'help': 'Users in voice channels'},
+        ],
+        'status': {'Voice': {'Voice Channels': voice_channels, 'Voice Users': voice_users}},
     }
 
 
