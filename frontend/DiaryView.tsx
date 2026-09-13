@@ -222,7 +222,7 @@ export const DiaryView: React.FC<{ style?: React.CSSProperties; diaryId: string 
                       <Pencil size={15} />
                     </button>
                   )}
-                  <button onClick={() => setConfirmDel(String(m.id))} title={tr('pcf_delete')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-tertiary)', padding: 2 }}>
+                  <button onClick={() => setConfirmDel(String(m.id))} title={t('diary_delete_btn')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-tertiary)', padding: 2 }}>
                     <Trash2 size={15} />
                   </button>
                 </div>
@@ -297,7 +297,7 @@ export const DiaryView: React.FC<{ style?: React.CSSProperties; diaryId: string 
               if (picked.length) setFiles(prev => [...prev, ...picked]);
             }} />
             <div className="composer-bar">
-              <button className="composer-icon-btn" title={tr('pcf_add')} onClick={() => setAttachMenu(v => !v)}>
+              <button className="composer-icon-btn" title={t('diary_add')} onClick={() => setAttachMenu(v => !v)}>
                 <Plus size={20} />
               </button>
               {attachMenu && (
@@ -330,7 +330,7 @@ export const DiaryView: React.FC<{ style?: React.CSSProperties; diaryId: string 
                 <>
                   <div style={{ position: 'fixed', inset: 0, zIndex: 40 }} onClick={() => { if (tagDraft.trim()) addTag(tagDraft); setShowTag(false); }} />
                   <div style={{ position: 'absolute', bottom: '100%', right: 0, marginBottom: 10, zIndex: 41, width: 240, background: 'var(--bg-secondary)', borderRadius: 10, padding: 10, border: '1px solid var(--border-color)', boxShadow: '0 8px 24px rgba(0,0,0,.35)' }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: .3, textTransform: 'uppercase', color: 'var(--text-muted, #949ba4)', marginBottom: 6 }}>{tr('pcf_tags')}</div>
+                    <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: .3, textTransform: 'uppercase', color: 'var(--text-muted, #949ba4)', marginBottom: 6 }}>{t('diary_tags')}</div>
                     {tags.length > 0 && (
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
                         <TagChips tags={tags} onRemove={t => setTags(prev => prev.filter(x => x !== t))} />
@@ -381,7 +381,7 @@ export const DiaryView: React.FC<{ style?: React.CSSProperties; diaryId: string 
             <p style={{ margin: '0 0 18px', color: 'var(--text-primary)', fontSize: 14 }}>{t('diary_delete_entry')}</p>
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
               <button onClick={() => setConfirmDel(null)} style={{ padding: '8px 16px', background: 'var(--bg-tertiary)', color: 'var(--text-primary)', border: '1px solid var(--border-color)', borderRadius: 8, fontSize: 14, cursor: 'pointer' }}>{tr('cancel')}</button>
-              <button onClick={() => { const id = confirmDel; setConfirmDel(null); if (id) void diary.deleteEntry(diaryId, id); }} style={{ padding: '8px 16px', background: '#ef4444', color: '#fff', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>{tr('pcf_delete')}</button>
+              <button onClick={() => { const id = confirmDel; setConfirmDel(null); if (id) void diary.deleteEntry(diaryId, id); }} style={{ padding: '8px 16px', background: '#ef4444', color: '#fff', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>{t('diary_delete_btn')}</button>
             </div>
           </div>
         </div>

@@ -21,7 +21,9 @@ export const strings: Record<string, Record<string, string>> = {
     "diary_wrong_password": "Wrong password",
     "diary_deleting": "Deleting…",
     "diary_delete_btn": "Delete",
-    "diary_cancel": "Cancel"
+    "diary_cancel": "Cancel",
+    "diary_add": "Add",
+    "diary_tags": "Tags"
   },
   "ru": {
     "pcf_diary": "Личный дневник",
@@ -45,7 +47,9 @@ export const strings: Record<string, Record<string, string>> = {
     "diary_wrong_password": "Неверный пароль",
     "diary_deleting": "Удаление…",
     "diary_delete_btn": "Удалить",
-    "diary_cancel": "Отмена"
+    "diary_cancel": "Отмена",
+    "diary_add": "Добавить",
+    "diary_tags": "Теги"
   },
   "es": {
     "pcf_diary": "Diario personal",
