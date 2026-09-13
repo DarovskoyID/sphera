@@ -384,19 +384,24 @@ def _manageable_guilds(user):
     Personal channels and the private diary are excluded: they are single-author
     spaces, so a bot there would have nothing to do.
     """
-    from sfera_messages.models import Guild, GuildMembership
+    from .servers_compat import HAS_SERVERS, Guild, GuildMembership
+    if not HAS_SERVERS:
+        return []
 
     guild_ids = GuildMembership.objects.filter(
         user=user, role__in=('owner', 'admin'),
     ).values_list('guild_id', flat=True)
     return list(
-        Guild.objects.filter(id__in=list(guild_ids), is_personal_channel=False, is_private=False)
+        Guild.objects.filter(id__in=list(guild_ids))
         .order_by('name')
     )
 
 
 def _ask_server(bot, author, target, adding):
-    from sfera_messages.models import Guild, GuildMembership
+    from .servers_compat import HAS_SERVERS, Guild, GuildMembership
+
+    if not HAS_SERVERS:
+        return 'Нет серверов: модуль «Серверы» не установлен на этом экземпляре Сферы.'
 
     guilds = _manageable_guilds(author)
     if adding:
@@ -428,7 +433,7 @@ def _ask_server(bot, author, target, adding):
 
 
 def _pick_guild(guild_ids, text):
-    from sfera_messages.models import Guild
+    from .servers_compat import Guild
 
     choice = (text or '').strip()
     guilds = list(Guild.objects.filter(id__in=guild_ids))
@@ -444,7 +449,7 @@ def _pick_guild(guild_ids, text):
 
 
 def _add_to_guild(target, guild):
-    from sfera_messages.models import GuildMembership
+    from .servers_compat import GuildMembership
 
     GuildMembership.objects.get_or_create(
         guild=guild, user=target.user, defaults={'role': 'member'},
@@ -457,7 +462,7 @@ def _add_to_guild(target, guild):
 
 
 def _remove_from_guild(target, guild):
-    from sfera_messages.models import GuildMembership
+    from .servers_compat import GuildMembership
 
     GuildMembership.objects.filter(guild=guild, user=target.user).delete()
     return f'@{target.user.username} убран с сервера **{guild.name}**. Сообщения бота остались.'
@@ -490,7 +495,7 @@ def _reissue(author, args):
 
 def delete_bot(account):
     """Revoke the key and retire the bot, keeping every conversation intact."""
-    from sfera_messages.models import GuildMembership
+    from .servers_compat import GuildMembership
 
     account.is_active = False
     account.revoked_at = timezone.now()
@@ -501,7 +506,8 @@ def delete_bot(account):
     account.save(update_fields=['is_active', 'revoked_at', 'token_hash', 'token_prefix'])
     BotUpdate.objects.filter(bot=account).delete()
     BotFlow.objects.filter(bot=account).delete()
-    GuildMembership.objects.filter(user=account.user).delete()
+    if GuildMembership is not None:
+        GuildMembership.objects.filter(user=account.user).delete()
     user = account.user
     user.status = 'offline'
     user.is_active = False

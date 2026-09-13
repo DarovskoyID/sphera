@@ -11,6 +11,11 @@ class SferaChannelsConfig(AppConfig):
         from . import receivers
 
         hooks.register(hooks.DATA_EXPORT, 'channels', receivers.export)
+        def encrypted_data():
+            from .models import Post, PostComment, ScheduledPost, PostAttachment
+            return {'text': [Post, PostComment, ScheduledPost], 'files': [PostAttachment]}
+
+        hooks.register(hooks.ENCRYPTED_DATA, 'channels', encrypted_data)
         hooks.register(hooks.METRICS, 'channels', receivers.metrics)
         hooks.register(hooks.HAS_DATA, 'channels', receivers.has_data)
         hooks.user_blocked.connect(receivers.on_user_blocked, dispatch_uid='sfera_channels.user_blocked')

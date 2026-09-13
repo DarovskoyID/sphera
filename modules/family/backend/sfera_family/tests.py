@@ -1,3 +1,4 @@
+import unittest
 from django.test import TestCase, override_settings
 from rest_framework.test import APIClient
 
@@ -5,6 +6,13 @@ from sfera_auth.models import Friendship, User, UserSettings, is_child
 from sfera_modules.models import UserModule
 
 from .models import Family, FamilyMembership
+
+try:
+    import sfera_servers  # noqa: F401
+    HAS_SERVERS = True
+except ImportError:
+    HAS_SERVERS = False
+
 
 
 def app_client(user):
@@ -70,8 +78,9 @@ class FamilyTests(TestCase):
         self.assertEqual(app_client(kid).delete('/api/family/location/').status_code, 204)
         self.assertEqual(self.m.get('/api/family/locations/').json()['locations'], [])
 
+    @unittest.skipUnless(HAS_SERVERS, 'servers module not deployed')
     def test_family_gets_a_private_server_when_servers_exist(self):
-        from sfera_messages.models import Guild, GuildMembership
+        from sfera_servers.models import Guild, GuildMembership
         kid = self._family_with_child()
         fam = Family.objects.get()
         guild = Guild.objects.get(id=fam.server_id)

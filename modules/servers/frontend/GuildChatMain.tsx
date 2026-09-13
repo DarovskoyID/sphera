@@ -1,23 +1,12 @@
 import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
+import {
+  MessageEditModal, RichMessage, RichComposer, AccountBadge, accountDisplayName, isBot, ComposerActions, type RichMessageType, type RichPayload, reportError, useModuleT as useTranslation, MessageText, BlurredMedia, HideSelectionButton, UnifiedPicker, ProfileModal, type ProfileUser, getDraftText, setDraftText, getDraftFiles, setDraftFiles, useAnchoredMenu, MediaSkeleton, MessageListSkeleton,
+  ConfirmModal,
+} from '@sfera/sdk';
+import type { GuildMessage, GuildMember, GuildRole } from './types';
 import { Hash, Send, Pin, Trash2, CornerUpLeft, Plus, MoreHorizontal, X, Download, FileText, FileImage, FileVideo, FileAudio, File, ChevronLeft, ChevronDown, Reply, Copy, Flag, Clock, Ban, UserX, VolumeX, Volume1, User, BarChart3, CheckSquare, MapPin, Pencil } from 'lucide-react';
-import { MessageEditModal } from './MessageEditModal';
-import { RichMessage } from './RichMessage';
-import { RichComposer } from './RichComposer';
-import { AccountBadge, accountDisplayName, isBot } from './BotBadge';
-import { ComposerActions } from '../core/modules/Slots';
-import type { RichMessageType, RichPayload } from '../types';
-import { useApp, reportError } from '../context/AppContext';
-import { useTranslation } from '../i18n/useTranslation';
-import { MessageText } from './EmojiPicker';
-import { BlurredMedia } from './BlurredMedia';
-import { HideSelectionButton } from './HideSelectionButton';
-import { UnifiedPicker } from './StickerGifPicker';
-import { ProfileModal, type ProfileUser } from './ProfileModal';
-import ConfirmModal from './ConfirmModal';
-import { getDraftText, setDraftText, getDraftFiles, setDraftFiles } from '../utils/drafts';
-import type { GuildMessage, GuildMember, GuildRole } from '../types';
-import { useAnchoredMenu } from './useAnchoredMenu';
-import { MediaSkeleton, MessageListSkeleton } from './Skeleton';
+import { useApp } from './ServersContext';
+
 
 const MAX_FILES = 10;
 

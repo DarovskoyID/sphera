@@ -1,8 +1,9 @@
 import React, { useEffect, useRef, useCallback, useState, createContext, useContext } from 'react';
+import {
+  useModuleT as useTranslation, getIceServers, getSelectedServerEntry, fetchPoolIceServers,
+} from '@sfera/sdk';
 import { Monitor, MonitorOff, Video, VideoOff, PhoneOff, Mic, MicOff, ChevronLeft } from 'lucide-react';
-import { useApp } from '../context/AppContext';
-import { useTranslation } from '../i18n/useTranslation';
-import { getIceServers, getSelectedServerEntry, fetchPoolIceServers } from '../config/network';
+import { useApp } from './ServersContext';
 
 const SPEAKING_THRESHOLD = 15; // 0–255 RMS
 

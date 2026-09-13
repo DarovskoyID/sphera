@@ -13,3 +13,8 @@ export function RailSlot() {
   const items = useSlot('nav.rail');
   return <>{items.map(i => <i.render key={`${i.moduleId}:${i.id}`} />)}</>;
 }
+
+export function SlotList({ slot }: { slot: 'sidebar.userPanel' | 'nav.railScroll' | 'app.overlay' }) {
+  const items = useSlot(slot);
+  return <>{items.map(i => <i.render key={`${i.moduleId}:${i.id}`} />)}</>;
+}

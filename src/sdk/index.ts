@@ -24,7 +24,7 @@ export { createTailCache } from '../utils/cachedTail';
 export type { TailEntry } from '../utils/cachedTail';
 export type { RichMessageType, RichPayload, RichUserBrief, PollPayload } from '../types';
 export { openModuleSocket } from './realtime';
-export { tmStatic, goTo } from './runtime';
+export { tmStatic, goTo, setBusy } from './runtime';
 export type { ModuleSocket } from './realtime';
 export { reportError } from '../context/AppContext';
 // Feed / media building blocks.
@@ -52,3 +52,22 @@ export function useModuleT() {
   return useCallback((key: string) => tm(language, key), [language]);
 }
 export { settingsUi } from './settingsUi';
+export type { AccountType, ServerUser, CustomEmoji, ChatAttachment } from '../types';
+// Low-level helpers for modules that own realtime state.
+export { onWs, publishWs } from './wsBus';
+export { onLifecycle } from './lifecycle';
+export { wsUrlFor, getIceServers, getSelectedServerEntry, fetchPoolIceServers } from '../config/network';
+export const wsProtocols = (token: string) => ['ionik.jwt', token];
+export { readResponse } from '../utils/errorManager';
+export { sortByDate, insertByDate } from '../utils/messageOrder';
+export { showDesktopNotification, playMessageSound } from '../utils/notifications';
+export { announce as announceA11y } from '../utils/accessibility';
+export type { LocationPayload } from '../types';
+// Shared app widgets used by module screens.
+export { ProfileModal } from '../components/ProfileModal';
+export type { ProfileUser } from '../components/ProfileModal';
+export { UserProfile } from '../components/ChatSidebar';
+export { useAnchoredMenu } from '../components/useAnchoredMenu';
+export { LONG_PRESS_SAFE, useLongPress, useDragArm, useIsTouch } from '../components/useLongPress';
+export { MessageListSkeleton } from '../components/Skeleton';
+export { ComposerActions, RailSlot } from '../core/modules/Slots';

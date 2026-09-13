@@ -1,4 +1,4 @@
-export type LifecycleEvent = 'login' | 'logout';
+export type LifecycleEvent = 'login' | 'logout' | 'callStart' | 'deafen' | 'undeafen' | 'mute' | 'unmute';
 type Fn = () => void | Promise<void>;
 
 const hooks = new Map<LifecycleEvent, Set<Fn>>();

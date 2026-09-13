@@ -1,12 +1,11 @@
+import unittest
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
 from rest_framework.test import APIClient
 
 from sfera_auth.models import User
-from sfera_messages.models import (
-    Attachment, Conversation, ConversationParticipant, Guild, GuildChannel,
-    GuildMembership, GuildMessage, Message,
-)
+from sfera_messages.models import Attachment, Conversation, ConversationParticipant, Message
+from .servers_compat import HAS_SERVERS, Guild, GuildChannel, GuildMembership, GuildMessage
 
 PNG_BYTES = b'\x89PNG\r\n\x1a\nbody'
 
@@ -106,6 +105,7 @@ class SferonikTests(TestCase):
             Friendship.objects.filter(from_user=self.owner, to_user=account.user, status='accepted').exists()
         )
 
+    @unittest.skipUnless(HAS_SERVERS, 'servers module not deployed')
     def test_addbot_only_offers_servers_the_user_manages(self):
         from .sferonik import create_bot
 
@@ -139,8 +139,9 @@ class SferonikTests(TestCase):
         self.assertIn('/newbot', self._say('/help'))
         self.assertIn('имя', self._say('/newbot').lower())
         self.assertIn('юзернейм', self._say('Погода').lower())
-        reply = self._say('weather')
-        self.assertIn('@weather_bot', reply)
+        # Registration now asks for the API tier before issuing the key.
+        self.assertIn('@weather_bot', self._say('weather'))
+        reply = self._say('1')
         # The key sits in a fenced code block so the client renders a copy button.
         self.assertRegex(reply, r'```\nsfb_[^\n]+\n```')
 
@@ -151,11 +152,13 @@ class SferonikTests(TestCase):
     def test_username_always_ends_with_bot_suffix(self):
         self._say('/newbot Погода')
         self._say('weather')
+        self._say('1')
         self.assertTrue(BotAccount.objects.get(owner=self.owner).user.username.endswith('_bot'))
 
     def test_delete_revokes_key_but_keeps_the_dialog(self):
         self._say('/newbot Погода')
-        token = [l for l in self._say('weather').splitlines() if l.startswith('sfb_')][0]
+        self._say('weather')
+        token = [l for l in self._say('1').splitlines() if l.startswith('sfb_')][0]
         account = BotAccount.objects.get(user__username='weather_bot')
         convo = outbound.dm_conversation_for(self.owner, account.user)
         outbound.send_dm(account.user, convo, 'hello from the bot')
@@ -225,6 +228,7 @@ class BotApiTests(TestCase):
         self.assertEqual(acked['updates'], [])
         self.assertEqual(BotUpdate.objects.filter(bot=self.account).count(), 0)
 
+    @unittest.skipUnless(HAS_SERVERS, 'servers module not deployed')
     def test_bot_on_a_server_hears_its_channel_and_can_post(self):
         guild = Guild.objects.create(name='Клуб', owner=self.owner, invite_code='inv1')
         GuildMembership.objects.create(guild=guild, user=self.owner, role='owner')
@@ -521,6 +525,7 @@ class BotMediaAndContextTests(TestCase):
         self.assertEqual(self.bot.get(f'/api/bots/api/history/?chat_id={other.id}').status_code, 404)
         self.assertEqual(self.bot.get(f'/api/bots/api/members/?chat_id={other.id}').status_code, 404)
 
+    @unittest.skipUnless(HAS_SERVERS, 'servers module not deployed')
     def test_members_of_a_dm_and_of_a_channel(self):
         res = self.bot.get(f'/api/bots/api/members/?chat_id={self.convo.id}')
         self.assertEqual(res.json()['chat_type'], 'dm')
@@ -540,6 +545,7 @@ class BotMediaAndContextTests(TestCase):
         self.assertEqual(roles['alice'], 'owner')
         self.assertEqual(roles['weather_bot'], 'member')
 
+    @unittest.skipUnless(HAS_SERVERS, 'servers module not deployed')
     def test_react_toggles_on_a_channel_message_and_is_refused_in_a_dm(self):
         guild = Guild.objects.create(name='Клуб', owner=self.owner, invite_code='inv-react')
         GuildMembership.objects.create(guild=guild, user=self.owner, role='owner')

@@ -281,3 +281,78 @@ def _apply_location_update(msg, data, stop=False):
     msg.payload = payload
     msg.save(update_fields=['encrypted_payload'])
     return payload
+
+
+# ── Helpers shared by message views (DMs and module views) ────────────────
+import threading  # noqa: E402
+from django.utils.dateparse import parse_datetime  # noqa: E402
+from rest_framework import status as _status  # noqa: E402
+
+
+class _CursorUnresolved:
+    """Sentinel: a pagination cursor was requested but could not be resolved."""
+
+
+
+_CURSOR_UNRESOLVED = _CursorUnresolved()
+
+
+def _pagination_cutoff(manager, before_id, before_ts):
+    """Resolve the `created_at` cutoff for a "load older" page.
+
+    The anchor message can be gone (deleted while the client still lists it), so
+    clients also send `before_ts`. Returns None when no cursor was asked for, a
+    datetime to filter by, or _CURSOR_UNRESOLVED when a cursor was requested but
+    neither the anchor nor a usable timestamp resolved it — callers must NOT fall
+    back to the newest page in that case.
+    """
+    if not before_id and not before_ts:
+        return None
+    if before_id:
+        anchor = manager.filter(id=before_id).only('created_at').first()
+        if anchor:
+            return anchor.created_at
+    if before_ts:
+        parsed = parse_datetime(before_ts)
+        if parsed:
+            return parsed
+    return _CURSOR_UNRESOLVED
+
+
+def _wipe_files_async(file_fields):
+    """Delete storage files off the request path so a delete returns instantly
+    and the realtime broadcast isn't blocked on (potentially large) disk I/O."""
+    def _run():
+        for f in file_fields:
+            try:
+                f.delete(save=False)
+            except Exception:
+                pass
+    if file_fields:
+        threading.Thread(target=_run, daemon=True).start()
+
+
+def _broadcast(group, event):
+    """For update events (poll/todo/location): both transports carry the event
+    dict as-is, same as reaction_update."""
+    _fanout(group, event, event)
+
+
+def _broadcast_message(group, msg_payload):
+    """For a brand-new message the two transports differ, and mixing them up
+    corrupts the client's message list: the channel layer takes a wrapped event
+    (the consumer re-sends event['message']), while gateway clients must get the
+    raw payload. Same convention as send_message / guild_channel_send."""
+    _fanout(group, {'type': 'chat_message', 'message': msg_payload}, msg_payload)
+
+
+def _is_bot_message(msg):
+    """Was this written by a bot account?
+
+    Bots edit their own messages through the bot API, where the key proves who
+    is asking. The ordinary edit endpoints already require you to be the author,
+    so this only bites if someone signs into a bot account through the web UI —
+    which is exactly the hole worth closing, because a bot's words should stay
+    the bot's.
+    """
+    return getattr(msg.author, 'account_type', 'user') == 'bot'

@@ -2,7 +2,8 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Search, X, Image, Film, Plus, Trash2, Smile, Clock } from 'lucide-react';
 import { EMOJI_CATEGORIES } from '../data/emojis';
 import { useApp } from '../context/AppContext';
-import type { GuildSticker, CustomEmoji } from '../types';
+import type { CustomEmoji } from '../types';
+import { getSlot, type PickerSticker as GuildSticker } from '../sdk/slots';
 
 const TENOR_KEY = 'LIVDSRZULELA';
 
@@ -92,7 +93,7 @@ interface Props {
 // ── Main unified picker ──────────────────────────────────────────────────────
 
 export const UnifiedPicker: React.FC<Props> = ({ onSelectEmoji, onSelectGif, onSelectSticker, onDelayedSend, canSchedule, onClose, anchorRef }) => {
-  const { currentGuild, loadGuildStickers, currentServerIP, authToken, currentUser, customEmojis, loadCustomEmojis } = useApp();
+  const { currentServerIP, authToken, currentUser, customEmojis, loadCustomEmojis } = useApp();
   const [tab, setTab] = useState<Tab>('emoji');
   const [search, setSearch] = useState('');
 
@@ -199,7 +200,10 @@ export const UnifiedPicker: React.FC<Props> = ({ onSelectEmoji, onSelectGif, onS
     return () => el.removeEventListener('wheel', h);
   }, []);
 
-  useEffect(() => { if (currentGuild) loadGuildStickers(currentGuild.id).then(setGuildStickers).catch(() => {}); }, [currentGuild?.id]);
+  useEffect(() => {
+    Promise.all(getSlot('picker.stickers').map(src => src.load().catch(() => [])))
+      .then(lists => setGuildStickers(lists.flat()));
+  }, []);
   useEffect(() => { if (tab === 'gif' && gifs.length === 0 && !search) fetchGifs(''); }, [tab]);
 
   // ── GIF fetch ──────────────────────────────────────────────────────────────

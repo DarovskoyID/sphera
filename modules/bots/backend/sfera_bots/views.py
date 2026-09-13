@@ -26,10 +26,9 @@ from django.http import HttpResponse
 
 from sfera_auth.models import Friendship, is_child
 from sfera_messages.encryption import decrypt_bytes, encrypt_bytes
-from sfera_messages.models import (
-    Attachment, Conversation, Guild, GuildAttachment, GuildChannel,
-    GuildMembership, GuildMessage, Message,
-)
+from sfera_messages.models import Attachment, Conversation, Message
+
+from .servers_compat import HAS_SERVERS, Guild, GuildAttachment, GuildChannel, GuildMembership, GuildMessage
 # Same ceiling as the app's own composer, so a bot cannot post a message the
 # clients would refuse to accept.
 from sfera_messages.services import MAX_ATTACHMENTS_PER_MESSAGE
@@ -147,6 +146,8 @@ def bot_set_commands(request, bot_id):
 @permission_classes([IsAuthenticated])
 def bot_add_to_guild(request, bot_id, guild_id):
     """Put the owner's bot on one of their servers (owner/admin only)."""
+    if not HAS_SERVERS:
+        return Response({'error': 'servers are not available'}, status=status.HTTP_404_NOT_FOUND)
     account = _owned(request, bot_id)
     if account is None:
         return Response({'error': 'not found'}, status=status.HTTP_404_NOT_FOUND)
@@ -165,6 +166,8 @@ def bot_add_to_guild(request, bot_id, guild_id):
 @api_view(['DELETE'])
 @permission_classes([IsAuthenticated])
 def bot_remove_from_guild(request, bot_id, guild_id):
+    if not HAS_SERVERS:
+        return Response({'error': 'servers are not available'}, status=status.HTTP_404_NOT_FOUND)
     account = _owned(request, bot_id)
     if account is None:
         return Response({'error': 'not found'}, status=status.HTTP_404_NOT_FOUND)
@@ -263,7 +266,7 @@ def commands_for_chat(request):
             .filter(user_id=user_id, is_active=True)
         )
     elif channel_id:
-        channel = GuildChannel.objects.filter(id=channel_id).first()
+        channel = GuildChannel.objects.filter(id=channel_id).first() if HAS_SERVERS else None
         if channel is None:
             return Response({'bots': []})
         if not GuildMembership.objects.filter(guild_id=channel.guild_id, user=request.user).exists():
@@ -474,8 +477,12 @@ def chats(request):
             'peer': outbound.user_payload(peer) if peer else None,
         })
     channels = []
-    guild_ids = GuildMembership.objects.filter(user=account.user).values_list('guild_id', flat=True)
-    for ch in GuildChannel.objects.filter(guild_id__in=list(guild_ids), channel_type='text').select_related('guild'):
+    guild_ids = GuildMembership.objects.filter(user=account.user).values_list('guild_id', flat=True) if HAS_SERVERS else []
+    text_channels = (
+        GuildChannel.objects.filter(guild_id__in=list(guild_ids), channel_type='text').select_related('guild')
+        if HAS_SERVERS else []
+    )
+    for ch in text_channels:
         channels.append({
             'chat_id': str(ch.id),
             'chat_type': 'channel',

@@ -2,8 +2,7 @@
 Kafka consumer worker — run as a standalone management command:
     python manage.py kafka_worker
 
-Reads from chat.messages / guild.messages topics and persists to DB.
-Reads from chat.notifications / guild.notifications and sends push notifications.
+Reads chat.messages / chat.notifications, plus topics modules register (e.g. guild.*).
 """
 import ujson
 import logging
@@ -130,71 +129,6 @@ def _process_chat_message(data: dict):
         logger.warning('FCM push (chat) failed: %s', e)
 
 
-def _process_guild_message(data: dict):
-    from sfera_messages.models import GuildChannel, GuildMembership, GuildMessage, GuildAttachment
-    from sfera_messages.encryption import encrypt_text
-
-    content = data.get('content', '')
-    author_id = data.get('author_id')
-    channel_id = data.get('channel_id')
-    attachment_ids = data.get('attachment_ids', [])
-    reply_to_id = data.get('reply_to_id')
-    msg_uuid = data.get('msg_id')
-
-    if not channel_id or not author_id:
-        return
-    attachment_ids = _normalize_id_list(attachment_ids)
-    if attachment_ids is None:
-        logger.warning('Rejected guild message with malformed attachment_ids')
-        return
-    channel = GuildChannel.objects.filter(id=channel_id).only('id', 'guild_id').first()
-    if not channel or not GuildMembership.objects.filter(guild_id=channel.guild_id, user_id=author_id).exists():
-        logger.warning('Rejected guild message for unauthorized channel=%s author=%s', channel_id, author_id)
-        return
-
-    if reply_to_id and not GuildMessage.objects.filter(id=reply_to_id, channel_id=channel_id).exists():
-        logger.warning('Rejected guild message with invalid reply=%s channel=%s', reply_to_id, channel_id)
-        return
-
-    if attachment_ids:
-        valid_count = GuildAttachment.objects.filter(
-            id__in=attachment_ids,
-            channel_id=channel_id,
-            uploader_id=author_id,
-            message__isnull=True,
-        ).count()
-        if valid_count != len(set(attachment_ids)):
-            logger.warning('Rejected guild message with invalid attachments channel=%s author=%s', channel_id, author_id)
-            return
-
-    if msg_uuid:
-        if GuildMessage.objects.filter(id=msg_uuid).exists():
-            return
-
-    msg = GuildMessage(
-        channel_id=channel_id,
-        author_id=author_id,
-        encrypted_content=encrypt_text(content or ''),
-        reply_to_id=reply_to_id,
-    )
-    if msg_uuid:
-        msg.id = msg_uuid
-    msg.save()
-
-    if attachment_ids:
-        GuildAttachment.objects.filter(
-            id__in=attachment_ids,
-            channel_id=channel_id,
-            uploader_id=author_id,
-            message__isnull=True,
-        ).update(message=msg)
-
-    from .search_index import index_message
-    index_message(msg)
-
-    _notify_bots('channel', msg)
-
-
 def _notify_bots(kind: str, message):
     """Hand the stored message to the bot layer.
 
@@ -223,17 +157,25 @@ def _process_notification(data: dict):
 
 HANDLERS = {
     'chat.messages': _process_chat_message,
-    'guild.messages': _process_guild_message,
     'chat.notifications': _process_notification,
-    'guild.notifications': _process_notification,
 }
+
+
+def _handlers():
+    """Core topics plus whatever modules subscribe to (hooks.KAFKA_HANDLERS)."""
+    from sfera_modules import hooks
+    merged = dict(HANDLERS)
+    for provided in hooks.collect(hooks.KAFKA_HANDLERS).values():
+        merged.update(provided or {})
+    return merged
 
 
 def run_worker():
     signal.signal(signal.SIGINT, _handle_signal)
     signal.signal(signal.SIGTERM, _handle_signal)
 
-    topics = list(HANDLERS.keys())
+    handlers = _handlers()
+    topics = list(handlers.keys())
     consumer = _make_consumer('sfera-message-workers', topics)
     logger.info('Kafka worker started, topics: %s', topics)
 
@@ -249,7 +191,7 @@ def run_worker():
                 continue
 
             topic = msg.topic()
-            handler = HANDLERS.get(topic)
+            handler = handlers.get(topic)
             if not handler:
                 continue
 

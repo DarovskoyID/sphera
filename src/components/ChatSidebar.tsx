@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useSlot } from '../sdk/slots';
+import { SlotList } from '../core/modules/Slots';
 import {
   Sun, Moon, Search, Menu, UserPlus, Check, X, LogOut,
-  Phone, Ban, BellOff, Copy, Trash2, UserMinus, Volume2, PhoneOff, ChevronUp,
+  Phone, Ban, BellOff, Copy, Trash2, UserMinus, ChevronUp,
 } from 'lucide-react';
 import { useApp, reportError } from '../context/AppContext';
 import { useTranslation } from '../i18n/useTranslation';
@@ -881,8 +882,7 @@ const STATUS_CHOICES = ['online', 'idle', 'dnd', 'offline'] as const;
 
 export const UserProfile: React.FC = () => {
   const {
-    currentUser, currentVoiceChannel, leaveVoiceChannel, setVoiceMuted, voiceLocalStream,
-    currentGuild, isMicActive, isHeadphonesActive, setMicActive, setHeadphonesActive,
+    currentUser, isMicActive, isHeadphonesActive, setMicActive, setHeadphonesActive,
     currentServerIP, authToken, setCurrentUser,
   } = useApp();
   const tr = useTranslation();
@@ -915,52 +915,19 @@ export const UserProfile: React.FC = () => {
     }
   };
 
-  const inVoice = !!currentVoiceChannel;
-
-  const handleMute = () => {
-    const next = !isMicActive;
-    setMicActive(next);
-    if (inVoice) {
-      setVoiceMuted(!next);
-      voiceLocalStream.current?.getAudioTracks().forEach(t => { t.enabled = next; });
-    }
-  };
+  // Voice rooms listen to mute/deafen through core lifecycle events.
+  const handleMute = () => setMicActive(!isMicActive);
 
   const handleDeafen = () => {
     const next = !isHeadphonesActive;
     setHeadphonesActive(next);
-    // Discord-style: deafening (turning headphones off) also self-mutes the mic,
-    // and un-deafening turns it back on. Incoming audio is muted separately via
-    // isHeadphonesActive on the playback elements.
+    // Discord-style: deafening also self-mutes the mic, un-deafening unmutes.
     setMicActive(next);
-    if (inVoice) {
-      setVoiceMuted(!next);
-      voiceLocalStream.current?.getAudioTracks().forEach(t => { t.enabled = next; });
-    }
   };
 
   return (
     <>
-    {currentVoiceChannel && (
-      <div className="voice-banner-sidebar" style={{
-        display: 'flex', alignItems: 'center', gap: 8,
-        padding: '6px 10px', flexShrink: 0,
-        background: 'rgba(59,165,92,0.12)',
-        borderTop: '1px solid rgba(59,165,92,0.25)',
-        borderBottom: '1px solid rgba(59,165,92,0.25)',
-      }}>
-        <Volume2 size={13} style={{ color: '#3ba55c', flexShrink: 0 }} />
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 10, color: '#3ba55c', fontWeight: 600, lineHeight: 1 }}>{tr('voice_connected')}</div>
-          <div style={{ fontSize: 11, color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {currentGuild ? `${currentGuild.name} / ${currentVoiceChannel.name}` : currentVoiceChannel.name}
-          </div>
-        </div>
-        <button onClick={leaveVoiceChannel} title={tr('voice_disconnect')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ed4245', padding: 4, borderRadius: 4, display: 'flex', alignItems: 'center' }}>
-          <PhoneOff size={14} />
-        </button>
-      </div>
-    )}
+    <SlotList slot="sidebar.userPanel" />
     <div className="user-profile-section glass-panel">
       <button
         className="profile-avatar-btn"

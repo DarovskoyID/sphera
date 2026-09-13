@@ -1,13 +1,15 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
+  useModuleT as useTranslation, ListSkeleton,
+} from '@sfera/sdk';
+import type { GuildRole, GuildEmoji, GuildSticker, GuildSound, GuildInviteData, GuildAuditLogEntry } from './types';
+import {
   X, Upload, Trash2, Plus, Edit2, Crown, Shield, Volume2, Smile,
   Users, Link, Lock, AlertTriangle, FileText, Copy, Play, Pause,
   Check, ChevronRight, ChevronLeft, Zap, Image, Music, Settings, Globe, Bell,
   Eye, Key, RefreshCw, Hash, Ban,
 } from 'lucide-react';
-import { useApp } from '../context/AppContext';
-import { useTranslation } from '../i18n/useTranslation';
-import { ListSkeleton } from './Skeleton';
+import { useApp } from './ServersContext';
 
 function useIsMobile() {
   const [mobile, setMobile] = useState(() => typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches);
@@ -19,7 +21,6 @@ function useIsMobile() {
   }, []);
   return mobile;
 }
-import type { GuildRole, GuildEmoji, GuildSticker, GuildSound, GuildInviteData, GuildAuditLogEntry } from '../types/index';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 type Section =

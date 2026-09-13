@@ -33,7 +33,9 @@ PROFILE_EXTRAS = 'profile_extras'          # fn(viewer, target) -> dict merged i
 DATA_EXPORT = 'data_export'                # fn(user) -> dict[str, list] (file name -> rows)
 METRICS = 'metrics'                        # fn() -> dict[str, number]
 HAS_DATA = 'has_data'                      # fn(user) -> bool, used for auto-install
-WS_AUTHORIZE = 'ws_authorize'              # fn(user, room: str) -> bool, for ws-gateway
+WS_AUTHORIZE = 'ws_authorize'              # fn(user, ws_type, data) -> True | False | None (not mine)
+KAFKA_HANDLERS = 'kafka_handlers'          # fn() -> {topic: handler(data)} for kafka_worker
+ENCRYPTED_DATA = 'encrypted_data'          # fn() -> [(Model, [text fields], [file fields])] for key rotation
 IS_MANAGED = 'is_managed'                  # fn(user) -> bool: account under parental control
 CAN_UNINSTALL = 'can_uninstall'            # fn(user) -> str | None: reason the module must stay
 

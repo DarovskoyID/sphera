@@ -1,14 +1,11 @@
 import React, { useState, useRef, useEffect } from 'react';
+import {
+  useModuleT as useTranslation, ProfileModal, type ProfileUser, UserProfile, AccountBadge, accountDisplayName, useAnchoredMenu, LONG_PRESS_SAFE, useLongPress,
+} from '@sfera/sdk';
+import type { GuildMember, GuildRole } from './types';
 import { Hash, Volume2, Plus, Trash2, LogOut, Copy, Users, ChevronDown, ChevronRight, ChevronLeft, Crown, Shield, UserPlus, Ban, User, MicOff, Settings, Headphones, VolumeX, Volume1, BellOff, Bell } from 'lucide-react';
-import { useApp } from '../context/AppContext';
-import { useTranslation } from '../i18n/useTranslation';
-import { ProfileModal, type ProfileUser } from './ProfileModal';
-import { UserProfile } from './ChatSidebar';
+import { useApp } from './ServersContext';
 import { GuildSettingsModal } from './GuildSettings';
-import type { GuildMember, GuildRole } from '../types';
-import { AccountBadge, accountDisplayName } from './BotBadge';
-import { useAnchoredMenu } from './useAnchoredMenu';
-import { LONG_PRESS_SAFE, useLongPress } from './useLongPress';
 
 /**
  * A row in the channel list. Its menu opens on right-click and, on touch, on a

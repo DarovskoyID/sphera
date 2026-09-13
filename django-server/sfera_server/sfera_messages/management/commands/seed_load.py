@@ -254,7 +254,8 @@ class Command(BaseCommand):
         from django.db.models import Q
         from django.db.utils import IntegrityError
         from sfera_auth.models import User
-        from sfera_messages.models import Guild, GuildMessage, Message
+        from sfera_messages.models import Message
+        from sfera_servers.models import Guild, GuildMessage
 
         self.stdout.write('Удаление тестовых данных (партиями — безопасно для sqlite/Postgres)...')
 
@@ -401,7 +402,7 @@ class Command(BaseCommand):
     # ── servers ──────────────────────────────────────────────────────────────
 
     def _make_servers(self, M, users):
-        from sfera_messages.models import Guild, GuildMembership
+        from sfera_servers.models import Guild, GuildMembership
 
         self.stdout.write(f'2/8  Создаю {M} серверов...')
         servers = []
@@ -424,7 +425,7 @@ class Command(BaseCommand):
     # ── channels ─────────────────────────────────────────────────────────────
 
     def _make_channels(self, H, servers, users):
-        from sfera_messages.models import GuildChannel
+        from sfera_servers.models import GuildChannel
 
         if not servers:
             self.stdout.write('3/8  Серверов нет — каналы пропущены.')
@@ -446,7 +447,7 @@ class Command(BaseCommand):
     # ── server messages ──────────────────────────────────────────────────────
 
     def _make_server_messages(self, K, channels, servers, users, batch):
-        from sfera_messages.models import GuildMessage
+        from sfera_servers.models import GuildMessage
 
         text_channels = [c for c in channels if c.channel_type == 'text']
         if K == 0 or not text_channels:
@@ -472,7 +473,7 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS(f'     +{created} сообщений в серверах'))
 
     def _members_by_guild(self, servers, users):
-        from sfera_messages.models import GuildMembership
+        from sfera_servers.models import GuildMembership
         by_id = {u.id: u for u in users}
         out = {}
         ids = [g.id for g in servers]
@@ -488,7 +489,7 @@ class Command(BaseCommand):
 
     def _make_personal_channels(self, users):
         """Личный канал = Guild(is_personal_channel=True) с одним текстовым каналом-лентой."""
-        from sfera_messages.models import Guild, GuildChannel, GuildMembership
+        from sfera_servers.models import Guild, GuildChannel, GuildMembership
 
         n = max(1, min(len(users), max(1, len(users) // 10)))
         owners = random.sample(users, n)
@@ -503,7 +504,7 @@ class Command(BaseCommand):
         return pcs
 
     def _make_posts(self, J, personal_channels, users, batch):
-        from sfera_messages.models import GuildMessage
+        from sfera_servers.models import GuildMessage
 
         if J == 0 or not personal_channels:
             self.stdout.write('5/8  Постов в каналах нет — пропуск.')
@@ -1072,7 +1073,8 @@ class Command(BaseCommand):
             pass
 
         from urllib.parse import urlparse
-        from sfera_messages.models import GuildChannel, ConversationParticipant
+        from sfera_messages.models import ConversationParticipant
+        from sfera_servers.models import GuildChannel
 
         base = opts['base_url'].rstrip('/')
         verify = bool(opts['verify_tls'])

@@ -18,3 +18,11 @@ export const tmStatic = (key: string) => tm(host.language, key);
 
 /** Navigate to a core route ('home', 'explore', guild id) or a module route ('diary:<id>'). */
 export const goTo = (route: string) => host.navigate(route);
+
+/**
+ * A module holding the user in a live audio session (e.g. a voice room) marks
+ * itself busy; the core then declines incoming DM calls instead of ringing.
+ */
+const busy = new Set<string>();
+export const setBusy = (moduleId: string, on: boolean) => { if (on) busy.add(moduleId); else busy.delete(moduleId); };
+export const isBusy = () => busy.size > 0;

@@ -13,7 +13,7 @@ _copy = import_module('sfera_diary.migrations.0002_copy_legacy_diaries')
 def drop_legacy(apps, schema_editor):
     if not _copy._legacy_available(apps):
         return
-    Guild = apps.get_model('sfera_messages', 'Guild')
+    Guild = _copy._legacy_model(apps, 'Guild')
     Diary = apps.get_model('sfera_diary', 'Diary')
     copied = Diary.objects.exclude(legacy_guild_id=None).values_list('legacy_guild_id', flat=True)
     # Historical models have no custom delete(), and FileField rows are removed
@@ -22,6 +22,7 @@ def drop_legacy(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
+    run_before = [('sfera_messages', '0023_move_guilds_to_servers_module')]
 
     dependencies = [
         ('sfera_diary', '0002_copy_legacy_diaries'),

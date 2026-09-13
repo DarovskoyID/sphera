@@ -24,10 +24,23 @@ export interface SlotMap {
   'user.badge': { id: string; render: ComponentType<{ userId: string; accountType?: string }> };
   /** Extra section in the profile modal. */
   'profile.section': { id: string; render: ComponentType<{ userId: string; profile: Record<string, unknown> }> };
+  /** Extra rows above the user panel in the DM sidebar (e.g. voice connection). */
+  'sidebar.userPanel': { id: string; render: ComponentType };
+  /** Scrollable part of the left rail (e.g. server icons with folders). */
+  'nav.railScroll': { id: string; render: ComponentType };
+  /** Sticker sources for the sticker/GIF picker. */
+  'picker.stickers': { id: string; load: () => Promise<PickerSticker[]> };
   /** Always-mounted overlay (toasts, voice banner, …). */
   'app.overlay': { id: string; render: ComponentType };
   /** React provider wrapping the whole app (module state). */
   'app.provider': { id: string; render: ComponentType<{ children: ReactNode }> };
+}
+
+export interface PickerSticker {
+  id: string;
+  name: string;
+  description: string;
+  image: string;
 }
 
 export interface ComposerActionProps {

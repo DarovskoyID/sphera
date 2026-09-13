@@ -1,7 +1,4 @@
-"""Guild receivers for core hooks (profile, block audit, data export).
-
-Transitional: these move into the servers / channels modules.
-"""
+"""Servers receivers for core hooks (profile, block audit, export, metrics, services)."""
 from sfera_modules import hooks
 
 
@@ -72,8 +69,7 @@ def _metrics():
     guild_qs = Guild.objects.all()
     return {
         'tables': {
-            'guilds': guild_qs.filter(is_personal_channel=False).count(),
-            'personal_channels': guild_qs.filter(is_personal_channel=True).count(),
+            'guilds': guild_qs.count(),
             'guild_channels': GuildChannel.objects.count(),
             'guild_messages': GuildMessage.objects.count(),
             'comments': GuildPostComment.objects.count(),
@@ -117,6 +113,31 @@ class PrivateGuildService:
         GuildMembership.objects.filter(guild_id=guild_id, user=user).exclude(role='owner').delete()
 
 
+def _ws_authorize(user, ws_type, data):
+    """The Rust gateway asks before letting a socket into a guild channel room."""
+    if ws_type != 'guild_channel':
+        return None
+    from sfera_modules.permissions import has_module
+    if not has_module(user, 'servers'):
+        return False
+    from .models import GuildChannel, GuildMembership
+    try:
+        return (GuildChannel.objects.filter(id=data.get('channel_id'), guild_id=data.get('guild_id')).exists()
+                and GuildMembership.objects.filter(guild_id=data.get('guild_id'), user=user).exists())
+    except (ValueError, TypeError):
+        return False
+
+
+def _kafka_handlers():
+    from .kafka import handlers
+    return handlers()
+
+
+def _encrypted_data():
+    from .models import GuildAttachment, GuildMessage, GuildPostComment, GuildScheduledMessage
+    return {'text': [GuildMessage, GuildScheduledMessage, GuildPostComment], 'files': [GuildAttachment]}
+
+
 _block_receiver = _log_block('member_block')
 _unblock_receiver = _log_block('member_unblock')
 
@@ -125,6 +146,9 @@ def connect():
     hooks.register(hooks.PROFILE_EXTRAS, 'servers', _mutual_guilds)
     hooks.register(hooks.DATA_EXPORT, 'servers', _export)
     hooks.register(hooks.METRICS, 'servers', _metrics)
+    hooks.register(hooks.WS_AUTHORIZE, 'servers', _ws_authorize)
+    hooks.register(hooks.KAFKA_HANDLERS, 'servers', _kafka_handlers)
+    hooks.register(hooks.ENCRYPTED_DATA, 'servers', _encrypted_data)
     hooks.provide('servers.private_guild', PrivateGuildService)
     hooks.user_blocked.connect(_block_receiver, dispatch_uid='guild.block')
     hooks.user_unblocked.connect(_unblock_receiver, dispatch_uid='guild.unblock')

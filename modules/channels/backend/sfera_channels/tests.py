@@ -1,3 +1,4 @@
+import unittest
 from datetime import timedelta
 from importlib import import_module
 
@@ -11,6 +12,13 @@ from sfera_modules.models import UserModule
 
 from .models import MAX_OWNED_CHANNELS, Channel, Post, PostComment, ScheduledPost, Subscription
 from .services import deliver_due
+
+try:
+    import sfera_servers  # noqa: F401
+    HAS_SERVERS = True
+except ImportError:
+    HAS_SERVERS = False
+
 
 
 def app_client(user):
@@ -91,9 +99,10 @@ class ChannelApiTests(TestCase):
         self.assertEqual(self.o.post('/api/channels/', {'name': 'x'}, format='json').status_code, 201)
 
 
+@unittest.skipUnless(HAS_SERVERS, 'servers module not deployed')
 class LegacyCopyTests(TestCase):
     def test_copy_then_drop(self):
-        from sfera_messages.models import (
+        from sfera_servers.models import (
             Guild, GuildChannel, GuildMembership, GuildMessage, GuildMessageReaction, GuildPostComment,
         )
 

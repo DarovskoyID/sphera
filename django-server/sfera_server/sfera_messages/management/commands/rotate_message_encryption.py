@@ -2,29 +2,17 @@ from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
 from sfera_messages.encryption import rotate_bytes, rotate_text
-from sfera_messages.models import (
-    Attachment,
-    GuildAttachment,
-    GuildMessage,
-    GuildPostComment,
-    GuildScheduledMessage,
-    Message,
-    ScheduledMessage,
-)
+from sfera_messages.models import Attachment, Message, ScheduledMessage
+from sfera_modules import hooks
 
 
-TEXT_MODELS = (
-    Message,
-    GuildMessage,
-    ScheduledMessage,
-    GuildScheduledMessage,
-    GuildPostComment,
-)
-
-FILE_MODELS = (
-    Attachment,
-    GuildAttachment,
-)
+def _models():
+    """Core models plus every module's encrypted data (hooks.ENCRYPTED_DATA)."""
+    text, files = [Message, ScheduledMessage], [Attachment]
+    for provided in hooks.collect(hooks.ENCRYPTED_DATA).values():
+        text += list((provided or {}).get('text', []))
+        files += list((provided or {}).get('files', []))
+    return text, files
 
 
 class Command(BaseCommand):
@@ -62,13 +50,14 @@ class Command(BaseCommand):
         total_text = 0
         total_files = 0
 
-        for model in TEXT_MODELS:
+        text_models, file_models = _models()
+        for model in text_models:
             rotated = self._rotate_text_model(model, batch_size, dry_run)
             total_text += rotated
             self.stdout.write(f'{model.__name__}: {rotated} text rows')
 
         if not skip_files:
-            for model in FILE_MODELS:
+            for model in file_models:
                 rotated = self._rotate_file_model(model, batch_size, dry_run)
                 total_files += rotated
                 self.stdout.write(f'{model.__name__}: {rotated} files')
@@ -82,6 +71,8 @@ class Command(BaseCommand):
         count = 0
         qs = model.objects.only('id', 'encrypted_content').iterator(chunk_size=batch_size)
         for obj in qs:
+            if not obj.encrypted_content:
+                continue
             rotated = rotate_text(obj.encrypted_content)
             count += 1
             if dry_run:

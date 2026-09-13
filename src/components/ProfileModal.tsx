@@ -1,3 +1,4 @@
+import { useSlot } from '../sdk/slots';
 /**
  * The user profile — one modal, used everywhere a person's name is clickable.
  *
@@ -32,7 +33,6 @@ export type ProfileUser = {
 };
 
 interface ProfileLink { label: string; url: string }
-interface MutualGuild { id: string; name: string }
 
 /** What /api/auth/users/<id>/profile/ answers with. */
 interface FullProfile extends ProfileUser {
@@ -45,7 +45,6 @@ interface FullProfile extends ProfileUser {
   /** The subject hides their profile from strangers; most fields are absent. */
   restricted?: boolean;
   mutual_friends?: ProfileUser[];
-  mutual_guilds?: MutualGuild[];
   gifts?: { id: string; name: string; icon: string }[];
 }
 
@@ -145,6 +144,7 @@ export const ProfileModal: React.FC<{
   const [showRemoveConfirm, setShowRemoveConfirm] = useState(false);
   const [note, setNote] = useState(() => localStorage.getItem(`note_${user.id}`) ?? '');
   const tr = useTranslation();
+  const profileSections = useSlot('profile.section');
   const isMobile = useIsMobile();
 
   const displayName = accountDisplayName(profile);
@@ -389,21 +389,9 @@ export const ProfileModal: React.FC<{
             </div>
           )}
 
-          {/* Mutual servers */}
-          {!!profile.mutual_guilds?.length && (
-            <div style={{ marginBottom: 16 }}>
-              <div style={sectionLabel}>
-                {profile.mutual_guilds.length} {tr('profile_mutual_servers')}
-              </div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                {profile.mutual_guilds.map(guild => (
-                  <span key={guild.id} style={{ fontSize: 12, padding: '4px 9px', borderRadius: 999, background: 'var(--bg-tertiary)', color: 'var(--text-secondary)' }}>
-                    {guild.name}
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
+          {profileSections.map(sec => (
+            <sec.render key={`${sec.moduleId}:${sec.id}`} userId={String(profile.id)} profile={profile as unknown as Record<string, unknown>} />
+          ))}
 
           {/* Mutual friends */}
           {!!profile.mutual_friends?.length && (
