@@ -117,7 +117,7 @@ export const zh: Translations = {
   chat_edit_save: '保存',
   chat_edit_empty: '消息不能为空',
   msg_edited: '（已编辑）',
-  msg_code_blocked: '未发送：这看起来像验证码，而对方刚刚向你索要验证码。切勿向任何人透露短信或应用中的验证码。',
+  msg_code_blocked: '未发送：这看起来像密码验证码（短信、银行或应用）。切勿向任何人透露此类验证码。',
   chat_copy_text: '复制文本',
   chat_pin: '置顶',
   chat_unpin_msg: '取消置顶',

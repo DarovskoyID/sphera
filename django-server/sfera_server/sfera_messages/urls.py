@@ -32,6 +32,7 @@ urlpatterns = [
     path('conversations/<uuid:conversation_id>/schedule/', views.schedule_message),
     path('conversations/<uuid:conversation_id>/scheduled/', views.list_scheduled),
     path('ws/authorize/', views.ws_authorize),
+    path('chat-safety/', views.chat_safety),
     path('turn/', views.turn_credentials),
     path('attachments/<uuid:attachment_id>/', views.download_attachment),
     path('messages/<uuid:message_id>/', views.delete_message),

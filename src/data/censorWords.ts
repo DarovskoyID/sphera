@@ -163,19 +163,29 @@ export const CALL_TO_ACTION_RE = [
 
 // ── Code requests / просьбы скинуть код (phishing) ───────────────────────────
 
+// Only words that mean a one-time code by themselves. Plain "код", "пароль",
+// "смс" are everyday words ("скинь пароль от вай фай", "код от домофона") —
+// requests for real codes are caught by CODE_REQUEST_RE with their context.
 export const CODE_KEYWORDS = [
-  'код', 'кодподтверждения', 'смс', 'sms', 'otp', 'пароль', 'пароля',
-  'password', 'верификация', 'верификации', 'verificationcode', 'confirmationcode',
-  'onetimecode', 'securitycode', 'пинкод', 'pincode', 'cvv', 'cvc',
+  'кодподтверждения', 'otp', 'verificationcode', 'confirmationcode',
+  'onetimecode', 'securitycode', 'cvv', 'cvc',
   // German
-  'bestatigungscode', 'sicherheitscode', 'einmalcode', 'passwort', 'kennwort',
+  'bestatigungscode', 'sicherheitscode', 'einmalcode',
   // Spanish
-  'codigo', 'contrasena', 'clave', 'codigodeverificacion',
+  'codigodeverificacion',
   // French
-  'motdepasse', 'codedeverification', 'codesecret',
+  'codedeverification',
   // Portuguese
-  'senha', 'codigodeconfirmacao',
+  'codigodeconfirmacao',
 ];
+
+/**
+ * A message about everyday secrets or program code: code-request phrases do
+ * not apply to it ("скинь пароль от вай фай", "код от домофона", "скинь код
+ * проекта").
+ */
+export const BENIGN_CODE_CONTEXT_RE =
+  /wi-?fi|вай\W?фа|вайфа|роутер|router|домофон|подъезд|калитк|шлагбаум|ворот|двер|замк|замок|сейф|гараж|сигнализац|исходн|репозитор|github|gitlab|коммит|функци|скрипт|программ|проект|ревью|review|промокод|promo|скидк|купон|трек|артикул|код\w*\s+ошибк|error\s+code/iu;
 
 export const CODE_REQUEST_RE = [
   /(?:скинь|пришли|отправь|назови|продиктуй|скажи|напиши|дай|введи|сообщи)(?:\s+(?:мне|нам))?\s+код(?:\s+(?:из\s+)?(?:смс|sms|сообщения|подтвержд\w*))?/giu,
@@ -284,7 +294,7 @@ export const CJK_CTA = [
 ];
 
 export const CJK_CODE = [
-  '验证码', '短信验证码', '手机验证码', '动态密码', '密码', '支付密码', '安全码',
+  '验证码', '短信验证码', '手机验证码', '动态密码', '支付密码', '安全码',
 ];
 
 // ── Never-mask allowlist ─────────────────────────────────────────────────────

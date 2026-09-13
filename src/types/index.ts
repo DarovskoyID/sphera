@@ -36,6 +36,8 @@ export interface ServerUser {
   bio: string;
   status: 'online' | 'idle' | 'dnd' | 'offline';
   account_type?: AccountType;
+  /** The instance's single superuser (manages modules and chat safety). */
+  is_superuser?: boolean;
   email?: string;
   phone?: string;
   date_joined?: string;

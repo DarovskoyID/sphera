@@ -180,3 +180,16 @@ class TodoCheck(models.Model):
 
     class Meta:
         unique_together = ('message', 'item_id')
+
+
+class ChatSafetySettings(models.Model):
+    """Instance-wide chat safety switches, set by the superuser. Single row (pk=1)."""
+    # Block any message that looks like a secret code (SMS/bank/app code),
+    # not only one somebody in the chat has just asked for.
+    block_all_codes = models.BooleanField(default=False)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    @classmethod
+    def get(cls):
+        obj, _ = cls.objects.get_or_create(pk=1)
+        return obj

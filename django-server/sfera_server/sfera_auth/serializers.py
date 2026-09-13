@@ -64,8 +64,9 @@ class UserSerializer(serializers.ModelSerializer):
         # over. The profile-only fields live in ProfileSerializer below.
         fields = [
             'id', 'username', 'nickname', 'avatar', 'bio', 'status',
-            'account_type', 'verification_level', 'verification',
+            'account_type', 'is_superuser', 'verification_level', 'verification',
         ]
+        read_only_fields = ['is_superuser']
 
     def _image(self, image):
         if not image:

@@ -272,6 +272,7 @@ def send_message(request, conversation_id):
         'avatar': getattr(getattr(request.user, 'avatar', None), 'url', '') if getattr(request.user, 'avatar', None) else '',
         'status': getattr(request.user, 'status', 'online'),
         'account_type': getattr(request.user, 'account_type', 'user'),
+        'is_superuser': bool(getattr(request.user, 'is_superuser', False)),
     }
 
     msg_payload = {
@@ -559,6 +560,22 @@ def ws_authorize(request):
             return Response({'error': 'not found'}, status=status.HTTP_404_NOT_FOUND)
 
     return Response({'error': 'invalid ws type'}, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['GET', 'PUT'])
+@permission_classes([IsAuthenticated])
+def chat_safety(request):
+    """Instance chat safety settings: anyone may read, only the superuser changes them."""
+    from .models import ChatSafetySettings
+
+    conf = ChatSafetySettings.get()
+    if request.method == 'PUT':
+        if not request.user.is_superuser:
+            return Response({'error': 'superuser_only'}, status=status.HTTP_403_FORBIDDEN)
+        if 'block_all_codes' in request.data:
+            conf.block_all_codes = bool(request.data.get('block_all_codes'))
+            conf.save()
+    return Response({'block_all_codes': conf.block_all_codes, 'can_manage': bool(request.user.is_superuser)})
 
 
 @api_view(['GET'])

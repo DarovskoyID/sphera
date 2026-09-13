@@ -742,6 +742,53 @@ const DeleteAccount: React.FC = () => {
   );
 };
 
+// ==================== Instance chat safety (superuser) ====================
+
+const InstanceCodeGuard: React.FC<{ isRu: boolean }> = ({ isRu }) => {
+  const { currentServerIP, authToken } = useApp();
+  const [on, setOn] = useState<boolean | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    fetch(`${currentServerIP}/api/chat-safety/`, { headers: { Authorization: `Bearer ${authToken}` } })
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => { if (d) setOn(Boolean(d.block_all_codes)); })
+      .catch(reportError);
+  }, [currentServerIP, authToken]);
+
+  const toggleStrict = async () => {
+    if (on === null) return;
+    setSaving(true);
+    try {
+      const res = await fetch(`${currentServerIP}/api/chat-safety/`, {
+        method: 'PUT',
+        headers: { Authorization: `Bearer ${authToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ block_all_codes: !on }),
+      });
+      if (res.ok) setOn(Boolean((await res.json()).block_all_codes));
+    } catch (e) { reportError(e); }
+    setSaving(false);
+  };
+
+  return (
+    <div style={{ ...card, padding: 16, borderColor: '#f59e0b88' }}>
+      <h3 style={{ ...sectionH3, marginTop: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
+        <ShieldCheck size={16} style={{ color: '#f59e0b' }} />
+        {isRu ? 'Защита от кражи кодов на сервере' : 'Server-wide code theft protection'}
+      </h3>
+      <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: '0 0 12px', lineHeight: 1.5 }}>
+        {isRu
+          ? 'Всегда: код не отправится, если собеседник только что просил код из СМС, банка или приложения. Строгий режим блокирует любые сообщения, похожие на секретный код («4821», «код 4821»), для всех пользователей сервера.'
+          : 'Always on: a code is not sent if the other person just asked for an SMS, bank or app code. Strict mode blocks any message that looks like a secret code ("4821", "code 4821") for everyone on this server.'}
+      </p>
+      <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: on === null || saving ? 'default' : 'pointer', fontSize: 14 }}>
+        <input type="checkbox" checked={!!on} disabled={on === null || saving} onChange={toggleStrict} />
+        {isRu ? 'Строгий режим: блокировать любые секретные коды' : 'Strict mode: block any secret codes'}
+      </label>
+    </div>
+  );
+};
+
 // ==================== Privacy Settings ====================
 
 interface BlockedEntry { id: number; blocked: ServerUser; created_at: string; }
@@ -809,6 +856,8 @@ const PrivacySettings: React.FC = () => {
           </span>
         </div>
       )}
+
+      {currentUser?.is_superuser && <InstanceCodeGuard isRu={isRu} />}
 
       <h3 style={sectionH3}>{tr('sprv_blur')}</h3>
       <p>{tr('sprv_blur_desc')}</p>

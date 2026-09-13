@@ -116,7 +116,7 @@ export const de: Translations = {
   chat_edit_save: 'Speichern',
   chat_edit_empty: 'Die Nachricht darf nicht leer sein',
   msg_edited: '(bearbeitet)',
-  msg_code_blocked: 'Nicht gesendet: Das sieht nach einem Bestätigungscode aus, nach dem gerade gefragt wurde. Gib niemals Codes aus SMS oder Apps weiter.',
+  msg_code_blocked: 'Nicht gesendet: Das sieht nach einem geheimen Code aus (SMS, Bank oder App). Gib solche Codes niemals weiter.',
   chat_copy_text: 'Text kopieren',
   chat_pin: 'Anheften',
   chat_unpin_msg: 'Lösen',
