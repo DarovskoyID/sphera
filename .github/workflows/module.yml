@@ -63,6 +63,16 @@ jobs:
           deps=$(python3 -c "import json;print(','.join(json.load(open('modules/$MODULE_ID/module.json')).get('deps', [])))")
           if [ -n "$deps" ]; then node scripts/modules/fetch.mjs --only "$deps"; fi
 
+      - name: Module monitoring (dashboards, alert rules)
+        working-directory: sfera
+        run: |
+          node scripts/modules/monitoring.mjs --exclude core
+          if ls django-server/monitoring/generated/rules/*.yml >/dev/null 2>&1; then
+            docker run --rm --entrypoint promtool \
+              -v "$PWD/django-server/monitoring:/m:ro" prom/prometheus:v2.53.0 \
+              check rules /m/generated/rules/*.yml
+          fi
+
       - uses: actions/setup-node@v4
         with:
           node-version: 22
