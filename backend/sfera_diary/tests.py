@@ -1,3 +1,4 @@
+import unittest
 from importlib import import_module
 
 from django.apps import apps as django_apps
@@ -8,6 +9,13 @@ from sfera_auth.models import User
 from sfera_modules.models import UserModule
 
 from .models import MAX_DIARIES, Diary, DiaryAttachment, DiaryEntry
+
+try:
+    import sfera_servers  # noqa: F401
+    HAS_SERVERS = True
+except ImportError:
+    HAS_SERVERS = False
+
 
 
 def app_client(user):
@@ -59,11 +67,12 @@ class DiaryApiTests(TestCase):
         self.assertEqual(self._create().status_code, 201)
 
 
+@unittest.skipUnless(HAS_SERVERS, 'servers module not deployed')
 class LegacyCopyTests(TestCase):
     """0002 copies Guild(is_private) diaries; 0003 drops the copied guilds."""
 
     def test_copy_then_drop(self):
-        from sfera_messages.models import Guild, GuildAttachment, GuildChannel, GuildMembership, GuildMessage
+        from sfera_servers.models import Guild, GuildAttachment, GuildChannel, GuildMembership, GuildMessage
 
         owner = User.objects.create_user(username='olga', password='x')
         g = Guild.objects.create(name='Old diary', owner=owner, is_personal_channel=True, is_private=True,

@@ -7,9 +7,19 @@ Owners get the module auto-installed so nothing disappears for them.
 from django.db import connection, migrations
 
 
+def _legacy_model(apps, name):
+    """Guild models live in sfera_messages historically and in sfera_servers after the move."""
+    for app in ('sfera_messages', 'sfera_servers'):
+        try:
+            return apps.get_model(app, name)
+        except LookupError:
+            continue
+    raise LookupError(name)
+
+
 def _legacy_available(apps):
     try:
-        Guild = apps.get_model('sfera_messages', 'Guild')
+        Guild = _legacy_model(apps, 'Guild')
     except LookupError:
         return False
     if 'is_private' not in {f.name for f in Guild._meta.get_fields()}:
@@ -25,11 +35,11 @@ def _legacy_available(apps):
 def copy_diaries(apps, schema_editor):
     if not _legacy_available(apps):
         return
-    Guild = apps.get_model('sfera_messages', 'Guild')
-    GuildMessage = apps.get_model('sfera_messages', 'GuildMessage')
-    GuildAttachment = apps.get_model('sfera_messages', 'GuildAttachment')
-    GuildPollVote = apps.get_model('sfera_messages', 'GuildPollVote')
-    GuildTodoCheck = apps.get_model('sfera_messages', 'GuildTodoCheck')
+    Guild = _legacy_model(apps, 'Guild')
+    GuildMessage = _legacy_model(apps, 'GuildMessage')
+    GuildAttachment = _legacy_model(apps, 'GuildAttachment')
+    GuildPollVote = _legacy_model(apps, 'GuildPollVote')
+    GuildTodoCheck = _legacy_model(apps, 'GuildTodoCheck')
     Diary = apps.get_model('sfera_diary', 'Diary')
     DiaryEntry = apps.get_model('sfera_diary', 'DiaryEntry')
     DiaryAttachment = apps.get_model('sfera_diary', 'DiaryAttachment')
@@ -70,6 +80,7 @@ def copy_diaries(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
+    run_before = [('sfera_messages', '0023_move_guilds_to_servers_module')]
 
     dependencies = [
         ('sfera_diary', '0001_initial'),
