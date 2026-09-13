@@ -16,8 +16,8 @@ export interface SlotMap {
   'explore.card': { id: string; order?: number; render: ComponentType };
   /** Search provider in «Исследовать сферу». */
   'explore.search': ExploreSearchProvider;
-  /** Button next to the DM composer. */
-  'chat.composerAction': { id: string; render: ComponentType<{ chatId: string; peerId: string }> };
+  /** Button next to a message composer (DM or guild/channel). */
+  'chat.composerAction': { id: string; render: ComponentType<ComposerActionProps> };
   /** Badge rendered next to a user name. */
   'user.badge': { id: string; render: ComponentType<{ userId: string; accountType?: string }> };
   /** Extra section in the profile modal. */
@@ -26,6 +26,16 @@ export interface SlotMap {
   'app.overlay': { id: string; render: ComponentType };
   /** React provider wrapping the whole app (module state). */
   'app.provider': { id: string; render: ComponentType<{ children: ReactNode }> };
+}
+
+export interface ComposerActionProps {
+  kind: 'dm' | 'channel';
+  /** Peer user id for a DM, channel id otherwise. */
+  targetId: string;
+  token: string;
+  serverIP: string;
+  /** Insert text into the composer. */
+  onPick: (text: string) => void;
 }
 
 export interface MainRoute {

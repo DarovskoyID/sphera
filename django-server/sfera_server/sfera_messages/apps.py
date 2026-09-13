@@ -32,3 +32,7 @@ class SferaMessagesConfig(AppConfig):
                 pass
 
         connection_created.connect(_sqlite_pragmas, dispatch_uid='sfera_sqlite_pragmas')
+
+        # Guild-side core hooks; move with the servers/channels modules.
+        from . import guild_hooks
+        guild_hooks.connect()

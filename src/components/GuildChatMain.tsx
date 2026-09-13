@@ -4,7 +4,7 @@ import { MessageEditModal } from './MessageEditModal';
 import { RichMessage } from './RichMessage';
 import { RichComposer } from './RichComposer';
 import { AccountBadge, accountDisplayName, isBot } from './BotBadge';
-import { BotCommandsButton } from './BotCommandsButton';
+import { ComposerActions } from '../core/modules/Slots';
 import type { RichMessageType, RichPayload } from '../types';
 import { useApp, reportError } from '../context/AppContext';
 import { useTranslation } from '../i18n/useTranslation';
@@ -1123,10 +1123,11 @@ export const GuildChatMain: React.FC = () => {
               value={input}
               onChange={next => { if (editing) setInput(next); else persistInput(next); }}
             />
-            <BotCommandsButton
+            <ComposerActions
+              kind="channel"
               token={authToken}
               serverIP={currentServerIP}
-              channelId={currentGuildChannel.id}
+              targetId={currentGuildChannel.id}
               onPick={cmd => persistInput(cmd)}
             />
             <button

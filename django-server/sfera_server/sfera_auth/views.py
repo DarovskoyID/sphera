@@ -903,20 +903,13 @@ def user_profile(request, user_id):
             many=True, context={'request': request},
         ).data
 
-        # Guilds both are in. Private ones are somebody's diary and are never
-        # shared, so they are excluded rather than filtered on the client.
-        from sfera_messages.models import Guild
-        data['mutual_guilds'] = list(
-            Guild.objects
-            .filter(memberships__user=request.user)
-            .filter(memberships__user=user)
-            .exclude(is_private=True)
-            .distinct()
-            .values('id', 'name')[:20]
-        )
+        # Module-provided sections (e.g. servers → mutual_guilds).
+        from sfera_modules import hooks
+        for extra in hooks.collect(hooks.PROFILE_EXTRAS, request.user, user).values():
+            if isinstance(extra, dict):
+                data.update(extra)
     else:
         data['mutual_friends'] = []
-        data['mutual_guilds'] = []
 
     # Gifts are not a feature yet. The profile screen has a shelf for them and
     # reads it from here, so the shape of the answer is settled now and the
@@ -1035,20 +1028,9 @@ def unblock_user(request, user_id):
 def _log_block_in_guilds(actor, target, action):
     if not target:
         return
-    from sfera_messages.models import GuildMembership, GuildAuditLog
-    shared_guilds = GuildMembership.objects.filter(
-        user=actor
-    ).values_list('guild_id', flat=True)
-    target_guilds = GuildMembership.objects.filter(
-        user=target, guild_id__in=shared_guilds
-    ).select_related('guild')
-    for m in target_guilds:
-        GuildAuditLog.objects.create(
-            guild=m.guild, action=action,
-            actor_id=str(actor.id), actor_username=actor.username,
-            target_id=str(target.id), target_username=target.username,
-            details={},
-        )
+    from sfera_modules import hooks
+    signal = hooks.user_blocked if action == 'member_block' else hooks.user_unblocked
+    signal.send_robust(sender=None, blocker=actor, blocked=target)
 
 
 def _push_block_event(target_user_id: str, event_type: str, by_user_id: str):
@@ -1220,7 +1202,8 @@ def _safe_content(obj):
 def _build_data_export(export_id, user_id):
     # Fresh DB connection for this thread.
     connection.close()
-    from sfera_messages.models import Message, GuildMessage, GuildPostComment
+    from sfera_messages.models import Message
+    from sfera_modules import hooks
 
     try:
         export = DataExport.objects.get(id=export_id)
@@ -1245,33 +1228,11 @@ def _build_data_export(export_id, user_id):
                 'created_at': m.created_at.isoformat(),
             })
 
-        guild_messages = []
-        for m in (GuildMessage.objects
-                  .filter(author_id=user_id)
-                  .select_related('channel')
-                  .order_by('created_at')
-                  .iterator()):
-            guild_messages.append({
-                'id': str(m.id),
-                'channel_id': str(m.channel_id),
-                'channel_name': getattr(m.channel, 'name', ''),
-                'content': _safe_content(m),
-                'reply_to': str(m.reply_to_id) if m.reply_to_id else None,
-                'is_pinned': m.is_pinned,
-                'created_at': m.created_at.isoformat(),
-            })
-
-        post_comments = []
-        for c in (GuildPostComment.objects
-                  .filter(author_id=user_id)
-                  .order_by('created_at')
-                  .iterator()):
-            post_comments.append({
-                'id': str(c.id),
-                'post_id': str(c.message_id),
-                'content': _safe_content(c),
-                'created_at': c.created_at.isoformat(),
-            })
+        # Module sections: {section_name: [rows]}.
+        sections = {}
+        for provided in hooks.collect(hooks.DATA_EXPORT, user).values():
+            if isinstance(provided, dict):
+                sections.update(provided)
 
         payload = {
             'export_version': 1,
@@ -1284,16 +1245,14 @@ def _build_data_export(export_id, user_id):
                 'date_joined': user.date_joined.isoformat() if user.date_joined else None,
             },
             'direct_messages': direct_messages,
-            'server_messages': guild_messages,
-            'post_comments': post_comments,
+            **sections,
             'counts': {
                 'direct_messages': len(direct_messages),
-                'server_messages': len(guild_messages),
-                'post_comments': len(post_comments),
+                **{name: len(rows) for name, rows in sections.items()},
             },
         }
 
-        total = len(direct_messages) + len(guild_messages) + len(post_comments)
+        total = len(direct_messages) + sum(len(rows) for rows in sections.values())
         data = json.dumps(payload, ensure_ascii=False, indent=2)
         filename = f'sfera-data-export-{export_id}.json'
         export.file.save(filename, ContentFile(data.encode('utf-8')), save=False)

@@ -91,7 +91,6 @@ INSTALLED_APPS = [
     'sfera_auth',
     'sfera_messages',
     'sfera_signaling',
-    'sfera_bots',
     'sfera_modules',
 ]
 
@@ -281,14 +280,17 @@ REST_FRAMEWORK = {
     # Rate limiting to blunt brute-force / enumeration against auth endpoints.
     'DEFAULT_THROTTLE_CLASSES': (
         'rest_framework.throttling.AnonRateThrottle',
+        'rest_framework.throttling.ScopedRateThrottle',
+    ) + ((
         # Per-user rate, but with bot API traffic carved out (bots are governed by
         # BotRateThrottle below so a premium bot is not clipped by the user rate).
         'sfera_bots.throttling.BotAwareUserRateThrottle',
-        'rest_framework.throttling.ScopedRateThrottle',
         # Two-tier bot API: standard (free) vs premium (paid, higher ceiling).
         # No-ops for non-bot requests.
         'sfera_bots.throttling.BotRateThrottle',
-    ),
+    ) if 'sfera_bots' in INSTALLED_APPS else (
+        'rest_framework.throttling.UserRateThrottle',
+    )),
     'DEFAULT_THROTTLE_RATES': {
         'anon': os.environ.get('SFERA_THROTTLE_ANON', '60/min'),
         'user': os.environ.get('SFERA_THROTTLE_USER', '1000/min'),

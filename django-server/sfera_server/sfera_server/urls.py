@@ -8,7 +8,6 @@ from sfera_modules.loader import url_patterns as module_url_patterns
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/auth/', include('sfera_auth.urls')),
-    path('api/bots/', include('sfera_bots.urls')),
     path('api/modules/', include('sfera_modules.urls')),
     *module_url_patterns(),
     path('api/', include('sfera_messages.urls')),

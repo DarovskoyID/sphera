@@ -9,10 +9,13 @@ from typing import Callable
 from django.dispatch import Signal
 
 # ── Signals ────────────────────────────────────────────────────────────────
-# sender=None, kwargs: message, conversation, author
+# kwargs: kind ('dm' | 'channel'), message
 message_created = Signal()
+# kwargs: user, peer_id — a DM with peer_id was opened/created
+conversation_opened = Signal()
 # kwargs: blocker, blocked
 user_blocked = Signal()
+user_unblocked = Signal()
 # kwargs: user, target
 friend_request_sent = Signal()
 # kwargs: user, module_id

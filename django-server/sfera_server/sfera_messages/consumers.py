@@ -33,14 +33,8 @@ def _kafka_enabled():
 def _notify_bots(kind, message):
     """Queue a stored message for the bots that can see it (and let Сфероник
     reply). Best-effort: bot plumbing must never break message delivery."""
-    try:
-        from sfera_bots import outbound as bot_outbound
-        if kind == 'dm':
-            bot_outbound.dispatch_dm_message(message)
-        else:
-            bot_outbound.dispatch_channel_message(message)
-    except Exception:
-        pass
+    from .services import emit_message_created
+    emit_message_created(kind, message)
 
 
 class ChatConsumer(AsyncWebsocketConsumer):

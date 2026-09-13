@@ -1,10 +1,10 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
-import { Settings, Home, Plus, LogIn, X, Compass, Rss, LogOut, Trash2, Folder, FolderMinus, NotebookPen, Bot } from 'lucide-react';
+import { Settings, Home, Plus, LogIn, X, Compass, Rss, LogOut, Trash2, Folder, FolderMinus, NotebookPen } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { useTranslation } from '../i18n/useTranslation';
 import ConfirmModal from './ConfirmModal';
 import type { Guild, LayoutEntry } from '../types';
-import { openSferonik } from '../utils/botsApi';
+import { RailSlot } from '../core/modules/Slots';
 import { useAnchoredMenu } from './useAnchoredMenu';
 import { LONG_PRESS_SAFE, useDragArm, useIsTouch, useLongPress } from './useLongPress';
 
@@ -301,28 +301,8 @@ export const ServerSidebar: React.FC = () => {
   const {
     currentServer, setCurrentServer, isMobileSidebarOpen, guilds, selectGuild,
     currentServerIP, leaveGuild, deleteGuild, currentUser, serverLayout, saveLayout,
-    authToken, setCurrentChat, setMobileActivePanel,
   } = useApp();
   const tr = useTranslation();
-  const isRu = tr('nav_explore') === 'Исследовать';
-  const isChild = !!currentUser?.is_child;
-  // Сфероник lives in the DM list, but it is reached from here: it is a tool,
-  // not a contact, so it gets a pinned icon next to Explore.
-  const [openingSferonik, setOpeningSferonik] = useState(false);
-  const goToSferonik = useCallback(async () => {
-    if (openingSferonik || !authToken) return;
-    setOpeningSferonik(true);
-    try {
-      const { bot } = await openSferonik({ token: authToken, serverIP: currentServerIP });
-      setCurrentServer('home');
-      setCurrentChat(bot.user_id);
-      setMobileActivePanel('chat-view');
-    } catch {
-      // Nothing to do: the sidebar stays as it was and the user can retry.
-    } finally {
-      setOpeningSferonik(false);
-    }
-  }, [authToken, currentServerIP, openingSferonik, setCurrentChat, setCurrentServer, setMobileActivePanel]);
   // Right-click a server icon (desktop) → context menu → leave / delete.
   const [guildMenu, setGuildMenu] = useState<{ guild: Guild; x: number; y: number } | null>(null);
   const [confirmLeave, setConfirmLeave] = useState<Guild | null>(null);
@@ -620,18 +600,7 @@ export const ServerSidebar: React.FC = () => {
             <Compass size={20} />
           </button>
 
-          {/* Сфероник registers bots, which a managed account cannot do — so
-              the way in goes too, not just the tools it leads to. */}
-          {!isChild && (
-            <button
-              className="server-icon"
-              onClick={goToSferonik}
-              title={isRu ? 'Сфероник — создание ботов' : 'Sferonik — bot registration'}
-              style={{ opacity: openingSferonik ? 0.6 : 1 }}
-            >
-              <Bot size={20} />
-            </button>
-          )}
+          <RailSlot />
 
           {/* Scrollable guild list */}
           <div

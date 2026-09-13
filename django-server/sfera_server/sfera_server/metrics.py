@@ -148,28 +148,19 @@ def _db_stats_uncached():
     tables = {}
     try:
         from sfera_auth.models import User, Friendship
-        from sfera_messages.models import (
-            Message, Conversation, Guild, GuildMessage, GuildChannel,
-            GuildPostComment, GuildMessageReaction, GuildMessageView,
-            Attachment, GuildAttachment, ScheduledMessage, GuildScheduledMessage,
-        )
+        from sfera_messages.models import Message, Conversation, Attachment, ScheduledMessage
+        from sfera_modules import hooks
 
-        # Реальные сервера и личные каналы — это одна модель Guild,
-        # различаются флагом is_personal_channel, но в метриках их полезно разделить.
-        guild_qs = Guild.objects.all()
         tables['users'] = User.objects.count()
         tables['conversations'] = Conversation.objects.count()
         tables['dm_messages'] = Message.objects.count()
-        tables['guilds'] = guild_qs.filter(is_personal_channel=False).count()
-        tables['personal_channels'] = guild_qs.filter(is_personal_channel=True).count()
-        tables['guild_channels'] = GuildChannel.objects.count()
-        tables['guild_messages'] = GuildMessage.objects.count()
-        tables['comments'] = GuildPostComment.objects.count()
-        tables['reactions'] = GuildMessageReaction.objects.count()
-        tables['post_views'] = GuildMessageView.objects.count()
         tables['friendships'] = Friendship.objects.count()
-        tables['attachments'] = Attachment.objects.count() + GuildAttachment.objects.count()
-        tables['scheduled'] = ScheduledMessage.objects.count() + GuildScheduledMessage.objects.count()
+        tables['attachments'] = Attachment.objects.count()
+        tables['scheduled'] = ScheduledMessage.objects.count()
+        # Modules add their tables; counters with the same name are summed.
+        for m in hooks.collect(hooks.METRICS).values():
+            for k, v in (m or {}).get('tables', {}).items():
+                tables[k] = tables.get(k, 0) + v
     except Exception:
         pass
 
@@ -273,11 +264,10 @@ def _request_stats():
 
 
 def _ws_stats():
-    from sfera_messages.voice_state import _voice_channels
-    voice_users = sum(
-        len([k for k in ch.keys() if k != '_guild_id'])
-        for ch in _voice_channels.values()
-    )
+    from sfera_modules import hooks
+    module_ws = {}
+    for m in hooks.collect(hooks.METRICS).values():
+        module_ws.update((m or {}).get('ws', {}))
     # DM calls tracked via SignalingConsumer._users
     try:
         from sfera_signaling.consumers import SignalingConsumer
@@ -294,8 +284,8 @@ def _ws_stats():
         'connections_total': _counters.get('ws_connections_total', 0),
         'messages_received': _counters.get('ws_messages_received', 0),
         'messages_sent': _counters.get('ws_messages_sent', 0),
-        'voice_channels_active': len(_voice_channels),
-        'voice_users': voice_users,
+        'voice_channels_active': module_ws.get('voice_channels_active', 0),
+        'voice_users': module_ws.get('voice_users', 0),
         'online_users': online_users,
         'active_dm_calls': active_calls_count,
     }

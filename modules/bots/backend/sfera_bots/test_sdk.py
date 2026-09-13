@@ -18,7 +18,8 @@ from . import outbound
 from .models import BotAccount, BotUpdate
 from .sferonik import create_bot
 
-SDK_PATH = pathlib.Path(__file__).resolve().parents[3] / 'bot-sdks' / 'python'
+from sfera_modules.loader import REPO_ROOT
+SDK_PATH = REPO_ROOT / 'bot-sdks' / 'python'
 if str(SDK_PATH) not in sys.path:
     sys.path.insert(0, str(SDK_PATH))
 

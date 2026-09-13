@@ -3,7 +3,7 @@
 // The global fetch wrapper in AppContext already attaches X-Ionik-Client, so
 // these helpers only need the bearer token and the currently selected server.
 
-import type { BotAccount, ChatBot } from '../types';
+import type { BotAccount, ChatBot } from './types';
 
 interface Ctx {
   token: string;

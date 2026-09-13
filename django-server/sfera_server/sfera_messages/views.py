@@ -28,8 +28,10 @@ from .rich import RichError, rich_fields, poll_view, todo_view, location_view
 from sfera_auth.models import BlockedUser
 from .voice_state import _voice_channels
 
-MAX_UPLOAD_SIZE = 50 * 1024 * 1024  # 50 MB
-MAX_ATTACHMENTS_PER_MESSAGE = 15
+from .services import (
+    MAX_UPLOAD_SIZE, MAX_ATTACHMENTS_PER_MESSAGE, _gw_broadcast, _fanout, _FANOUT_POOL,
+    notify_message_created, _fanout_user_notifs, _id_list, _safe_upload, _scan_upload,
+)
 # Per-account caps.
 MAX_PERSONAL_CHANNELS = 3   # personal channels a user may CREATE (own)
 MAX_PRIVATE_NOTES = 3       # private diaries a user may own
@@ -37,146 +39,6 @@ MAX_OWNED_SERVERS = 5       # (non-personal) servers a user may CREATE (own)
 MAX_JOINED_SERVERS = 75     # (non-personal) servers a user may belong to
 MAX_JOINED_CHANNELS = 75    # personal channels a user may subscribe to
 
-
-_gw_redis_conn = None
-
-
-def _gw_broadcast(channel, message):
-    """Publish a client-ready payload to the plain Redis channel the Rust
-    ws-gateway subscribes to (guild_channel_*, chat_*, user_*).
-
-    Real chat/guild-channel WebSocket clients connect to the Rust ws-gateway,
-    which fans out via plain Redis pub/sub. Django's channels_redis group_send
-    uses a different key scheme and does NOT reach those clients, so every
-    HTTP-triggered realtime event (posts, comments, reactions, deletes) must be
-    bridged here as well. Payload must be exactly what the client expects."""
-    global _gw_redis_conn
-    try:
-        if _gw_redis_conn is None:
-            import redis as _redis
-            _gw_redis_conn = _redis.Redis.from_url(
-                os.environ.get('REDIS_URL', 'redis://127.0.0.1:6379/0'),
-                socket_connect_timeout=1, socket_timeout=1,
-            )
-        _gw_redis_conn.publish(channel, json.dumps(message))
-    except Exception:
-        _gw_redis_conn = None
-
-
-# Realtime fanout is best-effort and must NOT block the HTTP request: the channel
-# layer group_send does a Redis round-trip and, under ASGI, sync views serialize
-# on one thread, so doing it inline caps write throughput. We offload it to a
-# small background pool and return immediately.
-from concurrent.futures import ThreadPoolExecutor as _ThreadPoolExecutor
-_FANOUT_POOL = _ThreadPoolExecutor(max_workers=4, thread_name_prefix='fanout')
-
-
-def _do_fanout(group, channel_event, gw_payload):
-    try:
-        async_to_sync(get_channel_layer().group_send)(group, channel_event)
-    except Exception:
-        pass
-    if gw_payload is not None:
-        _gw_broadcast(group, gw_payload)
-
-
-def _fanout(group, channel_event, gw_payload):
-    """Fire-and-forget realtime fanout (channel layer + gateway) off the request
-    thread. channel_event is the wrapped event the Channels consumer expects;
-    gw_payload is the raw payload the Rust gateway clients expect (pass None to
-    skip the gateway leg)."""
-    try:
-        _FANOUT_POOL.submit(_do_fanout, group, channel_event, gw_payload)
-    except Exception:
-        _do_fanout(group, channel_event, gw_payload)
-
-
-def _notify_bots(kind, message):
-    """Hand a freshly stored message to the bot layer (queue it for member bots
-    and let Сфероник answer). Never allowed to break the write path."""
-    def _run():
-        try:
-            from sfera_bots import outbound as bot_outbound
-            if kind == 'dm':
-                bot_outbound.dispatch_dm_message(message)
-            else:
-                bot_outbound.dispatch_channel_message(message)
-        except Exception:
-            pass
-    try:
-        _FANOUT_POOL.submit(_run)
-    except Exception:
-        _run()
-
-
-def _fanout_user_notifs(user_ids, notification):
-    """Fire-and-forget per-user notification fanout (a Redis round-trip each),
-    off the request thread."""
-    def _run():
-        cl = get_channel_layer()
-        for uid in user_ids:
-            try:
-                async_to_sync(cl.group_send)(
-                    f'user_{uid}', {'type': 'new.message.notification', 'data': notification}
-                )
-            except Exception:
-                pass
-    if not user_ids:
-        return
-    try:
-        _FANOUT_POOL.submit(_run)
-    except Exception:
-        _run()
-
-
-BLOCKED_UPLOAD_TYPES = {
-    'application/javascript',
-    'application/x-javascript',
-    'image/svg+xml',
-    'text/html',
-    'text/javascript',
-}
-BLOCKED_UPLOAD_EXTENSIONS = {
-    '.bat', '.cmd', '.com', '.exe', '.hta', '.html', '.js', '.jse',
-    '.msi', '.ps1', '.scr', '.svg', '.vbs', '.wsf',
-}
-
-
-def _id_list(value):
-    if value in (None, ''):
-        return []
-    if isinstance(value, (str, int)):
-        value = [value]
-    if not isinstance(value, list) or len(value) > MAX_ATTACHMENTS_PER_MESSAGE:
-        raise ValueError('invalid attachment list')
-    result = []
-    for item in value:
-        try:
-            result.append(uuid.UUID(str(item)))
-        except (TypeError, ValueError) as exc:
-            raise ValueError('invalid attachment id') from exc
-    return result
-
-
-def _safe_upload(uploaded):
-    content_type = (uploaded.content_type or 'application/octet-stream').split(';', 1)[0].lower()
-    if content_type in BLOCKED_UPLOAD_TYPES:
-        return False, content_type
-    ext = os.path.splitext(uploaded.name or '')[1].lower()
-    if ext in BLOCKED_UPLOAD_EXTENSIONS:
-        return False, content_type
-    return True, content_type
-
-
-def _scan_upload(raw):
-    command = getattr(settings, 'UPLOAD_SCAN_COMMAND', '')
-    if not command:
-        return True
-    with tempfile.NamedTemporaryFile(delete=True) as tmp:
-        tmp.write(raw)
-        tmp.flush()
-        argv = shlex.split(command) + [tmp.name]
-        return subprocess.run(argv, check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
 
 
 def _dm_reply_or_error(convo, reply_to_id):
@@ -241,14 +103,8 @@ def conversation_list(request):
 def _link_bot_contact(user, peer_id):
     """A DM list is built from friendships; a bot can't accept a request, so
     starting a chat with one adds the contact directly."""
-    try:
-        from sfera_auth.models import User
-        from sfera_bots.outbound import ensure_contact
-        peer = User.objects.filter(id=peer_id, account_type='bot').first()
-        if peer is not None:
-            ensure_contact(user, peer)
-    except Exception:
-        pass
+    from sfera_modules import hooks
+    hooks.conversation_opened.send_robust(sender=None, user=user, peer_id=peer_id)
 
 
 @api_view(['POST'])
@@ -490,7 +346,7 @@ def send_message(request, conversation_id):
     )
     _fanout_user_notifs(other_ids, notification)
 
-    _notify_bots('dm', msg)
+    notify_message_created('dm', msg)
 
     return Response(msg_payload, status=status.HTTP_201_CREATED)
 
@@ -1649,7 +1505,7 @@ def guild_channel_send(request, guild_id, channel_id):
     # Gateway clients receive the raw message payload (the consumer's chat_message
     # handler sends event['message'] as-is); offloaded so the write returns fast.
     _fanout(f'guild_channel_{channel_id}', {'type': 'chat_message', 'message': payload}, payload)
-    _notify_bots('channel', msg)
+    notify_message_created('channel', msg)
     return Response(payload, status=status.HTTP_201_CREATED)
 
 

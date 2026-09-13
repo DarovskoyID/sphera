@@ -202,14 +202,8 @@ def _notify_bots(kind: str, message):
     lands here — not in the Django view or consumer. Without this hook a bot
     would only ever hear messages posted over HTTP.
     """
-    try:
-        from sfera_bots import outbound as bot_outbound
-        if kind == 'dm':
-            bot_outbound.dispatch_dm_message(message)
-        else:
-            bot_outbound.dispatch_channel_message(message)
-    except Exception as e:
-        logger.warning('bot dispatch failed: %s', e)
+    from sfera_messages.services import emit_message_created
+    emit_message_created(kind, message)
 
 
 def _process_notification(data: dict):

@@ -7,10 +7,10 @@
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Slash } from 'lucide-react';
-import type { ChatBot } from '../types';
-import { useTranslation } from '../i18n/useTranslation';
-import { chatBots } from '../utils/botsApi';
-import { BotBadge } from './BotBadge';
+import type { ChatBot } from './types';
+import { useT as useTranslation } from '@sfera/sdk';
+import { chatBots } from './botsApi';
+import { BotBadge } from '@sfera/sdk';
 
 interface Props {
   token: string;

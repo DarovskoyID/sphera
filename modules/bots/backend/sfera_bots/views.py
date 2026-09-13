@@ -32,7 +32,7 @@ from sfera_messages.models import (
 )
 # Same ceiling as the app's own composer, so a bot cannot post a message the
 # clients would refuse to accept.
-from sfera_messages.views import MAX_ATTACHMENTS_PER_MESSAGE
+from sfera_messages.services import MAX_ATTACHMENTS_PER_MESSAGE
 
 from .auth import BotTokenAuthentication
 from .models import BotAccount, BotFlow, BotUpdate
@@ -499,7 +499,7 @@ def upload(request):
     JSON. The file is bound to the chat it was uploaded for and can only be
     sent there, once.
     """
-    from sfera_messages.views import (
+    from sfera_messages.services import (
         MAX_UPLOAD_SIZE, _safe_upload, _scan_upload,
     )
 

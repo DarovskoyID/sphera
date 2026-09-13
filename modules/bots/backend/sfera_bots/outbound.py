@@ -14,7 +14,7 @@ from sfera_messages.models import (
     GuildMessageReaction,
 )
 from sfera_messages.encryption import encrypt_text
-from sfera_messages.views import _fanout, _fanout_user_notifs
+from sfera_messages.services import _fanout, _fanout_user_notifs
 
 from .models import BotUpdate
 

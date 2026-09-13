@@ -12,15 +12,15 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Bot as BotIcon, Check, Copy, Download, Key, Loader2, Maximize2, Plus, Save, Trash2, X, ZoomIn, ZoomOut,
 } from 'lucide-react';
-import { useApp } from '../context/AppContext';
-import { useTranslation } from '../i18n/useTranslation';
-import type { BotAccount } from '../types';
-import type { BotEdge, BotGraph, BotNode, BotNodeType } from '../utils/botFlow';
-import { EMPTY_GRAPH, NODE_SPECS, graphCommands, specFor, validateGraph } from '../utils/botFlow';
-import type { TargetLanguage } from '../utils/botCodegen';
-import { generateProject } from '../utils/botCodegen';
-import { createZip, downloadBlob } from '../utils/zip';
-import { loadFlow, saveFlow, unlockBot } from '../utils/botsApi';
+import { useCore as useApp } from '@sfera/sdk';
+import { useT as useTranslation } from '@sfera/sdk';
+import type { BotAccount } from './types';
+import type { BotEdge, BotGraph, BotNode, BotNodeType } from './botFlow';
+import { EMPTY_GRAPH, NODE_SPECS, graphCommands, specFor, validateGraph } from './botFlow';
+import type { TargetLanguage } from './botCodegen';
+import { generateProject } from './botCodegen';
+import { createZip, downloadBlob } from './zip';
+import { loadFlow, saveFlow, unlockBot } from './botsApi';
 
 const NODE_WIDTH = 190;
 const NODE_HEIGHT = 92;
