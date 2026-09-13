@@ -33,6 +33,8 @@ from .servers_compat import HAS_SERVERS, Guild, GuildAttachment, GuildChannel, G
 # clients would refuse to accept.
 from sfera_messages.services import MAX_ATTACHMENTS_PER_MESSAGE
 
+from sfera_modules.permissions import requires_module
+
 from .auth import BotTokenAuthentication
 from .models import BotAccount, BotFlow, BotUpdate
 from . import outbound
@@ -71,6 +73,7 @@ def _bot_view(account, token=None):
 
 @api_view(['GET', 'POST'])
 @permission_classes([IsAuthenticated])
+@requires_module('bots')
 def bots(request):
     if request.method == 'GET':
         qs = BotAccount.objects.select_related('user').filter(owner=request.user, is_active=True)
@@ -111,6 +114,7 @@ def _owned(request, bot_id):
 
 @api_view(['DELETE'])
 @permission_classes([IsAuthenticated])
+@requires_module('bots')
 def bot_delete(request, bot_id):
     """Revoke the key and retire the bot. Conversations are left untouched."""
     account = _owned(request, bot_id)
@@ -122,6 +126,7 @@ def bot_delete(request, bot_id):
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
+@requires_module('bots')
 def bot_rotate_token(request, bot_id):
     account = _owned(request, bot_id)
     if account is None:
@@ -133,6 +138,7 @@ def bot_rotate_token(request, bot_id):
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
+@requires_module('bots')
 def bot_set_commands(request, bot_id):
     account = _owned(request, bot_id)
     if account is None:
@@ -144,6 +150,7 @@ def bot_set_commands(request, bot_id):
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
+@requires_module('bots')
 def bot_add_to_guild(request, bot_id, guild_id):
     """Put the owner's bot on one of their servers (owner/admin only)."""
     if not HAS_SERVERS:
@@ -165,6 +172,7 @@ def bot_add_to_guild(request, bot_id, guild_id):
 
 @api_view(['DELETE'])
 @permission_classes([IsAuthenticated])
+@requires_module('bots')
 def bot_remove_from_guild(request, bot_id, guild_id):
     if not HAS_SERVERS:
         return Response({'error': 'servers are not available'}, status=status.HTTP_404_NOT_FOUND)
@@ -180,6 +188,7 @@ def bot_remove_from_guild(request, bot_id, guild_id):
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
+@requires_module('bots')
 def bot_unlock(request):
     """Exchange a bot key for its profile — how the node editor is unlocked.
 
@@ -199,6 +208,7 @@ def bot_unlock(request):
 
 @api_view(['GET', 'PUT'])
 @permission_classes([IsAuthenticated])
+@requires_module('bots')
 def bot_flow(request, bot_id):
     account = _owned(request, bot_id)
     if account is None:
@@ -222,6 +232,7 @@ def bot_flow(request, bot_id):
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
+@requires_module('bots')
 def sferonik_chat(request):
     """Open (creating if needed) the DM with Сфероник — the developer-tools entry."""
     # Everything on the other side of this conversation is bot registration,
@@ -251,6 +262,7 @@ def sferonik_chat(request):
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
+@requires_module('bots')
 def commands_for_chat(request):
     """Commands available at a composer.
 

@@ -65,7 +65,6 @@ const SETTINGS_PAGE_TITLE: Record<string, string> = {
   data: 'settings_data',
   devices: 'settings_devices',
   servers: 'settings_servers',
-  family: 'settings_family',
   integration: 'settings_integration',
   notifications: 'settings_notifications',
   apps: 'settings_apps',

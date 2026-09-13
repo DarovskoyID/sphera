@@ -97,8 +97,11 @@ INSTALLED_APPS = [
 # Modules checked out into <repo>/modules/<id>/ (branches module/<id>).
 from sfera_modules.loader import backend_apps as _module_backend_apps  # noqa: E402
 INSTALLED_APPS += [a for a in _module_backend_apps() if a not in INSTALLED_APPS]
-# Until the «Исследовать сферу» install UI ships, every present module counts as installed.
-SFERA_MODULES_ENFORCE = _env_bool('SFERA_MODULES_ENFORCE', False)
+# A module's API answers only users who installed it in «Исследовать сферу».
+# Test runs default to off so each module's tests exercise the API directly;
+# the install gate itself is covered with override_settings.
+import sys as _sys  # noqa: E402
+SFERA_MODULES_ENFORCE = _env_bool('SFERA_MODULES_ENFORCE', 'test' not in _sys.argv[1:2])
 
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
