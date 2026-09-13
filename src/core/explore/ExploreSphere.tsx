@@ -48,7 +48,9 @@ function ModuleCard({ m, lang, isRu }: { m: ModuleInfo; lang: string; isRu: bool
       const body = (e as { body?: { error?: string; modules?: string[] } }).body;
       setError(body?.error === 'required_by'
         ? `${isRu ? 'Нужен модулям' : 'Required by'}: ${body.modules?.join(', ')}`
-        : String((e as Error).message));
+        : body?.error === 'locked'
+          ? (isRu ? 'Сейчас удалить нельзя: модуль используется (например, вы состоите в семье)' : 'Cannot be removed while in use (e.g. you are in a family)')
+          : String((e as Error).message));
     } finally {
       setBusy(false);
     }

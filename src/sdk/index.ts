@@ -51,3 +51,4 @@ export function useModuleT() {
   const { language } = useApp();
   return useCallback((key: string) => tm(language, key), [language]);
 }
+export { settingsUi } from './settingsUi';

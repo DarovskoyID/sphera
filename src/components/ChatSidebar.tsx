@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useSlot } from '../sdk/slots';
 import {
   Sun, Moon, Search, Menu, UserPlus, Check, X, LogOut,
   Phone, Ban, BellOff, Copy, Trash2, UserMinus, Volume2, PhoneOff, ChevronUp,
@@ -467,6 +468,7 @@ const BlockedContextMenu: React.FC<{
 // ── Main ChatSidebar ──────────────────────────────────────────────────────────
 
 export const ChatSidebar: React.FC = () => {
+  const modulePages = useSlot('settings.page');
   const {
     currentView, currentChat, currentSettingsPage,
     setCurrentChat, setCurrentSettingsPage, toggleTheme, theme,
@@ -787,7 +789,9 @@ export const ChatSidebar: React.FC = () => {
           <div className={`settings-item ${currentSettingsPage === 'data' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('data')}>{tr('settings_data')}</div>
           <div className={`settings-item ${currentSettingsPage === 'devices' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('devices')}>{tr('settings_devices')}</div>
           <div className={`settings-item ${currentSettingsPage === 'servers' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('servers')}>{tr('settings_servers')}</div>
-          <div className={`settings-item ${currentSettingsPage === 'family' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('family')}>{tr('settings_family')}</div>
+          {modulePages.map(p => (
+            <div key={`${p.moduleId}:${p.id}`} className={`settings-item ${currentSettingsPage === p.id ? 'active' : ''}`} onClick={() => setCurrentSettingsPage(p.id)}>{typeof p.label === 'function' ? p.label() : p.label}</div>
+          ))}
           <div className={`settings-item ${currentSettingsPage === 'integration' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('integration')}>{tr('settings_integration')}</div>
           <div className={`settings-item ${currentSettingsPage === 'notifications' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('notifications')}>{tr('settings_notifications')}</div>
           <div className={`settings-item ${currentSettingsPage === 'apps' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('apps')}>{tr('settings_apps')}</div>

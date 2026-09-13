@@ -46,7 +46,12 @@ def module_install(request, module_id):
             hooks.module_installed.send(sender=None, user=user, module_id=mid)
         return Response({'installed': to_install})
 
-    # DELETE: refuse while another installed module depends on this one.
+    # DELETE: a module may insist on staying (e.g. family for a managed account).
+    guard = hooks.providers(hooks.CAN_UNINSTALL).get(module_id)
+    reason = guard(user) if guard else None
+    if reason:
+        return Response({'error': 'locked', 'detail': reason}, status=409)
+    # Refuse while another installed module depends on this one.
     have = set(UserModule.objects.filter(user=user).values_list('module_id', flat=True))
     dependants = [mid for mid in have if mid in catalog and module_id in catalog[mid].deps]
     if dependants:

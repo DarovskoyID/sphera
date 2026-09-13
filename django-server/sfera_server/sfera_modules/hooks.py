@@ -34,6 +34,21 @@ DATA_EXPORT = 'data_export'                # fn(user) -> dict[str, list] (file n
 METRICS = 'metrics'                        # fn() -> dict[str, number]
 HAS_DATA = 'has_data'                      # fn(user) -> bool, used for auto-install
 WS_AUTHORIZE = 'ws_authorize'              # fn(user, room: str) -> bool, for ws-gateway
+IS_MANAGED = 'is_managed'                  # fn(user) -> bool: account under parental control
+CAN_UNINSTALL = 'can_uninstall'            # fn(user) -> str | None: reason the module must stay
+
+# ── Services ───────────────────────────────────────────────────────────────
+# Optional capabilities one module offers another (e.g. servers → family chat).
+# Callers must handle absence: `svc = hooks.service('servers.private_guild')`.
+_services: dict[str, object] = {}
+
+
+def provide(name: str, impl) -> None:
+    _services[name] = impl
+
+
+def service(name: str):
+    return _services.get(name)
 
 
 def register(registry: str, module_id: str, fn: Callable) -> None:

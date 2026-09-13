@@ -89,6 +89,34 @@ def _metrics():
     }
 
 
+class PrivateGuildService:
+    """servers.private_guild: a non-discoverable server another module manages (family)."""
+
+    @staticmethod
+    def exists(guild_id):
+        from .models import Guild
+        return Guild.objects.filter(id=guild_id).exists()
+
+    @staticmethod
+    def create(name, owner, channels):
+        from .models import Guild, GuildChannel, GuildMembership
+        guild = Guild.objects.create(name=name, owner=owner, is_discoverable=False)
+        for ch_name, ch_type, position in channels:
+            GuildChannel.objects.create(guild=guild, name=ch_name, channel_type=ch_type, position=position)
+        GuildMembership.objects.get_or_create(guild=guild, user=owner, defaults={'role': 'owner'})
+        return guild.id
+
+    @staticmethod
+    def add_member(guild_id, user, role):
+        from .models import GuildMembership
+        GuildMembership.objects.get_or_create(guild_id=guild_id, user=user, defaults={'role': role})
+
+    @staticmethod
+    def remove_member(guild_id, user):
+        from .models import GuildMembership
+        GuildMembership.objects.filter(guild_id=guild_id, user=user).exclude(role='owner').delete()
+
+
 _block_receiver = _log_block('member_block')
 _unblock_receiver = _log_block('member_unblock')
 
@@ -97,5 +125,6 @@ def connect():
     hooks.register(hooks.PROFILE_EXTRAS, 'servers', _mutual_guilds)
     hooks.register(hooks.DATA_EXPORT, 'servers', _export)
     hooks.register(hooks.METRICS, 'servers', _metrics)
+    hooks.provide('servers.private_guild', PrivateGuildService)
     hooks.user_blocked.connect(_block_receiver, dispatch_uid='guild.block')
     hooks.user_unblocked.connect(_unblock_receiver, dispatch_uid='guild.unblock')
