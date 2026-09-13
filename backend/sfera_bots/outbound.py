@@ -8,10 +8,10 @@ client-side content filter).
 
 from django.db.models import Q
 
-from sfera_messages.models import (
-    Attachment, Conversation, ConversationParticipant, Message,
-    GuildAttachment, GuildChannel, GuildMembership, GuildMessage,
-    GuildMessageReaction,
+from sfera_messages.models import Attachment, Conversation, ConversationParticipant, Message
+
+from .servers_compat import (
+    HAS_SERVERS, GuildAttachment, GuildChannel, GuildMembership, GuildMessage, GuildMessageReaction,
 )
 from sfera_messages.encryption import encrypt_text
 from sfera_messages.services import _fanout, _fanout_user_notifs
@@ -59,6 +59,8 @@ def bot_attachment_payload(att):
 
 
 def message_attachments(message, is_guild):
+    if is_guild and not HAS_SERVERS:
+        return []
     model = GuildAttachment if is_guild else Attachment
     return [bot_attachment_payload(a) for a in model.objects.filter(message=message)]
 
@@ -168,6 +170,8 @@ def _bot_view_of(payload, files):
 
 
 def send_channel(bot_user, channel, content, reply_to=None, attachment_ids=None):
+    if not HAS_SERVERS:
+        raise ValueError('servers are not available')
     msg = GuildMessage.objects.create(
         channel=channel,
         author=bot_user,
@@ -215,7 +219,7 @@ def edit_message(bot_user, message_id, text):
         _broadcast(f'chat_{msg.conversation_id}', {'type': 'message_edited', 'message': payload})
         return payload
 
-    guild_msg = GuildMessage.objects.filter(id=message_id, author=bot_user).first()
+    guild_msg = GuildMessage.objects.filter(id=message_id, author=bot_user).first() if HAS_SERVERS else None
     if guild_msg is None:
         return None
     guild_msg.content = text
@@ -237,7 +241,7 @@ def delete_message(bot_user, message_id):
         _broadcast(f'chat_{conversation_id}', {'type': 'message_deleted', 'id': str(message_id)})
         return True
 
-    guild_msg = GuildMessage.objects.filter(id=message_id, author=bot_user).first()
+    guild_msg = GuildMessage.objects.filter(id=message_id, author=bot_user).first() if HAS_SERVERS else None
     if guild_msg is None:
         return False
     channel_id = guild_msg.channel_id
@@ -284,6 +288,8 @@ def dispatch_dm_message(message):
 
 def dispatch_channel_message(message):
     """Called after a human posts in a guild channel: queue it for member bots."""
+    if not HAS_SERVERS:
+        return
     from .models import BotAccount
 
     author = message.author
@@ -339,7 +345,7 @@ def resolve_chat(bot_user, chat_id):
     )
     if convo is not None:
         return 'dm', convo
-    channel = GuildChannel.objects.filter(id=chat_id, channel_type='text').first()
+    channel = GuildChannel.objects.filter(id=chat_id, channel_type='text').first() if HAS_SERVERS else None
     if channel is not None and GuildMembership.objects.filter(
         guild_id=channel.guild_id, user=bot_user,
     ).exists():
@@ -398,7 +404,9 @@ def react(bot_user, message_id, emoji, remove=False):
     the bot can see. DMs have no reactions in the data model, so this is
     channel-only.
     """
-    from sfera_messages.views import _aggregate_reactions
+    if not HAS_SERVERS:
+        return None
+    from sfera_servers.views import _aggregate_reactions
 
     msg = (
         GuildMessage.objects
@@ -437,6 +445,8 @@ def visible_attachment(bot_user, attachment_id):
     ).first()
     if att is not None:
         return att
+    if not HAS_SERVERS:
+        return None
     guild_ids = GuildMembership.objects.filter(user=bot_user).values_list('guild_id', flat=True)
     return GuildAttachment.objects.filter(
         id=attachment_id, channel__guild_id__in=list(guild_ids),
