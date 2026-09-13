@@ -16,6 +16,13 @@ on:
           for SFERA_DOMAIN, then print the SPF/DKIM/DMARC records to add to DNS
         type: boolean
         default: false
+      wipe:
+        description: >-
+          DANGER — before deploying, back up and then delete ALL server data
+          (Postgres, Elasticsearch, Redis, Kafka, monitoring volumes, media,
+          module checkouts). The backup goes to /root/sfera-backup-<timestamp>
+        type: boolean
+        default: false
       mail_test_to:
         description: >-
           Optional — after deploy, send a real test email to this address and
@@ -163,7 +170,7 @@ jobs:
     runs-on: ubuntu-latest
     if: >
       (github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.SFERA_DEPLOY_ENABLED == 'true') ||
-      (github.event_name == 'workflow_dispatch' && inputs.deploy == true) ||
+      (github.event_name == 'workflow_dispatch' && (inputs.deploy == true || inputs.wipe == true)) ||
       (github.event_name == 'workflow_dispatch' && inputs.setup_mail == true)
     steps:
       - name: Install SSH key
@@ -210,6 +217,38 @@ jobs:
              git fetch --prune origin main
              git reset --hard origin/main
              sudo env ${domain:+MAIL_DOMAIN='$domain'} bash scripts/linux/mail-install.sh"
+
+      - name: Wipe server data (backup first)
+        if: env.DEPLOY_SKIP != '1' && inputs.wipe == true
+        env:
+          DEPLOY_HOST: ${{ secrets.SFERA_DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.SFERA_DEPLOY_USER }}
+          DEPLOY_PORT: ${{ secrets.SFERA_DEPLOY_PORT }}
+          DEPLOY_PATH: ${{ vars.SFERA_DEPLOY_PATH }}
+        run: |
+          user="${DEPLOY_USER:-root}"
+          port="${DEPLOY_PORT:-22}"
+          app_dir="${DEPLOY_PATH:-/opt/sfera}"
+          ssh -i ~/.ssh/sfera_deploy -p "$port" "$user@$DEPLOY_HOST" \
+            "set -uo pipefail
+             backup=/root/sfera-backup-\$(date +%Y%m%d-%H%M%S)
+             sudo mkdir -p \$backup
+             cd '$app_dir/django-server'
+             sudo docker compose exec -T postgres sh -c 'pg_dumpall -U \"\$POSTGRES_USER\"' | sudo tee \$backup/postgres.sql >/dev/null \
+               || echo 'postgres dump skipped'
+             sudo tar czf \$backup/files.tgz -C '$app_dir' --ignore-failed-read \
+               django-server/sfera_server/media django-server/sfera_server/db.sqlite3 2>/dev/null || true
+             [ -d /var/www/sfera/media ] && sudo tar czf \$backup/web-media.tgz -C /var/www/sfera media || true
+             sudo ls -la \$backup
+             set -e
+             sudo systemctl stop sfera-daphne sfera-kafka-worker 2>/dev/null || true
+             sudo docker compose down -v --remove-orphans
+             sudo rm -rf sfera_server/media sfera_server/db.sqlite3 monitoring/generated /var/www/sfera/media
+             cd '$app_dir'
+             for wt in modules/*/; do [ -d \"\$wt\" ] && git worktree remove --force \"\$wt\" || true; done
+             sudo rm -rf modules
+             git worktree prune
+             echo 'Server data wiped; backup in '\$backup"
 
       - name: Deploy main on server
         if: env.DEPLOY_SKIP != '1'
