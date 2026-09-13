@@ -3,23 +3,23 @@
   "modules": {
     "bots": {
       "branch": "module/bots",
-      "ref": "0de2b25262a40527d9a5ddf87b9da86f1e93a2dc"
+      "ref": "3d2dd65761382abba1adf1f8e425a1ed851267cd"
     },
     "channels": {
       "branch": "module/channels",
-      "ref": "f41ddc8b627c57154ba071a1c3b91a0e447dfc20"
+      "ref": "d31c0fa5b5715782faf0bd48c6177996d64371fe"
     },
     "diary": {
       "branch": "module/diary",
-      "ref": "32955f83b649f13cb871d49aff08a6c45dd1f921"
+      "ref": "61967acf4b71dafe410c3480e2bad0992a94faac"
     },
     "family": {
       "branch": "module/family",
-      "ref": "b1f73d43d50f0a836b8f26dc92005572d971f2ab"
+      "ref": "4118b6c23b8a7788ae40a59b48c411574fe01174"
     },
     "servers": {
       "branch": "module/servers",
-      "ref": "6b7c119481a7b9256dafd23f9779d32dc497bbd7"
+      "ref": "8ef4fa42f28d8e5bf4204e3bb236b16511ec7a80"
     }
   }
 }
