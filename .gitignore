@@ -45,3 +45,4 @@ serviceAccountKey.json
 
 # Modules are checked out from their branches (node scripts/modules/fetch.mjs)
 /modules/
+/django-server/monitoring/generated/

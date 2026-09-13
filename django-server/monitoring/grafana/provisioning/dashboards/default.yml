@@ -3,10 +3,10 @@ apiVersion: 1
 providers:
   - name: 'sfera'
     orgId: 1
-    folder: 'Sfera'
     type: file
     disableDeletion: false
     editable: true
     options:
       path: /var/lib/grafana/dashboards
-      foldersFromFilesStructure: false
+      # generated/dashboards/<core|module id>/ → one Grafana folder per source.
+      foldersFromFilesStructure: true

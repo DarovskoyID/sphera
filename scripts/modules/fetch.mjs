@@ -6,13 +6,16 @@
  *   node scripts/modules/fetch.mjs --dev      # branch heads, attached, for working on modules
  *   node scripts/modules/fetch.mjs --only servers,channels
  *   node scripts/modules/fetch.mjs --update   # re-pin modules.lock.json to the current branch heads
+ *   node scripts/modules/fetch.mjs --only servers --prune   # also remove modules not selected
+ *
+ * SFERA_MODULES=servers,channels works like --only ("none" deploys the core alone).
  *
  * Each module lives on its own branch (module/<id>) whose root is the module:
  * module.json, backend/<django app>, frontend/index.tsx. Modules are git
  * worktrees of this repository, so no extra clone or credentials are needed.
  */
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -24,7 +27,10 @@ const args = process.argv.slice(2);
 const dev = args.includes('--dev');
 const update = args.includes('--update');
 const onlyArg = args.find(a => a.startsWith('--only'));
-const only = onlyArg ? (onlyArg.includes('=') ? onlyArg.split('=')[1] : args[args.indexOf(onlyArg) + 1]).split(',') : null;
+const onlyList = onlyArg ? (onlyArg.includes('=') ? onlyArg.split('=')[1] : args[args.indexOf(onlyArg) + 1])
+  : process.env.SFERA_MODULES || null;
+const only = onlyList === null ? null : onlyList.split(',').map(s => s.trim()).filter(s => s && s !== 'none');
+const prune = args.includes('--prune');
 const remote = process.env.SFERA_MODULES_REMOTE || 'origin';
 
 const git = (...a) => execFileSync('git', a, { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
@@ -69,6 +75,18 @@ for (const [id, spec] of entries) {
     git('worktree', 'add', '--force', ...(dev ? [target, branch] : ['--detach', target, ref]));
   }
   console.log(`✓ ${id}: ${dev ? branch : ref.slice(0, 12)}`);
+}
+
+if (prune && only) {
+  // Deploying a subset: drop worktrees of modules that were not selected, so
+  // Django, the frontend build and monitoring do not pick them up.
+  for (const e of readdirSync(MODULES_DIR, { withFileTypes: true })) {
+    if (!e.isDirectory() || only.includes(e.name)) continue;
+    const target = join(MODULES_DIR, e.name);
+    if (tryGit('worktree', 'remove', '--force', target) === null) rmSync(target, { recursive: true, force: true });
+    console.log(`✗ ${e.name}: removed (not selected)`);
+  }
+  tryGit('worktree', 'prune');
 }
 
 if (update) {

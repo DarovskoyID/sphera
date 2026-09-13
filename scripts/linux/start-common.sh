@@ -1014,11 +1014,26 @@ fetch_modules() {
     # before the frontend build (module UIs are bundled as lazy chunks).
     log "Fetching modules"
     cd "$FRONTEND_DIR"
+    # SFERA_MODULES=servers,channels deploys only those modules ("none" = core
+    # alone); unset deploys everything in modules.lock.json.
     if [ -f modules.lock.json ]; then
-        node scripts/modules/fetch.mjs
+        if [ -n "${SFERA_MODULES:-}" ]; then
+            node scripts/modules/fetch.mjs --prune
+        else
+            node scripts/modules/fetch.mjs
+        fi
     else
         echo "      modules.lock.json not found — running the core only"
     fi
+}
+
+build_monitoring() {
+    # Grafana dashboards and Prometheus alerts ship with the core and with each
+    # module. SFERA_MONITORING_EXCLUDE=core,diary leaves those out;
+    # SFERA_MONITORING=0 skips the monitoring stack altogether.
+    log "Assembling monitoring (core + modules)"
+    cd "$FRONTEND_DIR"
+    node scripts/modules/monitoring.mjs
 }
 
 build_frontend() {
@@ -1081,9 +1096,17 @@ start_docker() {
     if command -v docker >/dev/null 2>&1; then
         write_compose_env
         cd "$DOCKER_DIR"
+        local monitoring="prometheus grafana alertmanager"
+        if [ "${SFERA_MONITORING:-1}" = "0" ]; then
+            monitoring=""
+            docker compose rm -sf prometheus grafana alertmanager >/dev/null 2>&1 || true
+        fi
+        # shellcheck disable=SC2086
         docker compose up -d --build \
-            postgres elasticsearch redis kafka zookeeper kafka-init prometheus grafana alertmanager \
+            postgres elasticsearch redis kafka zookeeper kafka-init $monitoring \
             ws-gateway loadbalancer
+        # Pick up dashboards / rules of modules installed or removed by this deploy.
+        [ -n "$monitoring" ] && docker compose restart prometheus grafana >/dev/null
         echo "      Postgres, Elasticsearch, Redis, Kafka, ws-gateway, load balancer, alertmanager started."
         echo "      Load balancer: 127.0.0.1:$LB_LOCAL_PORT (edit ../loadbalancer/servers.conf to add nodes)."
         sync_postgres_password
@@ -1192,6 +1215,7 @@ require_command nginx "Install nginx first, or run scripts/install-deps.sh."
 
 ensure_swap
 fetch_modules
+build_monitoring
 start_docker
 start_coturn
 start_mail

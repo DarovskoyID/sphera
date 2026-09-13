@@ -88,6 +88,13 @@ jobs:
       - name: Fetch modules pinned in modules.lock.json
         run: node scripts/modules/fetch.mjs
 
+      - name: Assemble and validate monitoring (core + modules)
+        run: |
+          node scripts/modules/monitoring.mjs
+          docker run --rm --entrypoint promtool \
+            -v "$PWD/django-server/monitoring:/m:ro" prom/prometheus:v2.53.0 \
+            check rules /m/generated/rules/*.yml
+
       - name: Install frontend dependencies
         run: npm ci
 
@@ -214,6 +221,11 @@ jobs:
           DEPLOY_ENV_FILE: ${{ vars.SFERA_DEPLOY_ENV_FILE }}
           SFERA_DOMAIN: ${{ vars.SFERA_DOMAIN }}
           SFERA_MAIL_MODE: ${{ vars.SFERA_MAIL_MODE }}
+          # Optional install selection: modules (comma list, "none" = core only),
+          # monitoring left out (e.g. "diary,family" or "core"), SFERA_MONITORING=0.
+          SFERA_MODULES: ${{ vars.SFERA_MODULES }}
+          SFERA_MONITORING_EXCLUDE: ${{ vars.SFERA_MONITORING_EXCLUDE }}
+          SFERA_MONITORING: ${{ vars.SFERA_MONITORING }}
         run: |
           user="${DEPLOY_USER:-root}"
           port="${DEPLOY_PORT:-22}"
@@ -235,6 +247,9 @@ jobs:
              [ -f '$env_file' ] && . '$env_file'
              ${domain:+export SFERA_DOMAIN='$domain'}
              export SFERA_MAIL_MODE='$mail_mode'
+             ${SFERA_MODULES:+export SFERA_MODULES='$SFERA_MODULES'}
+             ${SFERA_MONITORING_EXCLUDE:+export SFERA_MONITORING_EXCLUDE='$SFERA_MONITORING_EXCLUDE'}
+             ${SFERA_MONITORING:+export SFERA_MONITORING='$SFERA_MONITORING'}
              set +a
              bash scripts/linux/start-common.sh '$mode'"
 

@@ -38,6 +38,8 @@
 module.json                 id, name, version, sdkVersion, deps, backendApp, urlPrefix, icon
 backend/<django_app>/        models, migrations, urls.py, routing.py (WS), apps.py (хуки), tests.py
 frontend/index.tsx           export default defineModule({ id, setup(ctx) { … } })
+monitoring/grafana/*.json    дашборды Grafana модуля (папка модуля в Grafana)
+monitoring/alert_rules.yml   алерты Prometheus модуля (необязательно)
 .github/workflows/module.yml CI модуля: собирает main + этот модуль и гоняет его тесты
 ```
 
@@ -53,6 +55,8 @@ frontend/index.tsx           export default defineModule({ id, setup(ctx) { … 
 - **Реестры:** `PROFILE_EXTRAS`, `DATA_EXPORT`, `METRICS`, `HAS_DATA`, `IS_MANAGED`, `CAN_UNINSTALL`, `WS_AUTHORIZE`, `KAFKA_HANDLERS`, `ENCRYPTED_DATA`.
 - **Сервисы:** `hooks.provide(name, impl)` / `hooks.service(name)`.
 - **Пуш клиенту:** `hooks.push_to_user(user_id, event, payload)`.
+
+Метрики модуль отдаёт через `METRICS`: `tables` (строки в `sfera_db_rows`), `prometheus` (список серий `{name, type, value, help, labels}`) и `status` (карточки на `/status/`). Ядро само ничего не знает о метриках модулей.
 
 Эндпоинты модуля закрываются декоратором `requires_module('<id>')`, WebSocket — функцией `ws_has_module`. Переменная `SFERA_MODULES_ENFORCE=0` отключает проверку, и тогда все развёрнутые модули считаются установленными.
 
@@ -84,3 +88,18 @@ node scripts/modules/fetch.mjs --update   # закрепить текущие г
 Деплой (`scripts/linux/start-common.sh`) сначала подтягивает модули по lock-файлу, потом ставит зависимости, мигрирует и собирает фронт.
 
 **Ядро без модулей обязано собираться и проходить проверки.** CI в `main` проверяет это отдельной job.
+
+## Мониторинг и выбор при установке
+
+Grafana и Prometheus получают конфигурацию из `django-server/monitoring/generated/`. Эту папку собирает `node scripts/modules/monitoring.mjs` из ядра (`django-server/monitoring`) и из `modules/<id>/monitoring` каждого развёрнутого модуля. Модуль, который не развёрнут, не даёт ни дашбордов, ни алертов.
+
+Переменные деплоя (`/etc/sfera/deploy.env` или repo variables в GitHub):
+
+| Переменная | Что делает |
+|---|---|
+| `SFERA_MODULES=servers,channels` | ставит только эти модули, остальные worktree удаляются; `none` — ядро без модулей |
+| `SFERA_MONITORING_EXCLUDE=diary,core` | не ставит дашборды и алерты этих модулей (`core` — дашборды ядра) |
+| `SFERA_MONITORING=0` | не поднимает Prometheus, Grafana и Alertmanager вовсе |
+| `"monitoring": false` в `modules.lock.json` | постоянно исключает мониторинг модуля |
+
+Данные модулей при этом не трогаются: исключённый из деплоя модуль просто не загружается, его таблицы остаются в базе.
