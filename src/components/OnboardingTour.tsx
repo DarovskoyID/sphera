@@ -40,11 +40,11 @@ const STEPS: Step[] = [
     mode: 'info',
     ru: {
       title: 'Панель навигации',
-      body: 'Это ваша главная панель. Здесь наверху — настройки, личные сообщения и обзор, ниже — Сфероник для создания ботов, а затем ваши серверы и личные каналы. Кнопкой «плюс» внизу добавляются новые.',
+      body: 'Это ваша главная панель. Наверху — настройки, личные сообщения и «Исследовать сферу». Ниже появляется то, что добавляют установленные модули: серверы, каналы, дневники, боты.',
     },
     en: {
       title: 'The navigation dock',
-      body: 'Your main dock. At the top: settings, direct messages and explore; below that Sferonik for building bots, then your servers and personal channels. The plus button at the bottom adds new ones.',
+      body: 'Your main dock. At the top: settings, direct messages and Explore. Below appears whatever your installed modules add: servers, channels, diaries, bots.',
     },
   },
   {
@@ -78,11 +78,11 @@ const STEPS: Step[] = [
     mode: 'click',
     ru: {
       title: 'Обзор',
-      body: 'Теперь заглянем в раздел «Обзор» — витрину публичных серверов и каналов.',
+      body: 'Теперь заглянем в «Исследовать сферу» — здесь добавляются модули.',
     },
     en: {
       title: 'Explore',
-      body: 'Now let’s open Explore — the directory of public servers and channels.',
+      body: 'Now let’s open Explore — this is where modules are added.',
     },
     cueRu: 'Нажмите кнопку «Обзор» (компас).',
     cueEn: 'Press the Explore button (the compass).',
@@ -92,11 +92,11 @@ const STEPS: Step[] = [
     mode: 'info',
     ru: {
       title: 'Что можно найти',
-      body: 'Здесь можно искать серверы и каналы по названию и присоединяться к ним в один клик. Отсюда же открывается студия ботов и ваш личный дневник — приватное пространство только для вас.',
+      body: 'Сфера собирается из модулей: серверы, каналы, боты, личные дневники, семейный центр. Устанавливайте только нужное — и удаляйте, когда не нужно. Когда установлены серверы или каналы, здесь же появляется поиск по ним.',
     },
     en: {
       title: 'What you’ll find',
-      body: 'Search servers and channels by name and join with one click. This is also where the bot studio and your private diary live — a space just for you.',
+      body: 'Sfera is built from modules: servers, channels, bots, personal diaries, the family centre. Install only what you need and remove it when you don’t. With servers or channels installed, their search appears here too.',
     },
   },
   {
@@ -104,11 +104,11 @@ const STEPS: Step[] = [
     mode: 'info',
     ru: {
       title: 'Создать своё',
-      body: 'Кнопка «плюс» создаёт собственный сервер или личный канал, а также присоединяет к серверу по коду приглашения. У сервера есть текстовые и голосовые каналы, роли и настройки — всё под вашим контролем.',
+      body: 'Кнопка «плюс» появляется, когда модулю есть что создать: сервер, канал или вход по коду приглашения.',
     },
     en: {
       title: 'Make your own',
-      body: 'The plus button creates your own server or personal channel, and joins a server by invite code. A server has text and voice channels, roles and settings — all under your control.',
+      body: 'The plus button appears once a module has something to create: a server, a channel, or joining by invite code.',
     },
   },
   {

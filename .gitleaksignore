@@ -1,0 +1,3 @@
+# False positives: a cache key name and a migration name, not secrets.
+d0ccd3083ea5b7d0f3e9c095648ea403f6aa054d:modules/servers/backend/sfera_servers/views.py:generic-api-key:266
+4df03d78463b33e3e6a10c4e3b1725c5b5c555c7:django-server/sfera_server/sfera_auth/migrations/0020_move_family_to_module.py:generic-api-key:12

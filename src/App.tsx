@@ -4,21 +4,17 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { ServerSidebar } from './components/ServerSidebar';
 import { ChatSidebar } from './components/ChatSidebar';
 import { ChatMain } from './components/ChatMain';
-import { GuildSidebar } from './components/GuildSidebar';
-import { GuildChatMain } from './components/GuildChatMain';
 import { AuthScreen } from './components/AuthScreen';
 import { IncomingCallModal } from './components/IncomingCallModal';
 import { CallWindow } from './components/CallWindow';
-import { VoiceRoomProvider, GuildVoiceStage } from './components/voiceRoom';
-import { ExploreServers } from './components/ExploreServers';
-import { PersonalChannelFeed } from './components/PersonalChannelFeed';
+import { ExploreSphere } from './core/explore/ExploreSphere';
 import { OnboardingTour } from './components/OnboardingTour';
-import { DiaryView } from './components/DiaryView';
-import { Volume2, PhoneOff } from 'lucide-react';
 import { applyA11y } from './utils/accessibility';
 import { applyDisplayPrefs } from './utils/displayPrefs';
 import { getKeybindings, onKeybindingsUpdate, eventToCombo, comboMainKey, toggleDeafen, type ActionId } from './utils/keybindings';
 import { initNativeBridge } from './utils/nativeBridge';
+import { ModuleHost, ModuleOverlays } from './core/modules/ModuleHost';
+import { useSlot } from './sdk/slots';
 
 // Apply saved accessibility + display preferences as early as possible.
 applyA11y();
@@ -26,40 +22,7 @@ applyDisplayPrefs();
 // Expose the WebView "allow scale" value to the native shell.
 initNativeBridge();
 
-function useMobile() {
-  const [isMobile, setIsMobile] = useState(() => window.matchMedia('(max-width: 768px)').matches);
-  useEffect(() => {
-    const mq = window.matchMedia('(max-width: 768px)');
-    const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches);
-    mq.addEventListener('change', handler);
-    return () => mq.removeEventListener('change', handler);
-  }, []);
-  return isMobile;
-}
 
-
-function GuildKickNotification() {
-  const { guildKickNotification, clearGuildKickNotification } = useApp();
-  const tr = useTranslation();
-  if (!guildKickNotification) return null;
-  return (
-    <div style={{
-      position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)',
-      zIndex: 99999, background: '#ed4245', borderRadius: 10,
-      padding: '14px 24px', boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
-      display: 'flex', alignItems: 'center', gap: 16, maxWidth: 420, width: '90%',
-    }}>
-      <div style={{ flex: 1, color: '#fff' }}>
-        <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 2 }}>{tr('guild_kicked_title')}</div>
-        <div style={{ fontSize: 13, opacity: 0.9 }}>{tr('guild_kicked_msg')} <b>{guildKickNotification.message}</b></div>
-      </div>
-      <button onClick={clearGuildKickNotification} style={{
-        background: 'rgba(255,255,255,0.2)', border: 'none', borderRadius: 6,
-        color: '#fff', fontWeight: 600, fontSize: 13, padding: '6px 14px', cursor: 'pointer',
-      }}>{tr('cancel')}</button>
-    </div>
-  );
-}
 
 const TOAST_DURATION = 5000;
 
@@ -240,9 +203,8 @@ function useKeybindings() {
 }
 
 function AppContent() {
-  const { authToken, isCallActive, currentView, currentChat, mobileActivePanel, currentGuild, currentGuildChannel, currentVoiceChannel, leaveVoiceChannel } = useApp();
-  const tr = useTranslation();
-  const isMobile = useMobile();
+  const { authToken, isCallActive, currentView, currentChat, mobileActivePanel } = useApp();
+  const moduleViews = useSlot('main.view');
   useKeybindings();
 
   if (!authToken) {
@@ -253,52 +215,27 @@ function AppContent() {
   }
 
   const inChat = isCallActive && currentView === 'home' && !!currentChat;
-  const inGuild = currentView === 'server' && !!currentGuild;
   const { currentServer } = useApp();
   const inExplore = currentServer === 'explore';
+  const moduleView = moduleViews.find(v => v.match({ currentServer, currentView }));
 
   return (
-    <div className={`app-container mobile-panel-${mobileActivePanel}${currentVoiceChannel ? ' voice-connected' : ''}${isCallActive ? ' call-active' : ''}`}>
+    <div className={`app-container mobile-panel-${mobileActivePanel}${isCallActive ? ' call-active' : ''}`}>
       <ServerSidebar />
-      {inExplore ? (
-        <ExploreServers style={{ gridColumn: '2 / -1' }} />
-      ) : inGuild && currentGuild?.is_private ? (
-        <DiaryView style={{ gridColumn: '2 / -1' }} />
-      ) : inGuild && currentGuild?.is_personal_channel ? (
-        <PersonalChannelFeed style={{ gridColumn: '2 / -1' }} />
-      ) : inGuild ? (
-        <>
-          <GuildSidebar />
-          {/* Looking at the voice channel you're connected to → the Discord-style
-              card grid; otherwise the text channel (or its welcome screen). */}
-          {currentVoiceChannel && !currentGuildChannel && currentGuild?.channels?.some(c => c.id === currentVoiceChannel.id)
-            ? <GuildVoiceStage />
-            : <GuildChatMain />}
-        </>
+      {moduleView ? (
+        <moduleView.render style={{ gridColumn: '2 / -1' }} />
+      ) : inExplore ? (
+        <ExploreSphere style={{ gridColumn: '2 / -1' }} />
       ) : (
         <>
           <ChatSidebar />
           <ChatMain />
         </>
       )}
-      {isMobile && currentVoiceChannel && (
-        <div className="app-voice-banner">
-          <Volume2 size={13} style={{ color: '#3ba55c', flexShrink: 0 }} />
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 10, color: '#3ba55c', fontWeight: 600, lineHeight: 1 }}>{tr('voice_connected')}</div>
-            <div style={{ fontSize: 11, color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {currentGuild ? `${currentGuild.name} / ${currentVoiceChannel.name}` : currentVoiceChannel.name}
-            </div>
-          </div>
-          <button onClick={leaveVoiceChannel} title={tr('voice_disconnect')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ed4245', padding: 4, borderRadius: 4, display: 'flex', alignItems: 'center' }}>
-            <PhoneOff size={14} />
-          </button>
-        </div>
-      )}
       <IncomingCallModal />
       {isCallActive && !inChat && <CallWindow />}
       <ToastContainer />
-      <GuildKickNotification />
+      <ModuleOverlays />
       <OnboardingTour />
     </div>
   );
@@ -307,9 +244,9 @@ function AppContent() {
 function App() {
   return (
     <AppProvider>
-      <VoiceRoomProvider>
+      <ModuleHost>
         <AppContent />
-      </VoiceRoomProvider>
+      </ModuleHost>
     </AppProvider>
   );
 }

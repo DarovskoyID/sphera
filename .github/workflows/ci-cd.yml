@@ -16,6 +16,13 @@ on:
           for SFERA_DOMAIN, then print the SPF/DKIM/DMARC records to add to DNS
         type: boolean
         default: false
+      wipe:
+        description: >-
+          DANGER — before deploying, back up and then delete ALL server data
+          (Postgres, Elasticsearch, Redis, Kafka, monitoring volumes, media,
+          module checkouts). The backup goes to /root/sfera-backup-<timestamp>
+        type: boolean
+        default: false
       mail_test_to:
         description: >-
           Optional — after deploy, send a real test email to this address and
@@ -31,8 +38,9 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  ci:
-    name: Build and Check
+  core:
+    # The core must stand on its own: no modules checked out at all.
+    name: Core without modules
     runs-on: ubuntu-latest
     env:
       SFERA_DEBUG: '1'
@@ -45,6 +53,55 @@ jobs:
         with:
           node-version: 22
           cache: npm
+
+      - name: Build frontend (core only)
+        run: npm ci && npm run build
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: django-server/requirements.txt
+
+      - name: Install backend dependencies
+        working-directory: django-server
+        run: python -m pip install --upgrade pip && python -m pip install -r requirements.txt
+
+      - name: Django check, migrations and core tests
+        working-directory: django-server/sfera_server
+        run: |
+          python manage.py check
+          python manage.py makemigrations --check --dry-run
+          python manage.py migrate --noinput
+          python manage.py test sfera_modules
+
+  ci:
+    name: Build and Check (with modules)
+    runs-on: ubuntu-latest
+    env:
+      SFERA_DEBUG: '1'
+      SFERA_CORS_ALLOW_ALL: '1'
+      KAFKA_ENABLED: 'false'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Fetch modules pinned in modules.lock.json
+        run: node scripts/modules/fetch.mjs
+
+      - name: Assemble and validate monitoring (core + modules)
+        run: |
+          node scripts/modules/monitoring.mjs
+          # The glob must expand inside the container.
+          docker run --rm --entrypoint sh \
+            -v "$PWD/django-server/monitoring:/m:ro" prom/prometheus:v2.53.0 \
+            -c 'promtool check rules /m/generated/rules/*.yml'
 
       - name: Install frontend dependencies
         run: npm ci
@@ -64,11 +121,18 @@ jobs:
 
       - name: Compile backend
         working-directory: django-server/sfera_server
-        run: python -m compileall sfera_auth sfera_messages sfera_server
+        run: python -m compileall sfera_auth sfera_messages sfera_modules sfera_signaling sfera_server ../../modules
 
       - name: Django system check
         working-directory: django-server/sfera_server
         run: python manage.py check --deploy
+
+      - name: Migrations and backend tests (core + modules)
+        working-directory: django-server/sfera_server
+        run: |
+          python manage.py makemigrations --check --dry-run
+          python manage.py migrate --noinput
+          python manage.py test sfera_modules $(python -c "from sfera_modules.loader import backend_apps; print(' '.join(backend_apps()))")
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -102,11 +166,11 @@ jobs:
 
   deploy:
     name: Deploy
-    needs: ci
+    needs: [core, ci]
     runs-on: ubuntu-latest
     if: >
       (github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.SFERA_DEPLOY_ENABLED == 'true') ||
-      (github.event_name == 'workflow_dispatch' && inputs.deploy == true) ||
+      (github.event_name == 'workflow_dispatch' && (inputs.deploy == true || inputs.wipe == true)) ||
       (github.event_name == 'workflow_dispatch' && inputs.setup_mail == true)
     steps:
       - name: Install SSH key
@@ -154,6 +218,38 @@ jobs:
              git reset --hard origin/main
              sudo env ${domain:+MAIL_DOMAIN='$domain'} bash scripts/linux/mail-install.sh"
 
+      - name: Wipe server data (backup first)
+        if: env.DEPLOY_SKIP != '1' && inputs.wipe == true
+        env:
+          DEPLOY_HOST: ${{ secrets.SFERA_DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.SFERA_DEPLOY_USER }}
+          DEPLOY_PORT: ${{ secrets.SFERA_DEPLOY_PORT }}
+          DEPLOY_PATH: ${{ vars.SFERA_DEPLOY_PATH }}
+        run: |
+          user="${DEPLOY_USER:-root}"
+          port="${DEPLOY_PORT:-22}"
+          app_dir="${DEPLOY_PATH:-/opt/sfera}"
+          ssh -i ~/.ssh/sfera_deploy -p "$port" "$user@$DEPLOY_HOST" \
+            "set -uo pipefail
+             backup=/root/sfera-backup-\$(date +%Y%m%d-%H%M%S)
+             sudo mkdir -p \$backup
+             cd '$app_dir/django-server'
+             sudo docker compose exec -T postgres sh -c 'pg_dumpall -U \"\$POSTGRES_USER\"' | sudo tee \$backup/postgres.sql >/dev/null \
+               || echo 'postgres dump skipped'
+             sudo tar czf \$backup/files.tgz -C '$app_dir' --ignore-failed-read \
+               django-server/sfera_server/media django-server/sfera_server/db.sqlite3 2>/dev/null || true
+             [ -d /var/www/sfera/media ] && sudo tar czf \$backup/web-media.tgz -C /var/www/sfera media || true
+             sudo ls -la \$backup
+             set -e
+             sudo systemctl stop sfera-daphne sfera-kafka-worker 2>/dev/null || true
+             sudo docker compose down -v --remove-orphans
+             sudo rm -rf sfera_server/media sfera_server/db.sqlite3 monitoring/generated /var/www/sfera/media
+             cd '$app_dir'
+             for wt in modules/*/; do [ -d \"\$wt\" ] && git worktree remove --force \"\$wt\" || true; done
+             sudo rm -rf modules
+             git worktree prune
+             echo 'Server data wiped; backup in '\$backup"
+
       - name: Deploy main on server
         if: env.DEPLOY_SKIP != '1'
         env:
@@ -165,6 +261,11 @@ jobs:
           DEPLOY_ENV_FILE: ${{ vars.SFERA_DEPLOY_ENV_FILE }}
           SFERA_DOMAIN: ${{ vars.SFERA_DOMAIN }}
           SFERA_MAIL_MODE: ${{ vars.SFERA_MAIL_MODE }}
+          # Optional install selection: modules (comma list, "none" = core only),
+          # monitoring left out (e.g. "diary,family" or "core"), SFERA_MONITORING=0.
+          SFERA_MODULES: ${{ vars.SFERA_MODULES }}
+          SFERA_MONITORING_EXCLUDE: ${{ vars.SFERA_MONITORING_EXCLUDE }}
+          SFERA_MONITORING: ${{ vars.SFERA_MONITORING }}
         run: |
           user="${DEPLOY_USER:-root}"
           port="${DEPLOY_PORT:-22}"
@@ -186,6 +287,9 @@ jobs:
              [ -f '$env_file' ] && . '$env_file'
              ${domain:+export SFERA_DOMAIN='$domain'}
              export SFERA_MAIL_MODE='$mail_mode'
+             ${SFERA_MODULES:+export SFERA_MODULES='$SFERA_MODULES'}
+             ${SFERA_MONITORING_EXCLUDE:+export SFERA_MONITORING_EXCLUDE='$SFERA_MONITORING_EXCLUDE'}
+             ${SFERA_MONITORING:+export SFERA_MONITORING='$SFERA_MONITORING'}
              set +a
              bash scripts/linux/start-common.sh '$mode'"
 

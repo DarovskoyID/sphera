@@ -1,0 +1,25 @@
+{
+  "comment": "Module branches deployed with this core. Update with: node scripts/modules/fetch.mjs --update",
+  "modules": {
+    "bots": {
+      "branch": "module/bots",
+      "ref": "b751a862c9172979b82b84fac70a7d312289c3d4"
+    },
+    "channels": {
+      "branch": "module/channels",
+      "ref": "32ffaed3a88023acd22b30782a9f2bfacd24ef71"
+    },
+    "diary": {
+      "branch": "module/diary",
+      "ref": "b651c267655da54f7a6c4caed9fa01bf13a94066"
+    },
+    "family": {
+      "branch": "module/family",
+      "ref": "413c2c3b0b69fef9104977ff545ede448ccdfd9f"
+    },
+    "servers": {
+      "branch": "module/servers",
+      "ref": "31151fc327a6a80da7bc4058ffd97d41ced307c0"
+    }
+  }
+}

@@ -22,7 +22,11 @@
     "noUnusedParameters": true,
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true,
-    "noUncheckedSideEffectImports": true
+    "noUncheckedSideEffectImports": true,
+
+    "paths": {
+      "@sfera/sdk": ["./src/sdk/index.ts"]
+    }
   },
-  "include": ["src"]
+  "include": ["src", "modules/*/frontend"]
 }

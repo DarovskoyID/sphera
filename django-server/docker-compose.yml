@@ -106,7 +106,8 @@
       - "127.0.0.1:9090:9090"
     volumes:
       - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - ./monitoring/alert_rules.yml:/etc/prometheus/alert_rules.yml:ro
+      # Assembled from core + modules by scripts/modules/monitoring.mjs.
+      - ./monitoring/generated/rules:/etc/prometheus/rules:ro
       - ./monitoring/nodes:/etc/prometheus/nodes:ro
       - prometheus_data:/prometheus
     command:
@@ -152,7 +153,7 @@
     volumes:
       - grafana_data:/var/lib/grafana
       - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
-      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - ./monitoring/generated/dashboards:/var/lib/grafana/dashboards:ro
     depends_on:
       - prometheus
     restart: unless-stopped

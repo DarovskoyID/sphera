@@ -91,8 +91,17 @@ INSTALLED_APPS = [
     'sfera_auth',
     'sfera_messages',
     'sfera_signaling',
-    'sfera_bots',
+    'sfera_modules',
 ]
+
+# Modules checked out into <repo>/modules/<id>/ (branches module/<id>).
+from sfera_modules.loader import backend_apps as _module_backend_apps  # noqa: E402
+INSTALLED_APPS += [a for a in _module_backend_apps() if a not in INSTALLED_APPS]
+# A module's API answers only users who installed it in «Исследовать сферу».
+# Test runs default to off so each module's tests exercise the API directly;
+# the install gate itself is covered with override_settings.
+import sys as _sys  # noqa: E402
+SFERA_MODULES_ENFORCE = _env_bool('SFERA_MODULES_ENFORCE', 'test' not in _sys.argv[1:2])
 
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
@@ -205,7 +214,7 @@ else:
     DATABASES = {
         'default': {
             'ENGINE': 'django.db.backends.sqlite3',
-            'NAME': BASE_DIR / 'db.sqlite3',
+            'NAME': os.environ.get('SFERA_SQLITE_PATH') or BASE_DIR / 'db.sqlite3',
         }
     }
 
@@ -274,14 +283,17 @@ REST_FRAMEWORK = {
     # Rate limiting to blunt brute-force / enumeration against auth endpoints.
     'DEFAULT_THROTTLE_CLASSES': (
         'rest_framework.throttling.AnonRateThrottle',
+        'rest_framework.throttling.ScopedRateThrottle',
+    ) + ((
         # Per-user rate, but with bot API traffic carved out (bots are governed by
         # BotRateThrottle below so a premium bot is not clipped by the user rate).
         'sfera_bots.throttling.BotAwareUserRateThrottle',
-        'rest_framework.throttling.ScopedRateThrottle',
         # Two-tier bot API: standard (free) vs premium (paid, higher ceiling).
         # No-ops for non-bot requests.
         'sfera_bots.throttling.BotRateThrottle',
-    ),
+    ) if 'sfera_bots' in INSTALLED_APPS else (
+        'rest_framework.throttling.UserRateThrottle',
+    )),
     'DEFAULT_THROTTLE_RATES': {
         'anon': os.environ.get('SFERA_THROTTLE_ANON', '60/min'),
         'user': os.environ.get('SFERA_THROTTLE_USER', '1000/min'),

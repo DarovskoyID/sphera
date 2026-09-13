@@ -18,14 +18,18 @@ def forwards(apps, schema_editor):
     with schema_editor.connection.cursor() as cur:
         cur.executescript(CREATE_SQL)
 
-    # Backfill existing messages (decrypt in Python, then index).
-    from sfera_messages.search_index import index_message
-    import sfera_messages.search_index as si
+    # Backfill existing messages (decrypt in Python, then index). The index code
+    # now lives in the servers module; without it there is nothing to index.
+    try:
+        from sfera_servers.search_index import index_message
+        import sfera_servers.search_index as si
+        from sfera_servers.models import GuildMessage as RealGuildMessage
+    except ImportError:
+        return
     si._FTS_READY = True  # table just created
     GuildMessage = apps.get_model('sfera_messages', 'GuildMessage')
     # The historical model lacks the decrypt property/relations we need, so use the
     # real model for indexing.
-    from sfera_messages.models import GuildMessage as RealGuildMessage
     ids = GuildMessage.objects.values_list('id', flat=True)
     for mid in ids.iterator(chunk_size=500):
         try:

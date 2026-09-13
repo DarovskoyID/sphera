@@ -10,7 +10,7 @@ import { useTranslation } from '../i18n/useTranslation';
 import { RichMessage } from './RichMessage';
 import { RichComposer } from './RichComposer';
 import { AccountBadge, accountDisplayName, isBot } from './BotBadge';
-import { BotCommandsButton } from './BotCommandsButton';
+import { ComposerActions } from '../core/modules/Slots';
 import type { RichMessageType, RichPayload } from '../types';
 
 // ── Rich messages (checklist / contact / location). Polls are guild-only. ────
@@ -65,7 +65,6 @@ const SETTINGS_PAGE_TITLE: Record<string, string> = {
   data: 'settings_data',
   devices: 'settings_devices',
   servers: 'settings_servers',
-  family: 'settings_family',
   integration: 'settings_integration',
   notifications: 'settings_notifications',
   apps: 'settings_apps',
@@ -2468,10 +2467,11 @@ const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: (
               requestAnimationFrame(autoResizeComposer);
             }}
           />
-          <BotCommandsButton
+          <ComposerActions
+            kind="dm"
             token={authToken}
             serverIP={currentServerIP}
-            userId={String(currentChat || '')}
+            targetId={String(currentChat || '')}
             onPick={cmd => {
               persistMessage(cmd);
               requestAnimationFrame(() => { autoResizeComposer(); composerInputRef.current?.focus(); });

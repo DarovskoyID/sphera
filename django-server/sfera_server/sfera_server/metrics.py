@@ -148,28 +148,19 @@ def _db_stats_uncached():
     tables = {}
     try:
         from sfera_auth.models import User, Friendship
-        from sfera_messages.models import (
-            Message, Conversation, Guild, GuildMessage, GuildChannel,
-            GuildPostComment, GuildMessageReaction, GuildMessageView,
-            Attachment, GuildAttachment, ScheduledMessage, GuildScheduledMessage,
-        )
+        from sfera_messages.models import Message, Conversation, Attachment, ScheduledMessage
+        from sfera_modules import hooks
 
-        # Реальные сервера и личные каналы — это одна модель Guild,
-        # различаются флагом is_personal_channel, но в метриках их полезно разделить.
-        guild_qs = Guild.objects.all()
         tables['users'] = User.objects.count()
         tables['conversations'] = Conversation.objects.count()
         tables['dm_messages'] = Message.objects.count()
-        tables['guilds'] = guild_qs.filter(is_personal_channel=False).count()
-        tables['personal_channels'] = guild_qs.filter(is_personal_channel=True).count()
-        tables['guild_channels'] = GuildChannel.objects.count()
-        tables['guild_messages'] = GuildMessage.objects.count()
-        tables['comments'] = GuildPostComment.objects.count()
-        tables['reactions'] = GuildMessageReaction.objects.count()
-        tables['post_views'] = GuildMessageView.objects.count()
         tables['friendships'] = Friendship.objects.count()
-        tables['attachments'] = Attachment.objects.count() + GuildAttachment.objects.count()
-        tables['scheduled'] = ScheduledMessage.objects.count() + GuildScheduledMessage.objects.count()
+        tables['attachments'] = Attachment.objects.count()
+        tables['scheduled'] = ScheduledMessage.objects.count()
+        # Modules add their tables; counters with the same name are summed.
+        for m in hooks.collect(hooks.METRICS).values():
+            for k, v in (m or {}).get('tables', {}).items():
+                tables[k] = tables.get(k, 0) + v
     except Exception:
         pass
 
@@ -273,11 +264,6 @@ def _request_stats():
 
 
 def _ws_stats():
-    from sfera_messages.voice_state import _voice_channels
-    voice_users = sum(
-        len([k for k in ch.keys() if k != '_guild_id'])
-        for ch in _voice_channels.values()
-    )
     # DM calls tracked via SignalingConsumer._users
     try:
         from sfera_signaling.consumers import SignalingConsumer
@@ -294,8 +280,6 @@ def _ws_stats():
         'connections_total': _counters.get('ws_connections_total', 0),
         'messages_received': _counters.get('ws_messages_received', 0),
         'messages_sent': _counters.get('ws_messages_sent', 0),
-        'voice_channels_active': len(_voice_channels),
-        'voice_users': voice_users,
         'online_users': online_users,
         'active_dm_calls': active_calls_count,
     }
@@ -327,18 +311,23 @@ def _status_json(request):
         'kafka': _kafka_stats(),
         'channel_layer': _channel_layer_stats(),
         'http': _request_stats(),
-        'bot_api': _bot_api_stats(),
         'websockets': _ws_stats(),
+        'modules': _module_status(),
     }
 
 
-def _bot_api_stats():
-    return {
-        'requests_total': _cval('bot_api_requests_total'),
-        'requests_standard': _cval('bot_api_requests_standard'),
-        'requests_premium': _cval('bot_api_requests_premium'),
-        'throttled_total': _cval('bot_api_throttled_total'),
-    }
+def _module_metrics():
+    """METRICS hook results keyed by module id; a failing module is skipped."""
+    from sfera_modules import hooks
+    return {mid: m or {} for mid, m in hooks.collect(hooks.METRICS).items()}
+
+
+def _module_status():
+    # Each module may return {'status': {'Card title': {'label': value}}}.
+    out = {}
+    for m in _module_metrics().values():
+        out.update(m.get('status', {}))
+    return out
 
 
 # A strong shared secret protecting the status/metrics endpoints. When set it
@@ -459,16 +448,12 @@ function renderCards(d){
     ${h.latency?metricRow('p99 Latency',h.latency.p99_ms+' ms','red'):''}
   </div>`;
 
-  // Bot API
-  const b=d.bot_api;
-  if(b){
-    cards+=`<div class="card"><h3>Bot API</h3>
-      ${metricRow('Total Requests',(b.requests_total||0).toLocaleString())}
-      ${metricRow('Standard tier',(b.requests_standard||0).toLocaleString(),'blue')}
-      ${metricRow('Premium tier',(b.requests_premium||0).toLocaleString(),'purple')}
-      ${metricRow('Throttled (429)',(b.throttled_total||0).toLocaleString(),'red')}
+  // Module cards
+  Object.entries(d.modules||{}).forEach(([title,rows])=>{
+    cards+=`<div class="card"><h3>${title}</h3>
+      ${Object.entries(rows).map(([k,v])=>metricRow(k,Number(v).toLocaleString())).join('')}
     </div>`;
-  }
+  });
 
   // WebSocket
   const w=d.websockets;
@@ -476,8 +461,6 @@ function renderCards(d){
     ${metricRow('Connections',w.connections_total.toLocaleString())}
     ${metricRow('Messages In',w.messages_received.toLocaleString())}
     ${metricRow('Messages Out',w.messages_sent.toLocaleString())}
-    ${metricRow('Voice Channels',w.voice_channels_active)}
-    ${metricRow('Voice Users',w.voice_users)}
     ${metricRow('Online Users',w.online_users,'blue')}
     ${metricRow('Active DM Calls',w.active_dm_calls,'green')}
   </div>`;
@@ -646,20 +629,12 @@ def prometheus_metrics(request):
         gauge('sfera_http_latency_p95_ms', req_stats['latency']['p95_ms'], 'HTTP p95 latency ms')
         gauge('sfera_http_latency_p99_ms', req_stats['latency']['p99_ms'], 'HTTP p99 latency ms')
 
-    # Bot API load (cross-process totals from Redis) — two-tier throughput.
-    counter('sfera_bot_api_requests_total', _cval('bot_api_requests_total'), 'Total bot API requests')
-    counter('sfera_bot_api_requests_standard_total', _cval('bot_api_requests_standard'), 'Bot API requests on the standard tier')
-    counter('sfera_bot_api_requests_premium_total', _cval('bot_api_requests_premium'), 'Bot API requests on the premium tier')
-    counter('sfera_bot_api_throttled_total', _cval('bot_api_throttled_total'), 'Bot API requests rejected by rate limiting (429)')
-
     # WebSocket (cross-process totals from Redis)
     counter('sfera_ws_connections_total', _cval('ws_connections_total'), 'Total WS connections')
     counter('sfera_ws_messages_received_total', _cval('ws_messages_received'), 'Total WS messages received')
     counter('sfera_ws_messages_sent_total', _cval('ws_messages_sent'), 'Total WS messages sent')
 
     ws = _ws_stats()
-    gauge('sfera_voice_channels_active', ws['voice_channels_active'], 'Active voice channels')
-    gauge('sfera_voice_users', ws['voice_users'], 'Users in voice channels')
     gauge('sfera_online_users', ws['online_users'], 'Online users (signaling WS)')
     gauge('sfera_active_dm_calls', ws['active_dm_calls'], 'Active DM calls')
 
@@ -681,6 +656,15 @@ def prometheus_metrics(request):
     gauge('sfera_kafka_connected', 1 if kafka_info.get('connected') else 0, 'Kafka connection status')
     if kafka_info.get('connected'):
         gauge('sfera_kafka_brokers', kafka_info.get('brokers', 0), 'Kafka broker count')
+
+    # Module series: METRICS hook entry {'prometheus': [{'name', 'type', 'value',
+    # 'help', 'labels'}]}. Dashboards and alerts for them ship with the module.
+    for m in _module_metrics().values():
+        for series in m.get('prometheus', []):
+            if series.get('type') == 'counter':
+                counter(series['name'], series['value'], series.get('help', ''))
+            else:
+                gauge(series['name'], series['value'], series.get('help', ''), series.get('labels'))
 
     content = '\n'.join(lines) + '\n'
     return HttpResponse(content, content_type='text/plain; version=0.0.4; charset=utf-8')
