@@ -14,7 +14,6 @@ import { saveDisplayPrefs } from '../utils/displayPrefs';
 import { saveCensorConfig, setCensorAudience, scopeFromScanFlags } from '../utils/censor';
 import { sortByDate, insertByDate } from '../utils/messageOrder';
 import { clearMessageCache, readCachedMessages, writeCachedMessages } from '../utils/messageCache';
-import { clearDiaryCache, readCachedDiary, writeCachedDiary } from '../utils/diaryCache';
 import { postNativeTheme, setNativePrefs } from '../utils/nativeBridge';
 import { deviceQuery } from '../utils/device';
 import { toUserMessage, readResponse, setErrorLang } from '../utils/errorManager';
@@ -255,7 +254,6 @@ interface AppContextType extends AppState {
   loadGuildAuditLog: (guildId: string) => Promise<GuildAuditLogEntry[]>;
   createGuild: (name: string, description?: string) => Promise<Guild | null>;
   createPersonalChannel: (name: string, description?: string) => Promise<Guild | null>;
-  createPersonalNotes: (name: string) => Promise<Guild | null>;
   saveLayout: (layout: import('../types').LayoutEntry[]) => void;
   toggleReaction: (guildId: string, messageId: string, emoji: string) => Promise<void>;
   sendRichMessage: (scope: RichScope, type: RichMessageType, payload: Record<string, unknown>, tags?: string[]) => Promise<void>;
@@ -494,7 +492,6 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     // The message cache is plain text on the device; a session ending is
     // exactly when it must stop existing.
     void clearMessageCache();
-    void clearDiaryCache();
     void runLifecycle('logout');
     setState(prev => ({ ...prev, authToken: '', currentUser: null, friends: [], pendingRequests: [], sentRequests: [], userIDonServer: '', currentChat: '' }));
   }, []);
@@ -1498,15 +1495,6 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     return () => clearTimeout(timer);
   }, [state.chatConversationId, state.chatMessages]);
 
-  // The same for the open diary, so an entry written now is on the device
-  // before the next visit rather than after the one following it.
-  useEffect(() => {
-    const channelId = state.currentGuildChannel?.id;
-    if (!channelId || !state.currentGuild?.is_private || !state.guildMessages.length) return;
-    const timer = setTimeout(() => { void writeCachedDiary(channelId, state.guildMessages); }, 1500);
-    return () => clearTimeout(timer);
-  }, [state.currentGuild?.is_private, state.currentGuildChannel?.id, state.guildMessages]);
-
   // ==================== Signaling WebSocket ====================
   useEffect(() => {
     if (!state.authToken) {
@@ -2320,28 +2308,6 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     persistLayout(layout);
   }, [persistLayout]);
 
-  const prependToLayout = useCallback((guildId: string) => {
-    setState(prev => {
-      const without = (prev.serverLayout || []).filter(
-        e => !(e.kind === 'guild' && e.id === guildId)
-      );
-      const next: import('../types').LayoutEntry[] = [{ kind: 'guild', id: guildId }, ...without];
-      persistLayout(next);
-      return { ...prev, serverLayout: next };
-    });
-  }, [persistLayout]);
-
-  // A private diary — a personal channel only its owner can see. Prepended to the
-  // server bar layout so it lands at the top (the rest of ordering is user-driven).
-  const createPersonalNotes = useCallback(async (name: string): Promise<Guild | null> => {
-    try {
-      const guild: Guild = await apiPost('/api/guilds/', state.authToken, state.currentServerIP, { name, is_private: true });
-      setState(prev => ({ ...prev, guilds: [...prev.guilds, guild] }));
-      prependToLayout(String(guild.id));
-      return guild;
-    } catch (e) { reportError(e); return null; }
-  }, [state.authToken, state.currentServerIP, apiPost, prependToLayout]);
-
   const toggleReaction = useCallback(async (guildId: string, messageId: string, emoji: string): Promise<void> => {
     try {
       const res = await fetch(`${state.currentServerIP}/api/guilds/${guildId}/messages/${messageId}/reactions/`, {
@@ -2958,30 +2924,13 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
   // Load guild channel message history when channel changes
   useEffect(() => {
     if (!state.currentGuild || !state.currentGuildChannel || !state.authToken) return;
-    const { id: guildId, is_private: isDiary } = state.currentGuild;
+    const { id: guildId } = state.currentGuild;
     const { id: channelId } = state.currentGuildChannel;
 
     const history = apiGet(`/api/guilds/${guildId}/channels/${channelId}/messages/`, state.authToken, state.currentServerIP);
 
-    // A diary is the reader's own writing and nobody else's, so its tail is
-    // kept on the device and painted while the request is in flight. Ordinary
-    // channels are shared and get no such copy.
-    if (isDiary) {
-      void history.catch(() => {});
-      void readCachedDiary(channelId).then(cached => {
-        if (!cached) return;
-        setState(prev => {
-          // The answer beat the disk, or the reader moved on. Either way this
-          // placeholder is no longer wanted.
-          if (prev.currentGuildChannel?.id !== channelId || prev.guildMessages.length) return prev;
-          return { ...prev, guildMessages: cached, guildMessagesLoading: false };
-        });
-      });
-    }
-
     history
       .then((msgs: GuildMessage[]) => {
-        if (isDiary) void writeCachedDiary(channelId, msgs);
         setState(prev => {
           // Merge: keep any WS messages that arrived after the REST snapshot
           const ids = new Set(msgs.map(m => m.id));
@@ -3419,8 +3368,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       // Logout — close all sockets, drop the on-device message cache, and
       // reset to a clean state.
       void clearMessageCache();
-      void clearDiaryCache();
-      chatWs.current?.close();
+        chatWs.current?.close();
       chatWs.current = null;
       signalingWs.current?.close();
       signalingWs.current = null;
@@ -3549,8 +3497,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       loadGuildAuditLog,
       createGuild,
       createPersonalChannel,
-      createPersonalNotes,
-      saveLayout,
+        saveLayout,
       toggleReaction,
       sendRichMessage,
       votePoll,

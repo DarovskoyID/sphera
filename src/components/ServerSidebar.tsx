@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
-import { Settings, Home, Plus, LogIn, X, Compass, Rss, LogOut, Trash2, Folder, FolderMinus, NotebookPen } from 'lucide-react';
+import { Settings, Home, Plus, LogIn, X, Compass, Rss, LogOut, Trash2, Folder, FolderMinus } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { useTranslation } from '../i18n/useTranslation';
 import ConfirmModal from './ConfirmModal';
@@ -158,15 +158,14 @@ function GuildIcon({ guild, active, onClick, serverIP }: { guild: Guild; active:
   const initials = guild.name.split(' ').filter(Boolean).map(w => w[0]).join('').slice(0, 2).toUpperCase() || guild.name.slice(0, 2).toUpperCase();
   const iconUrl = guild.icon && !broken ? (guild.icon.startsWith('http') ? guild.icon : `${serverIP}${guild.icon}`) : null;
   const isChannel = guild.is_personal_channel;
-  const isDiary = guild.is_private;
-  // Servers = softer squircle, channels/diary = rounder — a simple, modern look.
+  // Servers = softer squircle, channels = rounder — a simple, modern look.
   const radius = isChannel ? 14 : 16;
   return (
     <div style={{ position: 'relative', display: 'flex' }}>
       <button
         className={`server-icon ${active ? 'active' : ''}`}
         onClick={onClick}
-        title={isDiary ? `${guild.name} (${tr('pcf_diary')})` : isChannel ? `${guild.name} (${tr('pcf_channel')})` : guild.name}
+        title={isChannel ? `${guild.name} (${tr('pcf_channel')})` : guild.name}
         style={{ borderRadius: radius, padding: 0, overflow: 'hidden', background: iconUrl ? 'var(--bg-tertiary)' : nameGradient(guild.name), border: 'none' }}
       >
         {iconUrl ? (
@@ -177,15 +176,15 @@ function GuildIcon({ guild, active, onClick, serverIP }: { guild: Guild; active:
       </button>
       {isChannel && (
         <span
-          title={isDiary ? tr('pcf_diary') : tr('pcf_personal_channel')}
+          title={tr('pcf_personal_channel')}
           style={{
             position: 'absolute', bottom: -3, right: -3, width: 17, height: 17, borderRadius: '50%',
-            background: isDiary ? '#a855f7' : 'var(--accent-primary)', border: '2.5px solid var(--bg-secondary)',
+            background: 'var(--accent-primary)', border: '2.5px solid var(--bg-secondary)',
             display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none',
             boxShadow: '0 1px 4px rgba(0,0,0,.3)',
           }}
         >
-          {isDiary ? <NotebookPen size={8.5} color="#fff" /> : <Rss size={8.5} color="#fff" />}
+          <Rss size={8.5} color="#fff" />
         </span>
       )}
     </div>
@@ -306,10 +305,6 @@ export const ServerSidebar: React.FC = () => {
   // Right-click a server icon (desktop) → context menu → leave / delete.
   const [guildMenu, setGuildMenu] = useState<{ guild: Guild; x: number; y: number } | null>(null);
   const [confirmLeave, setConfirmLeave] = useState<Guild | null>(null);
-  const [confirmDiary, setConfirmDiary] = useState<Guild | null>(null);
-  const [diaryPwd, setDiaryPwd] = useState('');
-  const [diaryErr, setDiaryErr] = useState('');
-  const [diaryBusy, setDiaryBusy] = useState(false);
   const guildMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -398,7 +393,7 @@ export const ServerSidebar: React.FC = () => {
   };
 
   // Where a drop lands: near an edge → reorder; over the middle of a server/folder
-  // → merge into a folder (never for a diary, and never onto a diary).
+  // → merge into a folder.
   //
   // The bar runs down the side on desktop and along the bottom on a phone, so
   // "edge" means top/bottom in one case and left/right in the other — the axis
@@ -412,11 +407,8 @@ export const ServerSidebar: React.FC = () => {
     const horizontal = window.matchMedia('(max-width: 768px)').matches;
     const pos = horizontal ? point.x - rect.left : point.y - rect.top;
     const size = (horizontal ? rect.width : rect.height) || 1;
-    const dg = dk?.startsWith('g:') ? guildById.get(dk.slice(2)) || null : null;
     const draggingServer = !!dk?.startsWith('g:');
-    const draggedIsDiary = !!dg?.is_private;
-    const targetIsDiary = targetItem.type === 'guild' && !!targetItem.guild.is_private;
-    const canInto = draggingServer && !draggedIsDiary && !targetIsDiary && dk !== keyOf(targetItem);
+    const canInto = draggingServer && dk !== keyOf(targetItem);
     if (canInto && pos > size * 0.28 && pos < size * 0.72) return 'into';
     return pos < size / 2 ? 'before' : 'after';
   };
@@ -719,19 +711,14 @@ export const ServerSidebar: React.FC = () => {
       {guildMenu && (() => {
         const g = guildMenu.guild;
         const isOwner = !!currentUser && String(g.owner_id) === String(currentUser.id);
-        const isDiary = isOwner && !!g.is_private;
-        const ownsChannel = isOwner && g.is_personal_channel && !g.is_private;
+        const ownsChannel = isOwner && g.is_personal_channel;
         return (
           <div
             ref={guildMenuRef}
             className="context-menu"
             style={{ position: 'fixed', left: Math.min(guildMenu.x, window.innerWidth - 210), top: Math.min(guildMenu.y, window.innerHeight - 120), minWidth: 190, zIndex: 9999 }}
           >
-            {isDiary ? (
-              <button className="context-menu-item" style={{ color: '#ef4444' }} onClick={() => { setGuildMenu(null); setConfirmDiary(g); }}>
-                <Trash2 size={14} /> {tr('diary_delete')}
-              </button>
-            ) : ownsChannel ? (
+            {ownsChannel ? (
               <button className="context-menu-item" style={{ color: '#ef4444' }} onClick={() => { setGuildMenu(null); setConfirmLeave(g); }}>
                 <Trash2 size={14} /> {tr('guild_delete_channel')}
               </button>
@@ -744,49 +731,11 @@ export const ServerSidebar: React.FC = () => {
         );
       })()}
 
-      {confirmDiary && (
-        <div style={{ position: 'fixed', inset: 0, zIndex: 9000, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }} onClick={() => { setConfirmDiary(null); setDiaryPwd(''); setDiaryErr(''); }}>
-          <div style={{ background: 'var(--bg-secondary)', borderRadius: 12, padding: 22, maxWidth: 380, width: '100%', border: '1px solid var(--border-color)' }} onClick={e => e.stopPropagation()}>
-            <h3 style={{ margin: '0 0 8px', color: 'var(--text-primary)', fontSize: 17, fontWeight: 700 }}>{tr('diary_delete')}</h3>
-            <p style={{ margin: '0 0 14px', color: 'var(--text-secondary)', fontSize: 13, lineHeight: 1.5 }}>
-              {tr('diary_delete_hint')}
-            </p>
-            <form onSubmit={e => e.preventDefault()}>
-              <input
-                type="password"
-                autoFocus
-                autoComplete="current-password"
-                value={diaryPwd}
-                onChange={e => { setDiaryPwd(e.target.value); setDiaryErr(''); }}
-                placeholder={tr('pcf_password')}
-                style={{ width: '100%', padding: '9px 11px', borderRadius: 8, fontSize: 14, border: `1px solid ${diaryErr ? '#ef4444' : 'var(--border-color)'}`, background: 'var(--bg-tertiary)', color: 'var(--text-primary)', outline: 'none', boxSizing: 'border-box' }}
-              />
-            </form>
-            {diaryErr && <div style={{ color: '#ef4444', fontSize: 12, marginTop: 6 }}>{diaryErr}</div>}
-            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 16 }}>
-              <button onClick={() => { setConfirmDiary(null); setDiaryPwd(''); setDiaryErr(''); }} style={{ padding: '8px 18px', background: 'var(--bg-tertiary)', color: 'var(--text-primary)', border: '1px solid var(--border-color)', borderRadius: 8, fontSize: 14, cursor: 'pointer' }}>{tr('cancel')}</button>
-              <button
-                disabled={diaryBusy || !diaryPwd}
-                onClick={async () => {
-                  setDiaryBusy(true);
-                  const ok = await deleteGuild(confirmDiary.id, diaryPwd);
-                  setDiaryBusy(false);
-                  if (ok) { setConfirmDiary(null); setDiaryPwd(''); setDiaryErr(''); }
-                  else setDiaryErr(tr('pcf_wrong_password'));
-                }}
-                style={{ padding: '8px 18px', background: '#ef4444', color: '#fff', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer', opacity: (diaryBusy || !diaryPwd) ? 0.6 : 1 }}
-              >
-                {diaryBusy ? tr('pcf_deleting') : tr('pcf_delete')}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {confirmLeave && (() => {
         const g = confirmLeave;
         const isOwner = !!currentUser && String(g.owner_id) === String(currentUser.id);
-        const ownsChannel = isOwner && g.is_personal_channel && !g.is_private;
+        const ownsChannel = isOwner && g.is_personal_channel;
         return (
           <ConfirmModal
             title={ownsChannel ? tr('guild_delete_channel') : (g.is_personal_channel ? tr('pcf_leave_channel') : tr('guild_leave_server'))}

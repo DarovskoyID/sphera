@@ -156,3 +156,128 @@ def _scan_upload(raw):
         argv = shlex.split(command) + [tmp.name]
         return subprocess.run(argv, check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
 
+
+# ── Rich messages (shared by DMs, guilds and modules) ───────────────────────
+from django.db import transaction  # noqa: E402
+from django.utils import timezone  # noqa: E402
+from .models import MESSAGE_TYPE_POLL, MESSAGE_TYPE_TODO, MESSAGE_TYPE_CONTACT, MESSAGE_TYPE_LOCATION  # noqa: E402
+from . import rich as rich_msg  # noqa: E402
+from .rich import RichError, rich_fields  # noqa: E402
+
+DM_RICH_TYPES = (MESSAGE_TYPE_TODO, MESSAGE_TYPE_CONTACT, MESSAGE_TYPE_LOCATION)
+GUILD_RICH_TYPES = (MESSAGE_TYPE_POLL,) + DM_RICH_TYPES
+
+def _clean_tags(raw):
+    """Manual, user-supplied tags: short, de-duplicated, capped."""
+    if not isinstance(raw, list):
+        return []
+    out, seen = [], set()
+    for t in raw:
+        if not isinstance(t, str):
+            continue
+        t = t.strip().lstrip('#')[:30]
+        key = t.casefold()
+        if t and key not in seen:
+            seen.add(key)
+            out.append(t)
+        if len(out) >= 15:
+            break
+    return out
+
+
+def _build_rich(kind, data):
+    """Returns (payload, live_until). Raises RichError on bad input."""
+    if kind == MESSAGE_TYPE_POLL:
+        return rich_msg.build_poll(data), None
+    if kind == MESSAGE_TYPE_TODO:
+        return rich_msg.build_todo(data), None
+    if kind == MESSAGE_TYPE_CONTACT:
+        from django.contrib.auth import get_user_model
+        return rich_msg.build_contact(data, get_user_model()), None
+    if kind == MESSAGE_TYPE_LOCATION:
+        return rich_msg.build_location(data)
+    raise RichError('unsupported message type')
+
+
+def _author_brief(u):
+    return {
+        'id': str(u.id),
+        'username': u.username,
+        'nickname': getattr(u, 'nickname', '') or '',
+        'avatar': u.avatar.url if getattr(u, 'avatar', None) else '',
+        'status': getattr(u, 'status', 'online'),
+        'account_type': getattr(u, 'account_type', 'user'),
+    }
+
+
+def _apply_message_edit(msg, data):
+    """Apply an author's edit to a text or rich message in place.
+
+    Polls are never editable. Todos/contacts/locations rebuild their whole payload
+    (full edit); plain text replaces content. Sets edited=True. Raises RichError on
+    bad input. Returns the compact payload the client merges into the message by id.
+    """
+    kind = msg.message_type or 'text'
+    if kind == MESSAGE_TYPE_POLL:
+        raise RichError('polls cannot be edited')
+    update_fields = ['edited']
+    if kind in DM_RICH_TYPES:  # todo / contact / location — replace the payload
+        payload, live_until = _build_rich(kind, data.get('payload') or {})
+        msg.payload = payload
+        msg.live_until = live_until
+        update_fields += ['encrypted_payload', 'live_until']
+        if 'content' in data:
+            msg.content = (data.get('content') or '').strip()[:2000]
+            update_fields.append('encrypted_content')
+    else:  # plain text
+        content = (data.get('content') or '').strip()
+        if not content:
+            raise RichError('empty message')
+        msg.content = content
+        update_fields.append('encrypted_content')
+    msg.edited = True
+    msg.save(update_fields=list(dict.fromkeys(update_fields)))
+    return {'id': str(msg.id), 'content': msg.content, 'edited': True, **rich_fields(msg, None)}
+
+
+def _toggle_todo_item(msg, check_model, user, item_id):
+    """Shared tick state: one row per item. Returns True when the item is now done."""
+    valid = {i['id'] for i in msg.payload.get('items', [])}
+    if item_id not in valid:
+        raise RichError('unknown item')
+    with transaction.atomic():
+        existing = check_model.objects.select_for_update().filter(
+            message=msg, item_id=item_id
+        ).first()
+        if existing:
+            existing.delete()
+            return False
+        check_model.objects.create(message=msg, item_id=item_id, user=user)
+        return True
+
+
+def _apply_location_update(msg, data, stop=False):
+    payload = msg.payload
+    if stop:
+        payload['live'] = False
+        msg.live_until = timezone.now()
+        msg.payload = payload
+        msg.save(update_fields=['encrypted_payload', 'live_until'])
+        return payload
+    if not msg.live_until or msg.live_until <= timezone.now():
+        raise RichError('live sharing has ended')
+    try:
+        lat = float(data.get('lat'))
+        lng = float(data.get('lng'))
+    except (TypeError, ValueError):
+        raise RichError('lat and lng are required')
+    if not (-90 <= lat <= 90) or not (-180 <= lng <= 180):
+        raise RichError('coordinates out of range')
+    payload.update({
+        'lat': round(lat, 6),
+        'lng': round(lng, 6),
+        'updated_at': timezone.now().isoformat(),
+    })
+    msg.payload = payload
+    msg.save(update_fields=['encrypted_payload'])
+    return payload

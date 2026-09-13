@@ -29,12 +29,13 @@ from sfera_auth.models import BlockedUser
 from .voice_state import _voice_channels
 
 from .services import (
+    DM_RICH_TYPES, GUILD_RICH_TYPES, _clean_tags, _build_rich, _author_brief,
+    _apply_message_edit, _toggle_todo_item, _apply_location_update,
     MAX_UPLOAD_SIZE, MAX_ATTACHMENTS_PER_MESSAGE, _gw_broadcast, _fanout, _FANOUT_POOL,
     notify_message_created, _fanout_user_notifs, _id_list, _safe_upload, _scan_upload,
 )
 # Per-account caps.
 MAX_PERSONAL_CHANNELS = 3   # personal channels a user may CREATE (own)
-MAX_PRIVATE_NOTES = 3       # private diaries a user may own
 MAX_OWNED_SERVERS = 5       # (non-personal) servers a user may CREATE (own)
 MAX_JOINED_SERVERS = 75     # (non-personal) servers a user may belong to
 MAX_JOINED_CHANNELS = 75    # personal channels a user may subscribe to
@@ -695,18 +696,13 @@ def guild_list_create(request):
     name = request.data.get('name', '').strip()
     if not name:
         return Response({'error': 'name required'}, status=status.HTTP_400_BAD_REQUEST)
-    is_private = bool(request.data.get('is_private', False))
-    # A private diary is a personal channel that is owner-only and never listed.
-    is_personal = bool(request.data.get('is_personal_channel', False)) or is_private
+    # Diaries moved to the diary module (/api/diary/).
+    if request.data.get('is_private'):
+        return Response({'error': 'moved', 'detail': 'use /api/diary/diaries/'}, status=status.HTTP_410_GONE)
+    is_private = False
+    is_personal = bool(request.data.get('is_personal_channel', False))
     # Per-account limits.
-    if is_private:
-        if Guild.objects.filter(owner=request.user, is_private=True).count() >= MAX_PRIVATE_NOTES:
-            return Response(
-                {'error': 'limit reached',
-                 'detail': f'Можно создать не более {MAX_PRIVATE_NOTES} личных дневников'},
-                status=status.HTTP_409_CONFLICT,
-            )
-    elif is_personal:
+    if is_personal:
         if Guild.objects.filter(owner=request.user, is_personal_channel=True, is_private=False).count() >= MAX_PERSONAL_CHANNELS:
             return Response(
                 {'error': 'limit reached', 'detail': f'Можно создать не более {MAX_PERSONAL_CHANNELS} личных каналов'},
@@ -1333,24 +1329,6 @@ def guild_category_delete(request, guild_id, category_id):
     )
     _log(guild, request.user, 'category_delete', details={'name': cat_name})
     return Response(status=status.HTTP_204_NO_CONTENT)
-
-
-def _clean_tags(raw):
-    """Manual, user-supplied tags: short, de-duplicated, capped."""
-    if not isinstance(raw, list):
-        return []
-    out, seen = [], set()
-    for t in raw:
-        if not isinstance(t, str):
-            continue
-        t = t.strip().lstrip('#')[:30]
-        key = t.casefold()
-        if t and key not in seen:
-            seen.add(key)
-            out.append(t)
-        if len(out) >= 15:
-            break
-    return out
 
 
 def _aggregate_reactions(reactions_qs, current_user):
@@ -2159,8 +2137,6 @@ def turn_credentials(request):
 # ══════════════════════════════════════════════════════════════════════════════
 
 # Polls are deliberately guild-only; DMs get everything else.
-DM_RICH_TYPES = (MESSAGE_TYPE_TODO, MESSAGE_TYPE_CONTACT, MESSAGE_TYPE_LOCATION)
-GUILD_RICH_TYPES = (MESSAGE_TYPE_POLL,) + DM_RICH_TYPES
 
 _RICH_PREVIEW = {
     MESSAGE_TYPE_POLL: '\U0001F4CA Опрос',
@@ -2168,31 +2144,6 @@ _RICH_PREVIEW = {
     MESSAGE_TYPE_CONTACT: '\U0001F464 Контакт',
     MESSAGE_TYPE_LOCATION: '\U0001F4CD Геопозиция',
 }
-
-
-def _build_rich(kind, data):
-    """Returns (payload, live_until). Raises RichError on bad input."""
-    if kind == MESSAGE_TYPE_POLL:
-        return rich_msg.build_poll(data), None
-    if kind == MESSAGE_TYPE_TODO:
-        return rich_msg.build_todo(data), None
-    if kind == MESSAGE_TYPE_CONTACT:
-        from django.contrib.auth import get_user_model
-        return rich_msg.build_contact(data, get_user_model()), None
-    if kind == MESSAGE_TYPE_LOCATION:
-        return rich_msg.build_location(data)
-    raise RichError('unsupported message type')
-
-
-def _author_brief(u):
-    return {
-        'id': str(u.id),
-        'username': u.username,
-        'nickname': getattr(u, 'nickname', '') or '',
-        'avatar': u.avatar.url if getattr(u, 'avatar', None) else '',
-        'status': getattr(u, 'status', 'online'),
-        'account_type': getattr(u, 'account_type', 'user'),
-    }
 
 
 def _dm_rich_payload(msg, caption):
@@ -2253,36 +2204,6 @@ def _is_bot_message(msg):
     the bot's.
     """
     return getattr(msg.author, 'account_type', 'user') == 'bot'
-
-
-def _apply_message_edit(msg, data):
-    """Apply an author's edit to a text or rich message in place.
-
-    Polls are never editable. Todos/contacts/locations rebuild their whole payload
-    (full edit); plain text replaces content. Sets edited=True. Raises RichError on
-    bad input. Returns the compact payload the client merges into the message by id.
-    """
-    kind = msg.message_type or 'text'
-    if kind == MESSAGE_TYPE_POLL:
-        raise RichError('polls cannot be edited')
-    update_fields = ['edited']
-    if kind in DM_RICH_TYPES:  # todo / contact / location — replace the payload
-        payload, live_until = _build_rich(kind, data.get('payload') or {})
-        msg.payload = payload
-        msg.live_until = live_until
-        update_fields += ['encrypted_payload', 'live_until']
-        if 'content' in data:
-            msg.content = (data.get('content') or '').strip()[:2000]
-            update_fields.append('encrypted_content')
-    else:  # plain text
-        content = (data.get('content') or '').strip()
-        if not content:
-            raise RichError('empty message')
-        msg.content = content
-        update_fields.append('encrypted_content')
-    msg.edited = True
-    msg.save(update_fields=list(dict.fromkeys(update_fields)))
-    return {'id': str(msg.id), 'content': msg.content, 'edited': True, **rich_fields(msg, None)}
 
 
 @api_view(['POST'])
@@ -2481,22 +2402,6 @@ def guild_poll_close(request, guild_id, message_id):
 
 # ── Checklist interaction ───────────────────────────────────────────────────
 
-def _toggle_todo_item(msg, check_model, user, item_id):
-    """Shared tick state: one row per item. Returns True when the item is now done."""
-    valid = {i['id'] for i in msg.payload.get('items', [])}
-    if item_id not in valid:
-        raise RichError('unknown item')
-    with transaction.atomic():
-        existing = check_model.objects.select_for_update().filter(
-            message=msg, item_id=item_id
-        ).first()
-        if existing:
-            existing.delete()
-            return False
-        check_model.objects.create(message=msg, item_id=item_id, user=user)
-        return True
-
-
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def dm_todo_toggle(request, message_id):
@@ -2548,33 +2453,6 @@ def guild_todo_toggle(request, guild_id, message_id):
 
 
 # ── Live location ───────────────────────────────────────────────────────────
-
-def _apply_location_update(msg, data, stop=False):
-    payload = msg.payload
-    if stop:
-        payload['live'] = False
-        msg.live_until = timezone.now()
-        msg.payload = payload
-        msg.save(update_fields=['encrypted_payload', 'live_until'])
-        return payload
-    if not msg.live_until or msg.live_until <= timezone.now():
-        raise RichError('live sharing has ended')
-    try:
-        lat = float(data.get('lat'))
-        lng = float(data.get('lng'))
-    except (TypeError, ValueError):
-        raise RichError('lat and lng are required')
-    if not (-90 <= lat <= 90) or not (-180 <= lng <= 180):
-        raise RichError('coordinates out of range')
-    payload.update({
-        'lat': round(lat, 6),
-        'lng': round(lng, 6),
-        'updated_at': timezone.now().isoformat(),
-    })
-    msg.payload = payload
-    msg.save(update_fields=['encrypted_payload'])
-    return payload
-
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])

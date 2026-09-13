@@ -13,7 +13,6 @@ import { VoiceRoomProvider, GuildVoiceStage } from './components/voiceRoom';
 import { ExploreServers } from './components/ExploreServers';
 import { PersonalChannelFeed } from './components/PersonalChannelFeed';
 import { OnboardingTour } from './components/OnboardingTour';
-import { DiaryView } from './components/DiaryView';
 import { Volume2, PhoneOff } from 'lucide-react';
 import { applyA11y } from './utils/accessibility';
 import { applyDisplayPrefs } from './utils/displayPrefs';
@@ -268,8 +267,6 @@ function AppContent() {
         <moduleView.render style={{ gridColumn: '2 / -1' }} />
       ) : inExplore ? (
         <ExploreServers style={{ gridColumn: '2 / -1' }} />
-      ) : inGuild && currentGuild?.is_private ? (
-        <DiaryView style={{ gridColumn: '2 / -1' }} />
       ) : inGuild && currentGuild?.is_personal_channel ? (
         <PersonalChannelFeed style={{ gridColumn: '2 / -1' }} />
       ) : inGuild ? (

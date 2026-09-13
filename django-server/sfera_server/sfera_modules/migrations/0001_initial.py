@@ -1,4 +1,4 @@
-from django.conf import settings
+﻿from django.conf import settings
 from django.db import migrations, models
 import django.db.models.deletion
 
@@ -21,7 +21,7 @@ class Migration(migrations.Migration):
                 ('user', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='modules', to=settings.AUTH_USER_MODEL)),
             ],
             options={
-                'indexes': [models.Index(fields=['module_id'], name='sfera_modul_module__idx')],
+                'indexes': [models.Index(fields=['module_id'], name='sfera_modul_module__7d1b18_idx')],
                 'constraints': [models.UniqueConstraint(fields=('user', 'module_id'), name='uniq_user_module')],
             },
         ),

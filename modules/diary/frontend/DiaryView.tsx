@@ -1,19 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Search, Plus, Send, Trash2, X, Tag, BarChart3, CheckSquare, MapPin, User as UserIcon, NotebookPen, Paperclip, Pencil } from 'lucide-react';
-import { useApp } from '../context/AppContext';
-import { useTranslation } from '../i18n/useTranslation';
-import { MessageText } from './EmojiPicker';
-import { CensorOff } from './CensorScope';
-import { RichMessage } from './RichMessage';
-import { RichComposer } from './RichComposer';
-import { MessageEditModal } from './MessageEditModal';
-import { HideSelectionButton } from './HideSelectionButton';
-import type { GuildMessage, RichMessageType, RichPayload } from '../types';
+import {
+  CensorOff, HideSelectionButton, MessageEditModal, MessageText, RichComposer, RichMessage,
+  useCore, useModuleStore, useModuleT, useT, type RichMessageType, type RichPayload,
+} from '@sfera/sdk';
+import * as diary from './store';
+import type { DiaryEntry } from './types';
 
 // Auth-fetched media (images / video) — the diary is private so attachments need
 // the bearer token.
 function AuthMedia({ url, contentType, filename }: { url: string; contentType: string; filename: string }) {
-  const { currentServerIP, authToken } = useApp();
+  const { currentServerIP, authToken } = useCore();
   const [blob, setBlob] = useState<string | null>(null);
   useEffect(() => {
     let dead = false;
@@ -45,8 +42,9 @@ function entryDate(iso: string) {
   return new Date(iso).toLocaleString(undefined, { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
+const EMPTY: DiaryEntry[] = [];
 const RICH_KINDS: readonly string[] = ['poll', 'todo', 'contact', 'location'];
-function isRich(m: GuildMessage) { return !!m.payload && !!m.message_type && RICH_KINDS.includes(m.message_type); }
+function isRich(m: DiaryEntry) { return !!m.payload && !!m.message_type && RICH_KINDS.includes(m.message_type); }
 
 // A TagInput used both in the composer and the search bar.
 function TagChips({ tags, onRemove }: { tags: string[]; onRemove?: (t: string) => void }) {
@@ -62,13 +60,13 @@ function TagChips({ tags, onRemove }: { tags: string[]; onRemove?: (t: string) =
   );
 }
 
-export const DiaryView: React.FC<{ style?: React.CSSProperties }> = ({ style }) => {
-  const {
-    currentGuild, currentGuildChannel, guildMessages, currentServerIP, authToken,
-    deleteGuildMessage, customEmojis, sendRichMessage, currentUser, editMessage,
-    votePoll, closePoll, toggleTodoItem, pushLiveLocation, fetchPollVoters,
-  } = useApp();
-  const tr = useTranslation();
+export const DiaryView: React.FC<{ style?: React.CSSProperties; diaryId: string }> = ({ style, diaryId }) => {
+  const { customEmojis, currentUser } = useCore();
+  const tr = useT();
+  const t = useModuleT();
+  const current = useModuleStore(diary.store, s => s.diaries.find(d => d.id === diaryId));
+  const guildMessages = useModuleStore(diary.store, s => s.entries[diaryId]) ?? EMPTY;
+  useEffect(() => { void diary.openDiary(diaryId).catch(() => {}); }, [diaryId]);
   const isMobile = useIsMobile();
 
   const [query, setQuery] = useState('');
@@ -81,8 +79,8 @@ export const DiaryView: React.FC<{ style?: React.CSSProperties }> = ({ style }) 
   const [showTag, setShowTag] = useState(false);
   const [richType, setRichType] = useState<RichMessageType | null>(null);
   const [confirmDel, setConfirmDel] = useState<string | null>(null);
-  const [editing, setEditing] = useState<GuildMessage | null>(null);
-  const [editingTodo, setEditingTodo] = useState<GuildMessage | null>(null);
+  const [editing, setEditing] = useState<DiaryEntry | null>(null);
+  const [editingTodo, setEditingTodo] = useState<DiaryEntry | null>(null);
   const editingIdRef = useRef<string | null>(null);
   const priorTextRef = useRef('');
   const fileRef = useRef<HTMLInputElement>(null);
@@ -113,9 +111,6 @@ export const DiaryView: React.FC<{ style?: React.CSSProperties }> = ({ style }) 
     el.style.height = Math.min(el.scrollHeight, 134) + 'px';
   }, [text]);
 
-  const gid = currentGuild?.id;
-  const cid = currentGuildChannel?.id;
-  const scope = gid && cid ? { kind: 'guild' as const, guildId: gid, channelId: cid } : null;
 
   // Oldest first → newest at the bottom, like a journal / chat.
   const entries = useMemo(() => {
@@ -142,47 +137,32 @@ export const DiaryView: React.FC<{ style?: React.CSSProperties }> = ({ style }) 
     setTagDraft('');
   };
 
-  const uploadFiles = async (list: File[]): Promise<string[]> => {
-    if (!scope) return [];
-    const ids: string[] = [];
-    for (const f of list) {
-      const form = new FormData();
-      form.append('file', f, f.name);
-      const res = await fetch(`${currentServerIP}/api/guilds/${scope.guildId}/channels/${scope.channelId}/upload/`,
-        { method: 'POST', headers: { Authorization: `Bearer ${authToken}` }, body: form });
-      if (res.ok) ids.push((await res.json()).id);
-    }
-    return ids;
-  };
-
   const post = async () => {
     // Saving an inline edit — content only.
     if (editing) {
-      const t = text.trim();
-      if (!t || !scope) return;
+      const body = text.trim();
+      if (!body) return;
       try {
-        await editMessage(scope, String(editing.id), { content: t });
+        await diary.editEntry(String(editing.id), { content: body });
       } catch { return; }
       setEditing(null);
       return;
     }
-    if (!scope || (!text.trim() && files.length === 0)) return;
+    if (!text.trim() && files.length === 0) return;
     setSending(true);
+    const body = text.trim();
+    const localFiles = [...files];
+    const usedTags = [...tags];
+    setText(''); setFiles([]); setTags([]);
     try {
-      const body = text.trim();
-      const localFiles = [...files];
-      const usedTags = [...tags];
-      setText(''); setFiles([]); setTags([]);
-      const attIds = localFiles.length ? await uploadFiles(localFiles) : [];
-      await fetch(`${currentServerIP}/api/guilds/${scope.guildId}/channels/${scope.channelId}/messages/send/`, {
-        method: 'POST', headers: { Authorization: `Bearer ${authToken}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: body, attachment_ids: attIds, reply_to_id: null, tags: usedTags }),
-      });
-    } catch { /* surfaced by realtime absence */ }
-    finally { setSending(false); }
+      await diary.addEntry(diaryId, body, usedTags, localFiles);
+    } catch {
+      // Give the draft back rather than losing it.
+      setText(body); setFiles(localFiles); setTags(usedTags);
+    } finally { setSending(false); }
   };
 
-  if (!currentGuild) return null;
+  if (!current) return null;
 
   const attachItems = [
     { key: 'file', icon: <Paperclip size={16} />, label: tr('attach_file'), run: () => fileRef.current?.click() },
@@ -203,15 +183,15 @@ export const DiaryView: React.FC<{ style?: React.CSSProperties }> = ({ style }) 
           <NotebookPen size={18} color="#fff" />
         </div>
         <div style={{ minWidth: 0, flex: '0 1 auto' }}>
-          <div style={{ fontWeight: 700, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{currentGuild.name}</div>
-          <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{tr('diary_private_note')}</div>
+          <div style={{ fontWeight: 700, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{current.name}</div>
+          <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{t('diary_private_note')}</div>
         </div>
         <div style={{ position: 'relative', marginLeft: 'auto', flex: '1 1 auto', maxWidth: 360 }}>
           <Search size={15} style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-tertiary)' }} />
           <input
             value={query}
             onChange={e => setQuery(e.target.value)}
-            placeholder={tr('diary_search')}
+            placeholder={t('diary_search')}
             style={{ width: '100%', padding: '8px 12px 8px 34px', borderRadius: 10, border: '1px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: 13, outline: 'none', boxSizing: 'border-box' }}
           />
           {query && <X size={14} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-tertiary)', cursor: 'pointer' }} onClick={() => setQuery('')} />}
@@ -223,8 +203,8 @@ export const DiaryView: React.FC<{ style?: React.CSSProperties }> = ({ style }) 
         {entries.length === 0 && (
           <div style={{ marginTop: 60, color: 'var(--text-tertiary)', textAlign: 'center' }}>
             <NotebookPen size={40} style={{ opacity: 0.4, marginBottom: 10 }} />
-            <div style={{ fontSize: 15, fontWeight: 600 }}>{query ? tr('diary_nothing_found') : tr('diary_empty')}</div>
-            {!query && <div style={{ fontSize: 13, marginTop: 4 }}>{tr('diary_empty_hint')}</div>}
+            <div style={{ fontSize: 15, fontWeight: 600 }}>{query ? t('diary_nothing_found') : t('diary_empty')}</div>
+            {!query && <div style={{ fontSize: 13, marginTop: 4 }}>{t('diary_empty_hint')}</div>}
           </div>
         )}
         {entries.map(m => {
@@ -252,18 +232,17 @@ export const DiaryView: React.FC<{ style?: React.CSSProperties }> = ({ style }) 
                   <MessageText text={m.content} customEmojis={customEmojis} authorId={m.author?.id} />
                 </div>
               )}
-              {isRich(m) && scope && (
+              {isRich(m) && (
                 <div style={{ marginTop: 10 }}>
                   <RichMessage
                     type={m.message_type as RichMessageType}
                     payload={m.payload as RichPayload}
                     isOwn={isOwn}
                     canManage={isOwn}
-                    onVote={(ids) => { void votePoll(scope.guildId, String(m.id), ids); }}
-                    onClosePoll={() => { void closePoll(scope.guildId, String(m.id)); }}
-                    onToggleTodo={(itemId) => { void toggleTodoItem(scope, String(m.id), itemId); }}
-                    onStopLive={() => { void pushLiveLocation(scope, String(m.id), { stop: true }); }}
-                    onFetchVoters={(oid, off, lim) => fetchPollVoters(scope.guildId, String(m.id), oid, off, lim)}
+                    onVote={(ids) => { void diary.votePoll(diaryId, m.id, ids); }}
+                    onClosePoll={() => { void diary.closePoll(diaryId, m.id); }}
+                    onToggleTodo={(itemId) => { void diary.toggleTodo(diaryId, m.id, itemId); }}
+                    onStopLive={() => { void diary.stopLive(diaryId, m.id); }}
                   />
                 </div>
               )}
@@ -339,11 +318,11 @@ export const DiaryView: React.FC<{ style?: React.CSSProperties }> = ({ style }) 
                 value={text}
                 onChange={e => setText(e.target.value)}
                 onKeyDown={e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); void post(); } }}
-                placeholder={tr('diary_write')}
+                placeholder={t('diary_write')}
                 rows={1}
               />
               <HideSelectionButton inputRef={taRef} value={text} onChange={setText} />
-              <button className="composer-icon-btn" title={tr('diary_add_tag')} onClick={() => setShowTag(v => !v)} style={{ position: 'relative', color: showTag ? '#a855f7' : undefined }}>
+              <button className="composer-icon-btn" title={t('diary_add_tag')} onClick={() => setShowTag(v => !v)} style={{ position: 'relative', color: showTag ? '#a855f7' : undefined }}>
                 <Tag size={19} />
                 {tags.length > 0 && <span style={{ position: 'absolute', top: 0, right: 0, minWidth: 15, height: 15, padding: '0 3px', borderRadius: 8, background: '#a855f7', color: '#fff', fontSize: 9, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{tags.length}</span>}
               </button>
@@ -365,44 +344,44 @@ export const DiaryView: React.FC<{ style?: React.CSSProperties }> = ({ style }) 
                       // whatever's left is committed on blur / when the popover closes.
                       onKeyDown={e => { if ((e.key === 'Enter' || e.key === ',' || e.key === ' ') && tagDraft.trim()) { e.preventDefault(); addTag(tagDraft); } else if (e.key === 'Backspace' && !tagDraft && tags.length) { setTags(prev => prev.slice(0, -1)); } }}
                       onBlur={() => { if (tagDraft.trim()) addTag(tagDraft); }}
-                      placeholder={tr('diary_add_tag')}
+                      placeholder={t('diary_add_tag')}
                       style={{ width: '100%', padding: '7px 9px', borderRadius: 8, border: '1px solid var(--border-color)', background: 'var(--bg-tertiary)', color: 'var(--text-primary)', fontSize: 13, outline: 'none', boxSizing: 'border-box' }}
                     />
-                    <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 5 }}>{tr('diary_tag_hint')}</div>
+                    <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 5 }}>{t('diary_tag_hint')}</div>
                   </div>
                 </>
               )}
             </div>
-            <button className="composer-send-btn" onClick={() => void post()} disabled={sending || (!text.trim() && files.length === 0)} title={tr('diary_save')} style={{ padding: '0 16px', opacity: (sending || (!text.trim() && files.length === 0)) ? 0.6 : 1 }}>
+            <button className="composer-send-btn" onClick={() => void post()} disabled={sending || (!text.trim() && files.length === 0)} title={t('diary_save')} style={{ padding: '0 16px', opacity: (sending || (!text.trim() && files.length === 0)) ? 0.6 : 1 }}>
               <Send size={17} />
             </button>
           </div>
         </div>
       </div>
 
-      {richType && scope && (
+      {richType && (
         <RichComposer
           type={richType}
           onCancel={() => setRichType(null)}
-          onSubmit={async (type, payload) => { await sendRichMessage(scope, type, payload, tags); setTags([]); setRichType(null); }}
+          onSubmit={async (type, payload) => { await diary.addRich(diaryId, type, payload, tags); setTags([]); setRichType(null); }}
         />
       )}
 
-      {editingTodo && scope && (
+      {editingTodo && (
         <MessageEditModal
           msg={editingTodo}
           onCancel={() => setEditingTodo(null)}
-          onSave={async body => { await editMessage(scope, String(editingTodo.id), body); setEditingTodo(null); }}
+          onSave={async body => { await diary.editEntry(String(editingTodo.id), body); setEditingTodo(null); }}
         />
       )}
 
       {confirmDel && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 9000, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }} onClick={() => setConfirmDel(null)}>
           <div style={{ background: 'var(--bg-secondary)', borderRadius: 12, padding: 22, maxWidth: 340, width: '100%', border: '1px solid var(--border-color)' }} onClick={e => e.stopPropagation()}>
-            <p style={{ margin: '0 0 18px', color: 'var(--text-primary)', fontSize: 14 }}>{tr('diary_delete_entry')}</p>
+            <p style={{ margin: '0 0 18px', color: 'var(--text-primary)', fontSize: 14 }}>{t('diary_delete_entry')}</p>
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
               <button onClick={() => setConfirmDel(null)} style={{ padding: '8px 16px', background: 'var(--bg-tertiary)', color: 'var(--text-primary)', border: '1px solid var(--border-color)', borderRadius: 8, fontSize: 14, cursor: 'pointer' }}>{tr('cancel')}</button>
-              <button onClick={() => { const id = confirmDel; setConfirmDel(null); if (id) void deleteGuildMessage(id); }} style={{ padding: '8px 16px', background: '#ef4444', color: '#fff', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>{tr('pcf_delete')}</button>
+              <button onClick={() => { const id = confirmDel; setConfirmDel(null); if (id) void diary.deleteEntry(diaryId, id); }} style={{ padding: '8px 16px', background: '#ef4444', color: '#fff', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>{tr('pcf_delete')}</button>
             </div>
           </div>
         </div>
@@ -412,4 +391,3 @@ export const DiaryView: React.FC<{ style?: React.CSSProperties }> = ({ style }) 
   );
 };
 
-export default DiaryView;
