@@ -5,6 +5,7 @@ import { zh } from './zh';
 import { fr } from './fr';
 import { de } from './de';
 import { pt } from './pt';
+import { lookupModuleString } from './moduleStrings';
 
 export type LangCode = 'en' | 'ru' | 'es' | 'zh' | 'fr' | 'de' | 'pt';
 
@@ -33,5 +34,11 @@ const all: Record<LangCode, Translations> = { en, ru, es, zh, fr, de, pt };
 
 export function t(lang: string, key: keyof Translations): string {
   const code = (lang in all ? lang : 'en') as LangCode;
-  return all[code][key] ?? all.en[key] ?? key;
+  return all[code][key] ?? all.en[key] ?? lookupModuleString(code, key) ?? key;
+}
+
+/** Lookup for module-owned keys that are not part of the core `Translations`. */
+export function tm(lang: string, key: string): string {
+  const code = (lang in all ? lang : 'en') as LangCode;
+  return lookupModuleString(code, key) ?? (all[code] as Record<string, string>)[key] ?? key;
 }

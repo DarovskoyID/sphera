@@ -173,6 +173,14 @@ class SignalingConsumer(AsyncWebsocketConsumer):
             'is_pinned': event['is_pinned'],
         }))
 
+    async def module_event(self, event):
+        # Generic module → client push (sfera_modules.hooks.push_to_user).
+        await self.send(text_data=json.dumps({
+            **event.get('payload', {}),
+            'type': 'module_event',
+            'event': event['event'],
+        }))
+
     async def guild_kicked(self, event):
         await self.send(text_data=json.dumps({
             'type': 'guild_kicked_direct',

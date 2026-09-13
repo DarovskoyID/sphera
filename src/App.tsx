@@ -19,6 +19,8 @@ import { applyA11y } from './utils/accessibility';
 import { applyDisplayPrefs } from './utils/displayPrefs';
 import { getKeybindings, onKeybindingsUpdate, eventToCombo, comboMainKey, toggleDeafen, type ActionId } from './utils/keybindings';
 import { initNativeBridge } from './utils/nativeBridge';
+import { ModuleHost, ModuleOverlays } from './core/modules/ModuleHost';
+import { useSlot } from './sdk/slots';
 
 // Apply saved accessibility + display preferences as early as possible.
 applyA11y();
@@ -243,6 +245,7 @@ function AppContent() {
   const { authToken, isCallActive, currentView, currentChat, mobileActivePanel, currentGuild, currentGuildChannel, currentVoiceChannel, leaveVoiceChannel } = useApp();
   const tr = useTranslation();
   const isMobile = useMobile();
+  const moduleViews = useSlot('main.view');
   useKeybindings();
 
   if (!authToken) {
@@ -256,11 +259,14 @@ function AppContent() {
   const inGuild = currentView === 'server' && !!currentGuild;
   const { currentServer } = useApp();
   const inExplore = currentServer === 'explore';
+  const moduleView = moduleViews.find(v => v.match({ currentServer, currentView }));
 
   return (
     <div className={`app-container mobile-panel-${mobileActivePanel}${currentVoiceChannel ? ' voice-connected' : ''}${isCallActive ? ' call-active' : ''}`}>
       <ServerSidebar />
-      {inExplore ? (
+      {moduleView ? (
+        <moduleView.render style={{ gridColumn: '2 / -1' }} />
+      ) : inExplore ? (
         <ExploreServers style={{ gridColumn: '2 / -1' }} />
       ) : inGuild && currentGuild?.is_private ? (
         <DiaryView style={{ gridColumn: '2 / -1' }} />
@@ -299,6 +305,7 @@ function AppContent() {
       {isCallActive && !inChat && <CallWindow />}
       <ToastContainer />
       <GuildKickNotification />
+      <ModuleOverlays />
       <OnboardingTour />
     </div>
   );
@@ -307,9 +314,11 @@ function AppContent() {
 function App() {
   return (
     <AppProvider>
-      <VoiceRoomProvider>
-        <AppContent />
-      </VoiceRoomProvider>
+      <ModuleHost>
+        <VoiceRoomProvider>
+          <AppContent />
+        </VoiceRoomProvider>
+      </ModuleHost>
     </AppProvider>
   );
 }

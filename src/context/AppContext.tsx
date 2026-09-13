@@ -18,6 +18,8 @@ import { clearDiaryCache, readCachedDiary, writeCachedDiary } from '../utils/dia
 import { postNativeTheme, setNativePrefs } from '../utils/nativeBridge';
 import { deviceQuery } from '../utils/device';
 import { toUserMessage, readResponse, setErrorLang } from '../utils/errorManager';
+import { publishWs } from '../sdk/wsBus';
+import { runLifecycle } from '../sdk/lifecycle';
 
 
 // ── Inject X-Ionik-Client header into every fetch ────────────────────────────
@@ -493,6 +495,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     // exactly when it must stop existing.
     void clearMessageCache();
     void clearDiaryCache();
+    void runLifecycle('logout');
     setState(prev => ({ ...prev, authToken: '', currentUser: null, friends: [], pendingRequests: [], sentRequests: [], userIDonServer: '', currentChat: '' }));
   }, []);
 
@@ -975,6 +978,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
 
           ws.onmessage = (event) => {
             const data = JSON.parse(event.data);
+            publishWs('chat', data);
             if (data.type === 'conversation_deleted') {
               setState(prev => ({
                 ...prev,
@@ -1537,6 +1541,8 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
 
       ws.onmessage = (event) => {
         const data = JSON.parse(event.data);
+        publishWs('signaling', data);
+        if (data.type === 'module_event') return;
         if (data.type === 'peers') {
           setSignalingPeers(data.peers);
           return;

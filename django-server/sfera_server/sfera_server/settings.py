@@ -92,7 +92,14 @@ INSTALLED_APPS = [
     'sfera_messages',
     'sfera_signaling',
     'sfera_bots',
+    'sfera_modules',
 ]
+
+# Modules checked out into <repo>/modules/<id>/ (branches module/<id>).
+from sfera_modules.loader import backend_apps as _module_backend_apps  # noqa: E402
+INSTALLED_APPS += [a for a in _module_backend_apps() if a not in INSTALLED_APPS]
+# Until the «Исследовать сферу» install UI ships, every present module counts as installed.
+SFERA_MODULES_ENFORCE = _env_bool('SFERA_MODULES_ENFORCE', False)
 
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
