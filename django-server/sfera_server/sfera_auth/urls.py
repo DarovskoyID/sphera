@@ -8,6 +8,7 @@ urlpatterns = [
     path('refresh/', views.refresh_token),
     path('logout/', views.logout_view),
     path('me/', views.me),
+    path('ban-status/', views.ban_status),
     path('me/update/', views.update_profile),
     path('me/password/', views.change_password),
     path('me/sessions/revoke/', views.revoke_sessions),

@@ -31,6 +31,7 @@ class ModuleRegistryTests(TestCase):
             'family': {'deps': ['servers']},
             'orphan': {'deps': ['missing']},
             'future': {'sdkVersion': 99},
+            'multiserver': {'preAuth': True},
         })
         self.patches = [
             mock.patch.object(loader, 'MODULES_DIR', root),
@@ -52,7 +53,7 @@ class ModuleRegistryTests(TestCase):
         self.tmp.cleanup()
 
     def test_discover_skips_missing_deps_and_foreign_sdk(self):
-        self.assertEqual(set(loader.discover()), {'servers', 'channels', 'family'})
+        self.assertEqual(set(loader.discover()), {'servers', 'channels', 'family', 'multiserver'})
 
     @override_settings(SFERA_MODULES_ENFORCE=True)
     def test_install_pulls_deps_and_uninstall_is_guarded(self):
@@ -76,8 +77,17 @@ class ModuleRegistryTests(TestCase):
         data = self.member_client.get('/api/modules/').data
         self.assertFalse(data['can_manage'])
         mods = {m['id']: m['installed'] for m in data['modules']}
-        self.assertEqual(mods, {'servers': False, 'channels': True, 'family': False})
+        self.assertEqual(mods, {'servers': False, 'channels': True, 'family': False, 'multiserver': False})
         self.assertTrue(self.client.get('/api/modules/').data['can_manage'])
+
+    @override_settings(SFERA_MODULES_ENFORCE=True)
+    def test_public_modules_for_sign_in_screen(self):
+        anon = APIClient(headers={'X-Ionik-Client': '1'})
+        self.assertEqual(anon.get('/api/modules/public/').data['modules'], [])
+        self.client.post('/api/modules/multiserver/install/')
+        self.client.post('/api/modules/servers/install/')
+        ids = [m['id'] for m in anon.get('/api/modules/public/').data['modules']]
+        self.assertEqual(ids, ['multiserver'])
 
     @override_settings(SFERA_MODULES_ENFORCE=True)
     def test_only_superuser_manages_modules(self):

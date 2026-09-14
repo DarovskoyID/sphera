@@ -43,6 +43,8 @@ class ModuleManifest:
     icon: str = ''
     provides: tuple = ()
     sdk_version: int = SDK_VERSION
+    # Frontend also runs on the sign-in screen (e.g. choosing a server).
+    pre_auth: bool = False
 
     @property
     def frontend_entry(self) -> str:
@@ -58,6 +60,7 @@ class ModuleManifest:
             'icon': self.icon,
             'provides': list(self.provides),
             'entry': self.frontend_entry,
+            'preAuth': self.pre_auth,
         }
 
 
@@ -85,6 +88,7 @@ def _read(path: Path) -> ModuleManifest | None:
         icon=raw.get('icon', ''),
         provides=tuple(raw.get('provides', ())),
         sdk_version=raw.get('sdkVersion', SDK_VERSION),
+        pre_auth=bool(raw.get('preAuth', False)),
     )
 
 

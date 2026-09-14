@@ -138,6 +138,8 @@ def bans(request):
         target.is_active = False
         target.save(update_fields=['is_active'])
         _revoke_sessions(target)
+    from . import bans as ban_events
+    ban_events.notify_banned(target.id)
     return Response({'user': _brief(target), 'reason': ban.reason, 'created_at': ban.created_at}, status=201)
 
 
@@ -152,6 +154,8 @@ def unban(request, user_id):
         UserBan.objects.filter(user=target).delete()
         target.is_active = True
         target.save(update_fields=['is_active'])
+    from . import bans as ban_events
+    ban_events.notify_unbanned(target.id)
     return Response(status=status.HTTP_204_NO_CONTENT)
 
 

@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { useApp } from '../../context/AppContext';
 import { useSlot } from '../../sdk/slots';
-import { connectModules, disconnectModules, useModules } from './registry';
+import { connectModules, connectPublicModules, disconnectModules, useModules } from './registry';
 import { bindHost } from '../../sdk/runtime';
 
 /** Loads the user's installed modules and mounts their providers and overlays. */
@@ -12,6 +12,7 @@ export function ModuleHost({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!authToken) {
       disconnectModules();
+      connectPublicModules(currentServerIP);
       return;
     }
     connectModules(currentServerIP, authToken).catch(e => console.error('[modules] catalog failed', e));

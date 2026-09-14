@@ -35,6 +35,33 @@ class AppOnlyMiddleware:
         return self.get_response(request)
 
 
+class BanGuardMiddleware:
+    """Refuses every API request made with a banned user's token — core and modules.
+
+    Runs before DRF and any module view, so nothing a banned account sends is
+    processed. `/api/auth/ban-status/` answers with the ban itself, which is how
+    the client shows the ban screen.
+    """
+
+    STATUS_PATH = '/api/auth/ban-status/'
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        from django.http import JsonResponse
+        from sfera_auth import bans
+
+        if request.path.startswith('/api/') and request.method != 'OPTIONS':
+            user_id = bans.user_id_from_bearer(request.headers.get('Authorization', ''))
+            if user_id and bans.is_banned(user_id):
+                info = bans.ban_info(user_id) or {'error': 'account_banned', 'reason': ''}
+                if request.path == self.STATUS_PATH:
+                    return JsonResponse({'banned': True, **info})
+                return JsonResponse(info, status=403)
+        return self.get_response(request)
+
+
 class SecurityHeadersMiddleware:
     def __init__(self, get_response):
         self.get_response = get_response
@@ -59,11 +86,21 @@ class SecurityHeadersMiddleware:
 
 @database_sync_to_async
 def get_user_from_token(token_str):
+    from sfera_auth import bans
     try:
         token = AccessToken(token_str)
-        return User.objects.get(id=token['user_id'])
+        user = User.objects.get(id=token['user_id'])
     except Exception:
         return AnonymousUser()
+    if not user.is_active or bans.is_banned(user.id):
+        return AnonymousUser()
+    return user
+
+
+@database_sync_to_async
+def _still_banned(user_id):
+    from sfera_auth import bans
+    return bans.is_banned(user_id)
 
 
 def _token_from_subprotocols(scope):
@@ -86,4 +123,22 @@ class JWTAuthMiddleware(BaseMiddleware):
             scope['user'] = await get_user_from_token(token)
         else:
             scope['user'] = AnonymousUser()
+
+        user = scope['user']
+        if getattr(user, 'is_authenticated', False):
+            user_id = user.id
+
+            async def guarded_receive():
+                # Sockets opened before a ban: drop frames from a banned user and
+                # end the connection, for core and module consumers alike.
+                event = await receive()
+                if event.get('type') == 'websocket.receive' and await _still_banned(user_id):
+                    try:
+                        await send({'type': 'websocket.close', 'code': 4003})
+                    except Exception:
+                        pass
+                    return {'type': 'websocket.disconnect', 'code': 4003}
+                return event
+
+            return await super().__call__(scope, guarded_receive, send)
         return await super().__call__(scope, receive, send)

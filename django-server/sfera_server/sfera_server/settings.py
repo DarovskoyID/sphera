@@ -106,6 +106,7 @@ SFERA_MODULES_ENFORCE = _env_bool('SFERA_MODULES_ENFORCE', 'test' not in _sys.ar
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
     'sfera_server.middleware.AppOnlyMiddleware',
+    'sfera_server.middleware.BanGuardMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'sfera_server.middleware.SecurityHeadersMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',

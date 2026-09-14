@@ -372,6 +372,12 @@ def register_send_code(request):
 @permission_classes([AllowAny])
 @throttle_classes([AuthRateThrottle])
 def login(request):
+    # A banned account with the right password learns why it cannot sign in.
+    from . import bans
+    candidate = User.objects.filter(username=str(request.data.get('username', ''))).first()
+    if candidate and bans.is_banned(candidate.id) and candidate.check_password(str(request.data.get('password', ''))):
+        audit_event(request, 'login_banned', user=candidate)
+        return Response(bans.ban_info(candidate.id), status=status.HTTP_403_FORBIDDEN)
     serializer = TokenObtainPairSerializer(data=request.data)
     if not serializer.is_valid():
         audit_event(request, 'login_failed', metadata={'username': str(request.data.get('username', ''))[:150]})
@@ -1335,4 +1341,8 @@ def data_export_download(request, export_id):
     )
     return response
 
-
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def ban_status(request):
+    # A banned token never reaches this view: BanGuardMiddleware answers for it.
+    return Response({'banned': False})

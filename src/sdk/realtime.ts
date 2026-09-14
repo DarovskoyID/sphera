@@ -1,3 +1,4 @@
+import { handleBanFrame } from '../core/ban/banGuard';
 import { wsUrlFor } from '../config/network';
 
 export interface ModuleSocket {
@@ -32,7 +33,7 @@ export function openModuleSocket(opts: {
     ws.onmessage = ev => {
       try {
         const frame = JSON.parse(ev.data);
-        if (frame && typeof frame.type === 'string') opts.onFrame(frame);
+        if (frame && typeof frame.type === 'string' && !handleBanFrame(frame)) opts.onFrame(frame);
       } catch { /* not a frame */ }
     };
     ws.onclose = () => {

@@ -12,7 +12,8 @@ export interface SlotMap {
   'main.view': { id: string; match: (route: MainRoute) => boolean; render: ComponentType<{ style?: React.CSSProperties }> };
   /** Settings page + its menu entry. */
   'settings.page': { id: string; label: string | (() => string); icon?: ReactNode; render: ComponentType };
-  /** Item in the rail "+" menu; ender is the dialog it opens. */
+  /** Item in the rail "+" menu; 
+ender is the dialog it opens. */
   'rail.addAction': { id: string; order?: number; label: () => string; icon?: ReactNode; render: ComponentType<{ onClose: () => void }> };
   /** Card in «Исследовать сферу». */
   'explore.card': { id: string; order?: number; render: ComponentType };
@@ -32,6 +33,8 @@ export interface SlotMap {
   'picker.stickers': { id: string; load: () => Promise<PickerSticker[]> };
   /** Always-mounted overlay (toasts, voice banner, …). */
   'app.overlay': { id: string; render: ComponentType };
+  /** Under the sign-in form (modules with `preAuth` in module.json). */
+  'auth.footer': { id: string; order?: number; render: ComponentType };
   /** React provider wrapping the whole app (module state). */
   'app.provider': { id: string; render: ComponentType<{ children: ReactNode }> };
 }

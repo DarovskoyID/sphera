@@ -61,6 +61,10 @@ def _process_chat_message(data: dict):
     if attachment_ids is None:
         logger.warning('Rejected chat message with malformed attachment_ids')
         return
+    from sfera_auth.bans import is_banned
+    if is_banned(author_id):
+        logger.warning('Rejected chat message from banned author=%s', author_id)
+        return
     if not Conversation.objects.filter(id=conversation_id, participants__id=author_id).exists():
         logger.warning('Rejected chat message for unauthorized conversation=%s author=%s', conversation_id, author_id)
         return

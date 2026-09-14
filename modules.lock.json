@@ -17,6 +17,10 @@
       "branch": "module/family",
       "ref": "6586704f31eea340ee94ab8baf654f47113f4895"
     },
+    "multiserver": {
+      "branch": "module/multiserver",
+      "ref": "2d011e886001303a681206aaac6063e5c08b8a06"
+    },
     "servers": {
       "branch": "module/servers",
       "ref": "31151fc327a6a80da7bc4058ffd97d41ced307c0"

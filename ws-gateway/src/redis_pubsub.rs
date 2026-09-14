@@ -22,6 +22,8 @@ async fn run_subscriber(state: &Arc<AppState>) -> redis::RedisResult<()> {
     pubsub.psubscribe("chat_*").await?;
     pubsub.psubscribe("guild_channel_*").await?;
     pubsub.psubscribe("user_*").await?;
+    // Account bans: every open socket of the user closes (handlers.rs).
+    pubsub.psubscribe("ban_*").await?;
 
     tracing::info!("Redis subscriber connected");
 
