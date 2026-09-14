@@ -480,7 +480,6 @@ export const ChatSidebar: React.FC = () => {
   } = useApp();
   const tr = useTranslation();
   const isMobile = useIsMobile();
-  const isChild = !!currentUser?.is_child;
   // Matches the avatar column in chat-sidebar.css, which widens for thumbs.
   const avatarSize = isMobile ? 44 : 36;
 
@@ -794,24 +793,10 @@ export const ChatSidebar: React.FC = () => {
           )}
           <div className={`settings-item ${currentSettingsPage === 'data' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('data')}>{tr('settings_data')}</div>
           <div className={`settings-item ${currentSettingsPage === 'devices' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('devices')}>{tr('settings_devices')}</div>
-          <div className={`settings-item ${currentSettingsPage === 'servers' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('servers')}>{tr('settings_servers')}</div>
           {modulePages.map(p => (
             <div key={`${p.moduleId}:${p.id}`} className={`settings-item ${currentSettingsPage === p.id ? 'active' : ''}`} onClick={() => setCurrentSettingsPage(p.id)}>{typeof p.label === 'function' ? p.label() : p.label}</div>
           ))}
-          <div className={`settings-item ${currentSettingsPage === 'integration' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('integration')}>{tr('settings_integration')}</div>
           <div className={`settings-item ${currentSettingsPage === 'notifications' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('notifications')}>{tr('settings_notifications')}</div>
-          <div className={`settings-item ${currentSettingsPage === 'apps' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('apps')}>{tr('settings_apps')}</div>
-          {/* Everything that costs money, or spends it. A child's account has
-              no way to pay for any of it and no business being asked to. */}
-          {!isChild && (
-            <>
-              <div className="settings-devider" />
-              <div className={`settings-item ${currentSettingsPage === 'nitro' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('nitro')}>{tr('settings_nitro')}</div>
-              <div className={`settings-item ${currentSettingsPage === 'subscribes' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('subscribes')}>{tr('settings_subscribes')}</div>
-              <div className={`settings-item ${currentSettingsPage === 'gifts' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('gifts')}>{tr('settings_gifts')}</div>
-              <div className={`settings-item ${currentSettingsPage === 'payments' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('payments')}>{tr('settings_payments')}</div>
-            </>
-          )}
           <div className="settings-devider" />
           <div className={`settings-item ${currentSettingsPage === 'view' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('view')}>{tr('settings_appearance')}</div>
           <div className={`settings-item ${currentSettingsPage === 'special' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('special')}>{tr('settings_special')}</div>
@@ -822,10 +807,6 @@ export const ChatSidebar: React.FC = () => {
           <div className={`settings-item ${currentSettingsPage === 'language' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('language')}>{tr('settings_language')}</div>
           <div className={`settings-item ${currentSettingsPage === 'exportImport' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('exportImport')}>{tr('settings_export_import')}</div>
           <div className={`settings-item ${currentSettingsPage === 'streamer' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('streamer')}>{tr('settings_streamer')}</div>
-          <div className={`settings-item ${currentSettingsPage === 'more' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('more')}>{tr('settings_more')}</div>
-          <div className="settings-devider" />
-          <div className={`settings-item ${currentSettingsPage === 'privacyOfActivity' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('privacyOfActivity')}>{tr('settings_activity_privacy')}</div>
-          <div className={`settings-item ${currentSettingsPage === 'games' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('games')}>{tr('settings_games')}</div>
           <div className="settings-devider" />
           <div className="settings-item" style={{ color: '#ef4444' }} onClick={() => setShowLogoutModal(true)}>
             <LogOut size={14} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 6 }} />

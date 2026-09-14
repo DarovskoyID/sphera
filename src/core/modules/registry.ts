@@ -131,6 +131,24 @@ export async function connectModules(serverIP: string, token: string) {
   }
 }
 
+/** Signed out: activate only installed modules that work on the sign-in screen. */
+export async function connectPublicModules(serverIP: string) {
+  try {
+    const res = await fetch(`${serverIP}/api/modules/public/`);
+    const data = res.ok ? await res.json() : { modules: [] };
+    const modules: ModuleInfo[] = (data.modules ?? []).map((m: Omit<ModuleInfo, 'active'>) => ({
+      ...m, installed: true, active: disposers.has(m.id),
+    }));
+    set({ modules });
+    for (const m of modules) await activate(m.id);
+    for (const id of [...disposers.keys()]) {
+      if (!modules.some(m => m.id === id)) deactivate(id);
+    }
+  } catch (e) {
+    console.error('[modules] public catalog failed', e);
+  }
+}
+
 export function disconnectModules() {
   for (const id of [...disposers.keys()]) deactivate(id);
   conn = null;

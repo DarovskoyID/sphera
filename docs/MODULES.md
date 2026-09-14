@@ -35,7 +35,7 @@
 ## Устройство ветки модуля
 
 ```
-module.json                 id, name, version, sdkVersion, deps, backendApp, urlPrefix, icon
+module.json                 id, name, version, sdkVersion, deps, backendApp, urlPrefix, icon, preAuth (UI и на экране входа, слот auth.footer)
 backend/<django_app>/        models, migrations, urls.py, routing.py (WS), apps.py (хуки), tests.py
 frontend/index.tsx           export default defineModule({ id, setup(ctx) { … } })
 monitoring/grafana/*.json    дашборды Grafana модуля (папка модуля в Grafana)

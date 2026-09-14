@@ -14,6 +14,7 @@ import { applyDisplayPrefs } from './utils/displayPrefs';
 import { getKeybindings, onKeybindingsUpdate, eventToCombo, comboMainKey, toggleDeafen, type ActionId } from './utils/keybindings';
 import { initNativeBridge } from './utils/nativeBridge';
 import { ModuleHost, ModuleOverlays } from './core/modules/ModuleHost';
+import { useBan } from './core/ban/banGuard';
 import { useSlot } from './sdk/slots';
 
 // Apply saved accessibility + display preferences as early as possible.
@@ -242,6 +243,10 @@ function AppContent() {
 }
 
 function App() {
+  // A banned account gets nothing but the ban screen (core/ban/banGuard.ts):
+  // the app itself — its state, sockets and views — is not mounted at all.
+  const ban = useBan();
+  if (ban) return null;
   return (
     <AppProvider>
       <ModuleHost>

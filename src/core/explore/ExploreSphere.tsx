@@ -22,7 +22,7 @@ const CATEGORIES = [
 ];
 
 const MODULE_ICONS: Record<string, LucideIcon> = {
-  bot: Bot, rss: Rss, 'notebook-pen': NotebookPen, home: Home, users: Users,
+  bot: Bot, rss: Rss, 'notebook-pen': NotebookPen, home: Home, users: Users, globe: Globe,
 };
 
 const sectionTitle: React.CSSProperties = {

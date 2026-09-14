@@ -173,6 +173,14 @@ class SignalingConsumer(AsyncWebsocketConsumer):
             'is_pinned': event['is_pinned'],
         }))
 
+    async def account_banned(self, event):
+        # The superuser banned this account: tell the client, then hang up.
+        await self.send(text_data=json.dumps(event.get('data') or {'type': 'account_banned'}))
+        await self.close(code=4003)
+
+    async def account_unbanned(self, event):
+        await self.send(text_data=json.dumps({'type': 'account_unbanned'}))
+
     async def module_event(self, event):
         # Generic module → client push (sfera_modules.hooks.push_to_user).
         await self.send(text_data=json.dumps({

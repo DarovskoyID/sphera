@@ -1,3 +1,4 @@
+import { handleBanFrame } from '../core/ban/banGuard';
 /**
  * Event bus for WebSocket frames. Core sockets publish every parsed frame;
  * modules subscribe by `type` instead of patching the core's if/else chains.
@@ -26,6 +27,7 @@ export function onWs(channel: WsChannel, type: string, handler: Handler): () => 
 
 /** Returns true if at least one module handled the frame. */
 export function publishWs(channel: WsChannel, frame: WsFrame): boolean {
+  if (handleBanFrame(frame)) return true;
   const types = [frame.type];
   if (frame.type === 'module_event' && typeof frame.event === 'string') types.push(`module:${frame.event}`);
   let handled = false;

@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef, createContext, useContext } from 'react';
-import { Shield, ShieldCheck, Monitor, Smartphone, Tablet, Trash2, UserX, Camera, Upload, Play, Square, RotateCcw, Server, CheckCircle2, Circle, Clock, Mic, Video, Volume2, Download, Plus, Sparkles } from 'lucide-react';
-import { ServerSelector } from './ServerSelector';
+import { Shield, ShieldCheck, Monitor, Smartphone, Tablet, Trash2, UserX, Camera, Upload, Play, Square, RotateCcw, CheckCircle2, Circle, Mic, Video, Volume2, Download, Plus, Sparkles } from 'lucide-react';
 import { MessageText } from './EmojiPicker';
 import { CensorOff } from './CensorScope';
 import { replayOnboarding } from './OnboardingTour';
@@ -334,20 +333,10 @@ export const Settings: React.FC = () => {
           {currentSettingsPage === 'formatting' && <FormattingSettings />}
           {currentSettingsPage === 'language' && <LanguageSettings />}
           {currentSettingsPage === 'streamer' && <StreamerSettings />}
-          {currentSettingsPage === 'more' && <MoreSettings />}
-          {currentSettingsPage === 'privacyOfActivity' && <PrivacyActivitySettings />}
           {currentSettingsPage === 'special' && <SpecialSettings />}
           {currentSettingsPage === 'binds' && <BindsSettings />}
           {currentSettingsPage === 'exportImport' && <ExportImportSettings />}
-          {currentSettingsPage === 'servers' && <ServersSettings />}
           {modulePages.filter(p => p.id === currentSettingsPage).map(p => <p.render key={`${p.moduleId}:${p.id}`} />)}
-          {currentSettingsPage === 'integration' && <Placeholder title="Integrations" />}
-          {currentSettingsPage === 'apps' && <Placeholder title="Connected Apps" />}
-          {currentSettingsPage === 'nitro' && <Placeholder title="Nitro" />}
-          {currentSettingsPage === 'subscribes' && <Placeholder title="Subscriptions" />}
-          {currentSettingsPage === 'gifts' && <Placeholder title="Gifts" />}
-          {currentSettingsPage === 'payments' && <Placeholder title="Payments" />}
-          {currentSettingsPage === 'games' && <Placeholder title="Registered Games" />}
         </div>
       </div>
     </SettingsCtx.Provider>
@@ -1772,40 +1761,6 @@ const StreamerSettings: React.FC = () => {
   );
 };
 
-// ==================== Advanced ====================
-
-const MoreSettings: React.FC = () => {
-  const tr = useTranslation();
-  return (
-  <section>
-    <h1>{tr('sadv_title')}</h1>
-    <Check label={tr('sadv_dev')} field="developer_mode" />
-    <Check label={tr('sadv_hw')} field="hardware_acceleration" />
-  </section>
-  );
-};
-
-// ==================== Activity Privacy ====================
-
-const PrivacyActivitySettings: React.FC = () => {
-  const tr = useTranslation();
-  const isRu = tr('settings_formatting') === 'Подсказки';
-  return (
-  <section>
-    <h1>{tr('sact_title')}</h1>
-    <div style={{ ...card, marginTop: 16, display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', padding: '40px 24px', gap: 12 }}>
-      <Clock size={40} style={{ color: 'var(--text-secondary)', opacity: 0.6 }} />
-      <h3 style={{ ...sectionH3, margin: 0 }}>{isRu ? 'Скоро' : 'Coming soon'}</h3>
-      <p style={{ fontSize: 14, color: 'var(--text-secondary)', margin: 0, maxWidth: 360 }}>
-        {isRu
-          ? 'Управление приватностью активности появится в одном из следующих обновлений.'
-          : 'Activity privacy controls are on the way in an upcoming update.'}
-      </p>
-    </div>
-  </section>
-  );
-};
-
 // ==================== Accessibility ====================
 
 const SpecialSettings: React.FC = () => {
@@ -2060,24 +2015,3 @@ const ExportImportSettings: React.FC = () => {
   );
 };
 
-// ==================== Servers ====================
-
-const ServersSettings: React.FC = () => {
-  const tr = useTranslation();
-  return (
-    <section>
-      <h1><Server size={20} style={{ verticalAlign: 'middle', marginRight: 8 }} />{tr('srv_title')}</h1>
-      <p>{tr('srv_desc')}</p>
-      <ServerSelector />
-    </section>
-  );
-};
-
-// ==================== Placeholder ====================
-
-const Placeholder: React.FC<{ title: string }> = ({ title }) => {
-  const tr = useTranslation();
-  return (
-  <section><h1>{title}</h1><p style={{ color: 'var(--text-secondary)' }}>{tr('settings_coming_soon')}</p></section>
-  );
-};

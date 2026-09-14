@@ -71,6 +71,11 @@ async fn handle_chat(socket: WebSocket, state: Arc<AppState>, conversation_id: S
     metrics::conn_open();
     let room = format!("chat_{}", conversation_id);
     let mut rx = state.hub.join(&room, &user_id);
+    // Django publishes `ban_<user_id>` when the superuser bans the account.
+    let ban_room = format!("ban_{}", user_id);
+    let mut ban_rx = state.hub.join(&ban_room, &user_id);
+    let banned = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let banned_sink = banned.clone();
     // Replies meant only for this client (e.g. "your message was blocked").
     let (direct_tx, mut direct_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
 
@@ -81,6 +86,14 @@ async fn handle_chat(socket: WebSocket, state: Arc<AppState>, conversation_id: S
     let sink_task = tokio::spawn(async move {
         loop {
             tokio::select! {
+                ban = ban_rx.recv() => {
+                    if let Ok(event) = ban {
+                        banned_sink.store(true, std::sync::atomic::Ordering::SeqCst);
+                        let _ = sink.send(Message::Text(event.to_string().into())).await;
+                        let _ = sink.send(Message::Close(None)).await;
+                    }
+                    break;
+                }
                 direct = direct_rx.recv() => {
                     let Some(text) = direct else { break };
                     if sink.send(Message::Text(text.into())).await.is_err() {
@@ -110,6 +123,9 @@ async fn handle_chat(socket: WebSocket, state: Arc<AppState>, conversation_id: S
     let conv_id2 = conversation_id.clone();
     let recv_task = tokio::spawn(async move {
         while let Some(Ok(msg)) = stream.next().await {
+            if banned.load(std::sync::atomic::Ordering::SeqCst) {
+                break;
+            }
             match msg {
                 Message::Text(text) => {
                     handle_chat_message(&state2, &room2, &conv_id2, &user_id2, &token, &direct_tx, &text).await;
@@ -127,6 +143,7 @@ async fn handle_chat(socket: WebSocket, state: Arc<AppState>, conversation_id: S
     }
 
     state.hub.leave(&room, &user_id);
+    state.hub.leave(&ban_room, &user_id);
     metrics::conn_close();
     tracing::debug!("Chat WS closed: user={} room={}", user_id, room);
 }
@@ -329,6 +346,10 @@ async fn handle_guild(
     let guild_room = format!("guild_{}", guild_id);
     let mut rx = state.hub.join(&room, &user_id);
     let mut guild_rx = state.hub.join(&guild_room, &user_id);
+    let ban_room = format!("ban_{}", user_id);
+    let mut ban_rx = state.hub.join(&ban_room, &user_id);
+    let banned = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let banned_sink = banned.clone();
 
     let (mut sink, mut stream) = socket.split();
 
@@ -336,6 +357,14 @@ async fn handle_guild(
     let sink_task = tokio::spawn(async move {
         loop {
             tokio::select! {
+                ban = ban_rx.recv() => {
+                    if let Ok(event) = ban {
+                        banned_sink.store(true, std::sync::atomic::Ordering::SeqCst);
+                        let _ = sink.send(Message::Text(event.to_string().into())).await;
+                        let _ = sink.send(Message::Close(None)).await;
+                    }
+                    break;
+                }
                 result = rx.recv() => {
                     match result {
                         Ok(msg) => {
@@ -372,6 +401,9 @@ async fn handle_guild(
     let channel_id2 = channel_id.clone();
     let recv_task = tokio::spawn(async move {
         while let Some(Ok(msg)) = stream.next().await {
+            if banned.load(std::sync::atomic::Ordering::SeqCst) {
+                break;
+            }
             match msg {
                 Message::Text(text) => {
                     handle_guild_message(&state2, &room2, &channel_id2, &user_id2, &text).await;
@@ -389,6 +421,7 @@ async fn handle_guild(
 
     state.hub.leave(&room, &user_id);
     state.hub.leave(&guild_room, &user_id);
+    state.hub.leave(&ban_room, &user_id);
     metrics::conn_close();
 }
 

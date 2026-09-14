@@ -56,7 +56,11 @@ export type { AccountType, ServerUser, CustomEmoji, ChatAttachment } from '../ty
 // Low-level helpers for modules that own realtime state.
 export { onWs, publishWs } from './wsBus';
 export { onLifecycle } from './lifecycle';
-export { wsUrlFor, getIceServers, getSelectedServerEntry, fetchPoolIceServers } from '../config/network';
+export {
+  wsUrlFor, getIceServers, getSelectedServerEntry, fetchPoolIceServers,
+  loadServers, saveServers, loadSelectedServer, saveSelectedServer, pingServer, pingStun, getResolvedTurn, API_BASE_URL,
+} from '../config/network';
+export type { ServerEntry } from '../config/network';
 export const wsProtocols = (token: string) => ['ionik.jwt', token];
 export { readResponse } from '../utils/errorManager';
 export { sortByDate, insertByDate } from '../utils/messageOrder';

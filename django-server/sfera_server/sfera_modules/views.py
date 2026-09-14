@@ -1,5 +1,5 @@
 from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 
 from . import hooks
@@ -21,6 +21,18 @@ def module_list(request):
             for m in discover().values()
         ],
     })
+
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def public_modules(request):
+    """Installed modules whose UI also runs on the sign-in screen (manifest `preAuth`)."""
+    installed = installed_ids()
+    return Response({'modules': [
+        {**m.public(), 'installed': True}
+        for m in discover().values()
+        if m.pre_auth and m.id in installed
+    ]})
 
 
 @api_view(['POST', 'DELETE'])

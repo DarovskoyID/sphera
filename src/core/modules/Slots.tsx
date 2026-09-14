@@ -14,7 +14,7 @@ export function RailSlot() {
   return <>{items.map(i => <i.render key={`${i.moduleId}:${i.id}`} />)}</>;
 }
 
-export function SlotList({ slot }: { slot: 'sidebar.userPanel' | 'nav.railScroll' | 'app.overlay' }) {
+export function SlotList({ slot }: { slot: 'sidebar.userPanel' | 'nav.railScroll' | 'app.overlay' | 'auth.footer' }) {
   const items = useSlot(slot);
   return <>{items.map(i => <i.render key={`${i.moduleId}:${i.id}`} />)}</>;
 }

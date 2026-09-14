@@ -1,9 +1,11 @@
 import { useState, useRef } from 'react';
-import { Lock, MessagesSquare, Server, ShieldCheck } from 'lucide-react';
+import { MessagesSquare, Server, ShieldCheck } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { useTranslation } from '../i18n/useTranslation';
 import { languages, type LangCode } from '../i18n';
-import { ServerSelector } from './ServerSelector';
+import { SlotList } from '../core/modules/Slots';
+import { useSlot } from '../sdk/slots';
+import { API_BASE_URL, saveSelectedServer } from '../config/network';
 import { CodeInput, CODE_LENGTH } from './CodeInput';
 import { AuthBackdrop } from './AuthBackdrop';
 import { readResponse, toUserMessage } from '../utils/errorManager';
@@ -25,7 +27,9 @@ export const AuthScreen = () => {
   // Sign-up is two steps: fill the form, then confirm the email code.
   const [codeSent, setCodeSent] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [showServers, setShowServers] = useState(false);
+  // Choosing another server is the multiserver module (auth.footer slot).
+  const serverPickers = useSlot('auth.footer');
+  const { setCurrentServerIP } = useApp();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -287,16 +291,14 @@ export const AuthScreen = () => {
                   <option key={code} value={code}>{name}</option>
                 ))}
               </select>
-              <button type="button" onClick={() => setShowServers(!showServers)}>
-                <Lock size={13} />
-                {tr('srv_title')}
-              </button>
+              {serverPickers.length === 0 && currentServerIP !== API_BASE_URL && (
+                // Without the module there is no way back from another server — offer one.
+                <button type="button" onClick={() => { saveSelectedServer(API_BASE_URL); setCurrentServerIP(API_BASE_URL); }}>
+                  {language === 'ru' ? 'Основной сервер' : 'Main server'}
+                </button>
+              )}
             </div>
-            {showServers && (
-              <div style={{ marginTop: 12 }}>
-                <ServerSelector compact maxListHeight={200} />
-              </div>
-            )}
+            <SlotList slot="auth.footer" />
           </div>
         </div>
         </div>
