@@ -1,0 +1,15 @@
+{
+  "id": "whiteboard",
+  "name": { "ru": "Доски", "en": "Whiteboards" },
+  "description": {
+    "ru": "Схемы и диаграммы как в draw.io: фигуры, связи, стикеры, рисование, совместная работа в реальном времени и экспорт",
+    "en": "Diagrams like draw.io: shapes, connectors, sticky notes, drawing, real-time collaboration and export"
+  },
+  "version": "1.0.0",
+  "sdkVersion": 1,
+  "deps": [],
+  "backendApp": "sfera_whiteboard",
+  "urlPrefix": "api/whiteboard/",
+  "icon": "pen-tool",
+  "provides": ["nav.rail", "main.view", "explore.card"]
+}
