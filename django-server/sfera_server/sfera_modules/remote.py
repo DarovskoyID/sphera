@@ -155,6 +155,9 @@ def job(mid: str) -> dict | None:
     if data.get('status') == 'restarting' and mid in loader.discover() and loaded_ref(mid) == data.get('ref'):
         clear_job(mid)
         return None
+    # Cut off by a restart before this process started: pick it up again.
+    if data.get('status') in ('installing', 'updating') and data.get('pid') != os.getpid():
+        resume_interrupted()
     return data
 
 
@@ -251,17 +254,54 @@ def needs_fetch(mid: str, remote: dict, update: bool) -> bool:
     return bool(update and spec and disk_ref(mid) != spec['ref'])
 
 
+# One worker installs everything in order: git and the build must not run in
+# parallel, and the server may restart only when nothing else is in progress.
+_queue: list[tuple[str, str, bool]] = []  # (id, ref, has backend)
+_queue_lock = threading.Lock()
+_worker: threading.Thread | None = None
+
+
 def start(ids: list[str], remote: dict, update: bool) -> list[str]:
     """Fetch, build and load the given modules in the background. Returns ids that got a job."""
     todo = [mid for mid in ids if needs_fetch(mid, remote, update)]
     for mid in todo:
         _write_json(_dir() / '.jobs' / f'{mid}.json', {
             'status': 'updating' if disk_ref(mid) else 'installing',
-            'ref': remote[mid]['ref'], 'at': time.time(),
+            'ref': remote[mid]['ref'], 'at': time.time(), 'pid': os.getpid(),
         })
-    if todo:
-        threading.Thread(target=_run, args=(todo, remote), name='sfera-module-install', daemon=True).start()
+    _enqueue([(mid, remote[mid]['ref'], bool(remote[mid]['manifest'].get('backendApp'))) for mid in todo])
     return todo
+
+
+def _enqueue(items):
+    global _worker
+    with _queue_lock:
+        for item in items:
+            if all(q[0] != item[0] for q in _queue):
+                _queue.append(item)
+        if _queue and (_worker is None or not _worker.is_alive()):
+            _worker = threading.Thread(target=_work, name='sfera-module-install', daemon=True)
+            _worker.start()
+
+
+def resume_interrupted() -> None:
+    """Installs cut off by a restart (another process wrote the job) continue here."""
+    jobs = _dir() / '.jobs'
+    if not jobs.is_dir():
+        return
+    items = []
+    for path in jobs.glob('*.json'):
+        data = _read_json(path, None) or {}
+        mid = path.stem
+        if data.get('status') not in ('installing', 'updating') or data.get('pid') == os.getpid() or not data.get('ref'):
+            continue
+        try:
+            backend = bool(json.loads(_git('show', f"{data['ref']}:module.json")).get('backendApp'))
+        except (RuntimeError, ValueError):
+            backend = True
+        _set_job(mid, pid=os.getpid())
+        items.append((mid, data['ref'], backend))
+    _enqueue(items)
 
 
 def _checkout(mid: str, ref: str) -> None:
@@ -278,10 +318,16 @@ def _checkout(mid: str, ref: str) -> None:
         _git('worktree', 'add', '--force', '--detach', str(target), ref)
 
 
-def _run(ids: list[str], remote: dict) -> None:
-    needs_restart = False
-    for mid in ids:
-        ref = remote[mid]['ref']
+_restart: list[str] = []
+
+
+def _work() -> None:
+    restart = _restart
+    while True:
+        with _queue_lock:
+            if not _queue:
+                break
+            mid, ref, backend = _queue.pop(0)
         try:
             _checkout(mid, ref)
             if has_frontend(mid):
@@ -289,17 +335,19 @@ def _run(ids: list[str], remote: dict) -> None:
             installed = installed_refs()
             installed[mid] = {'branch': f'{BRANCH_PREFIX}{mid}', 'ref': ref}
             _write_json(_dir() / '.installed.json', installed)
-            if remote[mid]['manifest'].get('backendApp') or mid in loader.discover():
-                needs_restart = True
+            if backend or mid in loader.discover():
+                restart.append(mid)
                 _set_job(mid, status='restarting')
             else:
                 clear_job(mid)
+                loader.reset_cache()
         except Exception as e:
             _set_job(mid, status='failed', error=str(e)[:800])
-    if needs_restart:
-        _migrate_and_restart([m for m in ids if (job_raw(m) or {}).get('status') == 'restarting'])
-    else:
-        loader.reset_cache()
+    # Queue drained: restart once for all of them. Anything queued from now on
+    # keeps this process's pid in its job and is resumed after the restart.
+    if restart:
+        _migrate_and_restart(list(restart))
+        restart.clear()
 
 
 def _migrate_and_restart(ids: list[str]) -> None:
