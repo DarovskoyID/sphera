@@ -1,7 +1,7 @@
 import { openModuleSocket, reportError, type ModuleSocket } from '@sfera/sdk';
 import { api, type Conn } from './api';
 import { uid } from './geometry';
-import type { Doc, Op, Shape } from './types';
+import { DEFAULT_STYLE, type Doc, type Op, type Shape } from './types';
 import type { UserBrief } from './ui';
 
 export interface Peer {
@@ -13,19 +13,65 @@ export interface Peer {
   seen: number;
 }
 
+const num = (v: unknown, d = 0) => (typeof v === 'number' && Number.isFinite(v) ? v : d);
+
+/**
+ * Shapes come from other clients and older versions: give every one the fields
+ * rendering relies on, or drop it, instead of breaking the board for everybody.
+ */
+export function normalizeShape(raw: unknown): Shape | null {
+  const s = raw as Record<string, unknown> | null;
+  if (!s || typeof s !== 'object' || typeof s.id !== 'string' || typeof s.type !== 'string') return null;
+  const style = { ...DEFAULT_STYLE, stroke: 'ink', textColor: 'ink', fill: 'paper', ...(s.style && typeof s.style === 'object' ? s.style : {}) };
+  if (s.type === 'pen') {
+    const points = Array.isArray(s.points) ? s.points.filter(v => typeof v === 'number' && Number.isFinite(v)) : [];
+    if (points.length < 2) return null;
+    return { ...(s as object), id: s.id, type: 'pen', points: points.length % 2 ? points.slice(0, -1) : points, style } as Shape;
+  }
+  if (s.type === 'line') {
+    const end = (e: unknown) => {
+      const o = (e && typeof e === 'object' ? e : {}) as Record<string, unknown>;
+      return { ...o, x: num(o.x), y: num(o.y), shapeId: typeof o.shapeId === 'string' ? o.shapeId : undefined };
+    };
+    return {
+      arrowStart: 'none', arrowEnd: 'triangle', route: 'orthogonal', text: '', ...(s as object),
+      id: s.id, type: 'line', from: end(s.from), to: end(s.to), style,
+    } as Shape;
+  }
+  return {
+    ...(s as object), id: s.id, type: s.type, x: num(s.x), y: num(s.y), w: Math.max(1, num(s.w, 100)), h: Math.max(1, num(s.h, 60)),
+    text: typeof s.text === 'string' ? s.text : '', style,
+  } as Shape;
+}
+
+export function normalizeDoc(raw: unknown): Doc {
+  const d = (raw && typeof raw === 'object' ? raw : {}) as { shapes?: Record<string, unknown>; order?: unknown };
+  const shapes: Record<string, Shape> = {};
+  for (const [id, v] of Object.entries(d.shapes ?? {})) {
+    const shape = normalizeShape(v);
+    if (shape && shape.id === id) shapes[id] = shape;
+  }
+  const order = (Array.isArray(d.order) ? d.order : []).filter((id): id is string => typeof id === 'string' && !!shapes[id]);
+  for (const id of Object.keys(shapes)) if (!order.includes(id)) order.push(id);
+  return { shapes, order };
+}
+
 export function applyOps(doc: Doc, ops: Op[]): Doc {
   const shapes = { ...doc.shapes };
   let order = doc.order;
-  for (const op of ops) {
+  for (const op of Array.isArray(ops) ? ops : []) {
+    if (!op || typeof op !== 'object') continue;
     if (op.op === 'put') {
-      if (!shapes[op.shape.id]) order = [...order, op.shape.id];
-      shapes[op.shape.id] = op.shape;
+      const shape = normalizeShape(op.shape);
+      if (!shape) continue;
+      if (!shapes[shape.id]) order = [...order, shape.id];
+      shapes[shape.id] = shape;
     } else if (op.op === 'del') {
       if (shapes[op.id]) {
         delete shapes[op.id];
         order = order.filter(x => x !== op.id);
       }
-    } else if (op.op === 'order') {
+    } else if (op.op === 'order' && Array.isArray(op.order)) {
       const next = op.order.filter(id => shapes[id]);
       const seen = new Set(next);
       order = [...next, ...order.filter(id => !seen.has(id))];
@@ -77,6 +123,9 @@ export class BoardSession {
   private pendingLive: Op[] | null = null;
   private liveTimer: ReturnType<typeof setTimeout> | null = null;
   private tick = 0;
+  private previewTouched = new Set<string>();
+  private previewSent = false;
+  private cursorAt = 0;
 
   private conn: Conn;
   readonly boardId: string;
@@ -84,7 +133,7 @@ export class BoardSession {
   constructor(conn: Conn, boardId: string, doc: Doc, version: number, name: string) {
     this.conn = conn;
     this.boardId = boardId;
-    this.doc = doc;
+    this.doc = normalizeDoc(doc);
     this.version = version;
     this.name = name;
   }
@@ -124,7 +173,7 @@ export class BoardSession {
   private async resync() {
     try {
       const b = await api.board(this.conn, this.boardId);
-      this.doc = b.doc;
+      this.doc = normalizeDoc(b.doc);
       this.version = b.version;
       this.emit();
     } catch { /* offline */ }
@@ -134,7 +183,7 @@ export class BoardSession {
     switch (f.type) {
       case 'snapshot':
         if (typeof f.version === 'number' && f.version >= this.version) {
-          this.doc = f.doc as Doc;
+          this.doc = normalizeDoc(f.doc);
           this.version = f.version;
           this.emit();
         }
@@ -203,6 +252,7 @@ export class BoardSession {
 
   /** In-between states of a drag: shown at once, sent to others at most every 100 ms, not in history. */
   live(ops: Op[]) {
+    for (const op of ops) this.previewTouched.add(op.op === 'put' ? op.shape.id : op.op === 'del' ? op.id : '');
     this.doc = applyOps(this.doc, ops);
     this.pendingLive = [...(this.pendingLive ?? []).filter(p => !ops.some(o => sameTarget(o, p))), ...ops];
     if (!this.liveTimer) this.liveTimer = setTimeout(() => this.flushLive(), 100);
@@ -213,7 +263,9 @@ export class BoardSession {
     if (this.liveTimer) clearTimeout(this.liveTimer);
     this.liveTimer = null;
     // Previews only go over the socket; the final state is always committed.
-    if (this.pendingLive?.length) this.socket?.send({ type: 'ops', ops: this.pendingLive, seq: ++this.seq, client_id: this.clientId });
+    if (this.pendingLive?.length && this.socket?.send({ type: 'ops', ops: this.pendingLive, seq: ++this.seq, client_id: this.clientId })) {
+      this.previewSent = true;
+    }
     this.pendingLive = null;
   }
 
@@ -222,8 +274,23 @@ export class BoardSession {
     this.pendingLive = null;
     if (this.liveTimer) clearTimeout(this.liveTimer);
     this.liveTimer = null;
-    this.doc = base;
-    this.commit(ops, base);
+    // Shapes the preview touched but the result does not keep go back to how they
+    // were — only those, so collaborators' edits made meanwhile stay.
+    const kept = new Set(ops.map(op => (op.op === 'put' ? op.shape.id : op.op === 'del' ? op.id : '')));
+    const revert: Op[] = [];
+    for (const id of this.previewTouched) {
+      if (!id || kept.has(id)) continue;
+      revert.push(base.shapes[id] ? { op: 'put', shape: base.shapes[id] } : { op: 'del', id });
+    }
+    if (revert.length) {
+      this.doc = applyOps(this.doc, revert);
+      // Others already saw the preview: take it back for them too.
+      if (this.previewSent) this.send(revert);
+    }
+    this.previewTouched.clear();
+    this.previewSent = false;
+    if (ops.length) this.commit(ops, base);
+    else this.emit();
   }
 
   undo() {
@@ -245,7 +312,11 @@ export class BoardSession {
     this.emit();
   }
 
+  /** At most 20 cursor frames a second. */
   cursor(x: number, y: number, selection: string[]) {
+    const now = Date.now();
+    if (now - this.cursorAt < 50) return;
+    this.cursorAt = now;
     this.socket?.send({ type: 'cursor', x: Math.round(x), y: Math.round(y), selection });
   }
 

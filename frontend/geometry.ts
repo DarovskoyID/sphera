@@ -87,7 +87,9 @@ export function linePoints(doc: Doc, line: LineShape): Pt[] {
   }
   pts.push(b1, b.p);
   // Drop repeated points so arrowheads get a real direction.
-  return pts.filter((p, i) => i === 0 || Math.hypot(p.x - pts[i - 1].x, p.y - pts[i - 1].y) > 0.5);
+  const out = pts.filter((p, i) => i === 0 || Math.hypot(p.x - pts[i - 1].x, p.y - pts[i - 1].y) > 0.5);
+  // A connector with both ends in one place still needs two points.
+  return out.length >= 2 ? out : [a.p, b.p];
 }
 
 export function linePath(doc: Doc, line: LineShape): string {
@@ -115,6 +117,7 @@ export function endDirection(doc: Doc, line: LineShape, which: 'from' | 'to'): {
     }
   }
   const [p, q] = which === 'to' ? [pts[pts.length - 2], pts[pts.length - 1]] : [pts[1], pts[0]];
+  if (!p || !q) return { tip: pts[0] ?? { x: 0, y: 0 }, angle: 0 };
   return { tip: q, angle: Math.atan2(q.y - p.y, q.x - p.x) };
 }
 

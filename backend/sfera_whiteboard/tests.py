@@ -63,3 +63,16 @@ class BoardApiTests(TestCase):
         bad = self.a.post('/api/whiteboard/boards/', {'name': 'bad', 'doc': {'shapes': {'a': {'id': 'a', 'type': 'evil'}}}}, format='json')
         self.assertEqual(bad.status_code, 400)
         self.assertEqual(Board.objects.count(), 2)
+
+
+class ShapeValidationTests(TestCase):
+    def test_broken_shapes_are_refused(self):
+        for shape in (
+            {'id': 'a', 'type': 'rect', 'x': 'nan', 'y': 0, 'w': 1, 'h': 1},
+            {'id': 'a', 'type': 'rect', 'x': 0, 'y': 0, 'w': 1},
+            {'id': 'a', 'type': 'line', 'from': {'x': 0, 'y': 0}},
+            {'id': 'a', 'type': 'pen', 'points': [1]},
+            {'id': 'a', 'type': 'rect', 'x': 0, 'y': 0, 'w': 1, 'h': 1, 'style': 'red'},
+        ):
+            with self.assertRaises(OpError, msg=shape):
+                apply_ops({'shapes': {}, 'order': []}, [{'op': 'put', 'shape': shape}])

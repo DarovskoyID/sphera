@@ -5,7 +5,7 @@
     "ru": "Схемы и диаграммы как в draw.io: фигуры, связи, стикеры, рисование, совместная работа в реальном времени и экспорт",
     "en": "Diagrams like draw.io: shapes, connectors, sticky notes, drawing, real-time collaboration and export"
   },
-  "version": "1.0.0",
+  "version": "1.0.1",
   "sdkVersion": 1,
   "deps": [],
   "backendApp": "sfera_whiteboard",

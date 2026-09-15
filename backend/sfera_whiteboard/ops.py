@@ -28,8 +28,22 @@ def _clean_shape(raw) -> dict:
     sid = str(raw.get('id', ''))
     if not ID_RE.match(sid):
         raise OpError('bad_id')
-    if raw.get('type') not in SHAPE_TYPES:
+    kind = raw.get('type')
+    if kind not in SHAPE_TYPES:
         raise OpError('bad_type')
+    finite = lambda v: isinstance(v, (int, float)) and not isinstance(v, bool) and abs(v) < 1e7  # noqa: E731
+    if kind == 'pen':
+        pts = raw.get('points')
+        if not isinstance(pts, list) or len(pts) < 2 or len(pts) > 40000 or not all(finite(v) for v in pts):
+            raise OpError('bad_points')
+    elif kind == 'line':
+        for end in (raw.get('from'), raw.get('to')):
+            if not isinstance(end, dict) or not finite(end.get('x')) or not finite(end.get('y')):
+                raise OpError('bad_endpoint')
+    elif not all(finite(raw.get(k)) for k in ('x', 'y', 'w', 'h')):
+        raise OpError('bad_geometry')
+    if 'style' in raw and not isinstance(raw['style'], dict):
+        raise OpError('bad_style')
     size = len(json.dumps(raw, ensure_ascii=False))
     if size > 200_000:
         raise OpError('shape_too_big')

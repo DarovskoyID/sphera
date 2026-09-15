@@ -35,12 +35,12 @@ export interface EditorApi {
 
 const HANDLE_CURSORS: Record<Handle, string> = { nw: 'nwse-resize', se: 'nwse-resize', ne: 'nesw-resize', sw: 'nesw-resize', n: 'ns-resize', s: 'ns-resize', e: 'ew-resize', w: 'ew-resize' };
 
-function newBox(type: BoxType, r: Rect): BoxShape {
+function newBox(type: BoxType, r: Rect, frameTitle = 'Frame'): BoxShape {
   const style = { ...DEFAULT_STYLE, stroke: 'ink', textColor: 'ink', fill: 'paper' };
   if (type === 'note') Object.assign(style, { fill: NOTE_FILLS[0], strokeWidth: 0, align: 'left', vAlign: 'top', fontSize: 16 });
   if (type === 'text') Object.assign(style, { fill: 'transparent', strokeWidth: 0, fontSize: 20, align: 'left', vAlign: 'top' });
   if (type === 'frame') Object.assign(style, { fill: 'transparent', stroke: '#94a3b8', strokeWidth: 1.5, dash: 'dashed' });
-  return { id: uid(), type, ...r, text: type === 'frame' ? 'Frame' : '', style };
+  return { id: uid(), type, ...r, text: type === 'frame' ? frameTitle : '', style };
 }
 
 const DEFAULT_SIZE: Record<BoxType, [number, number]> = {
@@ -442,7 +442,7 @@ export function Editor({ session, readOnly, onExportReady }: {
     if (effectiveTool !== 'select') {
       const type = effectiveTool as BoxType;
       const start = { x: snap(p.x, GRID, grid), y: snap(p.y, GRID, grid) };
-      const shape = newBox(type, { ...start, w: 1, h: 1 });
+      const shape = newBox(type, { ...start, w: 1, h: 1 }, t('wb_kind_frame'));
       const base = session.doc;
       session.live([{ op: 'put', shape }]);
       interaction.current = { kind: 'create', start, base, id: shape.id, type };
@@ -688,15 +688,20 @@ export function Editor({ session, readOnly, onExportReady }: {
     : effectiveTool === 'select' && !interaction.current ? (hovered ?? (selectedShapes.length === 1 ? selectedShapes[0] : null)) : null);
   const peers = [...session.peers.values()].filter(pp => Date.now() - pp.seen < 30_000);
 
+  // The theme is a class on <body>: follow its changes, not only board edits.
+  const [dark, setDark] = useState(() => document.body.classList.contains('dark-theme'));
+  useEffect(() => {
+    const mo = new MutationObserver(() => setDark(document.body.classList.contains('dark-theme')));
+    mo.observe(document.body, { attributes: true, attributeFilter: ['class'] });
+    return () => mo.disconnect();
+  }, []);
   const themeVars = useMemo(() => {
-    const dark = document.body.classList.contains('dark-theme');
     return {
       '--wb-ink': dark ? '#e5e7eb' : '#1f2937',
       '--wb-paper': dark ? '#2b2d31' : '#ffffff',
       '--wb-grid': dark ? 'rgba(255,255,255,.07)' : 'rgba(15,23,42,.08)',
     } as CSSProperties;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [doc]);
+  }, [dark]);
 
   const gs = GRID * zoom * (zoom < 0.5 ? 5 : 1);
 
