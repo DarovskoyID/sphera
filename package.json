@@ -1,0 +1,8 @@
+{
+  "name": "sfera-module-conference",
+  "private": true,
+  "description": "Frontend dependencies of the conference module (installed by scripts/modules/build-module.mjs)",
+  "dependencies": {
+    "livekit-client": "2.22.3"
+  }
+}
