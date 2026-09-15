@@ -1,0 +1,15 @@
+{
+  "id": "amocrm",
+  "name": { "ru": "Интеграция с amoCRM", "en": "amoCRM integration" },
+  "description": {
+    "ru": "Сделки и контакты из переписки, поиск по CRM и уведомления о событиях amoCRM",
+    "en": "Leads and contacts from chats, CRM search and amoCRM event notifications"
+  },
+  "version": "1.0.0",
+  "sdkVersion": 1,
+  "deps": [],
+  "backendApp": "sfera_amocrm",
+  "urlPrefix": "api/amocrm/",
+  "icon": "briefcase",
+  "provides": ["main.view", "explore.card", "settings.page", "chat.composerAction", "app.overlay"]
+}
