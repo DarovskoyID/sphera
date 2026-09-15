@@ -1,0 +1,15 @@
+{
+  "id": "onec",
+  "name": { "ru": "Интеграция с 1С", "en": "1C integration" },
+  "description": {
+    "ru": "Контрагенты, номенклатура и документы 1С:Предприятия через OData, уведомления из 1С в Сферу",
+    "en": "1C:Enterprise counterparties, products and documents over OData, notifications from 1C to Sfera"
+  },
+  "version": "1.0.0",
+  "sdkVersion": 1,
+  "deps": [],
+  "backendApp": "sfera_onec",
+  "urlPrefix": "api/onec/",
+  "icon": "database",
+  "provides": ["main.view", "explore.card", "settings.page", "chat.composerAction", "app.overlay"]
+}
