@@ -102,6 +102,10 @@ INSTALLED_APPS += [a for a in _module_backend_apps() if a not in INSTALLED_APPS]
 # the install gate itself is covered with override_settings.
 import sys as _sys  # noqa: E402
 SFERA_MODULES_ENFORCE = _env_bool('SFERA_MODULES_ENFORCE', 'test' not in _sys.argv[1:2])
+# Catalog and installs come from module/<id> branches of the repository
+# (SFERA_MODULES_REPO: URL or remote name, default "origin"). See sfera_modules/remote.py.
+SFERA_MODULES_FROM_REPO = _env_bool('SFERA_MODULES_FROM_REPO', 'test' not in _sys.argv[1:2])
+SFERA_MODULES_REPO = os.environ.get('SFERA_MODULES_REPO', '')
 
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',

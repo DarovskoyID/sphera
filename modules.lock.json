@@ -1,29 +1,4 @@
 {
-  "comment": "Module branches deployed with this core. Update with: node scripts/modules/fetch.mjs --update",
-  "modules": {
-    "bots": {
-      "branch": "module/bots",
-      "ref": "b751a862c9172979b82b84fac70a7d312289c3d4"
-    },
-    "channels": {
-      "branch": "module/channels",
-      "ref": "3eecfc8d2b8d70b3fe03ca4f3c7a9f4188851ebd"
-    },
-    "diary": {
-      "branch": "module/diary",
-      "ref": "ba3f282cadb715a81651d1e3078e8102eeb2c7c8"
-    },
-    "family": {
-      "branch": "module/family",
-      "ref": "6586704f31eea340ee94ab8baf654f47113f4895"
-    },
-    "multiserver": {
-      "branch": "module/multiserver",
-      "ref": "2d011e886001303a681206aaac6063e5c08b8a06"
-    },
-    "servers": {
-      "branch": "module/servers",
-      "ref": "31151fc327a6a80da7bc4058ffd97d41ced307c0"
-    }
-  }
+  "comment": "Modules are not deployed in advance: the superuser installs them from «Исследовать сферу», straight from the module/<id> branches. Entries here pin modules for CI/tests only. Update with: node scripts/modules/fetch.mjs --update",
+  "modules": {}
 }

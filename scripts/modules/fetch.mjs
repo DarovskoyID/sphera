@@ -10,6 +10,10 @@
  *
  * SFERA_MODULES=servers,channels works like --only ("none" deploys the core alone).
  *
+ * Modules are installed at runtime from «Исследовать сферу» (sfera_modules/remote.py),
+ * which records them in modules/.installed.json; this script restores those on a
+ * fresh deploy. modules.lock.json can additionally pin modules for CI or tests.
+ *
  * Each module lives on its own branch (module/<id>) whose root is the module:
  * module.json, backend/<django app>, frontend/index.tsx. Modules are git
  * worktrees of this repository, so no extra clone or credentials are needed.
@@ -81,7 +85,7 @@ if (prune && only) {
   // Deploying a subset: drop worktrees of modules that were not selected, so
   // Django, the frontend build and monitoring do not pick them up.
   for (const e of readdirSync(MODULES_DIR, { withFileTypes: true })) {
-    if (!e.isDirectory() || only.includes(e.name)) continue;
+    if (!e.isDirectory() || e.name.startsWith('.') || only.includes(e.name)) continue;
     const target = join(MODULES_DIR, e.name);
     if (tryGit('worktree', 'remove', '--force', target) === null) rmSync(target, { recursive: true, force: true });
     console.log(`✗ ${e.name}: removed (not selected)`);

@@ -2,6 +2,7 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App.tsx';
 import { installBanGuard } from './core/ban/banGuard';
+import { exposeSharedRuntime } from './core/modules/shared';
 import './index.css';
 
 // ── Auto-update: reload when the served bundle changes ───────────────────────
@@ -34,6 +35,7 @@ function watchForNewVersion() {
 }
 watchForNewVersion();
 installBanGuard();
+exposeSharedRuntime();
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
