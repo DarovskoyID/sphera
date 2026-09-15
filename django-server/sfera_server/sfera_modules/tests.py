@@ -187,6 +187,17 @@ class RemoteCatalogTests(TestCase):
         r = self.client.post('/api/modules/diary/install/')
         self.assertEqual((r.status_code, r.data['jobs']), (200, []))
 
+    @override_settings(SFERA_MODULES_ENFORCE=True)
+    def test_installed_modules_update_themselves(self):
+        InstanceModule.objects.create(module_id='diary')
+        with mock.patch.object(self.remote, '_enqueue') as enqueue:
+            self.client.get('/api/modules/')
+        self.assertEqual([item[0] for item in enqueue.call_args[0][0]], ['diary'])
+        with mock.patch.dict('os.environ', {'SFERA_MODULES_AUTOUPDATE': '0'}), mock.patch.object(self.remote, '_enqueue') as enqueue:
+            (self.root / '.jobs' / 'diary.json').unlink(missing_ok=True)
+            self.client.get('/api/modules/')
+        enqueue.assert_not_called()
+
     def test_restart_job_ends_when_the_new_code_is_loaded(self):
         (self.root / '.jobs').mkdir()
         (self.root / '.jobs' / 'diary.json').write_text(json.dumps({'status': 'restarting', 'ref': 'c' * 40}), encoding='utf-8')

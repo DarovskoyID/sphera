@@ -304,6 +304,22 @@ def resume_interrupted() -> None:
     _enqueue(items)
 
 
+def auto_update(repo: dict, deployed: dict, installed: set) -> list[str]:
+    """Installed modules follow the heads of their branches without anyone pressing «Обновить».
+
+    Runs whenever the catalog is listed (the repository itself is checked at most
+    every CATALOG_TTL). SFERA_MODULES_AUTOUPDATE=0 leaves updates to the superuser.
+    """
+    if os.environ.get('SFERA_MODULES_AUTOUPDATE', '1') == '0' or not repo:
+        return []
+    outdated = [
+        mid for mid in installed
+        if mid in deployed and mid in repo and not job_raw(mid)
+        and (disk_ref(mid) or repo[mid]['ref']) != repo[mid]['ref']
+    ]
+    return start(outdated, repo, update=True) if outdated else []
+
+
 def _checkout(mid: str, ref: str) -> None:
     target = _dir() / mid
     _dir().mkdir(parents=True, exist_ok=True)
