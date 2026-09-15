@@ -10,7 +10,7 @@
  * A module with its own package.json gets `npm install` first.
  */
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, renameSync } from 'node:fs';
+import { existsSync, mkdirSync, renameSync, statSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
@@ -28,10 +28,14 @@ if (!entry) {
   process.exit(1);
 }
 
-if (existsSync(join(moduleDir, 'package.json')) && !existsSync(join(moduleDir, 'node_modules'))) {
-  execFileSync(process.platform === 'win32' ? 'npm.cmd' : 'npm',
-    ['install', '--omit=dev', '--no-audit', '--no-fund'],
-    { cwd: moduleDir, stdio: 'inherit', shell: process.platform === 'win32' });
+// Install (again) when the module's dependency list is newer than what is installed.
+const pkg = join(moduleDir, 'package.json');
+const installed = join(moduleDir, 'node_modules', '.package-lock.json');
+if (existsSync(pkg) && (!existsSync(installed) || statSync(pkg).mtimeMs > statSync(installed).mtimeMs)) {
+  const npmArgs = ['install', '--omit=dev', '--no-audit', '--no-fund'];
+  // npm is a .cmd script on Windows and needs a shell to run.
+  if (process.platform === 'win32') execFileSync(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', 'npm', ...npmArgs], { cwd: moduleDir, stdio: 'inherit' });
+  else execFileSync('npm', npmArgs, { cwd: moduleDir, stdio: 'inherit' });
 }
 
 const SHARED = ['react', 'react-dom', 'react-dom/client', 'react/jsx-runtime', 'react/jsx-dev-runtime', '@sfera/sdk'];
