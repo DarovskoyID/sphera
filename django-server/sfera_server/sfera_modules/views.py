@@ -52,6 +52,7 @@ def module_list(request):
     repo, repo_error = remote.catalog(force=request.query_params.get('refresh') == '1' and can_manage(request.user))
     manage = can_manage(request.user)
     installed = installed_ids() | {m for m in InstanceModule.objects.values_list('module_id', flat=True)}
+    remote.auto_update(repo, deployed, installed)
     ids = sorted(set(deployed) | (set(repo) if manage else set()) | ({m for m in installed if remote.job(m)}))
     return Response({
         'enforced': enforced(),
