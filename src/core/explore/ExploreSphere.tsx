@@ -100,6 +100,12 @@ function ModuleCard({ m, lang, isRu, canManage }: { m: ModuleInfo; lang: string;
         </div>
       ) : canManage && (
         <div style={{ display: 'flex', gap: 8 }}>
+          {m.installed && !m.deployed && m.latestVersion && (
+            // Installed on this instance, but the code is not on this server (fresh deploy, new node).
+            <button onClick={() => run('install')} disabled={busy} style={cardBtn(true, busy)}>
+              <Download size={14} /> {isRu ? 'Восстановить' : 'Restore'}
+            </button>
+          )}
           {m.installed && m.updateAvailable && (
             <button onClick={() => run('update')} disabled={busy} style={cardBtn(true, busy)}>
               <RefreshCw size={14} /> {isRu ? 'Обновить' : 'Update'}
