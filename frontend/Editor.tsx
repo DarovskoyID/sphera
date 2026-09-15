@@ -899,7 +899,7 @@ function TextEditor({ shape, doc, zoom, pan, onDone }: {
       onPointerDown={e => e.stopPropagation()}
       style={{
         position: 'absolute', left: b.x * zoom + pan.x, top: b.y * zoom + pan.y, width: Math.max(b.w * zoom, 60), height: Math.max(b.h * zoom, 30),
-        zIndex: 5, resize: 'none', border: '2px solid var(--accent-primary)', borderRadius: 6, outline: 'none', boxSizing: 'border-box',
+        zIndex: 2, resize: 'none', border: '2px solid var(--accent-primary)', borderRadius: 6, outline: 'none', boxSizing: 'border-box',
         padding: (shape.type === 'note' ? 12 : isText ? 2 : 8) * zoom, fontSize: st.fontSize * zoom * (shape.type === 'line' ? 0.85 : 1), fontWeight: st.bold ? 700 : 400,
         textAlign: shape.type === 'line' ? 'center' : st.align, lineHeight: 1.3, fontFamily: 'Inter, system-ui, -apple-system, Segoe UI, sans-serif',
         background: shape.type === 'note' ? st.fill : 'var(--bg-secondary)', color: shape.type === 'note' ? '#1f2937' : 'var(--text-primary)',

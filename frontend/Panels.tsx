@@ -10,7 +10,7 @@ import { FILLS, NOTE_FILLS, STROKES, type LineShape, type Shape, type Style, typ
 import { isBox } from './geometry';
 
 const floating: CSSProperties = {
-  position: 'absolute', zIndex: 4, background: 'var(--bg-secondary)', border: '1px solid var(--border-color)',
+  position: 'absolute', zIndex: 20, background: 'var(--bg-secondary)', border: '1px solid var(--border-color)',
   borderRadius: 12, boxShadow: 'var(--shadow-md)', display: 'flex', alignItems: 'center', gap: 2, padding: 4,
 };
 
@@ -70,8 +70,8 @@ export function Toolbar({ tool, setTool, lock, setLock, readOnly, mobile }: {
             </button>
             {shapesOpen && (
               <>
-                <div style={{ position: 'fixed', inset: 0, zIndex: 5 }} onClick={() => setShapesOpen(false)} />
-                <div style={{ ...floating, position: 'absolute', zIndex: 6, [mobile ? 'bottom' : 'top']: 44, left: 0, display: 'grid', gridTemplateColumns: 'repeat(4, 36px)' }}>
+                <div style={{ position: 'fixed', inset: 0, zIndex: 21 }} onClick={() => setShapesOpen(false)} />
+                <div style={{ ...floating, position: 'absolute', zIndex: 22, [mobile ? 'bottom' : 'top']: 44, left: 0, display: 'grid', gridTemplateColumns: 'repeat(4, 36px)' }}>
                   {SHAPE_TOOLS.map(s => (
                     <ToolButton key={s.tool} title={tip(s.label, s.key)} active={tool === s.tool} onClick={() => { setTool(s.tool); setLastShape(s.tool); setShapesOpen(false); }}>{s.icon}</ToolButton>
                   ))}
