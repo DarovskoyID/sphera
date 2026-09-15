@@ -1,9 +1,15 @@
+import re
+
 from channels.middleware import BaseMiddleware
 from channels.db import database_sync_to_async
 from django.contrib.auth.models import AnonymousUser
 from django.http import HttpResponse
 from rest_framework_simplejwt.tokens import AccessToken
 from sfera_auth.models import User
+
+# Module bundles are loaded with import() (no custom headers); module webhooks are
+# called by external systems (1C, amoCRM, Bitrix24).
+_PUBLIC_API = re.compile(r'^/api/(modules/[a-z0-9_-]+/bundle\.js$|[a-z0-9_-]+/webhook/)')
 
 
 class AppOnlyMiddleware:
@@ -29,6 +35,7 @@ class AppOnlyMiddleware:
             and not request.path.startswith('/metrics')
             # Public bot API: third-party SDKs are legitimate non-app clients.
             and not request.path.startswith('/api/bots/api/')
+            and not _PUBLIC_API.match(request.path)
             and request.headers.get('X-Ionik-Client') != '1'
         ):
             return HttpResponse()

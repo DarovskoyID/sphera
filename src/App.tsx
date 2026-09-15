@@ -206,11 +206,13 @@ function useKeybindings() {
 function AppContent() {
   const { authToken, isCallActive, currentView, currentChat, mobileActivePanel } = useApp();
   const moduleViews = useSlot('main.view');
+  const authRoutes = useSlot('auth.route');
   useKeybindings();
 
   if (!authToken) {
+    const AuthRoute = authRoutes.find(r => r.match());
     return <>
-      <AuthScreen />
+      {AuthRoute ? <AuthRoute.render /> : <AuthScreen />}
       <ToastContainer />
     </>;
   }

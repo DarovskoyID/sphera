@@ -40,7 +40,7 @@ export { useModuleStore, createModuleStore } from './store';
 export type { ModuleStore } from './store';
 export { navigate } from './navigation';
 export type { WsChannel, WsFrame } from './wsBus';
-export { useModules, installModule, uninstallModule } from '../core/modules/registry';
+export { useModules, installModule, uninstallModule, updateModule } from '../core/modules/registry';
 export type { ModuleInfo } from '../core/modules/registry';
 
 /** Core app state and actions (auth, user, DMs, navigation, toasts). */

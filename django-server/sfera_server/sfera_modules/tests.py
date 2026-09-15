@@ -123,3 +123,88 @@ class SuperuserTests(TestCase):
         with mock.patch.dict('os.environ', {}, clear=False):
             call_command('ensure_superuser', '--no-input')
         self.assertFalse(get_user_model().objects.filter(is_superuser=True).exists())
+
+
+class RemoteCatalogTests(TestCase):
+    """Modules listed from module/<id> branches and installed from the repository."""
+
+    def setUp(self):
+        from . import remote
+
+        self.remote = remote
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        _write_modules(self.root, {'diary': {'backendApp': None}})
+        (self.root / 'diary' / 'frontend').mkdir()
+        (self.root / 'diary' / 'frontend' / 'index.tsx').write_text('export default {}', encoding='utf-8')
+        self.repo = {
+            'diary': {'ref': 'a' * 40, 'manifest': {'id': 'diary', 'version': '1.1.0'}},
+            'planner': {'ref': 'b' * 40, 'manifest': {'id': 'planner', 'version': '1.0.0', 'name': {'ru': 'Планировщик'}, 'deps': [], 'backendApp': 'sfera_planner'}},
+        }
+        for p in (
+            mock.patch.object(loader, 'MODULES_DIR', self.root),
+            mock.patch.object(loader, '_cache', None),
+            mock.patch.object(remote, 'catalog', return_value=(self.repo, None)),
+            mock.patch.object(remote, 'disk_ref', side_effect=lambda mid: ('c' * 40) if (self.root / mid / 'module.json').exists() else None),
+            mock.patch.object(remote, '_loaded_refs', {}),
+        ):
+            p.start()
+            self.addCleanup(p.stop)
+        self.addCleanup(self.tmp.cleanup)
+        User = get_user_model()
+        self.admin = User.objects.create_superuser(username='root', email='root@x.ru', password='pass12345')
+        self.member = User.objects.create_user(username='u1', email='u1@x.ru', password='pass12345')
+        self.client = APIClient(headers={'X-Ionik-Client': '1'})
+        self.client.force_authenticate(self.admin)
+
+    @override_settings(SFERA_MODULES_ENFORCE=True)
+    def test_catalog_shows_repository_versions_and_updates(self):
+        data = self.client.get('/api/modules/').data
+        mods = {m['id']: m for m in data['modules']}
+        self.assertEqual(set(mods), {'diary', 'planner'})
+        self.assertTrue(mods['diary']['deployed'])
+        self.assertEqual(mods['diary']['latestVersion'], '1.1.0')
+        self.assertTrue(mods['diary']['updateAvailable'])
+        self.assertTrue(mods['diary']['bundle'].startswith('api/modules/diary/bundle.js?v='))
+        self.assertFalse(mods['planner']['deployed'])
+        self.assertEqual(mods['planner']['name'], {'ru': 'Планировщик'})
+        # Members only see what is on the server.
+        member = APIClient(headers={'X-Ionik-Client': '1'})
+        member.force_authenticate(self.member)
+        self.assertEqual([m['id'] for m in member.get('/api/modules/').data['modules']], ['diary'])
+
+    @override_settings(SFERA_MODULES_ENFORCE=True)
+    def test_install_from_repository_starts_a_job(self):
+        with mock.patch.object(self.remote.threading, 'Thread') as thread:
+            r = self.client.post('/api/modules/planner/install/')
+        self.assertEqual(r.status_code, 202)
+        self.assertEqual(r.data['jobs'], ['planner'])
+        thread.return_value.start.assert_called_once()
+        self.assertTrue(InstanceModule.objects.filter(module_id='planner').exists())
+        planner = next(m for m in self.client.get('/api/modules/').data['modules'] if m['id'] == 'planner')
+        self.assertEqual(planner['pending'], 'installing')
+        # Already on the server at the wanted code: installed at once, no job.
+        r = self.client.post('/api/modules/diary/install/')
+        self.assertEqual((r.status_code, r.data['jobs']), (200, []))
+
+    def test_restart_job_ends_when_the_new_code_is_loaded(self):
+        (self.root / '.jobs').mkdir()
+        (self.root / '.jobs' / 'diary.json').write_text(json.dumps({'status': 'restarting', 'ref': 'c' * 40}), encoding='utf-8')
+        self.assertIsNone(self.remote.job('diary'))
+        self.assertFalse((self.root / '.jobs' / 'diary.json').exists())
+
+    def test_unknown_or_malformed_module(self):
+        self.assertEqual(self.client.post('/api/modules/nope/install/').status_code, 404)
+        self.assertEqual(self.client.post('/api/modules/..%2Fetc/install/').status_code, 404)
+        self.assertEqual(APIClient().get('/api/modules/nope/bundle.js').status_code, 404)
+
+    def test_bundle_is_served_without_the_app_header(self):
+        built = self.root / '.bundles' / 'diary' / 'x.js'
+        built.parent.mkdir(parents=True)
+        built.write_text('export default 1', encoding='utf-8')
+        with mock.patch.object(self.remote, 'build_bundle', return_value=built):
+            r = APIClient().get('/api/modules/diary/bundle.js?v=1')
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r['Content-Type'], 'text/javascript; charset=utf-8')
+        self.assertIn('immutable', r['Cache-Control'])
+        r.close()  # releases the file (Windows keeps it locked)

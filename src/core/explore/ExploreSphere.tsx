@@ -1,12 +1,13 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-  BookOpen, Bot, Check, Code, Compass, Download, Gamepad2, Globe, Home, MessageCircle, Music, Newspaper,
-  NotebookPen, Palette, Puzzle, Rss, Search, Sparkles, Trash2, Trophy, Users, type LucideIcon,
+  BookOpen, Bot, Briefcase, Building2, CalendarCheck, Check, Code, Compass, Database, Download, Gamepad2, Globe, Home,
+  Loader2, MessageCircle, Music, Newspaper, NotebookPen, Palette, PenTool, Plug, Puzzle, RefreshCw, Rss, Search,
+  Sparkles, Trash2, Trophy, Users, Video, type LucideIcon,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { useTranslation } from '../../i18n/useTranslation';
 import { useSlot, type ExploreSearchResult, type SlotEntry } from '../../sdk/slots';
-import { installModule, uninstallModule, useModules, type ModuleInfo } from '../modules/registry';
+import { installModule, uninstallModule, updateModule, useModules, type ModuleInfo } from '../modules/registry';
 import { CardGridSkeleton } from '../../components/Skeleton';
 
 const CATEGORIES = [
@@ -23,6 +24,8 @@ const CATEGORIES = [
 
 const MODULE_ICONS: Record<string, LucideIcon> = {
   bot: Bot, rss: Rss, 'notebook-pen': NotebookPen, home: Home, users: Users, globe: Globe,
+  video: Video, 'pen-tool': PenTool, 'calendar-check': CalendarCheck, briefcase: Briefcase,
+  building: Building2, database: Database, plug: Plug,
 };
 
 const sectionTitle: React.CSSProperties = {
@@ -38,11 +41,12 @@ function ModuleCard({ m, lang, isRu, canManage }: { m: ModuleInfo; lang: string;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const Icon = MODULE_ICONS[m.icon] ?? Puzzle;
-  const toggle = async () => {
+  const run = async (action: 'install' | 'uninstall' | 'update') => {
     setBusy(true);
     setError('');
     try {
-      if (m.installed) await uninstallModule(m.id);
+      if (action === 'uninstall') await uninstallModule(m.id);
+      else if (action === 'update') await updateModule(m.id);
       else await installModule(m.id);
     } catch (e) {
       const body = (e as { body?: { error?: string; modules?: string[] } }).body;
@@ -69,32 +73,61 @@ function ModuleCard({ m, lang, isRu, canManage }: { m: ModuleInfo; lang: string;
         </div>
         <div style={{ minWidth: 0, flex: 1 }}>
           <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--text-primary)' }}>{pick(m.name, lang)}</div>
-          <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>v{m.version}</div>
+          <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>
+            v{m.version}
+            {m.updateAvailable && m.latestVersion && (
+              <span style={{ color: 'var(--accent-primary)', fontWeight: 600 }}> → v{m.latestVersion}</span>
+            )}
+          </div>
         </div>
-        {m.installed && <Check size={16} style={{ color: 'var(--accent-primary)' }} />}
+        {m.installed && m.deployed && !m.pending && <Check size={16} style={{ color: 'var(--accent-primary)' }} />}
       </div>
       <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.4, flex: 1 }}>{pick(m.description, lang)}</div>
       {m.deps.length > 0 && (
         <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{isRu ? 'Требует' : 'Requires'}: {m.deps.join(', ')}</div>
       )}
-      {(error || m.error) && <div style={{ fontSize: 11, color: '#ef4444' }}>{error || m.error}</div>}
-      {canManage && <button
-        onClick={toggle}
-        disabled={busy}
-        style={{
-          padding: '8px 0', borderRadius: 8, fontWeight: 600, fontSize: 13, cursor: 'pointer',
-          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, opacity: busy ? 0.6 : 1,
-          border: m.installed ? '1px solid var(--border-color)' : 'none',
-          background: m.installed ? 'transparent' : 'var(--accent-primary)',
-          color: m.installed ? 'var(--text-secondary)' : '#fff',
-        }}
-      >
-        {m.installed ? <Trash2 size={14} /> : <Download size={14} />}
-        {busy ? '…' : m.installed ? (isRu ? 'Удалить' : 'Uninstall') : (isRu ? 'Установить' : 'Install')}
-      </button>}
+      {(error || m.error) && <div style={{ fontSize: 11, color: '#ef4444', wordBreak: 'break-word' }}>{error || m.error}</div>}
+      {m.pending ? (
+        <div style={{
+          padding: '8px 0', borderRadius: 8, fontSize: 12.5, fontWeight: 600, color: 'var(--text-secondary)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, background: 'var(--bg-tertiary)',
+        }}>
+          <Loader2 size={14} className="spin" style={{ animation: 'spin 1s linear infinite' }} />
+          {m.pending === 'restarting'
+            ? (m.manualRestart ? (isRu ? 'Перезапустите сервер' : 'Restart the server') : (isRu ? 'Перезапуск сервера…' : 'Restarting server…'))
+            : m.pending === 'updating' ? (isRu ? 'Обновление из репозитория…' : 'Updating from repository…')
+              : (isRu ? 'Загрузка из репозитория…' : 'Downloading from repository…')}
+        </div>
+      ) : canManage && (
+        <div style={{ display: 'flex', gap: 8 }}>
+          {m.installed && !m.deployed && m.latestVersion && (
+            // Installed on this instance, but the code is not on this server (fresh deploy, new node).
+            <button onClick={() => run('install')} disabled={busy} style={cardBtn(true, busy)}>
+              <Download size={14} /> {isRu ? 'Восстановить' : 'Restore'}
+            </button>
+          )}
+          {m.installed && m.updateAvailable && (
+            <button onClick={() => run('update')} disabled={busy} style={cardBtn(true, busy)}>
+              <RefreshCw size={14} /> {isRu ? 'Обновить' : 'Update'}
+            </button>
+          )}
+          <button onClick={() => run(m.installed ? 'uninstall' : 'install')} disabled={busy} style={cardBtn(!m.installed, busy)}>
+            {m.installed ? <Trash2 size={14} /> : <Download size={14} />}
+            {busy ? '…' : m.installed ? (isRu ? 'Удалить' : 'Uninstall') : (isRu ? 'Установить' : 'Install')}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
+
+const cardBtn = (primary: boolean, busy: boolean): React.CSSProperties => ({
+  flex: 1, padding: '8px 0', borderRadius: 8, fontWeight: 600, fontSize: 13, cursor: 'pointer',
+  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, opacity: busy ? 0.6 : 1,
+  border: primary ? 'none' : '1px solid var(--border-color)',
+  background: primary ? 'var(--accent-primary)' : 'transparent',
+  color: primary ? '#fff' : 'var(--text-secondary)',
+});
 
 type Section = { provider: SlotEntry<'explore.search'>; results: ExploreSearchResult[]; loading: boolean };
 
@@ -201,6 +234,11 @@ export const ExploreSphere: React.FC<{ style?: React.CSSProperties }> = ({ style
         {!query && (
           <div style={{ padding: '20px 24px 0' }}>
             <h3 style={sectionTitle}>{isRu ? 'Модули' : 'Modules'}</h3>
+            {modules.canManage && modules.repoError && (
+              <div style={{ margin: '-6px 0 12px', fontSize: 12, color: '#f59e0b' }}>
+                {isRu ? 'Репозиторий модулей недоступен, показаны только модули на сервере' : 'Module repository is unreachable; showing modules on this server only'}
+              </div>
+            )}
             {modules.loaded && !modules.canManage && sorted.length > 0 && (
               <div style={{ margin: '-6px 0 12px', fontSize: 12, color: 'var(--text-tertiary)' }}>
                 {isRu ? 'Модули на сервере устанавливает администратор' : 'Modules on this server are managed by the administrator'}

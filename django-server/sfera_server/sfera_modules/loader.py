@@ -164,3 +164,9 @@ def websocket_patterns() -> list:
             continue
         out.extend(getattr(routing, 'websocket_urlpatterns', []))
     return out
+
+
+def reset_cache() -> None:
+    """Re-read modules/ on the next discover() (a frontend-only module was added)."""
+    global _cache
+    _cache = None

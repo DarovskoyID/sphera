@@ -33,6 +33,11 @@ ender is the dialog it opens. */
   'picker.stickers': { id: string; load: () => Promise<PickerSticker[]> };
   /** Always-mounted overlay (toasts, voice banner, …). */
   'app.overlay': { id: string; render: ComponentType };
+  /**
+   * Full screen shown instead of the sign-in form while `match()` holds, e.g. a
+   * guest joining a conference by link (modules with `preAuth` in module.json).
+   */
+  'auth.route': { id: string; match: () => boolean; render: ComponentType };
   /** Under the sign-in form (modules with `preAuth` in module.json). */
   'auth.footer': { id: string; order?: number; render: ComponentType };
   /** React provider wrapping the whole app (module state). */
