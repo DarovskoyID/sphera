@@ -178,8 +178,20 @@ def job_raw(mid: str) -> dict | None:
 _build_lock = threading.Lock()
 
 
-def bundle_path(mid: str, ref: str) -> Path:
-    return _dir() / '.bundles' / mid / f'{ref[:12]}.js'
+def bundle_key(mid: str) -> str:
+    """Commit of the checkout plus the newest frontend change, so local edits get rebuilt too."""
+    ref = (disk_ref(mid) or 'local')[:12]
+    newest = 0.0
+    for root, dirs, files in os.walk(_dir() / mid / 'frontend'):
+        dirs[:] = [d for d in dirs if d not in ('node_modules', '.git')]
+        for name in files:
+            if name.endswith(('.ts', '.tsx', '.js', '.jsx', '.css', '.json')):
+                newest = max(newest, os.path.getmtime(os.path.join(root, name)))
+    return f'{ref}-{int(newest):x}'
+
+
+def bundle_path(mid: str, key: str) -> Path:
+    return _dir() / '.bundles' / mid / f'{key}.js'
 
 
 def has_frontend(mid: str) -> bool:
@@ -189,8 +201,7 @@ def has_frontend(mid: str) -> bool:
 
 def build_bundle(mid: str) -> Path:
     """Build (once per commit) the frontend of the module checked out in modules/<id>."""
-    ref = disk_ref(mid) or 'local'
-    out = bundle_path(mid, ref)
+    out = bundle_path(mid, bundle_key(mid))
     if out.exists():
         return out
     with _build_lock:
@@ -213,8 +224,7 @@ def build_bundle(mid: str) -> Path:
 def bundle_url(mid: str) -> str | None:
     if not has_frontend(mid):
         return None
-    ref = loaded_ref(mid) or disk_ref(mid) or 'local'
-    return f'api/modules/{mid}/bundle.js?v={ref[:12]}'
+    return f'api/modules/{mid}/bundle.js?v={bundle_key(mid)}'
 
 
 # ── Install / update ─────────────────────────────────────────────────────────
