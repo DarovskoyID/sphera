@@ -175,11 +175,11 @@ class RemoteCatalogTests(TestCase):
 
     @override_settings(SFERA_MODULES_ENFORCE=True)
     def test_install_from_repository_starts_a_job(self):
-        with mock.patch.object(self.remote.threading, 'Thread') as thread:
+        with mock.patch.object(self.remote, '_enqueue') as enqueue:
             r = self.client.post('/api/modules/planner/install/')
         self.assertEqual(r.status_code, 202)
         self.assertEqual(r.data['jobs'], ['planner'])
-        thread.return_value.start.assert_called_once()
+        enqueue.assert_called_once()
         self.assertTrue(InstanceModule.objects.filter(module_id='planner').exists())
         planner = next(m for m in self.client.get('/api/modules/').data['modules'] if m['id'] == 'planner')
         self.assertEqual(planner['pending'], 'installing')
@@ -208,3 +208,44 @@ class RemoteCatalogTests(TestCase):
         self.assertEqual(r['Content-Type'], 'text/javascript; charset=utf-8')
         self.assertIn('immutable', r['Cache-Control'])
         r.close()  # releases the file (Windows keeps it locked)
+
+
+class InstallQueueTests(TestCase):
+    """Several installs at once: one worker, one restart at the end, interrupted jobs resume."""
+
+    def setUp(self):
+        from . import remote
+
+        self.remote = remote
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        for p in (
+            mock.patch.object(loader, 'MODULES_DIR', self.root),
+            mock.patch.object(loader, '_cache', None),
+            mock.patch.object(remote, 'disk_ref', return_value=None),
+            mock.patch.object(remote, 'has_frontend', return_value=False),
+        ):
+            p.start()
+            self.addCleanup(p.stop)
+
+    def test_many_installs_restart_once_after_all(self):
+        order = []
+        repo = {m: {'ref': m * 4, 'manifest': {'backendApp': f'sfera_{m}'}} for m in ('a', 'b', 'c', 'd', 'e')}
+        with mock.patch.object(self.remote, '_checkout', side_effect=lambda mid, ref: order.append(mid)), \
+                mock.patch.object(self.remote, '_migrate_and_restart') as restart:
+            for mid in repo:
+                self.remote.start([mid], repo, update=False)
+            while self.remote._worker and self.remote._worker.is_alive():
+                self.remote._worker.join(0.1)
+        self.assertEqual(sorted(order), list('abcde'))
+        restart.assert_called_once()
+        self.assertEqual(sorted(restart.call_args[0][0]), list('abcde'))
+
+    def test_job_from_a_previous_process_is_resumed(self):
+        (self.root / '.jobs').mkdir()
+        (self.root / '.jobs' / 'x.json').write_text(json.dumps({'status': 'installing', 'ref': 'r', 'pid': -1}), encoding='utf-8')
+        with mock.patch.object(self.remote, '_git', return_value='{"backendApp": null}'), \
+                mock.patch.object(self.remote, '_enqueue') as enqueue:
+            self.remote.job('x')
+        enqueue.assert_called_once_with([('x', 'r', False)])
