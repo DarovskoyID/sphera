@@ -1,0 +1,25 @@
+# Alerts of the totp module. Loaded by Prometheus only when the module's
+# monitoring is installed (scripts/modules/monitoring.mjs).
+groups:
+  - name: sfera-module-totp
+    rules:
+      - alert: TotpCodesFailing
+        expr: sum(rate(sfera_totp_failures_total[5m])) > 0.5
+        for: 10m
+        labels: {severity: warning, module: totp}
+        annotations:
+          summary: "Двухфакторка: коды массово не подходят — либо подбор, либо разошлось время на сервере"
+
+      - alert: TotpUsersStuck
+        expr: max(sfera_totp_blocked) > 0
+        for: 24h
+        labels: {severity: info, module: totp}
+        annotations:
+          summary: "Двухфакторка: сутки есть заблокированные аккаунты без аутентификатора — им нужна помощь с подключением"
+
+      - alert: TotpRequirementOff
+        expr: max(sfera_totp_required) == 0
+        for: 12h
+        labels: {severity: info, module: totp}
+        annotations:
+          summary: "Двухфакторка установлена, но не обязательна для всех — вход защищён только у тех, кто подключил сам"

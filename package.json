@@ -1,0 +1,8 @@
+{
+  "name": "sfera-module-totp",
+  "private": true,
+  "description": "Frontend dependencies of the two-factor module (installed by scripts/modules/build-module.mjs)",
+  "dependencies": {
+    "qrcode": "1.5.4"
+  }
+}
