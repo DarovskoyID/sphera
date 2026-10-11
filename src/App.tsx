@@ -219,11 +219,15 @@ function AppContent() {
 
   const inChat = isCallActive && currentView === 'home' && !!currentChat;
   const { currentServer } = useApp();
+  // On a phone the dock hides while a conversation is open. Settings also run
+  // through the 'chat-view' panel, hence the check for an actual chat.
+  const inConversation = mobileActivePanel === 'guild-chat'
+    || (mobileActivePanel === 'chat-view' && currentServer === 'home' && !!currentChat);
   const inExplore = currentServer === 'explore';
   const moduleView = moduleViews.find(v => v.match({ currentServer, currentView }));
 
   return (
-    <div className={`app-container mobile-panel-${mobileActivePanel}${isCallActive ? ' call-active' : ''}`}>
+    <div className={`app-container mobile-panel-${mobileActivePanel}${isCallActive ? ' call-active' : ''}${inConversation ? ' mobile-in-chat' : ''}`}>
       <ServerSidebar />
       {moduleView ? (
         <moduleView.render style={{ gridColumn: '2 / -1' }} />
