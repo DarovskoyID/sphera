@@ -52,8 +52,9 @@ jobs:
         run: |
           core=$(grep -oE 'SDK_VERSION = [0-9]+' src/sdk/defineModule.ts | grep -oE '[0-9]+')
           mod=$(python3 -c "import json;print(json.load(open('modules/$MODULE_ID/module.json')).get('sdkVersion', 1))")
-          if [ "$core" != "$mod" ]; then
-            echo "::error::module sdkVersion $mod does not match core SDK_VERSION $core"
+          # sdkVersion is the lowest core the module needs; a newer core is fine.
+          if [ "$mod" -gt "$core" ]; then
+            echo "::error::module sdkVersion $mod needs a newer core (this one is $core)"
             exit 1
           fi
 
@@ -82,9 +83,17 @@ jobs:
           cache: npm
           cache-dependency-path: sfera/package-lock.json
 
-      - name: Build frontend with the module
+      - name: Build the core frontend
         working-directory: sfera
         run: npm ci && npm run build
+
+      - name: Build the module bundle (as the server does on install)
+        working-directory: sfera
+        run: |
+          # Cores older than runtime installs have no build-module.mjs: the core build above covered the module.
+          [ -f scripts/modules/build-module.mjs ] || exit 0
+          node scripts/modules/build-module.mjs "modules/$MODULE_ID" "$RUNNER_TEMP/$MODULE_ID.js"
+          npx tsc --noEmit -p tsconfig.app.json 2>&1 | grep "^modules/$MODULE_ID/" | grep -v TS6133 && exit 1 || true
 
       - uses: actions/setup-python@v5
         with:
