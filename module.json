@@ -1,16 +1,26 @@
 {
   "id": "conference",
-  "name": { "ru": "Конференции", "en": "Conferences" },
+  "name": {
+    "ru": "Конференции",
+    "en": "Conferences"
+  },
   "description": {
     "ru": "Видеоконференции без ограничения участников: внутренние, приватные и внешние со входом гостей по ссылке",
     "en": "Video conferences with no participant cap: internal, private and external with guests joining by link"
   },
-  "version": "1.0.0",
+  "version": "1.1.0",
   "sdkVersion": 1,
   "deps": [],
   "backendApp": "sfera_conference",
   "urlPrefix": "api/conference/",
   "icon": "video",
   "preAuth": true,
-  "provides": ["nav.rail", "main.view", "explore.card", "settings.page", "auth.route", "chat.composerAction"]
+  "provides": [
+    "nav.rail",
+    "main.view",
+    "explore.card",
+    "settings.page",
+    "auth.route",
+    "chat.composerAction"
+  ]
 }
