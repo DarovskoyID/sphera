@@ -4,6 +4,8 @@ import re
 import urllib.error
 import urllib.request
 
+from sfera_server.metrics import inc as metrics_inc
+
 WEBHOOK_RE = re.compile(r'^https://([a-z0-9.-]+)/rest/(\d+)/([A-Za-z0-9]+)/?$')
 TIMEOUT = 15
 
@@ -22,6 +24,7 @@ def parse_webhook_url(raw: str) -> tuple[str, str]:
 
 
 def _post(url, body, timeout=TIMEOUT):
+    metrics_inc('bitrix_api_requests')
     req = urllib.request.Request(url, data=json.dumps(body).encode(), method='POST')
     req.add_header('Content-Type', 'application/json')
     req.add_header('Accept', 'application/json')
@@ -32,10 +35,13 @@ def _post(url, body, timeout=TIMEOUT):
         try:
             data = json.loads(e.read() or b'{}')
         except ValueError:
+            metrics_inc('bitrix_api_errors')
             raise BitrixError(f'HTTP {e.code}') from None
     except (urllib.error.URLError, TimeoutError, OSError) as e:
+        metrics_inc('bitrix_api_errors')
         raise BitrixError(f'network: {e}') from None
     if isinstance(data, dict) and data.get('error'):
+        metrics_inc('bitrix_api_errors')
         raise BitrixError(f"{data.get('error')}: {data.get('error_description', '')}".strip(': '))
     return data
 

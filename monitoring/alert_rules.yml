@@ -1,0 +1,11 @@
+# Alerts of the bitrix module. Loaded by Prometheus only when the module's
+# monitoring is installed (scripts/modules/monitoring.mjs).
+groups:
+  - name: sfera-module-bitrix
+    rules:
+      - alert: BitrixApiFailing
+        expr: sum(rate(sfera_bitrix_api_errors_total[10m])) > 0.05
+        for: 15m
+        labels: {severity: warning, module: bitrix}
+        annotations:
+          summary: "Интеграция с Битрикс24: запросы падают с ошибкой дольше 15 минут — проверьте доступ и ключи"

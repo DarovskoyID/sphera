@@ -11,6 +11,7 @@ from rest_framework.throttling import AnonRateThrottle
 
 from sfera_messages.services import _author_brief
 from sfera_modules.hooks import push_to_user
+from sfera_server.metrics import inc as metrics_inc
 from sfera_modules.permissions import installed_ids, requires_module
 
 from .client import BitrixClient, BitrixError, describe_event, parse_webhook_url
@@ -243,6 +244,7 @@ def webhook(request, secret):
     expected = conn.application_token
     if expected and not hmac.compare_digest(str(info['token']), expected):
         return _err('bad_token', 403)
+    metrics_inc('bitrix_events_in')
     client = BitrixClient(conn)
     url = client.link(info['entity'], info['id']) if info['entity'] else ''
     _log('in', info['event'].lower()[:40] or 'event', info['summary'], entity_id=info['id'], payload={'url': url, 'domain': info['domain']})
