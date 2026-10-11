@@ -5,6 +5,7 @@ import uuid
 from django.conf import settings
 from django.contrib.auth.models import AbstractUser
 from django.db import models
+from django.db.models.functions import Lower
 
 
 ACCOUNT_TYPE_USER = 'user'
@@ -56,6 +57,13 @@ class User(AbstractUser):
             # (see manage.py ensure_superuser).
             models.UniqueConstraint(
                 fields=['is_superuser'], condition=models.Q(is_superuser=True), name='single_superuser',
+            ),
+            # One account per address, whatever the capitalisation. An address
+            # is what password recovery and sign-in codes are sent to, so two
+            # accounts sharing one would make "which account is this?"
+            # unanswerable. Accounts without an address are not affected.
+            models.UniqueConstraint(
+                Lower('email'), condition=~models.Q(email=''), name='uniq_user_email_ci',
             ),
         ]
 

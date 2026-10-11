@@ -150,6 +150,18 @@ class ProfileUpdateSerializer(serializers.ModelSerializer):
             name: {'required': False} for name in fields
         }
 
+    def validate_email(self, value):
+        """An address may move to another account, but never be shared."""
+        value = (value or '').strip().lower()
+        if not value:
+            return value
+        taken = User.objects.filter(email__iexact=value)
+        if self.instance is not None:
+            taken = taken.exclude(pk=self.instance.pk)
+        if taken.exists():
+            raise serializers.ValidationError('A user with that email already exists.')
+        return value
+
     def validate_links(self, value):
         """Links are free text from the profile owner and end up as anchors.
 
