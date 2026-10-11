@@ -1,0 +1,18 @@
+# Alerts of the whiteboard module. Loaded by Prometheus only when the module's
+# monitoring is installed (scripts/modules/monitoring.mjs).
+groups:
+  - name: sfera-module-whiteboard
+    rules:
+      - alert: WhiteboardOpsRejected
+        expr: sum(rate(sfera_whiteboard_op_errors_total[5m])) > 0.2
+        for: 10m
+        labels: {severity: warning, module: whiteboard}
+        annotations:
+          summary: "Доски: сервер отклоняет правки (больше 0.2/сек за 10 минут) — вероятно, клиенты на старой версии модуля"
+
+      - alert: WhiteboardWriteStorm
+        expr: sum(rate(sfera_whiteboard_ops_total[5m])) > 200
+        for: 15m
+        labels: {severity: warning, module: whiteboard}
+        annotations:
+          summary: "Доски: больше 200 операций/сек — каждая операция пишет документ доски, проверьте нагрузку на БД"

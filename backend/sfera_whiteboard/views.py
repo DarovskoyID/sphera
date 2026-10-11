@@ -10,6 +10,7 @@ from rest_framework.response import Response
 
 from sfera_messages.services import _author_brief
 from sfera_modules.permissions import requires_module
+from sfera_server.metrics import inc as metrics_inc
 
 from .models import MAX_BOARDS_PER_USER, ROLE_EDITOR, ROLE_OWNER, ROLE_VIEWER, Board, BoardMember
 from .ops import OpError, apply_ops
@@ -65,10 +66,12 @@ def commit_ops(board_id, user, ops, client_id=''):
         try:
             board.doc = apply_ops(board.doc, ops)
         except OpError as e:
+            metrics_inc('whiteboard_op_errors')
             return None, str(e)
         board.version += 1
         board.save(update_fields=['doc', 'version', 'updated_at'])
         version = board.version
+    metrics_inc('whiteboard_ops', len(ops) if isinstance(ops, list) else 1)
     return version, None
 
 
