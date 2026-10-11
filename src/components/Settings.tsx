@@ -431,6 +431,61 @@ const VerificationCard: React.FC<{ user: ServerUser | null; isRu: boolean }> = (
   );
 };
 
+/**
+ * «Не удалось сохранить» tells nobody what to change.
+ *
+ * The server answers with {field: ["reason"]} (DRF) or {error|detail: "…"},
+ * and since an address now belongs to exactly one account, the email field is
+ * where this most often lands. So: name the field, keep the server's reason.
+ */
+async function describeSaveFailure(res: Response, isRu: boolean): Promise<string> {
+  const names: Record<string, [string, string]> = {
+    email: ['Почта', 'Email'],
+    phone: ['Телефон', 'Phone'],
+    nickname: ['Отображаемое имя', 'Display name'],
+    bio: ['Обо мне', 'About'],
+    links: ['Ссылки', 'Links'],
+    avatar: ['Аватар', 'Avatar'],
+    banner: ['Баннер', 'Banner'],
+    status_text: ['Статус', 'Status'],
+  };
+  // Ядро отвечает по-английски; знакомые причины показываем на языке интерфейса.
+  const known: [RegExp, string][] = [
+    [/email already exists/i, 'эта почта уже занята другим аккаунтом'],
+    [/valid email address/i, 'неверный адрес почты'],
+    [/username already exists/i, 'это имя пользователя уже занято'],
+    [/too long|ensure this field has no more/i, 'слишком длинное значение'],
+    [/may not be blank|this field is required/i, 'поле не заполнено'],
+    [/links must start with/i, 'ссылка должна начинаться с http:// или https://'],
+    [/at most \d+ links/i, 'слишком много ссылок'],
+  ];
+  const translate = (text: string) => {
+    if (!isRu) return text;
+    for (const [pattern, ru] of known) if (pattern.test(text)) return ru;
+    return text;
+  };
+  const reason = (value: unknown): string =>
+    Array.isArray(value) ? value.map(reason).filter(Boolean).join(' ')
+      : typeof value === 'string' ? translate(value) : '';
+
+  let body: unknown = null;
+  try { body = await res.json(); } catch { /* HTML error page or empty body */ }
+  if (body && typeof body === 'object' && !Array.isArray(body)) {
+    const lines = Object.entries(body as Record<string, unknown>).map(([field, value]) => {
+      const text = reason(value);
+      if (!text) return '';
+      if (field === 'detail' || field === 'error') return text;
+      const label = names[field]?.[isRu ? 0 : 1] ?? field;
+      return `${label}: ${text}`;
+    }).filter(Boolean);
+    if (lines.length) return lines.join('; ');
+  }
+  if (res.status === 413) return isRu ? 'Файл слишком большой' : 'The file is too large';
+  if (res.status === 403) return isRu ? 'Недостаточно прав' : 'Not allowed';
+  if (res.status >= 500) return isRu ? 'Сервер не смог обработать запрос' : 'The server could not handle the request';
+  return isRu ? `Не удалось сохранить (код ${res.status})` : `Failed to save (HTTP ${res.status})`;
+}
+
 const ProfileSettings: React.FC = () => {
   const tr = useTranslation();
   const isRu = tr('settings_formatting') === 'Подсказки';
@@ -487,7 +542,7 @@ const ProfileSettings: React.FC = () => {
       if (avatarFile) fd.append('avatar', avatarFile);
       if (bannerFile) fd.append('banner', bannerFile);
       const res = await fetch(`${currentServerIP}/api/auth/me/update/`, { method: 'PATCH', headers: { 'Authorization': `Bearer ${authToken}` }, body: fd });
-      if (!res.ok) throw new Error('Failed');
+      if (!res.ok) throw new Error(await describeSaveFailure(res, isRu));
       const updatedUser = await res.json();
       const avatarUrl = updatedUser.avatar
         ? (updatedUser.avatar.startsWith('http') ? updatedUser.avatar : `${currentServerIP}${updatedUser.avatar}`)
@@ -495,7 +550,7 @@ const ProfileSettings: React.FC = () => {
       setCurrentUser({ ...updatedUser, avatar: avatarUrl });
       setMsg({ text: tr('sp_saved'), type: 'ok' });
       setAvatarFile(null); setBannerFile(null);
-    } catch { setMsg({ text: tr('sp_save_fail'), type: 'err' }); }
+    } catch (e) { setMsg({ text: (e as Error).message || tr('sp_save_fail'), type: 'err' }); }
     setSaving(false);
   };
 
