@@ -12,6 +12,7 @@ from rest_framework.throttling import AnonRateThrottle
 
 from sfera_messages.services import _author_brief
 from sfera_modules.hooks import push_to_user
+from sfera_server.metrics import inc as metrics_inc
 from sfera_modules.permissions import installed_ids, requires_module
 
 from .client import OneCClient, OneCError, check_entity, check_field, clean_base_url
@@ -258,6 +259,7 @@ def webhook(request, secret):
         recipients = list(users.filter(Q(username__in=names) | Q(email__in=names)).values_list('id', flat=True))
     else:
         recipients = list(conn.notify_users.values_list('id', flat=True))
+    metrics_inc('onec_events_in')
     summary = f'{title}: {text}' if title and text else (title or text)
     _log('in', 'notification', summary, payload={'title': title, 'text': text, 'url': url, 'to': to, 'delivered': len(recipients)})
     for uid in recipients:

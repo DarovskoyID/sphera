@@ -11,6 +11,8 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+from sfera_server.metrics import inc as metrics_inc
+
 TIMEOUT = 20
 ENTITY_RE = re.compile(r'^(Catalog|Document|InformationRegister|AccumulationRegister|ChartOfCharacteristicTypes|Enum|Constant|ExchangePlan|BusinessProcess|Task|DocumentJournal)_[\w]+$', re.UNICODE)
 GUID_RE = re.compile(r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$')
@@ -52,6 +54,7 @@ def odata_string(value: str) -> str:
 
 
 def _request(method, url, username='', password='', body=None, timeout=TIMEOUT):
+    metrics_inc('onec_api_requests')
     data = json.dumps(body, ensure_ascii=False).encode('utf-8') if body is not None else None
     req = urllib.request.Request(url, data=data, method=method)
     req.add_header('Accept', 'application/json')
@@ -65,6 +68,7 @@ def _request(method, url, username='', password='', body=None, timeout=TIMEOUT):
             raw = res.read()
             return json.loads(raw.decode('utf-8-sig')) if raw else {}
     except urllib.error.HTTPError as e:
+        metrics_inc('onec_api_errors')
         text = e.read()[:800].decode('utf-8', 'replace')
         try:
             message = json.loads(text)['odata.error']['message']['value']
@@ -72,6 +76,7 @@ def _request(method, url, username='', password='', body=None, timeout=TIMEOUT):
             message = text
         raise OneCError(f'HTTP {e.code}: {message}') from None
     except (urllib.error.URLError, TimeoutError, OSError) as e:
+        metrics_inc('onec_api_errors')
         raise OneCError(f'network: {e}') from None
 
 

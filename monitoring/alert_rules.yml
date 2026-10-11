@@ -1,0 +1,11 @@
+# Alerts of the onec module. Loaded by Prometheus only when the module's
+# monitoring is installed (scripts/modules/monitoring.mjs).
+groups:
+  - name: sfera-module-onec
+    rules:
+      - alert: OnecApiFailing
+        expr: sum(rate(sfera_onec_api_errors_total[10m])) > 0.05
+        for: 15m
+        labels: {severity: warning, module: onec}
+        annotations:
+          summary: "Интеграция с 1С: запросы падают с ошибкой дольше 15 минут — проверьте доступ и ключи"
