@@ -26,6 +26,8 @@ export interface ModuleInfo {
   pending?: 'installing' | 'updating' | 'restarting' | null;
   /** Installed, but the server is not restarted automatically (SFERA_MODULES_RESTART=none). */
   manualRestart?: boolean;
+  /** Published for a newer core than this server runs: cannot be installed here. */
+  needsCoreSdk?: number | null;
   /** Frontend code is loaded and set up. */
   active: boolean;
   error?: string;

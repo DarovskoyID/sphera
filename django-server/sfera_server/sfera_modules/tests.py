@@ -204,6 +204,80 @@ class RemoteCatalogTests(TestCase):
         self.assertIsNone(self.remote.job('diary'))
         self.assertFalse((self.root / '.jobs' / 'diary.json').exists())
 
+    @override_settings(SFERA_MODULES_ENFORCE=True)
+    def test_a_module_whose_code_is_gone_can_still_be_removed(self):
+        """A failed install leaves the row without the code; the card must not be stuck."""
+        InstanceModule.objects.create(module_id='planner')  # installed, never deployed
+        (self.root / '.jobs').mkdir(exist_ok=True)
+        (self.root / '.jobs' / 'planner.json').write_text(
+            json.dumps({'status': 'failed', 'error': 'migrate: boom'}), encoding='utf-8')
+
+        r = self.client.delete('/api/modules/planner/install/')
+
+        self.assertEqual(r.status_code, 200, r.data)
+        self.assertTrue(r.data['uninstalled'])
+        self.assertFalse(InstanceModule.objects.filter(module_id='planner').exists())
+        # The failed job goes with it, or the card keeps showing yesterday's error.
+        self.assertFalse((self.root / '.jobs' / 'planner.json').exists())
+
+    @override_settings(SFERA_MODULES_ENFORCE=True)
+    def test_uninstalling_a_module_without_code_leaves_nothing_behind(self):
+        """So the next install starts over instead of trusting a stale record."""
+        InstanceModule.objects.create(module_id='planner')
+        self.remote._write_json(self.root / '.installed.json',
+                                {'planner': {'branch': 'module/planner', 'ref': 'b' * 40}})
+
+        self.assertEqual(self.client.delete('/api/modules/planner/install/').status_code, 200)
+
+        self.assertNotIn('planner', self.remote.installed_refs())
+        self.assertFalse(InstanceModule.objects.filter(module_id='planner').exists())
+        # And it can be installed again, from the repository.
+        with mock.patch.object(self.remote, '_enqueue') as enqueue:
+            r = self.client.post('/api/modules/planner/install/')
+        self.assertEqual((r.status_code, r.data['jobs']), (202, ['planner']))
+        enqueue.assert_called_once()
+
+    @override_settings(SFERA_MODULES_ENFORCE=True)
+    def test_code_on_disk_that_the_server_never_loaded_is_installed_again(self):
+        """A failed migrate leaves the code in place and the process without it."""
+        # An app name this test run certainly does not have in INSTALLED_APPS.
+        _write_modules(self.root, {'planner': {'backendApp': 'sfera_never_loaded'}})
+        self.repo['planner']['manifest']['backendApp'] = 'sfera_never_loaded'
+        self.repo['planner']['ref'] = 'c' * 40  # exactly what disk_ref reports
+
+        with mock.patch.object(self.remote, '_enqueue') as enqueue:
+            r = self.client.post('/api/modules/planner/install/')
+
+        # Nothing to fetch, yet there is work: migrate and restart into the code.
+        self.assertEqual((r.status_code, r.data['jobs']), (202, ['planner']))
+        enqueue.assert_called_once()
+
+    @override_settings(SFERA_MODULES_ENFORCE=True)
+    def test_restore_works_while_the_repository_is_unreachable(self):
+        InstanceModule.objects.create(module_id='planner')
+        known = {'ref': 'b' * 40, 'manifest': self.repo['planner']['manifest']}
+        with mock.patch.object(self.remote, 'catalog', return_value=({}, 'ssh: connect timed out')), \
+             mock.patch.object(self.remote, 'known_spec', return_value=known), \
+             mock.patch.object(self.remote, '_enqueue') as enqueue:
+            r = self.client.post('/api/modules/planner/install/')
+        self.assertEqual(r.status_code, 202, r.data)
+        self.assertEqual(r.data['jobs'], ['planner'])
+        enqueue.assert_called_once()
+
+    @override_settings(SFERA_MODULES_ENFORCE=True)
+    def test_a_module_built_for_a_newer_core_is_refused_not_half_installed(self):
+        self.repo['planner']['manifest']['sdkVersion'] = loader.SDK_VERSION + 1
+        card = next(m for m in self.client.get('/api/modules/').data['modules'] if m['id'] == 'planner')
+        self.assertEqual(card['needsCoreSdk'], loader.SDK_VERSION + 1)
+
+        with mock.patch.object(self.remote, '_enqueue') as enqueue:
+            r = self.client.post('/api/modules/planner/install/')
+
+        self.assertEqual(r.status_code, 409)
+        self.assertEqual(r.data['error'], 'core_too_old')
+        enqueue.assert_not_called()
+        self.assertFalse(InstanceModule.objects.filter(module_id='planner').exists())
+
     def test_unknown_or_malformed_module(self):
         self.assertEqual(self.client.post('/api/modules/nope/install/').status_code, 404)
         self.assertEqual(self.client.post('/api/modules/..%2Fetc/install/').status_code, 404)

@@ -4,7 +4,7 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 
 from . import hooks, remote
-from .loader import discover
+from .loader import SDK_VERSION, discover
 from .models import InstanceModule
 from .permissions import can_manage, enforced, installed_ids
 
@@ -31,8 +31,12 @@ def _catalog_entry(mid: str, deployed, spec: dict | None, installed: set[str]) -
     base.pop('entry', None)
     latest = manifest.get('version') if manifest else None
     status = (job or {}).get('status')
+    needs_sdk = int(_pick(manifest, 'sdkVersion', SDK_VERSION) or SDK_VERSION)
     return {
         **base,
+        # Published for a newer core: installing it would only half-work, so the
+        # card says so instead of offering a button.
+        'needsCoreSdk': needs_sdk if needs_sdk > SDK_VERSION else None,
         'installed': mid in installed,
         'deployed': deployed is not None,
         'bundle': remote.bundle_url(mid) if deployed else None,
@@ -102,13 +106,21 @@ def module_install(request, module_id):
         return Response({'error': 'unknown_module'}, status=404)
 
     deployed = discover()
-    repo, repo_error = remote.catalog() if request.method != 'DELETE' else ({}, None)
-    if module_id not in deployed and module_id not in repo:
-        if repo_error:
-            return Response({'error': 'repo_unavailable', 'detail': repo_error}, status=502)
-        return Response({'error': 'unknown_module'}, status=404)
-
     have = set(InstanceModule.objects.values_list('module_id', flat=True))
+    repo, repo_error = remote.catalog() if request.method != 'DELETE' else ({}, None)
+    if request.method != 'DELETE' and module_id not in deployed and module_id not in repo:
+        # The branch list may be stale or the repository unreachable, while the
+        # commit of a module installed earlier is still in the local clone:
+        # that is exactly the case this restores from.
+        known = remote.known_spec(module_id) if module_id in have else None
+        if known:
+            repo = {**repo, module_id: known}
+        elif repo_error:
+            return Response({'error': 'repo_unavailable', 'detail': repo_error}, status=502)
+        else:
+            return Response({'error': 'unknown_module'}, status=404)
+    if request.method == 'DELETE' and module_id not in deployed and module_id not in have:
+        return Response({'error': 'unknown_module'}, status=404)
     if request.method in ('POST', 'PUT'):
         ids = remote.closure(module_id, repo)
         missing = [mid for mid in ids if mid not in deployed and mid not in repo]
@@ -116,6 +128,12 @@ def module_install(request, module_id):
             return Response({'error': 'missing_deps', 'modules': missing}, status=409)
         if request.method == 'PUT' and module_id not in have:
             return Response({'error': 'not_installed'}, status=409)
+        too_new = [mid for mid in ids
+                   if int(((repo.get(mid) or {}).get('manifest') or {}).get('sdkVersion', SDK_VERSION)) > SDK_VERSION]
+        if too_new:
+            # Better a refusal than a module that fetches, fails to migrate and
+            # leaves the instance half-installed.
+            return Response({'error': 'core_too_old', 'modules': too_new, 'sdk': SDK_VERSION}, status=409)
         for mid in ids:
             if (remote.job(mid) or {}).get('status') == 'failed':
                 remote.clear_job(mid)  # retry
@@ -136,6 +154,13 @@ def module_install(request, module_id):
     dependants = [mid for mid in have if mid in deployed and module_id in deployed[mid].deps]
     if dependants:
         return Response({'error': 'required_by', 'modules': dependants}, status=409)
+    # A failed install must not keep haunting the card; and when the code never
+    # made it onto this server, nothing of the module is kept — so installing it
+    # again starts from scratch instead of trusting a stale record.
+    if module_id in deployed:
+        remote.clear_job(module_id)
+    else:
+        remote.forget(module_id)
     deleted, _ = InstanceModule.objects.filter(module_id=module_id).delete()
     if deleted:
         hooks.module_uninstalled.send(sender=None, user=user, module_id=module_id)
