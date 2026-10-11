@@ -124,13 +124,33 @@
     max-height: calc(100svh - 60px - env(safe-area-inset-bottom, 0px) - 48px);
   }
 
+  /*
+    * The dock is a single scrollable row.
+    *
+    * `justify-content: center` keeps few icons in the middle, but once they
+    * overflow a centred row spills past both edges and the first ones can no
+    * longer be reached — `safe` falls back to packing from the start exactly
+    * then. `min-width: max-content` is what gives the sidebar something wider
+    * than itself to scroll.
+    */
   .server-sidebar .server-list {
     flex-direction: row;
     gap: var(--spacing-sm);
     height: 100%;
     width: auto;
+    min-width: max-content;
     flex-wrap: nowrap;
-    justify-content: center;
+    justify-content: safe center;
+    padding: 0 var(--spacing-xs);
+  }
+
+  /* Guild icons and the «+» belong in the same row, not stacked inside it. */
+  .server-sidebar .server-guild-scroll {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: var(--spacing-sm);
+    overflow: visible;
   }
 
   .server-sidebar .server-icon {
@@ -180,6 +200,21 @@
   .app-container.call-active .chat-sidebar,
   .app-container.call-active .chat-main {
     height: 100%;
+  }
+
+  /* Внутри переписки док уходит: экран отдан сообщениям, а назад к списку
+     ведёт стрелка в шапке. */
+  .app-container.mobile-in-chat .server-sidebar {
+    display: none;
+  }
+  .app-container.mobile-in-chat .chat-sidebar,
+  .app-container.mobile-in-chat .chat-main {
+    height: 100%;
+  }
+
+  /* Ряд у поля ввода на телефоне — без кнопок модулей. */
+  .composer-module-actions {
+    display: none;
   }
 
   /* --- Panel switching via class on .app-container --- */
@@ -322,6 +357,10 @@
 }
 
 /* Hide mobile menu button on desktop */
+.composer-module-actions {
+  display: contents;
+}
+
 @media (min-width: 769px) {
   .mobile-menu-btn {
     display: none;

@@ -10,7 +10,7 @@ from django.core.files.base import ContentFile
 from django.core.mail import send_mail
 from django.core.validators import validate_email
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.db import connection
+from django.db import IntegrityError, connection
 from django.db.models import Q
 from django.http import FileResponse, Http404
 from django.utils import timezone
@@ -651,7 +651,15 @@ def register(request):
 
     serializer = RegisterSerializer(data=request.data)
     if serializer.is_valid():
-        user = serializer.save()
+        try:
+            user = serializer.save()
+        except IntegrityError:
+            # Two sign-ups with the same address at the same moment: the
+            # database decides, and the loser is told why.
+            return Response(
+                {'email': 'A user with that email already exists.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         record.delete()
         refresh = RefreshToken.for_user(user)
         audit_event(request, 'register_success', user=user)

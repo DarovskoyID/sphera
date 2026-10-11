@@ -1,5 +1,6 @@
 from django.core import mail
 from django.core.cache import cache
+from django.db import IntegrityError, transaction
 from django.test import TestCase
 from rest_framework.test import APIClient
 
@@ -99,3 +100,59 @@ class PasswordResetTests(TestCase):
         self.assertEqual(self.ask().status_code, 200)
         self.assertNotEqual(self.code(), first)
         self.assertEqual(len(mail.outbox), 2)
+
+
+class OneAccountPerEmailTests(TestCase):
+    """An address identifies an account: recovery codes are sent to it."""
+
+    def setUp(self):
+        cache.clear()
+        self.addCleanup(cache.clear)
+        self.alice = User.objects.create_user(username='alice', email='alice@x.ru', password='Old-Pass-12345')
+
+    def test_the_database_refuses_a_second_account_with_the_same_address(self):
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            User.objects.create_user(username='mallory', email='alice@x.ru', password='Old-Pass-12345')
+
+    def test_capitalisation_is_not_a_different_address(self):
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            User.objects.create_user(username='mallory', email='Alice@X.RU', password='Old-Pass-12345')
+
+    def test_accounts_without_an_address_do_not_collide(self):
+        User.objects.create_user(username='bob', password='Old-Pass-12345')
+        User.objects.create_user(username='carol', password='Old-Pass-12345')
+        self.assertEqual(User.objects.filter(email='').count(), 2)
+
+    def test_a_profile_cannot_take_over_someone_elses_address(self):
+        bob = User.objects.create_user(username='bob', email='bob@x.ru', password='Old-Pass-12345')
+        c = app_client()
+        c.force_authenticate(user=bob)
+
+        r = c.patch('/api/auth/me/update/', {'email': 'ALICE@x.ru'}, format='json')
+
+        self.assertEqual(r.status_code, 400, r.content)
+        bob.refresh_from_db()
+        self.assertEqual(bob.email, 'bob@x.ru')
+        # Its own address, re-saved, is not a collision with itself.
+        self.assertEqual(c.patch('/api/auth/me/update/', {'email': 'bob@x.ru'}, format='json').status_code, 200)
+
+    def test_sign_up_refuses_an_address_that_is_taken(self):
+        from .models import EmailVerificationCode
+        from django.utils import timezone
+        from datetime import timedelta
+
+        EmailVerificationCode.objects.create(
+            email='alice@x.ru', code='ABC123', expires_at=timezone.now() + timedelta(minutes=10))
+        r = app_client().post('/api/auth/register/', {
+            'username': 'mallory', 'email': 'alice@x.ru', 'code': 'ABC123', 'password': 'Brand-New-Pass-99',
+        }, format='json')
+        self.assertEqual(r.status_code, 400)
+        self.assertFalse(User.objects.filter(username='mallory').exists())
+
+    def test_recovery_still_points_at_exactly_one_account(self):
+        self.assertEqual(
+            app_client().post('/api/auth/password-reset/send-code/', {'email': 'ALICE@x.ru'}, format='json').status_code,
+            200,
+        )
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(mail.outbox[0].to, ['alice@x.ru'])

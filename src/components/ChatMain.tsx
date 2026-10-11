@@ -1784,6 +1784,18 @@ type PendingFile = { file: File; preview?: string };
 type RecordMode = 'idle' | 'voice' | 'video';
 type RecordState = 'idle' | 'recording' | 'preview';
 
+/**
+ * The record button works the way Telegram's does: a tap switches between a
+ * voice message and a video circle, holding records, letting go sends.
+ * Sliding up while holding locks the recording hands-free, sliding left throws
+ * it away.
+ */
+const RECORD_TAP_MS = 350;
+const RECORD_LOCK_SLIDE = 56;
+const RECORD_CANCEL_SLIDE = 80;
+/** Shorter than this on release is a slip of the finger, not a message. */
+const RECORD_MIN_MS = 600;
+
 const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: () => void; editing?: ChatMessageType | null; onCancelEdit?: () => void; onScheduled: (item: ScheduledItem) => void }> = ({ replyTo, onCancelReply, editing, onCancelEdit, onScheduled }) => {
   const { sendChatMessage, chatConversationId, currentServerIP, authToken, scheduleMessage, sendRichMessage, editMessage, friends, currentChat } = useApp();
   const tr = useTranslation();
@@ -1860,6 +1872,14 @@ const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: (
   const [recordedUrl, setRecordedUrl] = useState<string | null>(null);
   const [recordDuration, setRecordDuration] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
+  // Hands-free: the recording goes on after the finger is lifted.
+  const [recordLocked, setRecordLocked] = useState(false);
+  const holdRef = useRef<{ x: number; y: number; at: number } | null>(null);
+  const lockedRef = useRef(false);
+  // Set between stop() and onstop to say what the finished blob is for.
+  const abortRef = useRef(false);
+  const autoSendRef = useRef(false);
+  const sendRecordingRef = useRef<(() => Promise<void>) | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -1897,6 +1917,15 @@ const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: (
       chunksRef.current = [];
       recorder.ondataavailable = e => { if (e.data.size > 0) chunksRef.current.push(e.data); };
       recorder.onstop = () => {
+        if (abortRef.current) {
+          // Slid left, or released before it was a message at all.
+          abortRef.current = false;
+          chunksRef.current = [];
+          setRecordState('idle');
+          setRecordDuration(0);
+          stopMediaStream();
+          return;
+        }
         const blob = new Blob(chunksRef.current, { type: actualType });
         const url = URL.createObjectURL(blob);
         setRecordedBlob(blob);
@@ -1906,6 +1935,13 @@ const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: (
       };
       mediaRecorderRef.current = recorder;
       recorder.start();
+      // Permission dialogs and camera start-up take time: the finger may already
+      // be up by now, and a recording nobody asked for must not stay on.
+      if (!holdRef.current && !lockedRef.current) {
+        abortRef.current = true;
+        try { recorder.stop(); } catch { /* already inactive */ }
+        return;
+      }
       setRecordState('recording');
       setRecordDuration(0);
       recordTimerRef.current = setInterval(() => setRecordDuration(d => d + 1), 1000);
@@ -1924,13 +1960,75 @@ const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: (
     }
   }, []);
 
-  // Tap-to-start / tap-to-stop (mobile-friendly; replaces press-and-hold).
-  const toggleRecord = useCallback((mode: RecordMode) => {
-    if (recordState === 'recording') { stopRecording(); return; }
+  /** Stop and keep nothing: the slide-left gesture and too-short presses. */
+  const abortRecording = useCallback(() => {
+    abortRef.current = true;
+    if (mediaRecorderRef.current?.state === 'recording') {
+      if (recordTimerRef.current) { clearInterval(recordTimerRef.current); recordTimerRef.current = null; }
+      mediaRecorderRef.current.stop();
+    } else {
+      abortRef.current = false;
+      cleanupRecording();
+      setRecordState('idle');
+      setRecordDuration(0);
+    }
+  }, [cleanupRecording]);
+
+  const setLocked = useCallback((on: boolean) => {
+    lockedRef.current = on;
+    setRecordLocked(on);
+  }, []);
+
+  const onRecordDown = useCallback((e: React.PointerEvent<HTMLButtonElement>) => {
+    if (uploading) return;
+    // Locked and running: this press is the stop button.
+    if (recordState === 'recording') {
+      if (lockedRef.current) stopRecording();
+      return;
+    }
     if (recordState === 'preview') return;
-    setRecordMode(mode);
-    startRecording(mode);
-  }, [recordState, stopRecording, startRecording]);
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+    holdRef.current = { x: e.clientX, y: e.clientY, at: Date.now() };
+    setLocked(false);
+    void startRecording(recordMode === 'video' ? 'video' : 'voice');
+  }, [uploading, recordState, stopRecording, startRecording, recordMode, setLocked]);
+
+  const onRecordMove = useCallback((e: React.PointerEvent<HTMLButtonElement>) => {
+    const hold = holdRef.current;
+    if (!hold || lockedRef.current) return;
+    if (hold.x - e.clientX > RECORD_CANCEL_SLIDE) {
+      holdRef.current = null;
+      abortRecording();
+      return;
+    }
+    if (hold.y - e.clientY > RECORD_LOCK_SLIDE) setLocked(true);
+  }, [abortRecording, setLocked]);
+
+  const onRecordUp = useCallback(() => {
+    const hold = holdRef.current;
+    holdRef.current = null;
+    if (!hold) return;              // already cancelled by the slide
+    if (lockedRef.current) return;  // hands-free: keep recording
+    const held = Date.now() - hold.at;
+    if (held < RECORD_TAP_MS) {
+      // A tap, not a recording: switch what the button records.
+      abortRecording();
+      setRecordMode(m => (m === 'video' ? 'voice' : 'video'));
+      return;
+    }
+    if (held < RECORD_MIN_MS) {
+      abortRecording();
+      return;
+    }
+    autoSendRef.current = true;     // letting go sends, as in Telegram
+    stopRecording();
+  }, [abortRecording, stopRecording]);
+
+  const onRecordCancel = useCallback(() => {
+    if (!holdRef.current || lockedRef.current) return;
+    holdRef.current = null;
+    abortRecording();
+  }, [abortRecording]);
 
   const discardRecording = useCallback(() => {
     cleanupRecording();
@@ -1943,6 +2041,16 @@ const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: (
   }, [cleanupRecording, recordedUrl]);
 
   const liveVideoRef = useRef<HTMLVideoElement | null>(null);
+
+  // Letting go of the button sends straight away; the hands-free recording
+  // stops into the preview instead, so it can still be listened to first.
+  useEffect(() => {
+    if (recordState === 'preview' && recordedBlob && autoSendRef.current) {
+      autoSendRef.current = false;
+      void sendRecordingRef.current?.();
+    }
+    if (recordState === 'idle') setLocked(false);
+  }, [recordState, recordedBlob, setLocked]);
 
   useEffect(() => {
     if (recordState === 'recording' && recordMode === 'video' && liveVideoRef.current && mediaStreamRef.current) {
@@ -2201,6 +2309,7 @@ const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: (
     finally { setUploading(false); }
     discardRecording();
   }, [recordedBlob, chatConversationId, currentServerIP, authToken, sendChatMessage, replyTo, onCancelReply, discardRecording, recordMode]);
+  sendRecordingRef.current = sendRecording;
 
   const cleanupRef = useRef(cleanupRecording);
   cleanupRef.current = cleanupRecording;
@@ -2359,7 +2468,12 @@ const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: (
           ) : (
             <div style={{ width: 10, height: 10, borderRadius: '50%', background: '#ff4444', animation: 'pulse 1s infinite', flexShrink: 0 }} />
           )}
-          <span style={{ fontSize: 13, color: '#ff4444', fontWeight: 600 }}>{tr('chat_recording')}</span>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: 13, color: '#ff4444', fontWeight: 600 }}>{tr('chat_recording')}</div>
+            <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+              {recordLocked ? tr('chat_record_locked') : tr('chat_record_hint')}
+            </div>
+          </div>
           <span style={{ fontSize: 13, color: 'var(--text-secondary)', marginLeft: 'auto' }}>{formatTime(recordDuration)}</span>
         </div>
       )}
@@ -2441,26 +2555,32 @@ const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: (
             </span>
           )}
           {!hasText && pendingFiles.length === 0 && recordState !== 'preview' && (
-            <>
-              <button
-                className="composer-icon-btn"
-                title={tr('chat_voice_message')}
-                onClick={() => toggleRecord('voice')}
-                disabled={uploading || (recordState === 'recording' && recordMode === 'video')}
-                style={recordState === 'recording' && recordMode === 'voice' ? { color: '#ed4245' } : undefined}
-              >
-                {recordState === 'recording' && recordMode === 'voice' ? <Square size={18} /> : <Mic size={20} />}
-              </button>
-              <button
-                className="composer-icon-btn"
-                title={tr('chat_video_circle')}
-                onClick={() => toggleRecord('video')}
-                disabled={uploading || (recordState === 'recording' && recordMode === 'voice')}
-                style={recordState === 'recording' && recordMode === 'video' ? { color: '#ed4245' } : undefined}
-              >
-                {recordState === 'recording' && recordMode === 'video' ? <Square size={18} /> : <Circle size={20} />}
-              </button>
-            </>
+            /* Tap switches voice ↔ circle, hold records, release sends; slide
+               up locks it hands-free, slide left throws it away. */
+            <button
+              className="composer-icon-btn"
+              title={recordState === 'recording'
+                ? (recordLocked ? tr('chat_record_stop') : tr('chat_record_release'))
+                : recordMode === 'video' ? tr('chat_record_hold_circle') : tr('chat_record_hold_voice')}
+              aria-label={recordMode === 'video' ? tr('chat_video_circle') : tr('chat_voice_message')}
+              disabled={uploading}
+              onPointerDown={onRecordDown}
+              onPointerMove={onRecordMove}
+              onPointerUp={onRecordUp}
+              onPointerCancel={onRecordCancel}
+              onContextMenu={e => e.preventDefault()}
+              style={{
+                touchAction: 'none',
+                userSelect: 'none',
+                color: recordState === 'recording' ? '#ed4245' : undefined,
+                transform: recordState === 'recording' && !recordLocked ? 'scale(1.18)' : undefined,
+                transition: 'transform 120ms ease',
+              }}
+            >
+              {recordState === 'recording' && recordLocked
+                ? <Square size={18} />
+                : recordMode === 'video' ? <Circle size={20} /> : <Mic size={20} />}
+            </button>
           )}
           <HideSelectionButton
             inputRef={composerInputRef}

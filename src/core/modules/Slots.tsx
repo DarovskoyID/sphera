@@ -1,11 +1,22 @@
 import type { ComposerActionProps } from '../../sdk/slots';
 import { useSlot } from '../../sdk/slots';
 
-/** Buttons modules add next to a message composer. */
+/**
+ * Buttons modules add next to a message composer.
+ *
+ * Wrapped in a span that is `display: contents` on a wide screen and hidden on
+ * a phone (layout.css): the row by the message box is narrow, and three module
+ * icons there crowd out typing. The modules themselves stay reachable from the
+ * dock and from «Исследовать сферу».
+ */
 export function ComposerActions(props: ComposerActionProps) {
   const actions = useSlot('chat.composerAction');
-  if (!props.targetId) return null;
-  return <>{actions.map(a => <a.render key={`${a.moduleId}:${a.id}`} {...props} />)}</>;
+  if (!props.targetId || actions.length === 0) return null;
+  return (
+    <span className="composer-module-actions">
+      {actions.map(a => <a.render key={`${a.moduleId}:${a.id}`} {...props} />)}
+    </span>
+  );
 }
 
 /** Buttons modules add to the left rail. */
