@@ -1,15 +1,24 @@
 {
   "id": "bitrix",
-  "name": { "ru": "Интеграция с Битрикс24", "en": "Bitrix24 integration" },
+  "name": {
+    "ru": "Интеграция с Битрикс24",
+    "en": "Bitrix24 integration"
+  },
   "description": {
     "ru": "Лиды, сделки и задачи Битрикс24 из переписки, поиск по CRM и уведомления о событиях портала",
     "en": "Bitrix24 leads, deals and tasks from chats, CRM search and portal event notifications"
   },
-  "version": "1.0.0",
+  "version": "1.1.0",
   "sdkVersion": 1,
   "deps": [],
   "backendApp": "sfera_bitrix",
   "urlPrefix": "api/bitrix/",
   "icon": "building",
-  "provides": ["main.view", "explore.card", "settings.page", "chat.composerAction", "app.overlay"]
+  "provides": [
+    "main.view",
+    "explore.card",
+    "settings.page",
+    "chat.composerAction",
+    "app.overlay"
+  ]
 }
