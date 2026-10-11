@@ -263,12 +263,44 @@ def closure(mid: str, remote: dict) -> list[str]:
     return order
 
 
+def not_loaded(mid: str, manifest: dict | None = None) -> bool:
+    """Code is on this server, but this process does not run it.
+
+    Happens when an install fetched the code and then the migrate step failed:
+    the old process keeps serving without the module, and pressing «Установить»
+    again must do the migrate-and-restart rather than report success and change
+    nothing. A frontend-only module needs no restart — its bundle is built from
+    disk on request.
+    """
+    app = (manifest or {}).get('backendApp') or (_read_json(_dir() / mid / 'module.json', {}) or {}).get('backendApp')
+    if not app:
+        return False
+    from django.apps import apps as django_apps
+
+    return not django_apps.is_installed(app)
+
+
 def needs_fetch(mid: str, remote: dict, update: bool) -> bool:
-    """Whether installing needs code from the repository (absent, or an update is asked)."""
+    """Whether installing has work to do: fetch the code, or load what is there."""
     spec = remote.get(mid)
     if disk_ref(mid) is None:
         return spec is not None
-    return bool(update and spec and disk_ref(mid) != spec['ref'])
+    if update and spec and disk_ref(mid) != spec['ref']:
+        return True
+    return not_loaded(mid, (spec or {}).get('manifest'))
+
+
+def forget(mid: str) -> None:
+    """Drop every trace of a module whose code is not on this server.
+
+    Uninstalling a deployed module keeps the code so re-installing is instant;
+    a half-installed one leaves a stale entry that would otherwise make the
+    next install think the right commit is already in place.
+    """
+    clear_job(mid)
+    refs = installed_refs()
+    if refs.pop(mid, None) is not None:
+        _write_json(_dir() / '.installed.json', refs)
 
 
 # One worker installs everything in order: git and the build must not run in

@@ -154,7 +154,13 @@ def module_install(request, module_id):
     dependants = [mid for mid in have if mid in deployed and module_id in deployed[mid].deps]
     if dependants:
         return Response({'error': 'required_by', 'modules': dependants}, status=409)
-    remote.clear_job(module_id)  # a failed install must not keep haunting the card
+    # A failed install must not keep haunting the card; and when the code never
+    # made it onto this server, nothing of the module is kept — so installing it
+    # again starts from scratch instead of trusting a stale record.
+    if module_id in deployed:
+        remote.clear_job(module_id)
+    else:
+        remote.forget(module_id)
     deleted, _ = InstanceModule.objects.filter(module_id=module_id).delete()
     if deleted:
         hooks.module_uninstalled.send(sender=None, user=user, module_id=module_id)

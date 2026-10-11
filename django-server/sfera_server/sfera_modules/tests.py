@@ -221,6 +221,38 @@ class RemoteCatalogTests(TestCase):
         self.assertFalse((self.root / '.jobs' / 'planner.json').exists())
 
     @override_settings(SFERA_MODULES_ENFORCE=True)
+    def test_uninstalling_a_module_without_code_leaves_nothing_behind(self):
+        """So the next install starts over instead of trusting a stale record."""
+        InstanceModule.objects.create(module_id='planner')
+        self.remote._write_json(self.root / '.installed.json',
+                                {'planner': {'branch': 'module/planner', 'ref': 'b' * 40}})
+
+        self.assertEqual(self.client.delete('/api/modules/planner/install/').status_code, 200)
+
+        self.assertNotIn('planner', self.remote.installed_refs())
+        self.assertFalse(InstanceModule.objects.filter(module_id='planner').exists())
+        # And it can be installed again, from the repository.
+        with mock.patch.object(self.remote, '_enqueue') as enqueue:
+            r = self.client.post('/api/modules/planner/install/')
+        self.assertEqual((r.status_code, r.data['jobs']), (202, ['planner']))
+        enqueue.assert_called_once()
+
+    @override_settings(SFERA_MODULES_ENFORCE=True)
+    def test_code_on_disk_that_the_server_never_loaded_is_installed_again(self):
+        """A failed migrate leaves the code in place and the process without it."""
+        # An app name this test run certainly does not have in INSTALLED_APPS.
+        _write_modules(self.root, {'planner': {'backendApp': 'sfera_never_loaded'}})
+        self.repo['planner']['manifest']['backendApp'] = 'sfera_never_loaded'
+        self.repo['planner']['ref'] = 'c' * 40  # exactly what disk_ref reports
+
+        with mock.patch.object(self.remote, '_enqueue') as enqueue:
+            r = self.client.post('/api/modules/planner/install/')
+
+        # Nothing to fetch, yet there is work: migrate and restart into the code.
+        self.assertEqual((r.status_code, r.data['jobs']), (202, ['planner']))
+        enqueue.assert_called_once()
+
+    @override_settings(SFERA_MODULES_ENFORCE=True)
     def test_restore_works_while_the_repository_is_unreachable(self):
         InstanceModule.objects.create(module_id='planner')
         known = {'ref': 'b' * 40, 'manifest': self.repo['planner']['manifest']}
