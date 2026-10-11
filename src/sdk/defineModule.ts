@@ -3,7 +3,9 @@ import type { WsChannel, WsFrame } from './wsBus';
 import type { LifecycleEvent } from './lifecycle';
 
 /** Bumped on breaking SDK changes; must match `sdkVersion` in module.json. */
-export const SDK_VERSION = 1;
+// Kept in step with sfera_modules/loader.py. A module declares the lowest core
+// it needs, so a newer core still loads an older module.
+export const SDK_VERSION = 2;
 
 export interface ModuleContext {
   id: string;
