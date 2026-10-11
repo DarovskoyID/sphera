@@ -91,3 +91,27 @@ def push_to_user(user_id, event_type: str, payload: dict | None = None) -> None:
         f'user_{user_id}',
         {'type': 'module_event', 'event': event_type, 'payload': payload or {}},
     )
+
+
+def approx_count(model, exact_below: int = 50_000) -> int:
+    """Row count for dashboards: cheap on large tables, exact on small ones.
+
+    ``COUNT(*)`` on a multi-million-row table is a full scan and /metrics is
+    scraped every 15 s, so on PostgreSQL the planner's estimate is used once a
+    table grows past ``exact_below``; SQLite always counts.
+    """
+    from django.db import connection
+
+    table = model._meta.db_table
+    if connection.vendor != 'postgresql':
+        return model.objects.count()
+    try:
+        with connection.cursor() as cur:
+            cur.execute('SELECT reltuples::bigint FROM pg_class WHERE oid = to_regclass(%s)', [table])
+            row = cur.fetchone()
+        estimate = int(row[0]) if row and row[0] is not None else -1
+    except Exception:
+        estimate = -1
+    if 0 <= estimate < exact_below:
+        return model.objects.count()
+    return max(estimate, 0)

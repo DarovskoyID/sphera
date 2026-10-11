@@ -317,9 +317,14 @@ def _status_json(request):
 
 
 def _module_metrics():
-    """METRICS hook results keyed by module id; a failing module is skipped."""
+    """METRICS hook results keyed by module id; a failing module is skipped.
+
+    Cached like the core's own heavy numbers: /metrics is scraped every 15 s and
+    the status page refreshes every 10 s, while module hooks count rows.
+    """
     from sfera_modules import hooks
-    return {mid: m or {} for mid, m in hooks.collect(hooks.METRICS).items()}
+
+    return _cached('module_metrics', 30, lambda: {mid: m or {} for mid, m in hooks.collect(hooks.METRICS).items()})
 
 
 def _module_status():
