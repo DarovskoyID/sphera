@@ -217,7 +217,7 @@ function CommentsPanel({ docId, anchor, onClose }: { docId: string; anchor: stri
   );
 }
 
-function EditorScreen({ docId }: { docId: string }) {
+function EditorScreen({ docId, style }: { docId: string; style?: CSSProperties }) {
   const t = useModuleT();
   const conn = useConn();
   const { currentServerIP, setCurrentServer } = useCore();
@@ -265,18 +265,22 @@ function EditorScreen({ docId }: { docId: string }) {
 
   if (error) {
     return (
-      <Empty icon={<FileText size={30} />} title={t('of_missing')}
-        action={<Button onClick={() => setCurrentServer(navigate.moduleRoute(ROUTE, ''))}>{t('of_back')}</Button>} />
+      <div style={{ height: '100%', minWidth: 0, background: 'var(--bg-primary)', ...style }}>
+        <Empty icon={<FileText size={30} />} title={t('of_missing')}
+          action={<Button onClick={() => setCurrentServer(navigate.moduleRoute(ROUTE, ''))}>{t('of_back')}</Button>} />
+      </div>
     );
   }
-  if (!doc || !session) return <div style={{ flex: 1, background: 'var(--bg-primary)' }} />;
+  if (!doc || !session) return <div style={{ height: '100%', minWidth: 0, background: 'var(--bg-primary)', ...style }} />;
 
   const peers = session.livePeers();
   const formats: Format[] = doc.kind === 'doc' ? ['html', 'md'] : doc.kind === 'sheet' ? ['html', 'csv'] : ['html'];
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, background: 'var(--bg-primary)' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderBottom: '1px solid var(--border-color)' }}>
+    // The core hands module views their grid placement: without it the editor
+    // lands in the rail column and every panel collapses (see App.tsx main.view).
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minWidth: 0, minHeight: 0, overflow: 'hidden', background: 'var(--bg-primary)', ...style }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderBottom: '1px solid var(--border-color)', flexShrink: 0 }}>
         <IconButton title={t('of_all')} onClick={() => setCurrentServer(navigate.moduleRoute(ROUTE, ''))}><ArrowLeft size={17} /></IconButton>
         <span style={{ color: KIND_TINT[doc.kind], display: 'flex', flexShrink: 0 }}>{KIND_ICON[doc.kind]}</span>
         <input value={title} readOnly={!session.canEdit}
@@ -378,14 +382,14 @@ export function OfficeView({ style }: { style?: CSSProperties }) {
 
   useEffect(() => { if (!rest) void office.refresh(); }, [rest]);
 
-  if (rest) return <EditorScreen key={rest} docId={rest} />;
+  if (rest) return <EditorScreen key={rest} docId={rest} style={style} />;
 
   const shown = docs.filter(d => (kind === 'all' || d.kind === kind)
     && (!query.trim() || d.title.toLowerCase().includes(query.trim().toLowerCase())));
   const open = (id: string) => setCurrentServer(navigate.moduleRoute(ROUTE, id));
 
   return (
-    <div style={{ height: '100%', overflow: 'auto', background: 'var(--bg-primary)', ...style }}>
+    <div style={{ height: '100%', minWidth: 0, overflow: 'auto', background: 'var(--bg-primary)', ...style }}>
       <div style={{ maxWidth: 1040, margin: '0 auto', padding: '20px 20px 40px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
           <h1 style={{ margin: 0, flex: 1, fontSize: 22, fontWeight: 800, color: 'var(--text-primary)' }}>{t('of_title')}</h1>

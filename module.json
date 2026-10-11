@@ -5,7 +5,7 @@
     "ru": "Групповые документы, таблицы и презентации: совместное редактирование в реальном времени, формулы, комментарии, история версий и экспорт",
     "en": "Group documents, spreadsheets and presentations: real-time co-editing, formulas, comments, version history and export"
   },
-  "version": "1.0.0",
+  "version": "1.0.1",
   "sdkVersion": 1,
   "deps": [],
   "backendApp": "sfera_office",
