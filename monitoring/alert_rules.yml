@@ -1,0 +1,25 @@
+# Alerts of the legal module. Loaded by Prometheus only when the module's
+# monitoring is installed (scripts/modules/monitoring.mjs).
+groups:
+  - name: sfera-module-legal
+    rules:
+      - alert: LegalChainDropping
+        expr: sum(rate(sfera_legal_chain_dropped_total[5m])) > 0
+        for: 5m
+        labels: {severity: critical, module: legal}
+        annotations:
+          summary: "Протоколы: очередь хеш-цепочки переполнена — переписка за этот период потеряет целостность"
+
+      - alert: LegalRecordingOff
+        expr: max(sfera_legal_recording) == 0 and max(sfera_db_rows{table="legal_protocols"}) > 0
+        for: 1h
+        labels: {severity: warning, module: legal}
+        annotations:
+          summary: "Протоколы: фиксация переписки выключена, хотя протоколы уже создают — новые будут без цепочки"
+
+      - alert: LegalBrokenChain
+        expr: max(sfera_legal_protocols_broken_chain) > 0
+        for: 10m
+        labels: {severity: warning, module: legal}
+        annotations:
+          summary: "Протоколы: есть заверённые протоколы с нарушенной цепочкой — проверьте целостность БД"
