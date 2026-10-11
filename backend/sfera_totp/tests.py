@@ -254,7 +254,7 @@ class GateTests(TestCase):
 
     def test_direct_requests_with_a_valid_token_are_refused(self):
         # A token issued before the switch; the browser is not involved at all.
-        for path in ('/api/auth/friends/', '/api/auth/users/', '/api/auth/settings/'):
+        for path in ('/api/auth/users/', '/api/auth/settings/', '/api/auth/devices/'):
             r = self.c.get(path)
             self.assertEqual(r.status_code, 403, f'{path} → {r.status_code}')
             self.assertEqual(r.json()['error'], 'totp_required')
@@ -268,7 +268,7 @@ class GateTests(TestCase):
     def test_the_gate_opens_right_after_the_set_up(self):
         secret = self.c.post('/api/totp/setup/').json()['secret']
         self.c.post('/api/totp/confirm/', {'code': totp.code_at(secret, totp.counter_now())}, format='json')
-        self.assertEqual(self.c.get('/api/auth/friends/').status_code, 200)
+        self.assertEqual(self.c.get('/api/auth/settings/').status_code, 200)
 
     def test_a_blocked_account_gets_no_websocket(self):
         from asgiref.sync import async_to_sync
