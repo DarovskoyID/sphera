@@ -19,13 +19,36 @@ def export(user):
 
 
 def metrics():
+    """Dashboard numbers. Row counts are estimated on large tables and the whole
+    hook is cached by the core, so a scrape never scans the task table."""
+    from datetime import timedelta
+
+    from django.utils import timezone
+    from sfera_modules.hooks import approx_count
+    from sfera_server.metrics import _cval
+
     from .models import Project, Task, TaskComment
 
-    return {'tables': {
-        'planner_projects': Project.objects.count(),
-        'planner_tasks': Task.objects.count(),
-        'planner_comments': TaskComment.objects.count(),
-    }}
+    due_soon = Task.objects.filter(
+        column__is_done=False, due_at__isnull=False,
+        due_at__lt=timezone.now() + timedelta(days=1),
+    ).count()
+    return {
+        'tables': {
+            'planner_projects': approx_count(Project),
+            'planner_tasks': approx_count(Task),
+            'planner_comments': approx_count(TaskComment),
+        },
+        'prometheus': [
+            {'name': 'sfera_planner_tasks_created_total', 'type': 'counter', 'value': _cval('planner_tasks_created'),
+             'help': 'Tasks created in the planner'},
+            {'name': 'sfera_planner_reminders_sent_total', 'type': 'counter', 'value': _cval('planner_reminders_sent'),
+             'help': 'Task reminders delivered'},
+            {'name': 'sfera_planner_tasks_due_soon', 'type': 'gauge', 'value': due_soon,
+             'help': 'Open tasks due within a day'},
+        ],
+        'status': {'Планировщик': {'Задач к сроку (24 ч)': due_soon}},
+    }
 
 
 def has_data(user):

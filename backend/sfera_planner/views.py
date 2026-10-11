@@ -13,6 +13,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from sfera_messages.services import _author_brief
+from sfera_server.metrics import inc as metrics_inc
 from sfera_modules.hooks import push_to_user
 from sfera_modules.permissions import requires_module
 
@@ -401,6 +402,7 @@ def task_create(request, project_id):
         if 'assignee_ids' in data:
             _set_assignees(t, data['assignee_ids'])
     _notify(p.id)
+    metrics_inc('planner_tasks_created')
     return Response(_task_data(t), status=201)
 
 
@@ -502,6 +504,8 @@ def reminders_due(request):
                   .select_related('project').prefetch_related('assignees').distinct())
     due = [t for t in candidates if t.due_at - timedelta(minutes=t.reminder_minutes) <= now]
     Task.objects.filter(id__in=[t.id for t in due]).update(reminded_at=now)
+    if due:
+        metrics_inc('planner_reminders_sent', len(due))
     return Response([{**_task_data(t), 'project_name': t.project.name} for t in due])
 
 
