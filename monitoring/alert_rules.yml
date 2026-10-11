@@ -1,0 +1,25 @@
+# Alerts of the office module. Loaded by Prometheus only when the module's
+# monitoring is installed (scripts/modules/monitoring.mjs).
+groups:
+  - name: sfera-module-office
+    rules:
+      - alert: OfficeEditsRejected
+        expr: sum(rate(sfera_office_op_errors_total[5m])) > 0.2
+        for: 10m
+        labels: {severity: warning, module: office}
+        annotations:
+          summary: "Документы: правки отклоняются — документ упёрся в предел размера либо клиент присылает мусор"
+
+      - alert: OfficeWriteStorm
+        expr: sum(rate(sfera_office_ops_total[1m])) > 150
+        for: 10m
+        labels: {severity: warning, module: office}
+        annotations:
+          summary: "Документы: больше 150 правок/сек — каждая правка пишет строку документа, проверьте БД"
+
+      - alert: OfficeNoRevisions
+        expr: max(sfera_office_live_docs) > 0 and sum(increase(sfera_office_revisions_total[6h])) == 0
+        for: 6h
+        labels: {severity: info, module: office}
+        annotations:
+          summary: "Документы: правки идут, а снимки версий не пишутся — вернуть прежнюю версию будет нечем"

@@ -1,0 +1,117 @@
+# CI for a module branch (module/<id>). Copied to .github/workflows/module.yml
+# at the root of every module branch. It builds the core from main with this
+# module in place and runs the module's backend tests.
+name: Module CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      core_ref:
+        description: Core branch or commit to build the module against
+        default: main
+
+permissions:
+  contents: read
+
+jobs:
+  module:
+    runs-on: ubuntu-latest
+    env:
+      SFERA_DEBUG: '1'
+      SFERA_CORS_ALLOW_ALL: '1'
+      KAFKA_ENABLED: 'false'
+    steps:
+      - name: Checkout module branch
+        uses: actions/checkout@v4
+        with:
+          path: module
+
+      - name: Checkout core (main)
+        uses: actions/checkout@v4
+        with:
+          # Core to test against: dispatch input, repo variable SFERA_CORE_REF, or main.
+          ref: ${{ inputs.core_ref || vars.SFERA_CORE_REF || 'main' }}
+          path: sfera
+          fetch-depth: 0
+
+      - name: Place module into the core checkout
+        run: |
+          id=$(python3 -c "import json;print(json.load(open('module/module.json'))['id'])")
+          app=$(python3 -c "import json;print(json.load(open('module/module.json')).get('backendApp') or '')")
+          mkdir -p sfera/modules
+          rm -rf "sfera/modules/$id"
+          cp -r module "sfera/modules/$id"
+          rm -rf "sfera/modules/$id/.git"
+          echo "MODULE_ID=$id" >> "$GITHUB_ENV"
+          echo "MODULE_APP=$app" >> "$GITHUB_ENV"
+
+      - name: SDK version matches the core
+        working-directory: sfera
+        run: |
+          core=$(grep -oE 'SDK_VERSION = [0-9]+' src/sdk/defineModule.ts | grep -oE '[0-9]+')
+          mod=$(python3 -c "import json;print(json.load(open('modules/$MODULE_ID/module.json')).get('sdkVersion', 1))")
+          if [ "$core" != "$mod" ]; then
+            echo "::error::module sdkVersion $mod does not match core SDK_VERSION $core"
+            exit 1
+          fi
+
+      - name: Fetch declared dependencies
+        working-directory: sfera
+        run: |
+          deps=$(python3 -c "import json;print(','.join(json.load(open('modules/$MODULE_ID/module.json')).get('deps', [])))")
+          if [ -n "$deps" ]; then node scripts/modules/fetch.mjs --only "$deps"; fi
+
+      - name: Module monitoring (dashboards, alert rules)
+        working-directory: sfera
+        run: |
+          # Older cores have no per-module monitoring yet.
+          [ -f scripts/modules/monitoring.mjs ] || exit 0
+          node scripts/modules/monitoring.mjs --exclude core
+          if ls django-server/monitoring/generated/rules/*.yml >/dev/null 2>&1; then
+            # The glob must expand inside the container.
+            docker run --rm --entrypoint sh \
+              -v "$PWD/django-server/monitoring:/m:ro" prom/prometheus:v2.53.0 \
+              -c 'promtool check rules /m/generated/rules/*.yml'
+          fi
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: sfera/package-lock.json
+
+      - name: Build the core frontend
+        working-directory: sfera
+        run: npm ci && npm run build
+
+      - name: Build the module bundle (as the server does on install)
+        working-directory: sfera
+        run: |
+          # Cores older than runtime installs have no build-module.mjs: the core build above covered the module.
+          [ -f scripts/modules/build-module.mjs ] || exit 0
+          node scripts/modules/build-module.mjs "modules/$MODULE_ID" "$RUNNER_TEMP/$MODULE_ID.js"
+          npx tsc --noEmit -p tsconfig.app.json 2>&1 | grep "^modules/$MODULE_ID/" | grep -v TS6133 && exit 1 || true
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: sfera/django-server/requirements.txt
+
+      - name: Install backend dependencies
+        working-directory: sfera/django-server
+        run: python -m pip install --upgrade pip && python -m pip install -r requirements.txt
+
+      - name: Django checks and migrations
+        working-directory: sfera/django-server/sfera_server
+        run: |
+          python manage.py check
+          python manage.py makemigrations --check --dry-run
+          python manage.py migrate --noinput
+
+      - name: Module tests
+        if: env.MODULE_APP != ''
+        working-directory: sfera/django-server/sfera_server
+        run: python manage.py test "$MODULE_APP" sfera_modules
