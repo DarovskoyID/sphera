@@ -24,7 +24,9 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
-SDK_VERSION = 1
+# Bumped when the core gains extension points a module may rely on. A module
+# declares the lowest core it needs; anything newer still loads it.
+SDK_VERSION = 2
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 MODULES_DIR = Path(os.environ.get('SFERA_MODULES_DIR', REPO_ROOT / 'modules'))
@@ -72,8 +74,8 @@ def _read(path: Path) -> ModuleManifest | None:
         raw = json.loads((path / 'module.json').read_text(encoding='utf-8'))
     except (OSError, ValueError):
         return None
-    if raw.get('sdkVersion', SDK_VERSION) != SDK_VERSION:
-        print(f'[sfera_modules] skip {path.name}: sdkVersion {raw.get("sdkVersion")} != {SDK_VERSION}',
+    if raw.get('sdkVersion', SDK_VERSION) > SDK_VERSION:
+        print(f'[sfera_modules] skip {path.name}: needs sdkVersion {raw.get("sdkVersion")}, this core is {SDK_VERSION}',
               file=sys.stderr)
         return None
     return ModuleManifest(

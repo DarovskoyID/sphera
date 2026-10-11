@@ -37,6 +37,42 @@ function pick(map: Record<string, string>, lang: string) {
   return map[lang] || map.en || map.ru || Object.values(map)[0] || '';
 }
 
+interface ModuleFailure {
+  error?: string;
+  modules?: string[];
+  detail?: string;
+  sdk?: number;
+}
+
+/** The server answers in codes; a card has to say what actually happened. */
+function moduleError(body: ModuleFailure | undefined, isRu: boolean) {
+  const list = body?.modules?.join(', ') ?? '';
+  switch (body?.error) {
+    case 'required_by':
+      return `${isRu ? 'Нужен модулям' : 'Required by'}: ${list}`;
+    case 'locked':
+      return body.detail || (isRu ? 'Сейчас удалить нельзя: модуль используется' : 'Cannot be removed while in use');
+    case 'missing_deps':
+      return `${isRu ? 'Нет зависимостей в репозитории' : 'Dependencies missing in the repository'}: ${list}`;
+    case 'core_too_old':
+      return isRu
+        ? 'Модуль рассчитан на более новое ядро — обновите сервер и повторите'
+        : 'This module needs a newer core — update the server and try again';
+    case 'repo_unavailable':
+      return `${isRu ? 'Репозиторий недоступен' : 'Repository unavailable'}${body.detail ? `: ${body.detail}` : ''}`;
+    case 'unknown_module':
+      return isRu
+        ? 'Модуля нет ни на сервере, ни в репозитории — возможно, ветку переименовали или удалили'
+        : 'Neither on this server nor in the repository — the branch may have been renamed or removed';
+    case 'not_installed':
+      return isRu ? 'Модуль не установлен' : 'The module is not installed';
+    case 'superuser_only':
+      return isRu ? 'Модулями управляет только суперпользователь' : 'Only the superuser manages modules';
+    default:
+      return '';
+  }
+}
+
 function ModuleCard({ m, lang, isRu, canManage }: { m: ModuleInfo; lang: string; isRu: boolean; canManage: boolean }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -49,12 +85,8 @@ function ModuleCard({ m, lang, isRu, canManage }: { m: ModuleInfo; lang: string;
       else if (action === 'update') await updateModule(m.id);
       else await installModule(m.id);
     } catch (e) {
-      const body = (e as { body?: { error?: string; modules?: string[] } }).body;
-      setError(body?.error === 'required_by'
-        ? `${isRu ? 'Нужен модулям' : 'Required by'}: ${body.modules?.join(', ')}`
-        : body?.error === 'locked'
-          ? (isRu ? 'Сейчас удалить нельзя: модуль используется (например, на сервере есть семьи)' : 'Cannot be removed while in use (e.g. families exist)')
-          : String((e as Error).message));
+      const body = (e as { body?: ModuleFailure }).body;
+      setError(moduleError(body, isRu) || String((e as Error).message));
     } finally {
       setBusy(false);
     }
@@ -97,6 +129,12 @@ function ModuleCard({ m, lang, isRu, canManage }: { m: ModuleInfo; lang: string;
             ? (m.manualRestart ? (isRu ? 'Перезапустите сервер' : 'Restart the server') : (isRu ? 'Перезапуск сервера…' : 'Restarting server…'))
             : m.pending === 'updating' ? (isRu ? 'Обновление из репозитория…' : 'Updating from repository…')
               : (isRu ? 'Загрузка из репозитория…' : 'Downloading from repository…')}
+        </div>
+      ) : m.needsCoreSdk && !m.deployed ? (
+        <div style={{ padding: '8px 10px', borderRadius: 8, fontSize: 12, lineHeight: 1.4, color: '#b45309', background: 'rgba(245,158,11,.12)' }}>
+          {isRu
+            ? 'Модуль рассчитан на более новое ядро. Обновите сервер — после этого он установится.'
+            : 'This module needs a newer core. Update the server and it will install.'}
         </div>
       ) : canManage && (
         <div style={{ display: 'flex', gap: 8 }}>

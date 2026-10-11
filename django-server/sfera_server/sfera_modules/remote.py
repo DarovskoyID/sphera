@@ -147,6 +147,23 @@ def installed_refs() -> dict:
     return _read_json(_dir() / '.installed.json', {})
 
 
+def known_spec(mid: str) -> dict | None:
+    """A catalog-shaped entry from what this server already fetched once.
+
+    Lets a module whose code is missing be restored while the repository is
+    unreachable or its branch list is stale — the commit and the manifest are
+    still in the local clone.
+    """
+    ref = (installed_refs().get(mid) or {}).get('ref') or _local_ref(mid)
+    if not ref:
+        return None
+    try:
+        raw = json.loads(_git('show', f'{ref}:module.json'))
+    except (RuntimeError, ValueError, OSError):
+        return None
+    return {'ref': ref, 'manifest': raw} if raw.get('id') == mid else None
+
+
 def job(mid: str) -> dict | None:
     data = _read_json(_dir() / '.jobs' / f'{mid}.json', None)
     if not data:
