@@ -102,6 +102,15 @@
     padding: 0 var(--spacing-sm);
     overflow-x: auto;
     overflow-y: hidden;
+    /* The dock is dragged sideways with a finger: say so, or the browser keeps
+       the gesture for the page and the row feels nailed down. */
+    touch-action: pan-x;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
+    /* align-items: center from the desktop rules would centre the row as a
+       whole and push its first icons out of reach once it overflows. */
+    align-items: stretch;
+    justify-content: flex-start;
   }
 
   /*
@@ -125,22 +134,25 @@
   }
 
   /*
-    * The dock is a single scrollable row.
+    * The dock is one scrollable row that always starts at its first icon.
     *
-    * `justify-content: center` keeps few icons in the middle, but once they
-    * overflow a centred row spills past both edges and the first ones can no
-    * longer be reached — `safe` falls back to packing from the start exactly
-    * then. `min-width: max-content` is what gives the sidebar something wider
-    * than itself to scroll.
+    * Centring it (`justify-content: center`, or auto margins) looks right
+    * while everything fits and hides the first icons the moment it does not:
+    * a centred row overflows past both edges, and nothing can scroll back to
+    * the left one. Settings and the home button disappeared exactly that way.
+    * So: packed from the start, as wide as its content, and the sidebar
+    * scrolls it.
     */
   .server-sidebar .server-list {
     flex-direction: row;
+    align-items: center;
     gap: var(--spacing-sm);
     height: 100%;
-    width: auto;
-    min-width: max-content;
+    width: max-content;
+    min-width: 100%;
     flex-wrap: nowrap;
-    justify-content: safe center;
+    justify-content: flex-start;
+    flex: 0 0 auto;
     padding: 0 var(--spacing-xs);
   }
 
@@ -212,10 +224,6 @@
     height: 100%;
   }
 
-  /* Ряд у поля ввода на телефоне — без кнопок модулей. */
-  .composer-module-actions {
-    display: none;
-  }
 
   /* --- Panel switching via class on .app-container --- */
 
@@ -356,9 +364,20 @@
   }
 }
 
-/* Hide mobile menu button on desktop */
+/*
+ * Buttons modules add next to the message box: in the row on a wide screen,
+ * gone on a phone, where the row is narrow and typing matters more. The two
+ * rules live together and in this order on purpose — the plain one used to sit
+ * after the media query and quietly won over it, so nothing was ever hidden.
+ */
 .composer-module-actions {
   display: contents;
+}
+
+@media (max-width: 768px) {
+  .composer-module-actions {
+    display: none;
+  }
 }
 
 @media (min-width: 769px) {
