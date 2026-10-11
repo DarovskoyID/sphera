@@ -244,7 +244,9 @@ function MemberRow({ member, myRole, guildId, guildRoles }: { member: GuildMembe
 
 // ── Voice participant row ────────────────────────────────────────────────────
 function VoiceParticipantRow({ participant, myRole, guildId, members, guildRoles }: {
-  participant: { id: string; username: string; nickname: string; avatar: string; muted: boolean; deafened: boolean };
+  // deafened is optional: the presence endpoint of an older server does not
+  // send it, and a missing flag just means «not deafened».
+  participant: { id: string; username: string; nickname: string; avatar: string; muted: boolean; deafened?: boolean };
   myRole: string;
   guildId: string;
   members: GuildMember[];
