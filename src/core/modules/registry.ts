@@ -95,7 +95,7 @@ async function activate(id: string) {
   activeBundles.set(id, info.bundle);
   try {
     const mod = await loadBundle(info.bundle);
-    if (mod.sdkVersion !== SDK_VERSION) throw new Error(`sdkVersion ${mod.sdkVersion} != ${SDK_VERSION}`);
+    if (mod.sdkVersion > SDK_VERSION) throw new Error(`sdkVersion ${mod.sdkVersion} needs a newer core (${SDK_VERSION})`);
     const ctx: ModuleContext = {
       id,
       slot: (slot, item) => { bag.push(registerSlot(id, slot, item)); },
