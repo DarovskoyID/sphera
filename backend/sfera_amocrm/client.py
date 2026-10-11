@@ -8,6 +8,7 @@ import urllib.request
 from datetime import timedelta
 
 from django.utils import timezone
+from sfera_server.metrics import inc as metrics_inc
 
 DOMAIN_RE = re.compile(r'^[a-z0-9-]+\.(amocrm\.(ru|com)|kommo\.com)$')
 TIMEOUT = 15
@@ -30,6 +31,7 @@ def clean_domain(raw: str) -> str:
 
 
 def _request(method, url, token=None, body=None, timeout=TIMEOUT):
+    metrics_inc('amocrm_api_requests')
     data = json.dumps(body).encode() if body is not None else None
     req = urllib.request.Request(url, data=data, method=method)
     req.add_header('Accept', 'application/json')
@@ -42,9 +44,11 @@ def _request(method, url, token=None, body=None, timeout=TIMEOUT):
             raw = res.read()
             return json.loads(raw) if raw else {}
     except urllib.error.HTTPError as e:
+        metrics_inc('amocrm_api_errors')
         detail = e.read()[:500].decode('utf-8', 'replace')
         raise AmoError(f'HTTP {e.code}: {detail}', e.code) from None
     except (urllib.error.URLError, TimeoutError, OSError) as e:
+        metrics_inc('amocrm_api_errors')
         raise AmoError(f'network: {e}') from None
 
 

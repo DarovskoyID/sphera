@@ -1,0 +1,11 @@
+# Alerts of the amocrm module. Loaded by Prometheus only when the module's
+# monitoring is installed (scripts/modules/monitoring.mjs).
+groups:
+  - name: sfera-module-amocrm
+    rules:
+      - alert: AmocrmApiFailing
+        expr: sum(rate(sfera_amocrm_api_errors_total[10m])) > 0.05
+        for: 15m
+        labels: {severity: warning, module: amocrm}
+        annotations:
+          summary: "Интеграция с amoCRM: запросы падают с ошибкой дольше 15 минут — проверьте доступ и ключи"

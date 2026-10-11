@@ -11,6 +11,7 @@ from rest_framework.throttling import AnonRateThrottle
 
 from sfera_messages.services import _author_brief
 from sfera_modules.hooks import push_to_user
+from sfera_server.metrics import inc as metrics_inc
 from sfera_modules.permissions import installed_ids, requires_module
 
 from .client import AmoClient, AmoError, clean_domain, now_ts, parse_webhook
@@ -253,6 +254,7 @@ def webhook(request, secret):
     if not hmac.compare_digest(str(secret), conn.webhook_secret):
         return _err('not_found', 404)
     items = parse_webhook(request.data if hasattr(request.data, 'keys') else {})
+    metrics_inc('amocrm_events_in', len(items))
     recipients = list(conn.notify_users.values_list('id', flat=True))
     domain = conn.domain
     for item in items[:100]:
