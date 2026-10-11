@@ -38,6 +38,15 @@ KAFKA_HANDLERS = 'kafka_handlers'          # fn() -> {topic: handler(data)} for 
 ENCRYPTED_DATA = 'encrypted_data'          # fn() -> [(Model, [text fields], [file fields])] for key rotation
 IS_MANAGED = 'is_managed'                  # fn(user) -> bool: account under parental control
 CAN_UNINSTALL = 'can_uninstall'            # fn(user) -> str | None: reason the module must stay
+# Sign-in needs a second step (e.g. a one-time code): fn(user, request) -> dict | None.
+# The dict is returned to the client as-is, with the challenge the module expects back.
+LOGIN_GUARD = 'login_guard'
+# Finishes such a sign-in: fn(challenge, code, request) -> user | None.
+SECOND_FACTOR = 'second_factor'
+# A signed-in account may not use the app yet: fn(user_id) -> dict | None.
+# The dict is the 403 body; its 'allow' lists path prefixes that stay reachable,
+# so the account can fix whatever blocks it (and sign out).
+ACCESS_GUARD = 'access_guard'
 
 # ── Services ───────────────────────────────────────────────────────────────
 # Optional capabilities one module offers another (e.g. servers → family chat).
@@ -73,6 +82,36 @@ def collect(registry: str, *args, only: set[str] | None = None, **kwargs) -> dic
         except Exception:  # noqa: BLE001 — a module must not break the core
             logging.getLogger('sfera.modules').exception('hook %s of %s failed', registry, module_id)
     return out
+
+
+def login_block(user, request=None) -> dict | None:
+    """Does a module want a second step before this sign-in hands out tokens?"""
+    for answer in collect(LOGIN_GUARD, user, request).values():
+        if answer:
+            return answer
+    return None
+
+
+def second_factor_user(challenge: str, code: str, request=None):
+    """The account a (challenge, code) pair proves, or None if nothing accepts it."""
+    for answer in collect(SECOND_FACTOR, challenge, code, request).values():
+        if answer:
+            return answer
+    return None
+
+
+def access_block(user_id) -> dict | None:
+    """Is this signed-in account kept out of the app by a module?
+
+    Called on every API request and on every socket, so a guard must be cheap:
+    modules are expected to cache their own answer.
+    """
+    if not _registries.get(ACCESS_GUARD):
+        return None
+    for answer in collect(ACCESS_GUARD, user_id).values():
+        if answer:
+            return answer
+    return None
 
 
 def push_to_user(user_id, event_type: str, payload: dict | None = None) -> None:

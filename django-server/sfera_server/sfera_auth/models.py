@@ -345,6 +345,31 @@ class EmailVerificationCode(models.Model):
         return f'{self.email} ({self.code})'
 
 
+class PasswordResetCode(models.Model):
+    """A code emailed to an existing account so its owner can set a new password.
+
+    Kept apart from EmailVerificationCode: that one proves a *new* address at
+    sign-up, this one unlocks an account that already exists, and the two must
+    never satisfy each other. One row per account — asking again overwrites it.
+    """
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='password_reset_code',
+    )
+    code = models.CharField(max_length=12)
+    attempts = models.PositiveSmallIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    expires_at = models.DateTimeField()
+
+    def is_expired(self):
+        from django.utils import timezone
+        return timezone.now() >= self.expires_at
+
+    def __str__(self):
+        return f'PasswordResetCode({self.user})'
+
+
 def _emoji_upload_path(instance, filename):
     ext = os.path.splitext(filename)[1] or '.png'
     return f'emojis/{uuid.uuid4().hex}{ext}'

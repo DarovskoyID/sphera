@@ -28,6 +28,7 @@
 | Интеграция с Битрикс24 | `module/bitrix` | `sfera_bitrix` | лиды, сделки и задачи из переписки, события портала |
 | Протоколы переписки | `module/legal` | `sfera_legal` | хеш-цепочка сообщений, протокол для суда, подписи сторон, публичная проверка по коду |
 | Документы | `module/office` | `sfera_office` | документы, таблицы с формулами и презентации с совместным редактированием, комментарии, история версий, экспорт |
+| Двухфакторная аутентификация | `module/totp` | `sfera_totp` | вход по коду из Google Authenticator, резервные коды, обязательность для всех и блокировка приложения до подключения |
 
 Модули не зависят друг от друга. Если модуль умеет больше рядом с другим, он проверяет, есть ли тот на сервере. Например, у семьи появляется семейный сервер, когда развёрнут модуль серверов. Бот может писать в каналы серверов тоже только при развёрнутом модуле серверов.
 
@@ -63,7 +64,11 @@ monitoring/alert_rules.yml   алерты Prometheus модуля (необяз�
 
 Модуль общается с ядром только через `sfera_modules.hooks`:
 - **Сигналы:** `message_created`, `conversation_opened`, `user_blocked`/`user_unblocked`, `module_installed`/`module_uninstalled`.
-- **Реестры:** `PROFILE_EXTRAS`, `DATA_EXPORT`, `METRICS`, `HAS_DATA`, `IS_MANAGED`, `CAN_UNINSTALL`, `WS_AUTHORIZE`, `KAFKA_HANDLERS`, `ENCRYPTED_DATA`.
+- **Реестры:** `PROFILE_EXTRAS`, `DATA_EXPORT`, `METRICS`, `HAS_DATA`, `IS_MANAGED`, `CAN_UNINSTALL`, `WS_AUTHORIZE`, `KAFKA_HANDLERS`, `ENCRYPTED_DATA`, `LOGIN_GUARD`, `SECOND_FACTOR`, `ACCESS_GUARD`.
+- **Доступ:** три последних реестра закрывают вход и работу в приложении, и решает их ядро, а не интерфейс:
+  - `LOGIN_GUARD` — `fn(user, request) -> dict | None`. Пароль уже проверен; непустой ответ уходит клиенту с кодом 409, и токен не выдаётся.
+  - `SECOND_FACTOR` — `fn(challenge, code, request) -> user | None`. Ядро зовёт его из `POST /api/auth/login/2fa/` и выдаёт токены только за вернувшийся аккаунт.
+  - `ACCESS_GUARD` — `fn(user_id) -> dict | None`. Зовётся из `BanGuardMiddleware` перед каждым запросом `/api/` и из WebSocket-аутентификации. Непустой ответ — тело ответа 403; его ключ `allow` перечисляет префиксы путей, которые остаются открытыми, чтобы аккаунт мог снять блокировку. Всегда открыты `/api/modules/` и точные пути `/api/auth/me/`, `/api/auth/logout/`, `/api/auth/ban-status/`. Хук зовут на каждом запросе — модуль обязан кешировать свой ответ.
 - **Сервисы:** `hooks.provide(name, impl)` / `hooks.service(name)`.
 - **Пуш клиенту:** `hooks.push_to_user(user_id, event, payload)`.
 

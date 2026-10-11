@@ -34,7 +34,7 @@ class AuthRateThrottle(AnonRateThrottle):
     scope = 'auth'
 from .models import (
     User, Friendship, BlockedUser, UserDevice, UserSettings, CustomEmoji,
-    FcmToken, DataExport, EmailVerificationCode, SecurityAuditLog,
+    FcmToken, DataExport, EmailVerificationCode, PasswordResetCode, SecurityAuditLog,
     is_child, enforce_child_settings,
 )
 from .serializers import (
@@ -368,6 +368,120 @@ def register_send_code(request):
     return Response({'status': 'sent'}, status=status.HTTP_200_OK)
 
 
+def _send_password_reset_email(email, code):
+    ttl = getattr(django_settings, 'EMAIL_CODE_TTL_MINUTES', 15)
+    send_mail(
+        'Сфера — код для восстановления пароля',
+        f'Код для смены пароля в Сфере: {code}\n\n'
+        f'Введите его на экране входа и задайте новый пароль. '
+        f'Код действителен {ttl} минут.\n\n'
+        f'Если вы не запрашивали смену пароля, просто проигнорируйте это письмо — '
+        f'пароль останется прежним.',
+        getattr(django_settings, 'DEFAULT_FROM_EMAIL', None),
+        [email],
+        fail_silently=False,
+    )
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+@throttle_classes([AuthRateThrottle])
+def password_reset_send_code(request):
+    """Step 1 of a forgotten password: email the account a one-time code.
+
+    The answer is the same whether or not the address has an account: telling a
+    stranger which emails are registered here is itself a leak. Real sending is
+    still rate-limited per address so a known address cannot be mail-bombed.
+    """
+    email = (request.data.get('email') or '').strip().lower()
+    try:
+        validate_email(email)
+    except DjangoValidationError:
+        return Response({'email': 'Enter a valid email address.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    sent = {'status': 'sent'}
+    user = User.objects.filter(email__iexact=email, is_active=True).first()
+    if not user:
+        return Response(sent)
+
+    now = timezone.now()
+    resend_gap = getattr(django_settings, 'EMAIL_CODE_RESEND_SECONDS', 60)
+    existing = PasswordResetCode.objects.filter(user=user).first()
+    if existing and (now - existing.updated_at).total_seconds() < resend_gap:
+        wait = int(resend_gap - (now - existing.updated_at).total_seconds())
+        return Response(
+            {'detail': f'Please wait {wait}s before requesting a new code.'},
+            status=status.HTTP_429_TOO_MANY_REQUESTS,
+        )
+
+    code = _generate_code()
+    ttl = getattr(django_settings, 'EMAIL_CODE_TTL_MINUTES', 15)
+    PasswordResetCode.objects.update_or_create(
+        user=user,
+        defaults={'code': code, 'attempts': 0, 'expires_at': now + timedelta(minutes=ttl)},
+    )
+    try:
+        _send_password_reset_email(user.email, code)
+    except Exception:
+        return Response(
+            {'detail': 'Could not send the email. Try again later.'},
+            status=status.HTTP_502_BAD_GATEWAY,
+        )
+    audit_event(request, 'password_reset_requested', user=user)
+    return Response(sent)
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+@throttle_classes([AuthRateThrottle])
+def password_reset_confirm(request):
+    """Step 2: the code proves the mailbox, so set the new password.
+
+    Every session is signed out afterwards: whoever caused the reset — the
+    owner or someone who got into the account — continues from the new password
+    alone.
+    """
+    email = (request.data.get('email') or '').strip().lower()
+    code = (request.data.get('code') or '').strip()
+    new_pw = request.data.get('password') or ''
+    if not (email and code and new_pw):
+        return Response({'error': 'email, code and password required'}, status=status.HTTP_400_BAD_REQUEST)
+
+    bad = Response({'error': 'Invalid or expired code.'}, status=status.HTTP_400_BAD_REQUEST)
+    user = User.objects.filter(email__iexact=email, is_active=True).first()
+    entry = PasswordResetCode.objects.filter(user=user).first() if user else None
+    if not entry:
+        return bad
+    if entry.is_expired():
+        entry.delete()
+        return bad
+
+    max_attempts = getattr(django_settings, 'EMAIL_CODE_MAX_ATTEMPTS', 5)
+    if entry.attempts >= max_attempts:
+        entry.delete()
+        audit_event(request, 'password_reset_failed', user=user, metadata={'reason': 'too_many_attempts'})
+        return Response({'error': 'Too many attempts. Request a new code.'}, status=status.HTTP_429_TOO_MANY_REQUESTS)
+    if not secrets.compare_digest(entry.code, code):
+        entry.attempts += 1
+        entry.save(update_fields=['attempts', 'updated_at'])
+        audit_event(request, 'password_reset_failed', user=user, metadata={'reason': 'bad_code'})
+        return bad
+
+    try:
+        validate_password(new_pw, user=user)
+    except DjangoValidationError as exc:
+        return Response({'error': ' '.join(exc.messages)}, status=status.HTTP_400_BAD_REQUEST)
+
+    user.set_password(new_pw)
+    user.save(update_fields=['password'])
+    entry.delete()
+    _blacklist_user_refresh_tokens(user)
+    audit_event(request, 'password_reset_success', user=user)
+    response = Response({'status': 'ok'})
+    _clear_refresh_cookie(response)
+    return response
+
+
 @api_view(['POST'])
 @permission_classes([AllowAny])
 @throttle_classes([AuthRateThrottle])
@@ -383,12 +497,56 @@ def login(request):
         audit_event(request, 'login_failed', metadata={'username': str(request.data.get('username', ''))[:150]})
         return Response(serializer.errors, status=status.HTTP_401_UNAUTHORIZED)
     user = serializer.user
+    # A module may insist on a second step (a one-time code, say). Until it is
+    # passed no token is issued at all, so the password alone opens nothing.
+    from sfera_modules import hooks
+
+    block = hooks.login_block(user, request)
+    if block:
+        audit_event(request, 'login_second_factor_required', user=user)
+        return Response(block, status=status.HTTP_409_CONFLICT)
     refresh = RefreshToken(serializer.validated_data['refresh'])
     try:
         track_device(type('AuthRequest', (), {'user': user, 'GET': request.GET, 'META': request.META})())
     except Exception:
         pass
     audit_event(request, 'login_success', user=user)
+    return _auth_response(user, refresh, request)
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+@throttle_classes([AuthRateThrottle])
+def login_second_factor(request):
+    """Finish a sign-in that a module interrupted, with the code it asked for.
+
+    The core knows nothing about the method: it hands the challenge and the code
+    to whichever module issued them, and only the module's answer — an account —
+    turns into tokens.
+    """
+    from sfera_modules import hooks
+
+    challenge = str(request.data.get('challenge', ''))
+    code = str(request.data.get('code', '')).strip()
+    if not (challenge and code):
+        return Response({'error': 'challenge and code required'}, status=status.HTTP_400_BAD_REQUEST)
+
+    user = hooks.second_factor_user(challenge, code, request)
+    if not user:
+        audit_event(request, 'login_second_factor_failed')
+        return Response({'error': 'invalid_code'}, status=status.HTTP_401_UNAUTHORIZED)
+
+    from . import bans
+
+    if not user.is_active or bans.is_banned(user.id):
+        return Response(bans.ban_info(user.id) or {'error': 'account_disabled'}, status=status.HTTP_403_FORBIDDEN)
+
+    refresh = RefreshToken.for_user(user)
+    try:
+        track_device(type('AuthRequest', (), {'user': user, 'GET': request.GET, 'META': request.META})())
+    except Exception:
+        pass
+    audit_event(request, 'login_second_factor_success', user=user)
     return _auth_response(user, refresh, request)
 
 
