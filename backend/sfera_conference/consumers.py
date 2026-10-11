@@ -15,6 +15,7 @@ from django.utils import timezone
 
 from sfera_messages.consumers import _accepted_subprotocol
 from sfera_modules.permissions import ws_has_module
+from sfera_server.metrics import inc as metrics_inc
 
 from .access import is_host, read_guest_pass, user_can_join
 from .models import AdmittedGuest, Conference, ConferenceMessage, ConferencePeer
@@ -106,6 +107,7 @@ class ConferenceConsumer(AsyncWebsocketConsumer):
 
     async def _join(self):
         self.joined = True
+        metrics_inc('conference_guest_joins' if self.peer['guest'] else 'conference_joins')
         await self._save(ConferencePeer.STATUS_JOINED)
 
         def snapshot():
@@ -171,6 +173,7 @@ class ConferenceConsumer(AsyncWebsocketConsumer):
         elif kind == 'chat':
             text = str(data.get('text', '')).strip()[:CHAT_MAX]
             if text:
+                metrics_inc('conference_chat_messages')
                 await self._broadcast({'type': 'chat', 'message': await database_sync_to_async(self._save_message)(text)})
         elif kind == 'reaction':
             emoji = str(data.get('emoji', ''))[:8]

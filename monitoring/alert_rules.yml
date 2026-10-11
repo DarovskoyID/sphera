@@ -1,0 +1,18 @@
+# Alerts of the conference module. Loaded by Prometheus only when the module's
+# monitoring is installed (scripts/modules/monitoring.mjs).
+groups:
+  - name: sfera-module-conference
+    rules:
+      - alert: ConferenceMeshOverload
+        expr: max(sfera_conference_media_server) == 0 and max(sfera_conference_participants) > 20
+        for: 5m
+        labels: {severity: warning, module: conference}
+        annotations:
+          summary: "Конференции: больше 20 участников без медиасервера — соединения идут напрямую, подключите LiveKit"
+
+      - alert: ConferenceLobbyIgnored
+        expr: max(sfera_conference_lobby_waiting) > 0
+        for: 15m
+        labels: {severity: info, module: conference}
+        annotations:
+          summary: "Конференции: гости ждут в зале ожидания больше 15 минут"
