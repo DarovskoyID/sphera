@@ -89,7 +89,7 @@
   }
 
   /* Server sidebar = bottom dock (macOS-style) */
-  .server-sidebar {
+  .app-container .server-sidebar {
     position: fixed;
     bottom: 0;
     left: 0;
@@ -143,7 +143,7 @@
     * So: packed from the start, as wide as its content, and the sidebar
     * scrolls it.
     */
-  .server-sidebar .server-list {
+  .app-container .server-sidebar .server-list {
     flex-direction: row;
     align-items: center;
     gap: var(--spacing-sm);
@@ -157,7 +157,7 @@
   }
 
   /* Guild icons and the «+» belong in the same row, not stacked inside it. */
-  .server-sidebar .server-guild-scroll {
+  .app-container .server-sidebar .server-guild-scroll {
     display: flex;
     flex-direction: row;
     align-items: center;
@@ -165,19 +165,19 @@
     overflow: visible;
   }
 
-  .server-sidebar .server-icon {
+  .app-container .server-sidebar .server-icon {
     width: 40px;
     height: 40px;
     min-width: 40px;
   }
 
-  .server-sidebar .server-divider {
+  .app-container .server-sidebar .server-divider {
     width: 1px;
     height: 28px;
     margin: 0 var(--spacing-xs);
   }
 
-  .server-sidebar .server-icon::after {
+  .app-container .server-sidebar .server-icon::after {
     display: none;
   }
 

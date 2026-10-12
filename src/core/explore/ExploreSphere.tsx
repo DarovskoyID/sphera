@@ -76,6 +76,8 @@ function moduleError(body: ModuleFailure | undefined, isRu: boolean) {
 function ModuleCard({ m, lang, isRu, canManage }: { m: ModuleInfo; lang: string; isRu: boolean; canManage: boolean }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  // Uninstalling erases the module's data, so it asks first.
+  const [confirmRemove, setConfirmRemove] = useState(false);
   const Icon = MODULE_ICONS[m.icon] ?? Puzzle;
   const run = async (action: 'install' | 'uninstall' | 'update') => {
     setBusy(true);
@@ -119,6 +121,24 @@ function ModuleCard({ m, lang, isRu, canManage }: { m: ModuleInfo; lang: string;
         <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{isRu ? 'Требует' : 'Requires'}: {m.deps.join(', ')}</div>
       )}
       {(error || m.error) && <div style={{ fontSize: 11, color: '#ef4444', wordBreak: 'break-word' }}>{error || m.error}</div>}
+      {confirmRemove && (
+        <div style={{ padding: 10, borderRadius: 10, background: 'rgba(239,68,68,.12)', display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <span style={{ fontSize: 12, lineHeight: 1.45, color: 'var(--text-primary)' }}>
+            {isRu
+              ? 'Удалить модуль вместе со всеми его данными на этом сервере? Это нельзя отменить.'
+              : 'Remove the module and everything it stored on this server? This cannot be undone.'}
+          </span>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={() => setConfirmRemove(false)} disabled={busy} style={cardBtn(false, busy)}>
+              {isRu ? 'Отмена' : 'Cancel'}
+            </button>
+            <button onClick={() => { setConfirmRemove(false); void run('uninstall'); }} disabled={busy}
+              style={{ ...cardBtn(true, busy), background: '#ef4444' }}>
+              <Trash2 size={14} /> {isRu ? 'Удалить с данными' : 'Delete with its data'}
+            </button>
+          </div>
+        </div>
+      )}
       {m.pending ? (
         <div style={{
           padding: '8px 0', borderRadius: 8, fontSize: 12.5, fontWeight: 600, color: 'var(--text-secondary)',
@@ -149,7 +169,7 @@ function ModuleCard({ m, lang, isRu, canManage }: { m: ModuleInfo; lang: string;
               <RefreshCw size={14} /> {isRu ? 'Обновить' : 'Update'}
             </button>
           )}
-          <button onClick={() => run(m.installed ? 'uninstall' : 'install')} disabled={busy} style={cardBtn(!m.installed, busy)}>
+          <button onClick={() => (m.installed ? setConfirmRemove(true) : run('install'))} disabled={busy} style={cardBtn(!m.installed, busy)}>
             {m.installed ? <Trash2 size={14} /> : <Download size={14} />}
             {busy ? '…' : m.installed ? (isRu ? 'Удалить' : 'Uninstall') : (isRu ? 'Установить' : 'Install')}
           </button>
