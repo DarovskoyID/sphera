@@ -6,6 +6,68 @@ import { RailSlot, SlotList } from '../core/modules/Slots';
 import { useSlot, type SlotEntry } from '../sdk/slots';
 import { useAnchoredMenu } from './useAnchoredMenu';
 
+/** How far a finger may wander before it is a drag and not a tap on an icon. */
+const DRAG_SLOP = 6;
+
+/**
+ * Drag the dock sideways with a finger or the mouse.
+ *
+ * On a phone the dock is a horizontal scroller, and native touch panning is
+ * supposed to be enough — but it only takes one ancestor with the wrong
+ * touch-action, a browser quirk or a stale stylesheet for the row to feel
+ * nailed down, and then the icons past the edge are simply unreachable. This
+ * moves scrollLeft by hand, so the dock scrolls whatever the browser thinks,
+ * and the wheel scrolls it on a narrow desktop window too.
+ *
+ * A press that does not travel is left alone, so tapping an icon still works.
+ */
+function useDragScroll() {
+  const ref = useRef<HTMLElement | null>(null);
+
+  const onPointerDown = (e: React.PointerEvent<HTMLElement>) => {
+    const box = ref.current;
+    if (!box || box.scrollWidth <= box.clientWidth) return;
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    const startX = e.clientX;
+    const startScroll = box.scrollLeft;
+    let dragging = false;
+
+    const move = (ev: PointerEvent) => {
+      const travelled = startX - ev.clientX;
+      if (!dragging && Math.abs(travelled) < DRAG_SLOP) return;
+      dragging = true;
+      box.scrollLeft = startScroll + travelled;
+      // Once it is a drag, the gesture belongs to the dock.
+      ev.preventDefault();
+    };
+    const up = (ev: PointerEvent) => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', up);
+      // A drag must not also press the icon it started on.
+      if (dragging) {
+        const swallow = (click: MouseEvent) => { click.stopPropagation(); click.preventDefault(); };
+        window.addEventListener('click', swallow, { capture: true, once: true });
+        setTimeout(() => window.removeEventListener('click', swallow, { capture: true }), 0);
+      }
+      void ev;
+    };
+    window.addEventListener('pointermove', move, { passive: false });
+    window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', up);
+  };
+
+  const onWheel = (e: React.WheelEvent<HTMLElement>) => {
+    const box = ref.current;
+    if (!box || box.scrollWidth <= box.clientWidth) return;
+    const delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+    if (!delta) return;
+    box.scrollLeft += delta;
+  };
+
+  return { ref, onPointerDown, onWheel };
+}
+
 /**
  * The "+" menu at the foot of the rail: whatever modules offer to create or join.
  * Its own component so it can use the shared anchoring hook.
@@ -38,10 +100,17 @@ export const ServerSidebar: React.FC = () => {
   const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null);
   const [moduleAction, setModuleAction] = useState<SlotEntry<'rail.addAction'> | null>(null);
   const addBtnRef = useRef<HTMLButtonElement>(null);
+  const drag = useDragScroll();
 
   return (
     <>
-      <aside className={`server-sidebar ${isMobileSidebarOpen ? 'mobile-open' : ''}`} data-tour="server-dock">
+      <aside
+        ref={drag.ref as React.RefObject<HTMLElement>}
+        onPointerDown={drag.onPointerDown}
+        onWheel={drag.onWheel}
+        className={`server-sidebar ${isMobileSidebarOpen ? 'mobile-open' : ''}`}
+        data-tour="server-dock"
+      >
         <div className="server-list">
           <button
             className={`server-icon ${currentServer === 'settings' ? 'active' : ''}`}
