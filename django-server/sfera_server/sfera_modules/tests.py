@@ -103,6 +103,86 @@ class ModuleRegistryTests(TestCase):
         self.assertTrue(has_module(self.user, 'servers'))
 
 
+class UninstallTests(TestCase):
+    """Removing a module removes its say and its data."""
+
+    def setUp(self):
+        from django.core.cache import cache
+
+        cache.clear()
+        self.addCleanup(cache.clear)
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        root = Path(self.tmp.name)
+        _write_modules(root, {'guarded': {}})
+        for patch in (mock.patch.object(loader, 'MODULES_DIR', root), mock.patch.object(loader, '_cache', None)):
+            patch.start()
+            self.addCleanup(patch.stop)
+        User = get_user_model()
+        self.admin = User.objects.create_superuser(username='root', email='r@x.ru', password='pass12345')
+        self.member = User.objects.create_user(username='u1', email='u1@x.ru', password='pass12345')
+        self.client = APIClient(headers={'X-Ionik-Client': '1'})
+        self.client.force_authenticate(self.admin)
+
+        from . import hooks
+
+        self.hooks = hooks
+        hooks.register(hooks.ACCESS_GUARD, 'guarded', lambda user_id: {'error': 'blocked', 'allow': ()})
+        hooks.register(hooks.LOGIN_GUARD, 'guarded', lambda user, request=None: {'error': 'second_factor_required'})
+        self.addCleanup(lambda: [hooks._registries[r].pop('guarded', None)
+                                 for r in (hooks.ACCESS_GUARD, hooks.LOGIN_GUARD, hooks.PURGE_DATA)])
+
+    @override_settings(SFERA_MODULES_ENFORCE=True)
+    def test_an_uninstalled_module_stops_guarding_sign_in_and_access(self):
+        """Its hooks stay registered until a restart — they must not be asked."""
+        self.client.post('/api/modules/guarded/install/')
+        self.assertIsNotNone(self.hooks.access_block(self.member.id))
+        self.assertIsNotNone(self.hooks.login_block(self.member))
+
+        self.assertEqual(self.client.delete('/api/modules/guarded/install/').status_code, 200)
+
+        self.assertIsNone(self.hooks.access_block(self.member.id), 'uninstalled module still blocks the app')
+        self.assertIsNone(self.hooks.login_block(self.member), 'uninstalled module still asks for a code')
+
+    @override_settings(SFERA_MODULES_ENFORCE=True)
+    def test_uninstalling_runs_the_module_s_own_clean_up(self):
+        called = []
+        self.hooks.register(self.hooks.PURGE_DATA, 'guarded', lambda: called.append(True))
+        self.client.post('/api/modules/guarded/install/')
+
+        r = self.client.delete('/api/modules/guarded/install/')
+
+        self.assertEqual(r.status_code, 200)
+        self.assertTrue(called, 'PURGE_DATA was not called')
+        self.assertIn('purged', r.data)
+
+
+class PurgeDataTests(TestCase):
+    """Emptying the tables of a module's own Django app."""
+
+    def test_rows_and_files_of_the_app_are_removed(self):
+        from django.core.files.base import ContentFile
+
+        from sfera_auth.models import CustomEmoji
+        from .purge import _drop_files
+
+        user = get_user_model().objects.create_user(username='u2', email='u2@x.ru', password='pass12345')
+        emoji = CustomEmoji.objects.create(name='hey', created_by=user)
+        emoji.image.save('hey.png', ContentFile(b'not really a png'), save=True)
+        path = emoji.image.path
+
+        import os
+
+        self.assertTrue(os.path.exists(path))
+        self.assertEqual(_drop_files(CustomEmoji), 1)
+        self.assertFalse(os.path.exists(path), 'the file behind a FileField stayed')
+
+    def test_a_module_this_process_never_loaded_is_not_an_error(self):
+        from .purge import purge_module_data
+
+        self.assertEqual(purge_module_data('nothing-like-this')['rows'], 0)
+
+
 class SuperuserTests(TestCase):
     def test_only_one_superuser(self):
         User = get_user_model()

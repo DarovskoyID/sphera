@@ -43,6 +43,10 @@ CAN_UNINSTALL = 'can_uninstall'            # fn(user) -> str | None: reason the 
 LOGIN_GUARD = 'login_guard'
 # Finishes such a sign-in: fn(challenge, code, request) -> user | None.
 SECOND_FACTOR = 'second_factor'
+# Erase everything the module keeps outside its own tables (caches, files):
+# fn() -> None. Called when the module is uninstalled, before its tables are
+# emptied (sfera_modules/purge.py).
+PURGE_DATA = 'purge_data'
 # A signed-in account may not use the app yet: fn(user_id) -> dict | None.
 # The dict is the 403 body; its 'allow' lists path prefixes that stay reachable,
 # so the account can fix whatever blocks it (and sign out).
@@ -52,6 +56,10 @@ ACCESS_GUARD = 'access_guard'
 # Optional capabilities one module offers another (e.g. servers → family chat).
 # Callers must handle absence: `svc = hooks.service('servers.private_guild')`.
 _services: dict[str, object] = {}
+
+#: How long the guards may trust their copy of "which modules are installed".
+INSTALLED_KEY = 'sfera_modules_installed'
+INSTALLED_TTL = 15
 
 
 def provide(name: str, impl) -> None:
@@ -84,9 +92,34 @@ def collect(registry: str, *args, only: set[str] | None = None, **kwargs) -> dic
     return out
 
 
+def installed_now() -> set[str]:
+    """Modules installed on this instance, re-read at most every INSTALLED_TTL.
+
+    A module that was removed keeps its hooks registered until the next
+    restart, so every guard below asks this first — otherwise an uninstalled
+    two-factor module would go on demanding codes from everybody.
+    """
+    from django.core.cache import cache
+
+    ids = cache.get(INSTALLED_KEY)
+    if ids is None:
+        from .permissions import installed_ids
+
+        ids = installed_ids()
+        cache.set(INSTALLED_KEY, ids, INSTALLED_TTL)
+    return ids
+
+
+def forget_installed() -> None:
+    """Called when the set of installed modules changes."""
+    from django.core.cache import cache
+
+    cache.delete(INSTALLED_KEY)
+
+
 def login_block(user, request=None) -> dict | None:
     """Does a module want a second step before this sign-in hands out tokens?"""
-    for answer in collect(LOGIN_GUARD, user, request).values():
+    for answer in collect(LOGIN_GUARD, user, request, only=installed_now()).values():
         if answer:
             return answer
     return None
@@ -94,7 +127,7 @@ def login_block(user, request=None) -> dict | None:
 
 def second_factor_user(challenge: str, code: str, request=None):
     """The account a (challenge, code) pair proves, or None if nothing accepts it."""
-    for answer in collect(SECOND_FACTOR, challenge, code, request).values():
+    for answer in collect(SECOND_FACTOR, challenge, code, request, only=installed_now()).values():
         if answer:
             return answer
     return None
@@ -108,7 +141,7 @@ def access_block(user_id) -> dict | None:
     """
     if not _registries.get(ACCESS_GUARD):
         return None
-    for answer in collect(ACCESS_GUARD, user_id).values():
+    for answer in collect(ACCESS_GUARD, user_id, only=installed_now()).values():
         if answer:
             return answer
     return None

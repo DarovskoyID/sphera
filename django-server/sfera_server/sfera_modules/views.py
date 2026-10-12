@@ -4,6 +4,7 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 
 from . import hooks, remote
+from .purge import purge_module_data
 from .loader import SDK_VERSION, discover
 from .models import InstanceModule
 from .permissions import can_manage, enforced, installed_ids
@@ -142,6 +143,8 @@ def module_install(request, module_id):
         for mid in to_install:
             InstanceModule.objects.get_or_create(module_id=mid, defaults={'installed_by': user})
             hooks.module_installed.send(sender=None, user=user, module_id=mid)
+        if to_install:
+            hooks.forget_installed()
         return Response({'installed': to_install if request.method == 'POST' else [], 'jobs': jobs},
                         status=202 if jobs else 200)
 
@@ -162,6 +165,11 @@ def module_install(request, module_id):
     else:
         remote.forget(module_id)
     deleted, _ = InstanceModule.objects.filter(module_id=module_id).delete()
+    hooks.forget_installed()
+    # Removing a module removes its data. Anything kept would come back to life
+    # on the next install — and worse, its hooks keep answering until the server
+    # restarts, so an uninstalled two-factor module would go on demanding codes.
+    purged = purge_module_data(module_id)
     if deleted:
         hooks.module_uninstalled.send(sender=None, user=user, module_id=module_id)
-    return Response({'uninstalled': bool(deleted)})
+    return Response({'uninstalled': bool(deleted), 'purged': purged})
