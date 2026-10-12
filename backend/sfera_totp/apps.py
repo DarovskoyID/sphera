@@ -35,3 +35,6 @@ class SferaTotpConfig(AppConfig):
         hooks.register(hooks.HAS_DATA, 'totp', receivers.has_data)
         hooks.register(hooks.ENCRYPTED_DATA, 'totp', receivers.encrypted_data)
         hooks.register(hooks.CAN_UNINSTALL, 'totp', receivers.can_uninstall)
+        purge = getattr(hooks, 'PURGE_DATA', None)
+        if purge:
+            hooks.register(purge, 'totp', receivers.purge)

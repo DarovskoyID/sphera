@@ -75,3 +75,17 @@ def can_uninstall(user):
     if settings_row()['required_for_all']:
         return 'Сначала выключите обязательную двухфакторную аутентификацию в настройках модуля.'
     return None
+
+
+def purge():
+    """Удаление модуля стирает и кеши: иначе блокировка и настройка
+    «обязательно для всех» переживут его на несколько секунд."""
+    from django.core.cache import cache
+
+    from .guard import forget_settings, forget_user
+    from .models import TotpDevice
+
+    forget_settings()
+    for user_id in TotpDevice.objects.values_list('user_id', flat=True).iterator():
+        forget_user(user_id)
+        cache.delete(f'totp:attempts:{user_id}')
