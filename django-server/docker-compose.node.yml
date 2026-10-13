@@ -20,7 +20,7 @@ services:
       # иначе ws-gateway отвергнет все JWT.
       JWT_SECRET: "${JWT_SECRET:?set JWT_SECRET = main SFERA_SECRET_KEY}"
       # Авторизация WS — публичный API главного (уже доступен извне).
-      DJANGO_WS_AUTHZ_URL: "${DJANGO_WS_AUTHZ_URL:-https://start-ionik.ru:8000/api/ws/authorize/}"
+      DJANGO_WS_AUTHZ_URL: "${DJANGO_WS_AUTHZ_URL:?DJANGO_WS_AUTHZ_URL is not set}"
       WS_BIND: "0.0.0.0:8001"
       RUST_LOG: info
     restart: unless-stopped

@@ -15,7 +15,11 @@ FRONTEND_DIR="$PROJECT_ROOT"
 VENV="$PROJECT_ROOT/django-server/.venv"
 
 APP_NAME="${SFERA_APP_NAME:-sfera}"
-DOMAIN="${SFERA_DOMAIN:-start-ionik.ru}"
+# Адрес сайта: секрет SFERA_DOMAIN из окружения деплоя; сохраняется в
+# /etc/sfera/secrets.env, поэтому запуск без него берёт прошлое значение.
+# Встроенного домена нет: не задан нигде — сайт отвечает 500 (см. ниже).
+DOMAIN="${SFERA_DOMAIN:-$(sudo sed -n 's/^SFERA_DOMAIN=//p' /etc/sfera/secrets.env 2>/dev/null | head -1)}"
+export SFERA_DOMAIN="$DOMAIN"
 WEB_ROOT="${SFERA_WEB_ROOT:-/var/www/sfera}"
 NGINX_CONF="/etc/nginx/sites-available/$APP_NAME.conf"
 NGINX_ENABLED="/etc/nginx/sites-enabled/$APP_NAME.conf"
@@ -754,6 +758,10 @@ EOF
         pgp="$(head -c 24 /dev/urandom | base64 | tr -d '/+=\n')"
         echo "SFERA_POSTGRES_PASSWORD=$pgp" | sudo tee -a "$secrets" >/dev/null
     fi
+    # EnvironmentFile перекрывает Environment= юнита, поэтому адрес сайта здесь
+    # всегда должен совпадать с текущим секретом.
+    sudo sed -i '/^SFERA_DOMAIN=/d' "$secrets"
+    echo "SFERA_DOMAIN=$DOMAIN" | sudo tee -a "$secrets" >/dev/null
     if [ -z "${SFERA_POSTGRES_PASSWORD:-}" ]; then
         SFERA_POSTGRES_PASSWORD="$(sudo awk -F= '$1=="SFERA_POSTGRES_PASSWORD"{print $2; exit}' "$secrets")"
     fi
@@ -1089,7 +1097,7 @@ build_frontend() {
         npm install --include=dev
     fi
 
-    npm run build
+    VITE_SFERA_DOMAIN="$DOMAIN" npm run build
 
     sudo install -d -m 0755 "$WEB_ROOT"
     # Wipe the old build but keep media/ in place.
@@ -1107,6 +1115,35 @@ build_frontend() {
     [ -L "$DJANGO_DIR/media" ] || sudo ln -s "$WEB_ROOT/media" "$DJANGO_DIR/media"
     sudo chmod -R o+rX "$WEB_ROOT/media"
     echo "      Frontend deployed to $WEB_ROOT"
+}
+
+serve_500_without_domain() {
+    # Без адреса сайта нечего настраивать (server_name, сертификат, CSRF/CORS,
+    # отправитель писем) — вместо полурабочего сайта nginx отдаёт 500 на всё.
+    log "SFERA_DOMAIN is not set — nginx answers 500"
+    local tmp_conf tls=""
+    tmp_conf="$(mktemp)"
+    if [ "$MODE" = "ssl" ] && [ -f "$SSL_CERT" ] && [ -f "$SSL_KEY" ]; then
+        tls="    listen 443 ssl default_server;
+    listen [::]:443 ssl default_server;
+    ssl_certificate $SSL_CERT;
+    ssl_certificate_key $SSL_KEY;"
+    fi
+    cat > "$tmp_conf" <<EOF
+server {
+    listen 80 default_server;
+    listen [::]:80 default_server;
+$tls
+    server_name _;
+    return 500;
+}
+EOF
+    sudo install -m 0644 "$tmp_conf" "$NGINX_CONF"
+    rm -f "$tmp_conf"
+    sudo ln -sf "$NGINX_CONF" "$NGINX_ENABLED"
+    sudo rm -f /etc/nginx/sites-enabled/default
+    sudo nginx -t
+    sudo systemctl reload nginx 2>/dev/null || sudo systemctl restart nginx
 }
 
 start_nginx() {
@@ -1239,6 +1276,14 @@ echo "Project root: $PROJECT_ROOT"
 
 require_command npm "Install Node.js/npm first, or run scripts/install-deps.sh."
 require_command nginx "Install nginx first, or run scripts/install-deps.sh."
+
+if [ -z "$DOMAIN" ]; then
+    serve_500_without_domain
+    echo "ERROR: адрес сайта не задан. Добавьте секрет SFERA_DOMAIN (GitHub → Settings →"
+    echo "       Secrets → Actions) или строку SFERA_DOMAIN=example.com в /etc/sfera/secrets.env."
+    echo "       До этого сайт отвечает 500."
+    exit 1
+fi
 
 ensure_swap
 fetch_modules

@@ -19,7 +19,12 @@
 set -euo pipefail
 
 # ── Настройки (можно переопределить через окружение) ─────────────────────────
-MAIL_DOMAIN="${MAIL_DOMAIN:-start-ionik.ru}"
+# Домен почты = адрес сайта (секрет SFERA_DOMAIN / /etc/sfera/secrets.env).
+MAIL_DOMAIN="${MAIL_DOMAIN:-${SFERA_DOMAIN:-$(sed -n 's/^SFERA_DOMAIN=//p' /etc/sfera/secrets.env 2>/dev/null | head -1)}}"
+if [ -z "$MAIL_DOMAIN" ]; then
+    echo "ERROR: адрес сайта не задан — укажите секрет SFERA_DOMAIN (или MAIL_DOMAIN)." >&2
+    exit 1
+fi
 MAIL_HOSTNAME="${MAIL_HOSTNAME:-mail.${MAIL_DOMAIN}}"
 DKIM_SELECTOR="${DKIM_SELECTOR:-mail}"
 DMARC_RUA="${DMARC_RUA:-postmaster@${MAIL_DOMAIN}}"

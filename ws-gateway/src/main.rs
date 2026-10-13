@@ -35,8 +35,10 @@ async fn main() {
     // In prod this comes from the env (set by start-common.sh -> .env). The default
     // targets the public nginx API because Daphne binds 127.0.0.1 and is unreachable
     // from inside the container via the docker gateway.
-    let django_authz_url = std::env::var("DJANGO_WS_AUTHZ_URL")
-        .unwrap_or_else(|_| "https://start-ionik.ru:8000/api/ws/authorize/".into());
+    let django_authz_url = std::env::var("DJANGO_WS_AUTHZ_URL").unwrap_or_else(|_| {
+        let domain = std::env::var("SFERA_DOMAIN").unwrap_or_else(|_| "localhost".into());
+        format!("https://{domain}:8000/api/ws/authorize/")
+    });
 
     let kafka_producer = kafka::KafkaProducer::new(&kafka_brokers);
     let hub = hub::Hub::new();

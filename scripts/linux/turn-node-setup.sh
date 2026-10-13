@@ -14,7 +14,7 @@ ask() { local ans def="$3"; read -rp "$2 [${def}]: " ans; printf -v "$1" '%s' "$
 detect_ip() { curl -s --max-time 5 https://api.ipify.org 2>/dev/null || hostname -I | awk '{print $1}'; }
 
 echo "--- Параметры TURN-ноды (Enter — значение в скобках) ---"
-ask REALM    "Realm/домен (как на главном)"     "${SFERA_TURN_REALM:-start-ionik.ru}"
+ask REALM    "Realm/домен (как на главном)"     "${SFERA_TURN_REALM:-${SFERA_DOMAIN:-}}"
 ask EXT_IP   "Публичный IP этой ноды"           "${SFERA_TURN_EXTERNAL_IP:-$(detect_ip)}"
 ask MINP     "Начало relay-диапазона портов"    "${SFERA_COTURN_MIN_PORT:-49152}"
 ask MAXP     "Конец relay-диапазона портов"     "${SFERA_COTURN_MAX_PORT:-65535}"

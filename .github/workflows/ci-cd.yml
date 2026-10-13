@@ -206,7 +206,7 @@ jobs:
           DEPLOY_USER: ${{ secrets.SFERA_DEPLOY_USER }}
           DEPLOY_PORT: ${{ secrets.SFERA_DEPLOY_PORT }}
           DEPLOY_PATH: ${{ vars.SFERA_DEPLOY_PATH }}
-          SFERA_DOMAIN: ${{ vars.SFERA_DOMAIN }}
+          SFERA_DOMAIN: ${{ secrets.SFERA_DOMAIN || vars.SFERA_DOMAIN }}
         run: |
           user="${DEPLOY_USER:-root}"
           port="${DEPLOY_PORT:-22}"
@@ -260,7 +260,7 @@ jobs:
           DEPLOY_PATH: ${{ vars.SFERA_DEPLOY_PATH }}
           DEPLOY_MODE: ${{ vars.SFERA_DEPLOY_MODE }}
           DEPLOY_ENV_FILE: ${{ vars.SFERA_DEPLOY_ENV_FILE }}
-          SFERA_DOMAIN: ${{ vars.SFERA_DOMAIN }}
+          SFERA_DOMAIN: ${{ secrets.SFERA_DOMAIN || vars.SFERA_DOMAIN }}
           SFERA_MAIL_MODE: ${{ vars.SFERA_MAIL_MODE }}
           # Optional install selection: modules (comma list, "none" = core only),
           # monitoring left out (e.g. "diary,family" or "core"), SFERA_MONITORING=0.

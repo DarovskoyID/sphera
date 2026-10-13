@@ -1,4 +1,9 @@
-export const APP_HOST = 'start-ionik.ru';
+// Адрес сайта не зашит в код: сборка получает его из секрета SFERA_DOMAIN
+// (VITE_SFERA_DOMAIN, см. scripts/linux/start-common.sh). Веб-сборка без него
+// ходит на тот хост, с которого открыта.
+const PAGE_HOST =
+  typeof location !== 'undefined' && /^https?:$/.test(location.protocol) ? location.hostname : '';
+export const APP_HOST: string = import.meta.env.VITE_SFERA_DOMAIN || PAGE_HOST;
 
 export const API_PROTOCOL = 'https';
 // API идёт по стандартному 443 (без явного порта). Нестандартный 8000 режут
