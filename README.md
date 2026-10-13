@@ -387,6 +387,8 @@ scripts/linux/uninstall.sh --keep-swap
 | `SFERA_DEBUG` | `0` | Режим отладки. При `0` обязательны `SFERA_SECRET_KEY` и `SFERA_MESSAGE_ENCRYPTION_KEY` |
 | `SFERA_SECRET_KEY` | — | Ключ Django. Он же `JWT_SECRET` для ws-gateway |
 | `SFERA_DOMAIN` | — (обязателен) | Адрес сайта из секрета `SFERA_DOMAIN`; хранится в `/etc/sfera/secrets.env`. От него настраиваются nginx, сертификат, `ALLOWED_HOSTS`, CSRF/CORS, realm TURN, отправитель писем с кодами и сборка фронтенда. Не задан — сайт отвечает 500 |
+| `SFERA_LETSENCRYPT` | `1` | Нет сертификата под домен — деплой сам получает его у Let's Encrypt (nginx на это время останавливается), при неудаче ставит самоподписанный. `0` — не пытаться |
+| `SFERA_LETSENCRYPT_EMAIL` | `$SFERA_SUPERUSER_EMAIL` | Почта для уведомлений Let's Encrypt |
 | `SFERA_ALLOWED_HOSTS` | — | Дополнительные хосты через запятую |
 | `SFERA_CSRF_ORIGINS` | — | Дополнительные CSRF-origin через запятую |
 | `SFERA_CORS_ORIGINS` | — | Дополнительные CORS-origin через запятую |

@@ -165,12 +165,47 @@ require_command() {
 
 SSL_SELF_SIGNED=0
 
+issue_letsencrypt_cert() {
+    # Сертификат Let's Encrypt под $DOMAIN (SFERA_LETSENCRYPT=0 — не пытаться).
+    # Проверка идёт по :80, поэтому nginx на время выпуска останавливается;
+    # те же хуки certbot запоминает для автопродления, и после него nginx
+    # стартует уже с новым сертификатом. Почта для уведомлений об истечении —
+    # SFERA_LETSENCRYPT_EMAIL, иначе почта суперпользователя.
+    [ "${SFERA_LETSENCRYPT:-1}" != "0" ] || return 1
+    if ! command -v certbot >/dev/null 2>&1; then
+        command -v apt-get >/dev/null 2>&1 || return 1
+        log "Installing certbot"
+        sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq certbot >/dev/null || return 1
+    fi
+    log "Requesting a Let's Encrypt certificate for $DOMAIN"
+    local email="${SFERA_LETSENCRYPT_EMAIL:-${SFERA_SUPERUSER_EMAIL:-}}"
+    local -a contact=(--register-unsafely-without-email)
+    [ -z "$email" ] || contact=(--email "$email" --no-eff-email)
+    local ok=0
+    sudo certbot certonly --standalone --non-interactive --agree-tos "${contact[@]}" \
+        --pre-hook "systemctl stop nginx" --post-hook "systemctl start nginx" \
+        -d "$DOMAIN" || ok=1
+    sudo systemctl start nginx 2>/dev/null || true
+    if [ "$ok" -ne 0 ] || ! sudo test -f "/etc/letsencrypt/live/$DOMAIN/fullchain.pem"; then
+        echo "      WARNING: Let's Encrypt did not issue a certificate for $DOMAIN"
+        echo "      (does its A record point to this server, is port 80 open?)."
+        return 1
+    fi
+    echo "      Certificate issued; certbot renews it automatically."
+}
+
 ensure_ssl_cert() {
-    # Нет сертификата под домен (Let's Encrypt или --cert/--key) — выпускаем
-    # самоподписанный под $DOMAIN, чтобы SSL-режим поднимался сам. Браузеры на
-    # него ругаются; настоящий сертификат подхватится следующим деплоем.
+    # Нет сертификата под домен (--cert/--key или уже выпущенного) — получаем
+    # его у Let's Encrypt; не вышло (DNS ещё не указывает на сервер, лимиты) —
+    # выпускаем самоподписанный под $DOMAIN, чтобы SSL-режим всё равно поднялся.
+    # Браузеры на него ругаются; следующий деплой снова попробует Let's Encrypt.
     [ "$MODE" = "ssl" ] || return 0
     if [ -f "$SSL_CERT" ] && [ -f "$SSL_KEY" ]; then
+        return 0
+    fi
+    if issue_letsencrypt_cert; then
+        SSL_CERT="/etc/letsencrypt/live/$DOMAIN/fullchain.pem"
+        SSL_KEY="/etc/letsencrypt/live/$DOMAIN/privkey.pem"
         return 0
     fi
     local dir="/etc/sfera/ssl"
