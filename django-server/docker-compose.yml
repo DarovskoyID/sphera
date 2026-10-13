@@ -176,6 +176,7 @@
       # Daphne слушает 127.0.0.1 — из контейнера недоступен. Авторизуемся через
       # публичный nginx API (см. start-common.sh::write_compose_env, пишет .env).
       DJANGO_WS_AUTHZ_URL: ${DJANGO_WS_AUTHZ_URL:-https://${SFERA_DOMAIN:-localhost}:8000/api/ws/authorize/}
+      DJANGO_WS_AUTHZ_INSECURE: ${DJANGO_WS_AUTHZ_INSECURE:-0}
       WS_BIND: 0.0.0.0:8001
       RUST_LOG: info
     extra_hosts:

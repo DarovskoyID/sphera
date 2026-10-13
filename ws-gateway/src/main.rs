@@ -49,7 +49,14 @@ async fn main() {
         jwt_secret,
         redis_url: redis_url.clone(),
         django_authz_url,
-        http_client: reqwest::Client::new(),
+        // The authorize call goes to our own nginx; with a self-signed
+        // certificate there (DJANGO_WS_AUTHZ_INSECURE=1) it cannot be verified.
+        http_client: reqwest::Client::builder()
+            .danger_accept_invalid_certs(
+                std::env::var("DJANGO_WS_AUTHZ_INSECURE").is_ok_and(|v| v == "1"),
+            )
+            .build()
+            .expect("http client"),
     });
 
     // Spawn Redis subscriber that fans out messages to connected WS clients

@@ -163,6 +163,33 @@ require_command() {
     fi
 }
 
+SSL_SELF_SIGNED=0
+
+ensure_ssl_cert() {
+    # Нет сертификата под домен (Let's Encrypt или --cert/--key) — выпускаем
+    # самоподписанный под $DOMAIN, чтобы SSL-режим поднимался сам. Браузеры на
+    # него ругаются; настоящий сертификат подхватится следующим деплоем.
+    [ "$MODE" = "ssl" ] || return 0
+    if [ -f "$SSL_CERT" ] && [ -f "$SSL_KEY" ]; then
+        return 0
+    fi
+    local dir="/etc/sfera/ssl"
+    local crt="$dir/$DOMAIN.crt" key="$dir/$DOMAIN.key"
+    if ! sudo test -f "$crt" || ! sudo test -f "$key"; then
+        log "No certificate for $DOMAIN — generating a self-signed one"
+        require_command openssl "Install openssl first, or run scripts/install-deps.sh."
+        sudo install -d -m 0755 "$dir"
+        sudo openssl req -x509 -nodes -newkey rsa:2048 -days 825 \
+            -keyout "$key" -out "$crt" \
+            -subj "/CN=$DOMAIN" -addext "subjectAltName=DNS:$DOMAIN" 2>/dev/null
+        sudo chmod 0600 "$key"
+    fi
+    SSL_CERT="$crt"
+    SSL_KEY="$key"
+    SSL_SELF_SIGNED=1
+    echo "      WARNING: using a self-signed certificate ($crt)."
+}
+
 write_nginx_config() {
     local tmp_conf
     tmp_conf="$(mktemp)"
@@ -799,6 +826,8 @@ POSTGRES_PASSWORD=$pg_password
 GRAFANA_PASSWORD=$grafana_password
 JWT_SECRET=$jwt_secret
 DJANGO_WS_AUTHZ_URL=$authz_url
+# 1 — nginx отдаёт самоподписанный сертификат, ws-gateway его не проверяет.
+DJANGO_WS_AUTHZ_INSECURE=$SSL_SELF_SIGNED
 EOF
     umask "$old_umask"
     chmod 0600 "$f"
@@ -1285,6 +1314,7 @@ if [ -z "$DOMAIN" ]; then
     exit 1
 fi
 
+ensure_ssl_cert
 ensure_swap
 fetch_modules
 build_monitoring
