@@ -37,7 +37,12 @@ if _extra_hosts.strip() == '*':
 elif _extra_hosts:
     ALLOWED_HOSTS.extend(h.strip() for h in _extra_hosts.split(',') if h.strip())
 
-SFERA_DOMAIN = os.environ.get('SFERA_DOMAIN', 'start-ionik.ru')
+# The site address. There is no built-in one: production takes it from the
+# SFERA_DOMAIN secret (the deploy keeps it in /etc/sfera/secrets.env) and Host,
+# CSRF/CORS origins, the TURN realm and the mail sender all follow it. Without
+# it DomainRequiredMiddleware answers every request with 500. Local dev
+# (SFERA_DEBUG=1) falls back to localhost.
+SFERA_DOMAIN = os.environ.get('SFERA_DOMAIN', '').strip() or ('localhost' if DEBUG else '')
 # The production domain is always a valid Host.
 if SFERA_DOMAIN and SFERA_DOMAIN not in ALLOWED_HOSTS and ALLOWED_HOSTS != ['*']:
     ALLOWED_HOSTS.append(SFERA_DOMAIN)
@@ -47,11 +52,14 @@ SFERA_CSRF_ORIGINS = os.environ.get('SFERA_CSRF_ORIGINS', '')
 # When served over TLS the browser sends the Origin / Referer with https://.
 # Django CSRF rejects requests if the origin isn't whitelisted explicitly.
 CSRF_TRUSTED_ORIGINS = [
-    f'https://{SFERA_DOMAIN}',
-    f'https://{SFERA_DOMAIN}:8000',
     'https://localhost',
     'https://localhost:8000',
 ]
+if SFERA_DOMAIN and SFERA_DOMAIN != 'localhost':
+    CSRF_TRUSTED_ORIGINS[:0] = [
+        f'https://{SFERA_DOMAIN}',
+        f'https://{SFERA_DOMAIN}:8000',
+    ]
 if SFERA_CSRF_ORIGINS:
     CSRF_TRUSTED_ORIGINS.extend(
         origin.strip()
@@ -108,6 +116,7 @@ SFERA_MODULES_FROM_REPO = _env_bool('SFERA_MODULES_FROM_REPO', 'test' not in _sy
 SFERA_MODULES_REPO = os.environ.get('SFERA_MODULES_REPO', '')
 
 MIDDLEWARE = [
+    'sfera_server.middleware.DomainRequiredMiddleware',
     'corsheaders.middleware.CorsMiddleware',
     'sfera_server.middleware.AppOnlyMiddleware',
     'sfera_server.middleware.BanGuardMiddleware',

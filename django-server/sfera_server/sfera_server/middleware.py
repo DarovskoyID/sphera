@@ -12,6 +12,25 @@ from sfera_auth.models import User
 _PUBLIC_API = re.compile(r'^/api/(modules/[a-z0-9_-]+/bundle\.js$|[a-z0-9_-]+/webhook/)')
 
 
+class DomainRequiredMiddleware:
+    """Answers 500 to everything while the site address (SFERA_DOMAIN) is not set.
+
+    Host checks, CSRF/CORS origins, the TURN realm and the sender of the
+    verification-code mail are all derived from it, so a server without it
+    must not pretend to work.
+    """
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        from django.conf import settings
+
+        if not settings.SFERA_DOMAIN:
+            return HttpResponse('SFERA_DOMAIN is not set.', status=500, content_type='text/plain')
+        return self.get_response(request)
+
+
 class AppOnlyMiddleware:
     """
     Blocks direct browser access to the server.

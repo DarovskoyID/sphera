@@ -14,7 +14,7 @@ HTTPS/HSTS on). Local development opts back into permissive behaviour with
 | `SFERA_OLD_MESSAGE_ENCRYPTION_KEYS` | empty | Comma-separated Fernet keys that may still decrypt old rows/files during rotation. |
 | `SFERA_DEBUG` | `0` | `1` enables DEBUG (verbose errors, allow-all CORS, no HTTPS redirect). |
 | `SFERA_ALLOWED_HOSTS` | localhost + `SFERA_DOMAIN` | Comma-separated Host whitelist (`*` to disable). |
-| `SFERA_DOMAIN` | `start-ionik.ru` | Primary domain (Host + CORS/CSRF origins). |
+| `SFERA_DOMAIN` | none (required; `localhost` in DEBUG) | Site address from the `SFERA_DOMAIN` secret (Host, CORS/CSRF origins, TURN realm, mail sender). Unset → every request gets 500. |
 | `SFERA_CORS_ORIGINS` | empty | Extra allowed CORS origins (comma-separated). |
 | `SFERA_CORS_ALLOW_ALL` | `0` | Escape hatch: allow any origin in prod if a client breaks. |
 | `SFERA_SSL_REDIRECT` | `1` (prod) | Redirect HTTP to HTTPS. |

@@ -35,8 +35,10 @@ async fn main() {
     // In prod this comes from the env (set by start-common.sh -> .env). The default
     // targets the public nginx API because Daphne binds 127.0.0.1 and is unreachable
     // from inside the container via the docker gateway.
-    let django_authz_url = std::env::var("DJANGO_WS_AUTHZ_URL")
-        .unwrap_or_else(|_| "https://start-ionik.ru:8000/api/ws/authorize/".into());
+    let django_authz_url = std::env::var("DJANGO_WS_AUTHZ_URL").unwrap_or_else(|_| {
+        let domain = std::env::var("SFERA_DOMAIN").unwrap_or_else(|_| "localhost".into());
+        format!("https://{domain}:8000/api/ws/authorize/")
+    });
 
     let kafka_producer = kafka::KafkaProducer::new(&kafka_brokers);
     let hub = hub::Hub::new();
@@ -47,7 +49,14 @@ async fn main() {
         jwt_secret,
         redis_url: redis_url.clone(),
         django_authz_url,
-        http_client: reqwest::Client::new(),
+        // The authorize call goes to our own nginx; with a self-signed
+        // certificate there (DJANGO_WS_AUTHZ_INSECURE=1) it cannot be verified.
+        http_client: reqwest::Client::builder()
+            .danger_accept_invalid_certs(
+                std::env::var("DJANGO_WS_AUTHZ_INSECURE").is_ok_and(|v| v == "1"),
+            )
+            .build()
+            .expect("http client"),
     });
 
     // Spawn Redis subscriber that fans out messages to connected WS clients

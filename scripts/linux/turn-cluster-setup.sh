@@ -36,7 +36,7 @@ show() {
 }
 
 do_init() {
-    local realm; realm="$(getval SFERA_TURN_REALM)"; realm="${realm:-$(getval SFERA_DOMAIN)}"; realm="${realm:-start-ionik.ru}"
+    local realm; realm="$(getval SFERA_TURN_REALM)"; realm="${realm:-$(getval SFERA_DOMAIN)}"
     ask realm "Realm/домен TURN" "$realm"
     setval SFERA_TURN_REALM "$realm"
 

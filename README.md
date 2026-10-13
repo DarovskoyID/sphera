@@ -386,7 +386,7 @@ scripts/linux/uninstall.sh --keep-swap
 |------------|--------------|----------|
 | `SFERA_DEBUG` | `0` | Режим отладки. При `0` обязательны `SFERA_SECRET_KEY` и `SFERA_MESSAGE_ENCRYPTION_KEY` |
 | `SFERA_SECRET_KEY` | — | Ключ Django. Он же `JWT_SECRET` для ws-gateway |
-| `SFERA_DOMAIN` | `start-ionik.ru` | Основной домен: попадает в `ALLOWED_HOSTS`, CSRF и realm TURN |
+| `SFERA_DOMAIN` | — (обязателен) | Адрес сайта из секрета `SFERA_DOMAIN`; хранится в `/etc/sfera/secrets.env`. От него настраиваются nginx, сертификат, `ALLOWED_HOSTS`, CSRF/CORS, realm TURN, отправитель писем с кодами и сборка фронтенда. Не задан — сайт отвечает 500 |
 | `SFERA_ALLOWED_HOSTS` | — | Дополнительные хосты через запятую |
 | `SFERA_CSRF_ORIGINS` | — | Дополнительные CSRF-origin через запятую |
 | `SFERA_CORS_ORIGINS` | — | Дополнительные CORS-origin через запятую |
@@ -1025,7 +1025,7 @@ Windows — `scripts\windows\stop-all.bat`, macOS — `scripts/macos/stop-all.sh
 Чтобы письма уходили от `no-reply@<ваш-домен>` со своего сервера (SPF/DKIM/DMARC),
 без внешнего релея:
 
-1. Задайте переменные репозитория `SFERA_DOMAIN` = ваш домен и `SFERA_MAIL_MODE` = `own`.
+1. Задайте секрет репозитория `SFERA_DOMAIN` = ваш домен и переменную `SFERA_MAIL_MODE` = `own`.
 2. Один раз запустите workflow **CI/CD** вручную (`Run workflow`) с галкой
    **`setup_mail`**. Шаг зайдёт на сервер и выполнит
    [`mail-install.sh`](scripts/linux/mail-install.sh) для `SFERA_DOMAIN`: поднимет

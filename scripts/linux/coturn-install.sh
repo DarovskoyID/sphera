@@ -5,7 +5,11 @@ echo "=== Installing coturn (TURN server) on Linux ==="
 
 MIN_PORT="${SFERA_COTURN_MIN_PORT:-49152}"
 MAX_PORT="${SFERA_COTURN_MAX_PORT:-65535}"
-REALM="${SFERA_TURN_REALM:-start-ionik.ru}"
+REALM="${SFERA_TURN_REALM:-${SFERA_DOMAIN:-$(sudo sed -n 's/^SFERA_DOMAIN=//p' /etc/sfera/secrets.env 2>/dev/null | head -1)}}"
+if [ -z "$REALM" ]; then
+    echo "ERROR: адрес сайта не задан — укажите SFERA_DOMAIN (или SFERA_TURN_REALM)." >&2
+    exit 1
+fi
 TURN_USER="${SFERA_TURN_USER:-sferauser}"
 TURN_PASS="${SFERA_TURN_PASS:-sferaturn123}"
 # Общий секрет → режим use-auth-secret (временные креды, валидны на любой ноде с
