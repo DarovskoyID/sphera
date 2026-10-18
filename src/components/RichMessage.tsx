@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { BarChart3, Check, CheckSquare, MapPin, MessageSquare, Phone, Radio, Square, User as UserIcon, X } from 'lucide-react';
 import { useTranslation } from '../i18n/useTranslation';
+import { useApp } from '../context/AppContext';
 import { CensoredPlainText } from './EmojiPicker';
 import type {
   ContactPayload,
@@ -325,6 +326,10 @@ function PollCard({ poll, canManage, onVote, onClose, onFetchVoters }: {
 // ── Todo ─────────────────────────────────────────────────────────────────────
 function TodoCard({ todo, onToggle }: { todo: TodoPayload; onToggle?: (id: string) => void }) {
   const tr = useTranslation();
+  const { language } = useApp();
+  const completionDate = new Intl.DateTimeFormat(language, {
+    day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit',
+  });
   const pct = todo.total ? Math.round((todo.done_count / todo.total) * 100) : 0;
   // `onToggle` absent ⇒ read-only (e.g. a reader viewing a channel post).
   const interactive = !!onToggle;
@@ -362,14 +367,19 @@ function TodoCard({ todo, onToggle }: { todo: TodoPayload; onToggle?: (id: strin
                 // actually tick. Readers just get an aligned blank.
                 ? <Square size={15} style={{ flexShrink: 0, marginTop: 2, color: 'var(--text-muted, #949ba4)' }} />
                 : <span style={{ width: 15, flexShrink: 0 }} />}
-            <span
-              style={{
-                flex: 1, minWidth: 0, wordBreak: 'break-word',
-                textDecoration: it.done ? 'line-through' : 'none',
-                opacity: it.done ? 0.55 : 1,
-              }}
-            >
-              <T v={it.text} />
+            <span style={{ flex: 1, minWidth: 0, wordBreak: 'break-word' }}>
+              <span style={{ textDecoration: it.done ? 'line-through' : 'none', opacity: it.done ? 0.55 : 1 }}>
+                <T v={it.text} />
+              </span>
+              {it.done && (it.done_by || it.done_at) && (
+                <span style={{ display: 'block', marginTop: 3, fontSize: 11, lineHeight: 1.4, color: 'var(--text-secondary)' }}>
+                  {it.done_by && <>{tr('todo_done_by')}: {it.done_by.nickname || it.done_by.username}</>}
+                  {it.done_by && it.done_at && ' · '}
+                  {it.done_at && !Number.isNaN(Date.parse(it.done_at)) && (
+                    <time dateTime={it.done_at}>{completionDate.format(new Date(it.done_at))}</time>
+                  )}
+                </span>
+              )}
             </span>
           </button>
         ))}

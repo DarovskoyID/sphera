@@ -2,6 +2,7 @@ import { useEffect, useRef, useCallback } from 'react';
 import { Phone, PhoneOff, Video } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { useTranslation } from '../i18n/useTranslation';
+import { isBusy } from '../sdk/runtime';
 import { callSoundEnabled } from '../utils/notifications';
 
 const getCustomRingtoneUrl = (): string | null => {
@@ -67,9 +68,14 @@ export const IncomingCallModal = () => {
       if (isCallActiveRef.current) return;
 
       if (msg.type === 'offer' && msg.from) {
+        if (isBusy() || (incomingOfferRef.current && String(incomingOfferRef.current.from) !== String(msg.from))) {
+          sendSignal({ type: 'call-rejected', to: msg.from, callStatus: 'busy' });
+          return;
+        }
         bufferedCandidates.current = [];
+        incomingOfferRef.current = msg;
         setIncomingOffer(msg);
-      } else if (msg.type === 'candidate' && msg.from && incomingOfferRef.current) {
+      } else if (msg.type === 'candidate' && incomingOfferRef.current && String(msg.from) === String(incomingOfferRef.current.from)) {
         bufferedCandidates.current.push(msg);
       } else if ((msg.type === 'call-end' || msg.type === 'call-rejected') && incomingOfferRef.current && String(msg.from) === String(incomingOfferRef.current.from)) {
         // Caller cancelled — they already sent the call message via chat WS,

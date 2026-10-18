@@ -19,7 +19,7 @@ import { deviceQuery } from '../utils/device';
 import { toUserMessage, readResponse, setErrorLang } from '../utils/errorManager';
 import { publishWs } from '../sdk/wsBus';
 import { runLifecycle } from '../sdk/lifecycle';
-import { isBusy } from '../sdk/runtime';
+import { isBusy, setBusy } from '../sdk/runtime';
 
 
 // ── Inject X-Ionik-Client header into every fetch ────────────────────────────
@@ -1588,7 +1588,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
         }
         if (data.type === 'offer' && data.from) {
           setState(prev => {
-            if (prev.isCallActive || isBusy()) return prev;
+            if (prev.isCallActive || isBusy() || prev.incomingOffer) return prev;
             const callerFriend = prev.friends.find((f: any) => String(f.id) === String(data.from));
             const callerName = callerFriend?.nickname || callerFriend?.username || String(data.from);
             if ((window as any).AndroidBridge) {
@@ -1852,6 +1852,8 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     return { ...prev, mobileActivePanel: panel };
   });
   const setCallActive = (active: boolean) => {
+    if (active && isBusy()) return;
+    setBusy('call', active);
     if (active) void runLifecycle('callStart');
     setState(prev => ({ ...prev, isCallActive: active }));
   };

@@ -166,6 +166,8 @@ export function chooseCamera(
 // Lives outside React so WebRTC connection survives component unmount/remount
 // when the user navigates away from the chat while a call is active.
 const _call = {
+  generation: 0,
+  capturedTracks: new Set<MediaStreamTrack>(),
   pc: null as RTCPeerConnection | null,
   audioStream: null as MediaStream | null,
   cameraStream: null as MediaStream | null,
@@ -193,6 +195,18 @@ let _poolIce: RTCIceServer[] | null = null;
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
+async function acquireCallMedia(constraints: MediaStreamConstraints, display = false) {
+  if (!_call.targetId) throw new DOMException('Call ended', 'AbortError');
+  const generation = _call.generation;
+  const stream = display ? await navigator.mediaDevices.getDisplayMedia(constraints) : await navigator.mediaDevices.getUserMedia(constraints);
+  if (generation !== _call.generation) {
+    stream.getTracks().forEach(track => track.stop());
+    throw new DOMException('Call ended', 'AbortError');
+  }
+  stream.getTracks().forEach(track => _call.capturedTracks.add(track));
+  return stream;
+}
+
 export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
   const {
     isDemonstrationActive,
@@ -205,6 +219,7 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
     setMicActive,
     setHeadphonesActive,
     setCallStatus,
+    showError,
     sendSignal,
     onSignalingMessage,
     callTargetId,
@@ -402,25 +417,27 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
   };
 
   const startAudioVideo = async (wantVideo: boolean) => {
+    const generation = _call.generation;
     const needAudio = !_call.audioStream?.active;
     const needVideo = wantVideo && !_call.cameraStream?.active;
     if (!needAudio && !needVideo) return;
 
     try {
       if (needAudio && needVideo) {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
+        const stream = await acquireCallMedia({ audio: true, video: true });
         const audioOnly = new MediaStream(stream.getAudioTracks());
         const videoOnly = new MediaStream(stream.getVideoTracks());
         _call.audioStream = audioOnly;
         _call.cameraStream = videoOnly;
       } else if (needAudio) {
-        _call.audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        _call.audioStream = await acquireCallMedia({ audio: true });
       } else if (needVideo) {
-        _call.cameraStream = await navigator.mediaDevices.getUserMedia({ video: true });
+        _call.cameraStream = await acquireCallMedia({ video: true });
       }
     } catch {
+      if (generation !== _call.generation) return;
       if (needAudio && !_call.audioStream?.active) {
-        try { _call.audioStream = await navigator.mediaDevices.getUserMedia({ audio: true }); } catch { }
+        try { _call.audioStream = await acquireCallMedia({ audio: true }); } catch { }
       }
     }
   };
@@ -456,7 +473,7 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
 
   const startScreen = async () => {
     try {
-      const stream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+      const stream = await acquireCallMedia({ video: true }, true);
       _call.screenStream = stream;
       attachStreamToVideo(screenVideoRef.current, stream, () => {}, true);
 
@@ -465,7 +482,7 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
       if (_call.audioStream) {
         const audioTrack = _call.audioStream.getAudioTracks()[0];
         if (!audioTrack || audioTrack.readyState !== 'live') {
-          const newAudioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          const newAudioStream = await acquireCallMedia({ audio: true });
           if (pc) {
             const oldTrack = _call.audioStream.getAudioTracks()[0];
             const newTrack = newAudioStream.getAudioTracks()[0];
@@ -482,7 +499,7 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
       if (_call.cameraStream) {
         const camTrack = _call.cameraStream.getVideoTracks()[0];
         if (!camTrack || camTrack.readyState !== 'live') {
-          const newCamStream = await navigator.mediaDevices.getUserMedia({ video: true });
+          const newCamStream = await acquireCallMedia({ video: true });
           if (pc) {
             const oldTrack = _call.cameraStream.getVideoTracks()[0];
             const newTrack = newCamStream.getVideoTracks()[0];
@@ -533,12 +550,18 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
   };
 
   const stopAllMedia = () => {
+    _call.capturedTracks.forEach(track => track.stop());
+    _call.capturedTracks.clear();
     _call.audioStream?.getTracks().forEach(t => t.stop());
     _call.cameraStream?.getTracks().forEach(t => t.stop());
     _call.screenStream?.getTracks().forEach(t => t.stop());
     _call.audioStream = null;
     _call.cameraStream = null;
     _call.screenStream = null;
+    _call.localMediaStream.getTracks().forEach(t => t.stop());
+    _call.remoteStream?.getTracks().forEach(t => t.stop());
+    _call.remoteScreenStream?.getTracks().forEach(t => t.stop());
+    _call.screenSender = null;
     _call.localMediaStream = new MediaStream();
     if (cameraVideoRef.current) cameraVideoRef.current.srcObject = null;
     if (screenVideoRef.current) screenVideoRef.current.srcObject = null;
@@ -745,8 +768,12 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
   const handleSignalRef = useRef<(msg: any) => void>(() => {});
 
   handleSignalRef.current = async (msg: any) => {
+    if (!msg.from) return;
     const senderId = String(msg.from);
-    if (!senderId) return;
+    if (senderId !== _call.targetId) {
+      if (msg.type === 'offer') sendSignal({ type: 'call-rejected', to: senderId, callStatus: 'busy' });
+      return;
+    }
 
     if (msg.type === 'offer') {
       if (_call.pc && String(_call.targetId) === senderId) {
@@ -769,17 +796,14 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
       return;
     } else if (msg.type === 'call-end' || msg.type === 'call-rejected') {
       if (String(_call.targetId) === senderId) {
-        stopCall(false, true);
+        const busy = msg.type === 'call-rejected' && msg.callStatus === 'busy';
+        stopCall(false, true, false, busy);
+        if (busy) showError(tr('call_msg_busy'));
       }
       return;
     }
 
-    if (!_call.pc || String(_call.targetId) !== senderId) {
-      const sigIce = msg.turnHost ? getIceServers({ url: '', name: '', turn_host: msg.turnHost, turn_port: msg.turnPort, turn_username: msg.turnUser, turn_credential: msg.turnCred }) : undefined;
-      _call.pc = createPeerConnection(senderId, sigIce);
-      _call.targetId = senderId;
-      _call.pendingCandidates = [];
-    }
+    if (!_call.pc) return;
     const pc = _call.pc;
 
     if (msg.type === 'answer') {
@@ -838,6 +862,7 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
 
   // ==================== Call peer ====================
   const callPeer = async (peerId: string) => {
+    const generation = _call.generation;
     // Close any leftover RTCPeerConnection from a previous call — otherwise its
     // UDP sockets / ICE state can interfere with the new connection's ICE
     // gathering, causing iceConnectionState=disconnected on subsequent calls.
@@ -876,7 +901,9 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
       }
     } catch { }
 
+    if (generation !== _call.generation) return;
     const iceServers = await resolveIceServers();
+    if (generation !== _call.generation) return;
     const pc = createPeerConnection(String(peerId), iceServers);
     _call.pc = pc;
     addLocalTracks(pc);
@@ -887,10 +914,12 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
       sendSignal({ type: 'offer', sdp: offer, withVideo: wantVideo, to: peerId });
     } catch { }
 
-    startDialTone();
+    if (generation === _call.generation) startDialTone();
   };
 
   const processIncomingOffer = async (msg: any) => {
+    const generation = _call.generation;
+    _call.targetId = String(msg.from);
     const senderId = String(msg.from);
     setRemotePeerId(senderId);
     _call.hasAutoCalled = true;
@@ -916,6 +945,7 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
       // а не полагается на переданные звонящим — иначе TURN-авторизация падает
       // и relay-кандидаты не появляются, звонок не соединяется.
       const iceServers = await resolveIceServers();
+      if (generation !== _call.generation) return;
       _call.pc = createPeerConnection(senderId, iceServers);
       _call.targetId = senderId;
       _call.pendingCandidates = [];
@@ -931,6 +961,7 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
         }
       } catch { }
 
+      if (generation !== _call.generation) return;
       await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
       addLocalTracks(pc);
       const answer = await pc.createAnswer();
@@ -949,7 +980,8 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
     } catch { }
   };
 
-  const stopCall = (notifyRemote = true, remoteInitiated = false, timedOut = false) => {
+  const stopCall = (notifyRemote = true, remoteInitiated = false, timedOut = false, busy = false) => {
+    ++_call.generation;
     stopDialTone();
     const targetId = _call.targetId;
     const wasConnected = _call.wasConnected;
@@ -984,6 +1016,8 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
     if (wasConnected && callStartTime) {
       callStatus = 'completed';
       duration = Math.round((Date.now() - callStartTime) / 1000);
+    } else if (busy) {
+      callStatus = 'busy';
     } else if (timedOut) {
       callStatus = 'no_answer';
     } else if (notifyRemote && !wasIncoming) {
@@ -1002,7 +1036,7 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
 
     // Only the side that actively ends/cancels sends the call message to chat.
     // The other side will see it via the chat WS broadcast.
-    if (!remoteInitiated) {
+    if (!remoteInitiated || busy) {
       addCallMessage({ status: callStatus, duration, video: wasVideo });
     }
 
@@ -1122,13 +1156,13 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
     _call.pc?.getSenders().find(s => s.track?.kind === 'video' && s !== _call.screenSender) || null;
 
   const openCamera = (mode: 'user' | 'environment', exact: boolean) =>
-    navigator.mediaDevices.getUserMedia({
+    acquireCallMedia({
       video: { facingMode: exact ? { exact: mode } : { ideal: mode } },
       audio: false,
     });
 
   const openById = (deviceId: string) =>
-    navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: deviceId } }, audio: false });
+    acquireCallMedia({ video: { deviceId: { exact: deviceId } }, audio: false });
 
   const trackDeviceId = (t?: MediaStreamTrack | null) => t?.getSettings?.().deviceId || '';
 
@@ -1201,7 +1235,7 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
 
     let both: MediaStream | null = null;
     for (const video of videoWants) {
-      try { both = await navigator.mediaDevices.getUserMedia({ audio: true, video }); break; }
+      try { both = await acquireCallMedia({ audio: true, video }); break; }
       catch (e) { refusals.push(`whole capture ${errName(e)}`); }
     }
 
@@ -1220,7 +1254,7 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
       // The microphone is now off and that is worse than a camera that did not
       // flip, so get it back whatever happens.
       try {
-        const mic = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const mic = await acquireCallMedia({ audio: true });
         const audio = mic.getAudioTracks()[0];
         if (audio) {
           audio.enabled = isMicActive;
@@ -1624,7 +1658,7 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
             if (newState) {
               if (!_call.cameraStream?.active) {
                 try {
-                  const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+                  const stream = await acquireCallMedia({ video: true });
                   _call.cameraStream = stream;
                 } catch { return; }
               } else {
