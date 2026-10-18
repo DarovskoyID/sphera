@@ -64,3 +64,41 @@ vm.runInContext(transpile(handler), context);
   assert.equal(notices.pop(), 'call_msg_busy', 'received busy response must reach visible notifications');
   console.log('PASS: received busy response is visible; unrelated rejection leaves current call active.');
 })().catch(error => { console.error(error); process.exitCode = 1; });
+
+(async () => {
+  let resolveCapture;
+  const call = { targetId: 'alice', generation: 0, micEnabled: false, capturedTracks: new Set(), localMediaStream: {} };
+  const mediaContext = {
+    _call: call, DOMException,
+    navigator: { mediaDevices: { getUserMedia: () => new Promise(resolve => { resolveCapture = resolve; }) } },
+  };
+  vm.createContext(mediaContext);
+  const helper = callWindow.slice(callWindow.indexOf('async function acquireCallMedia'), callWindow.indexOf('export const CallWindow'));
+  vm.runInContext(transpile(helper), mediaContext);
+  const capture = async (constraints, initial, latest) => {
+    call.micEnabled = initial;
+    const audio = { enabled: true, stop() {} };
+    const video = { enabled: true, stop() {} };
+    const stream = { getAudioTracks: () => [audio], getTracks: () => [audio, video] };
+    const pending = mediaContext.acquireCallMedia(constraints);
+    call.micEnabled = latest;
+    resolveCapture(stream);
+    await pending;
+    assert.equal(audio.enabled, latest, 'new microphone tracks must use the latest mute preference');
+    assert.equal(video.enabled, true, 'muting must not disable video');
+    return audio;
+  };
+  await capture({ audio: true }, false, false);
+  await capture({ audio: true, video: true }, false, false);
+  await capture({ audio: true }, true, false);
+  await capture({ audio: true }, false, true);
+  const audio = await capture({ audio: true }, true, true);
+  call.micEnabled = false;
+  call.audioStream = { getAudioTracks: () => [audio] };
+  const addStart = callWindow.indexOf('  const addLocalTracks =');
+  vm.runInContext(transpile(callWindow.slice(addStart, callWindow.indexOf('  const startScreen =', addStart)) + '\nglobalThis.addLocalTracks = addLocalTracks;'), mediaContext);
+  let sent = 0;
+  mediaContext.addLocalTracks({ getSenders: () => [], addTrack: track => { assert.equal(track.enabled, false); sent++; } });
+  assert.equal(sent, 1);
+  console.log('PASS: muted voice/video capture, mute/unmute during permission requests, and mute applied before sending audio.');
+})().catch(error => { console.error(error); process.exitCode = 1; });

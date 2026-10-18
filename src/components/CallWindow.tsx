@@ -167,6 +167,7 @@ export function chooseCamera(
 // when the user navigates away from the chat while a call is active.
 const _call = {
   generation: 0,
+  micEnabled: true,
   capturedTracks: new Set<MediaStreamTrack>(),
   pc: null as RTCPeerConnection | null,
   audioStream: null as MediaStream | null,
@@ -203,6 +204,8 @@ async function acquireCallMedia(constraints: MediaStreamConstraints, display = f
     stream.getTracks().forEach(track => track.stop());
     throw new DOMException('Call ended', 'AbortError');
   }
+  // Apply the latest preference after permission/device acquisition completes.
+  stream.getAudioTracks().forEach(track => { track.enabled = _call.micEnabled; });
   stream.getTracks().forEach(track => _call.capturedTracks.add(track));
   return stream;
 }
@@ -256,6 +259,7 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
   // ChatHeader.startCall and not yet propagated through this render).
   const isVideoActiveRef = useRef(isVideoActive);
   isVideoActiveRef.current = isVideoActive;
+  _call.micEnabled = isMicActive;
 
   // Visual state — initialised from module-level so it's correct after remount
   const tr = useTranslation();
@@ -453,6 +457,7 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
     const senders = pc.getSenders();
     if (_call.audioStream) {
       _call.audioStream.getAudioTracks().forEach(track => {
+        track.enabled = _call.micEnabled;
         if (!senders.some(s => s.track?.id === track.id))
           pc.addTrack(track, _call.localMediaStream);
       });
@@ -1243,7 +1248,7 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
       const audio = both.getAudioTracks()[0] || null;
       if (audio) {
         // The mic button is a state on the track, and this is a new track.
-        audio.enabled = isMicActive;
+        audio.enabled = _call.micEnabled;
         _call.audioStream = new MediaStream([audio]);
         if (audioSender) await audioSender.replaceTrack(audio);
       }
@@ -1257,7 +1262,7 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
         const mic = await acquireCallMedia({ audio: true });
         const audio = mic.getAudioTracks()[0];
         if (audio) {
-          audio.enabled = isMicActive;
+          audio.enabled = _call.micEnabled;
           _call.audioStream = mic;
           if (audioSender) await audioSender.replaceTrack(audio);
         }
