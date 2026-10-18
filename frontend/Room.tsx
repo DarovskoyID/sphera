@@ -3,7 +3,7 @@ import {
   ChevronLeft, ChevronRight, Copy, Hand, LayoutGrid, Link2, Maximize2, MessageSquare, Mic, MicOff, MonitorUp, MonitorX, MoreVertical, PhoneOff,
   Send, Smile, UserCheck, UserX, Users, Video, VideoOff, WifiOff, X,
 } from 'lucide-react';
-import { reportError, setBusy, isBusy, useCore, useModuleT } from '@sfera/sdk';
+import { reportError, setBusy, useCore, useModuleT } from '@sfera/sdk';
 import { conferenceLink, type Conn } from './api';
 import { RoomClient, type Participant } from './roomClient';
 import { Avatar, Button, IconButton, MenuItem, PopMenu, inputStyle, useIsMobile } from './ui';
@@ -477,7 +477,7 @@ export function Room({ conn, slug, guestPass, title, displayName, onLeave }: {
 
   useEffect(() => {
     if (!joinOpts) return;
-    if (isBusy()) {
+    if (isCallActive) {
       reportError(new Error('Сначала завершите текущий звонок или конференцию'));
       setJoinOpts(null);
       return;
@@ -489,7 +489,7 @@ export function Room({ conn, slug, guestPass, title, displayName, onLeave }: {
     const beforeUnload = () => c.leave();
     window.addEventListener('beforeunload', beforeUnload);
     return () => { window.removeEventListener('beforeunload', beforeUnload); c.leave(); setBusy('conference', false); };
-  }, [conn, slug, guestPass, joinOpts]);
+  }, [conn, slug, guestPass, joinOpts, isCallActive]);
 
   if (isCallActive) return <div role="status" style={{ padding: 24 }}>Сначала завершите текущий звонок.</div>;
   if (!joinOpts) return <PreJoin title={title} name={displayName} onJoin={setJoinOpts} onCancel={onLeave} />;
