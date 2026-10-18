@@ -42,6 +42,8 @@ class BoardConsumer(AsyncWebsocketConsumer):
             return
         kind = data.get('type')
         if kind == 'cursor':
+            if not self.role or self.role == ROLE_VIEWER:
+                return
             await self._relay({
                 'type': 'cursor', 'channel': self.channel_name, 'user': self.brief,
                 'x': data.get('x'), 'y': data.get('y'), 'selection': (data.get('selection') or [])[:50],
@@ -75,6 +77,8 @@ class BoardConsumer(AsyncWebsocketConsumer):
             return
         if message.get('type') == 'access_changed' and message.get('user_id') == str(self.scope['user'].id):
             self.role = await database_sync_to_async(role_of)(self.scope['user'], self.board_id)
+            if self.role == ROLE_VIEWER:
+                await self._relay({'type': 'leave', 'channel': self.channel_name})
             if not self.role:
                 await self.send(text_data=ujson.dumps({'type': 'removed'}))
                 await self.close()

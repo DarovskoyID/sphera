@@ -479,7 +479,7 @@ export function Editor({ session, readOnly, onExportReady }: {
     if (pointers.current.has(e.pointerId)) pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
     const p = toBoard(e.clientX, e.clientY);
     lastPointer.current = p;
-    session.cursor(p.x, p.y, selection);
+    if (!readOnly) session.cursor(p.x, p.y, selection);
 
     if (pinch.current && pointers.current.size >= 2) {
       const [a, b] = [...pointers.current.values()];
