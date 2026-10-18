@@ -799,6 +799,7 @@ export const ChatSidebar: React.FC = () => {
           <div className={`settings-item ${currentSettingsPage === 'formatting' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('formatting')}>{tr('settings_formatting')}</div>
           {!isMobile && <div className={`settings-item ${currentSettingsPage === 'binds' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('binds')}>{tr('settings_binds')}</div>}
           <div className={`settings-item ${currentSettingsPage === 'language' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('language')}>{tr('settings_language')}</div>
+          <div className={`settings-item ${currentSettingsPage === 'subscriptions' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('subscriptions')}>{language === 'ru' ? 'Подписки на сервер' : 'Server subscriptions'}</div>
           <div className={`settings-item ${currentSettingsPage === 'exportImport' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('exportImport')}>{tr('settings_export_import')}</div>
           <div className={`settings-item ${currentSettingsPage === 'streamer' ? 'active' : ''}`} onClick={() => setCurrentSettingsPage('streamer')}>{tr('settings_streamer')}</div>
           <div className="settings-devider" />

@@ -173,3 +173,42 @@ def module_install(request, module_id):
     if deleted:
         hooks.module_uninstalled.send(sender=None, user=user, module_id=module_id)
     return Response({'uninstalled': bool(deleted), 'purged': purged})
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def commercial_catalog(request):
+    from .commercial import call, CommercialError
+    try:
+        result = call(request.user)
+        response = Response(result)
+        response['Cache-Control'] = 'no-store'
+        return response
+    except CommercialError as error:
+        return Response({'error': error.code}, status=error.status)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def commercial_view(request, module_id):
+    from .commercial import call, CommercialError
+    try:
+        response = Response(call(request.user, module_id=module_id))
+        response['Cache-Control'] = 'no-store'
+        return response
+    except CommercialError as error:
+        return Response({'error': error.code}, status=error.status)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def commercial_action(request, module_id, action_id):
+    if not isinstance(request.data, dict):
+        return Response({'error': 'invalid_values'}, status=400)
+    from .commercial import call, CommercialError
+    try:
+        response = Response(call(request.user, module_id=module_id, action_id=action_id, values=request.data.get('values', {})))
+        response['Cache-Control'] = 'no-store'
+        return response
+    except CommercialError as error:
+        return Response({'error': error.code}, status=error.status)

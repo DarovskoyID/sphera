@@ -1,0 +1,39 @@
+name: Commercial API deployment
+on:
+  workflow_dispatch:
+    inputs:
+      stage:
+        description: Prepare a read-only repository key, or deploy the separate API
+        type: choice
+        options: [prepare, deploy]
+        required: true
+permissions:
+  contents: read
+concurrency:
+  group: commercial-api-deploy
+  cancel-in-progress: false
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure deployment SSH
+        env:
+          DEPLOY_KEY: ${{ secrets.SFERA_DEPLOY_KEY }}
+          DEPLOY_HOST: ${{ secrets.SFERA_DEPLOY_HOST }}
+          DEPLOY_PORT: ${{ secrets.SFERA_DEPLOY_PORT }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/sfera_deploy
+          chmod 600 ~/.ssh/sfera_deploy
+          ssh-keyscan -p "${DEPLOY_PORT:-22}" -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts
+      - name: Prepare or deploy company service
+        env:
+          DEPLOY_HOST: ${{ secrets.SFERA_DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.SFERA_DEPLOY_USER }}
+          DEPLOY_PORT: ${{ secrets.SFERA_DEPLOY_PORT }}
+          STAGE: ${{ inputs.stage }}
+        run: |
+          bash -n scripts/linux/commercial-install.sh
+          ssh -i ~/.ssh/sfera_deploy -p "${DEPLOY_PORT:-22}" "${DEPLOY_USER:-root}@$DEPLOY_HOST" \
+            "sudo bash -s -- '$STAGE'" < scripts/linux/commercial-install.sh

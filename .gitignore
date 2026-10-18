@@ -46,3 +46,6 @@ serviceAccountKey.json
 # Modules are checked out from their branches (node scripts/modules/fetch.mjs)
 /modules/
 /django-server/monitoring/generated/
+
+# Private commercial API: separate repository, never part of the AGPL core checkout.
+/commercial-service/
