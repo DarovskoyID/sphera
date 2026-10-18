@@ -55,7 +55,7 @@ jobs:
           cache: npm
 
       - name: Build frontend (core only)
-        run: npm ci && node scripts/test-busy-calls.cjs && npm run build
+        run: npm ci && node scripts/test-busy-calls.cjs && node scripts/test-call-recovery.cjs && npm run build
 
       - uses: actions/setup-python@v5
         with:
@@ -73,7 +73,7 @@ jobs:
           python manage.py check
           python manage.py makemigrations --check --dry-run
           python manage.py migrate --noinput
-          python manage.py test sfera_modules
+          python manage.py test sfera_modules sfera_signaling
 
   ci:
     name: Build and Check (with modules)
@@ -107,7 +107,7 @@ jobs:
         run: npm ci
 
       - name: Build frontend
-        run: node scripts/test-busy-calls.cjs && npm run build
+        run: node scripts/test-busy-calls.cjs && node scripts/test-call-recovery.cjs && npm run build
 
       - uses: actions/setup-python@v5
         with:
@@ -132,7 +132,7 @@ jobs:
         run: |
           python manage.py makemigrations --check --dry-run
           python manage.py migrate --noinput
-          python manage.py test sfera_modules $(python -c "from sfera_modules.loader import backend_apps; print(' '.join(backend_apps()))")
+          python manage.py test sfera_modules sfera_signaling $(python -c "from sfera_modules.loader import backend_apps; print(' '.join(backend_apps()))")
 
       - uses: dtolnay/rust-toolchain@stable
 

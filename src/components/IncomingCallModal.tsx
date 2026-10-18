@@ -66,6 +66,10 @@ export const IncomingCallModal = () => {
   if (!handlerRef.current) {
     handlerRef.current = (msg: any) => {
       if (isCallActiveRef.current) return;
+      if ((msg.type === 'call-resume' || (msg.type === 'offer' && msg.recovery)) && msg.from) {
+        sendSignal({ type: 'call-end', to: msg.from });
+        return;
+      }
 
       if (msg.type === 'offer' && msg.from) {
         if (isBusy() || (incomingOfferRef.current && String(incomingOfferRef.current.from) !== String(msg.from))) {
@@ -77,7 +81,7 @@ export const IncomingCallModal = () => {
         setIncomingOffer(msg);
       } else if (msg.type === 'candidate' && incomingOfferRef.current && String(msg.from) === String(incomingOfferRef.current.from)) {
         bufferedCandidates.current.push(msg);
-      } else if ((msg.type === 'call-end' || msg.type === 'call-rejected') && incomingOfferRef.current && String(msg.from) === String(incomingOfferRef.current.from)) {
+      } else if ((msg.type === 'call-end' || msg.type === 'call-rejected' || msg.type === 'peer-disconnected') && incomingOfferRef.current && String(msg.from) === String(incomingOfferRef.current.from)) {
         // Caller cancelled — they already sent the call message via chat WS,
         // so we just dismiss the modal without adding a duplicate.
         stopRingtone();

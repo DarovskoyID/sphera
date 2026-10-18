@@ -1461,6 +1461,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       ws.onopen = () => {
         if (!alive) { ws.close(); return; }
         signalingWs.current = ws;
+        onSignalingMessage.current?.({ type: 'signaling-ready' });
         setState(prev => prev.currentUser
           ? { ...prev, currentUser: { ...prev.currentUser, status: 'online' } }
           : prev
@@ -1593,6 +1594,10 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
           return;
         }
         if (data.type === 'offer' && data.from) {
+          if (data.recovery && activeCallPeerRef.current !== String(data.from)) {
+            ws.send(JSON.stringify({ type: 'call-end', to: data.from }));
+            return;
+          }
           // Reply here even while CallWindow is mounting or changing views.
           if (isBusy() && activeCallPeerRef.current !== String(data.from)) {
             ws.send(JSON.stringify({ type: 'call-rejected', to: data.from, callStatus: 'busy' }));
@@ -1616,7 +1621,10 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       };
 
       ws.onclose = () => {
-        if (signalingWs.current === ws) signalingWs.current = null;
+        if (signalingWs.current === ws) {
+          signalingWs.current = null;
+          onSignalingMessage.current?.({ type: 'signaling-lost' });
+        }
         setState(prev => ({
           ...prev,
           incomingOffer: null,
@@ -1632,9 +1640,25 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     };
 
     connect();
+    let hiddenAt = 0;
+    const resumeSignaling = () => {
+      if (document.visibilityState !== 'visible') { hiddenAt = Date.now(); return; }
+      if (!activeCallPeerRef.current || (hiddenAt && Date.now() - hiddenAt < 10_000)) return;
+      hiddenAt = 0;
+      // An OPEN socket may belong to a dead TCP connection after Android sleep.
+      if (reconnectTimer !== null) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+      const old = activeWs;
+      if (old) { old.onclose = null; old.onmessage = null; old.close(); }
+      signalingWs.current = null;
+      connect();
+    };
+    document.addEventListener('visibilitychange', resumeSignaling);
+    window.addEventListener('online', resumeSignaling);
 
     return () => {
       alive = false;
+      document.removeEventListener('visibilitychange', resumeSignaling);
+      window.removeEventListener('online', resumeSignaling);
       if (reconnectTimer !== null) clearTimeout(reconnectTimer);
       const ws = activeWs;
       if (!ws) return;
@@ -1791,8 +1815,8 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
   useEffect(() => {
     const handleBeforeUnload = () => {
       if (signalingWs.current?.readyState === WebSocket.OPEN) {
-        if (callTargetIdRef.current) {
-          signalingWs.current.send(JSON.stringify({ type: 'call-end', to: callTargetIdRef.current }));
+        if (activeCallPeerRef.current) {
+          signalingWs.current.send(JSON.stringify({ type: 'call-end', to: activeCallPeerRef.current }));
         }
         signalingWs.current.close();
         signalingWs.current = null;

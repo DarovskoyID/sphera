@@ -39,10 +39,11 @@ class SignalingConsumer(AsyncWebsocketConsumer):
         self.user_id = str(user.id)
         self.authed = True
 
+        previous = SignalingConsumer._users.get(self.user_id, {})
         SignalingConsumer._users[self.user_id] = {
             'channel': self.channel_name,
             'name': user.nickname or user.username,
-            'in_call_with': None,
+            'in_call_with': previous.get('in_call_with'),
         }
 
         await self.channel_layer.group_add('signaling', self.channel_name)
@@ -81,18 +82,15 @@ class SignalingConsumer(AsyncWebsocketConsumer):
         # would make the user invisible to callers even though they are online.
         current = SignalingConsumer._users.get(self.user_id)
         if current and current['channel'] == self.channel_name:
-            # Notify call peer that the call has ended
+            # Socket loss may be Android sleep or a network change, not a hangup.
             in_call_with = current.get('in_call_with')
             if in_call_with:
                 peer = SignalingConsumer._users.get(in_call_with)
                 if peer:
                     await self.channel_layer.send(peer['channel'], {
                         'type': 'signal.forward',
-                        'data': {'type': 'call-end', 'from': self.user_id},
+                        'data': {'type': 'peer-disconnected', 'from': self.user_id},
                     })
-                    # Clear peer's call state too
-                    if peer.get('in_call_with') == self.user_id:
-                        peer['in_call_with'] = None
 
             SignalingConsumer._users.pop(self.user_id, None)
 
@@ -123,6 +121,8 @@ class SignalingConsumer(AsyncWebsocketConsumer):
         if me:
             if signal_type == 'offer':
                 me['in_call_with'] = target_id
+            elif signal_type in ('call-resume', 'call-resumed'):
+                me['in_call_with'] = target_id
             elif signal_type == 'answer':
                 me['in_call_with'] = str(data.get('from', target_id))
             elif signal_type in ('call-end', 'call-rejected'):
@@ -135,6 +135,8 @@ class SignalingConsumer(AsyncWebsocketConsumer):
                 'type': 'signal.forward',
                 'data': {**data, 'from': self.user_id},
             })
+        elif signal_type == 'call-resume' or (signal_type == 'offer' and data.get('recovery')):
+            await self.send(text_data=json.dumps({'type': 'peer-disconnected', 'from': target_id}))
         elif signal_type == 'offer':
             # Target is offline — send FCM call notification so their device wakes up
             caller_name = SignalingConsumer._users.get(self.user_id, {}).get('name', '') or self.user_id

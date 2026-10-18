@@ -2,6 +2,7 @@ import { useRef, useEffect, useState, useCallback } from 'react';
 import { Maximize2, Minimize2, Info, SwitchCamera } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { useTranslation } from '../i18n/useTranslation';
+import { CallRecovery, type CallHealth } from '../utils/callRecovery';
 import { getIceServers, getSelectedServerEntry, getResolvedTurn, fetchPoolIceServers, pingServer, pingStun, API_BASE_URL, APP_HOST, type ServerEntry } from '../config/network';
 
 // ── Module-level helpers (never redefined) ────────────────────────────────────
@@ -168,6 +169,16 @@ export function chooseCamera(
 const _call = {
   generation: 0,
   micEnabled: true,
+  health: 'connecting' as CallHealth,
+  mediaStalled: false,
+  recovery: null as CallRecovery | null,
+  recoveryAttempt: null as (() => Promise<void>) | null,
+  recoveryFailed: null as (() => void) | null,
+  updateHealth: null as ((health: CallHealth) => void) | null,
+  repairing: null as Promise<void> | null,
+  makingOffer: false,
+  negotiation: 0,
+  ignoreOffer: false,
   capturedTracks: new Set<MediaStreamTrack>(),
   pc: null as RTCPeerConnection | null,
   audioStream: null as MediaStream | null,
@@ -225,6 +236,8 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
     showError,
     sendSignal,
     onSignalingMessage,
+    signalingWs,
+    currentUser,
     callTargetId,
     setCallTargetId,
     incomingOffer,
@@ -274,6 +287,9 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
   const [windowExpanded, setWindowExpanded] = useState(false);
   const [expandedTile, setExpandedTile] = useState<string | null>(null);
   const [isRinging, setIsRinging] = useState(false);
+  const [health, setHealth] = useState<CallHealth>(_call.health);
+  const [playbackBlocked, setPlaybackBlocked] = useState(false);
+  _call.updateHealth = setHealth;
   const [showInfo, setShowInfo] = useState(false);
   const [connInfo, setConnInfo] = useState<{ candidateType?: string; protocol?: string; localAddr?: string; remoteAddr?: string } | null>(null);
   const [infoPing, setInfoPing] = useState<number | null | 'loading'>(null);
@@ -610,10 +626,7 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
       audioEl.srcObject = stream;
       audioEl.autoplay = true;
       audioEl.volume = 1;
-      const tryPlayAudio = () => {
-        audioEl.play().catch(() => setTimeout(tryPlayAudio, 500));
-      };
-      tryPlayAudio();
+      audioEl.play().then(() => setPlaybackBlocked(false)).catch(() => setPlaybackBlocked(true));
     }
 
     const videoEl = remoteVideoRef.current;
@@ -622,12 +635,9 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
     videoEl.muted = true;
     videoEl.playsInline = true;
     const hasVideo = stream.getVideoTracks().some(t => t.enabled && !t.muted);
-    const tryPlay = () => {
-      videoEl.play()
-        .then(() => { if (hasVideo) setRemoteVideoStatus('playing'); })
-        .catch(() => setTimeout(tryPlay, 500));
-    };
-    tryPlay();
+    videoEl.play()
+      .then(() => { if (hasVideo) setRemoteVideoStatus('playing'); })
+      .catch(() => setPlaybackBlocked(true));
   }, []);
 
   const attachRemoteScreenStream = useCallback((stream: MediaStream) => {
@@ -678,19 +688,44 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
       if (event.candidate) sendSignal({ type: 'candidate', candidate: event.candidate, to: remoteId });
     };
 
-    pc.oniceconnectionstatechange = () => {
-      if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
+    if (!_call.recovery) {
+      _call.recovery = new CallRecovery({
+        attempt: () => _call.recoveryAttempt?.() ?? Promise.resolve(),
+        onState: health => { _call.health = health; _call.updateHealth?.(health); },
+        onFailed: () => _call.recoveryFailed?.(),
+      });
+    }
+    const generation = _call.generation;
+    const transportChanged = () => {
+      if (_call.pc !== pc || generation !== _call.generation) return;
+      if (pc.connectionState === 'failed' || pc.connectionState === 'closed') {
+        _call.recovery?.recover();
+      } else if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
         if (!_call.wasConnected) {
           _call.wasConnected = true;
           _call.callStartTime = Date.now();
           stopDialTone();
         }
+        setCallStatus('active');
+        if (!_call.mediaStalled) _call.recovery?.connected();
+      } else if (['disconnected', 'failed', 'closed'].includes(pc.iceConnectionState)
+          || ['disconnected', 'failed', 'closed'].includes(pc.connectionState)) {
+        _call.recovery?.recover();
       }
     };
+    pc.oniceconnectionstatechange = transportChanged;
+    pc.onconnectionstatechange = transportChanged;
 
     pc.ontrack = (event) => {
-      const stream = event.streams[0];
-      if (!stream) return;
+      if (_call.pc !== pc) return;
+      const stream = event.streams[0] ?? _call.remoteStream ?? new MediaStream();
+      if (!stream.getTracks().includes(event.track)) stream.addTrack(event.track);
+      if (event.track.kind === 'audio') {
+        event.track.onmute = () => {
+          if (_call.pc === pc && _call.wasConnected) { _call.mediaStalled = true; _call.recovery?.recover(); }
+        };
+        event.track.onunmute = () => { if (_call.pc === pc) _attachRemoteRef?.current(stream); };
+      }
 
       // Screen share = different stream id from main remote stream
       if (_call.remoteStream && stream.id !== _call.remoteStream.id) {
@@ -773,22 +808,48 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
   const handleSignalRef = useRef<(msg: any) => void>(() => {});
 
   handleSignalRef.current = async (msg: any) => {
+    if (msg.type === 'signaling-ready' || msg.type === 'signaling-lost') {
+      if (_call.wasConnected) {
+        if (msg.type === 'signaling-ready' && _call.targetId) {
+          sendSignal({ type: 'call-resume', to: _call.targetId });
+        }
+        _call.recovery?.recover();
+      }
+      return;
+    }
     if (!msg.from) return;
     const senderId = String(msg.from);
     if (senderId !== _call.targetId) {
       if (msg.type === 'offer') sendSignal({ type: 'call-rejected', to: senderId, callStatus: 'busy' });
+      if (msg.type === 'call-resume') sendSignal({ type: 'call-end', to: senderId });
       return;
     }
 
+    if (msg.type === 'peer-disconnected') {
+      _call.recovery?.recover();
+      return;
+    }
+    if (msg.type === 'call-resume' || msg.type === 'call-resumed') {
+      if (msg.type === 'call-resume') sendSignal({ type: 'call-resumed', to: senderId });
+      _call.recovery?.recover();
+      return;
+    }
     if (msg.type === 'offer') {
       if (_call.pc && String(_call.targetId) === senderId) {
         const pc = _call.pc;
+        const collision = _call.makingOffer || pc.signalingState !== 'stable';
+        const polite = String(currentUser?.id) > senderId;
+        _call.ignoreOffer = collision && !polite;
+        if (_call.ignoreOffer) return;
         try {
+          ++_call.negotiation;
+          if (pc.signalingState === 'have-local-offer') await pc.setLocalDescription({ type: 'rollback' });
           await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
           addLocalTracks(pc);
           const answer = await pc.createAnswer();
           await pc.setLocalDescription(answer);
           sendSignal({ type: 'answer', sdp: answer, to: senderId });
+          if (!_call.wasConnected) _call.recovery?.connecting();
           for (const c of _call.pendingCandidates) await pc.addIceCandidate(c);
           _call.pendingCandidates = [];
         } catch { }
@@ -804,6 +865,7 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
         const busy = msg.type === 'call-rejected' && msg.callStatus === 'busy';
         stopCall(false, true, false, busy);
         if (busy) showError(tr('call_msg_busy'));
+        else if (msg.reason === 'connection-lost') showError(tr('call_connection_lost'));
       }
       return;
     }
@@ -814,11 +876,14 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
     if (msg.type === 'answer') {
       try {
         if (pc.signalingState !== 'have-local-offer') return;
+        _call.ignoreOffer = false;
         await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
         for (const c of _call.pendingCandidates) await pc.addIceCandidate(c);
         _call.pendingCandidates = [];
+        if (!_call.wasConnected) _call.recovery?.connecting();
       } catch { }
     } else if (msg.type === 'candidate') {
+      if (_call.ignoreOffer) return;
       try {
         if (msg.candidate) {
           if (pc.remoteDescription?.type) {
@@ -972,6 +1037,7 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
       sendSignal({ type: 'answer', sdp: answer, to: senderId });
+      if (!_call.wasConnected) _call.recovery?.connecting();
 
       if (msg.bufferedCandidates?.length) {
         for (const candidateMsg of msg.bufferedCandidates) {
@@ -985,8 +1051,15 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
     } catch { }
   };
 
-  const stopCall = (notifyRemote = true, remoteInitiated = false, timedOut = false, busy = false) => {
+  const stopCall = (notifyRemote = true, remoteInitiated = false, timedOut = false, busy = false, connectionLost = false) => {
     ++_call.generation;
+    _call.recovery?.stop();
+    _call.recovery = null;
+    _call.repairing = null;
+    _call.makingOffer = false;
+    _call.ignoreOffer = false;
+    _call.health = 'connecting';
+    _call.mediaStalled = false;
     stopDialTone();
     const targetId = _call.targetId;
     const wasConnected = _call.wasConnected;
@@ -1036,7 +1109,7 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
     }
 
     if (notifyRemote && targetId) {
-      sendSignal({ type: 'call-end', to: targetId, callStatus, duration, video: wasVideo });
+      sendSignal({ type: 'call-end', to: targetId, callStatus, duration, video: wasVideo, reason: connectionLost ? 'connection-lost' : undefined });
     }
 
     // Only the side that actively ends/cancels sends the call message to chat.
@@ -1054,6 +1127,140 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
     setVideoActive(false);
     setDemonstrationActive(false);
   };
+
+  // Re-open tracks suspended by Android and replace senders without losing mute state.
+  const repairMedia = async () => {
+    if (_call.repairing) return _call.repairing;
+    const pc = _call.pc;
+    const generation = _call.generation;
+    if (!pc || document.visibilityState !== 'visible') return;
+    const broken = (stream: MediaStream | null, kind: 'audio' | 'video') => {
+      const track = stream?.getTracks().find(track => track.kind === kind);
+      return !track || track.readyState === 'ended' || track.muted;
+    };
+    const audio = broken(_call.audioStream, 'audio');
+    const video = isVideoActiveRef.current && broken(_call.cameraStream, 'video');
+    if (!audio && !video) return;
+    const repair = async () => {
+      const stream = await acquireCallMedia({ audio, video });
+      if (_call.pc !== pc || _call.generation !== generation) {
+        stream.getTracks().forEach(track => track.stop());
+        return;
+      }
+      for (const track of stream.getTracks()) {
+        if (track.kind === 'video' && !isVideoActiveRef.current) { track.stop(); continue; }
+        const oldStream = track.kind === 'audio' ? _call.audioStream : _call.cameraStream;
+        const old = oldStream?.getTracks().find(old => old.kind === track.kind);
+        const sender = pc.getSenders().find(sender => sender.track === old
+          || (track.kind === 'audio' && sender.track?.kind === 'audio'));
+        try {
+          if (sender) await sender.replaceTrack(track);
+          else pc.addTrack(track, _call.localMediaStream);
+          if (_call.generation !== generation || _call.pc !== pc) { track.stop(); return; }
+          oldStream?.getTracks().forEach(old => old.stop());
+          if (track.kind === 'audio') _call.audioStream = new MediaStream([track]);
+          else {
+            _call.cameraStream = new MediaStream([track]);
+            attachStreamToVideo(cameraVideoRef.current, _call.cameraStream, setLocalVideoStatus);
+          }
+        } catch (error) { track.stop(); throw error; }
+      }
+    };
+    const task = repair();
+    _call.repairing = task;
+    try { await task; } finally { if (_call.repairing === task) _call.repairing = null; }
+  };
+
+  _call.recoveryAttempt = async () => {
+    const pc = _call.pc;
+    const target = _call.targetId;
+    const generation = _call.generation;
+    if (!pc || !target || navigator.onLine === false) return;
+    await repairMedia();
+    if (_call.pc !== pc || generation !== _call.generation) return;
+    if (_call.remoteStream) attachRemoteStream(_call.remoteStream);
+    if (_call.remoteScreenStream) attachRemoteScreenStream(_call.remoteScreenStream);
+    if (signalingWs.current?.readyState !== WebSocket.OPEN || _call.makingOffer) return;
+    _call.makingOffer = true;
+    const negotiation = ++_call.negotiation;
+    try {
+      if (pc.signalingState === 'have-local-offer') await pc.setLocalDescription({ type: 'rollback' });
+      if (pc.signalingState !== 'stable') return;
+      pc.restartIce();
+      const offer = await pc.createOffer({ iceRestart: true });
+      if (_call.pc !== pc || generation !== _call.generation || negotiation !== _call.negotiation) return;
+      await pc.setLocalDescription(offer);
+      if (_call.pc !== pc || generation !== _call.generation || negotiation !== _call.negotiation) return;
+      sendSignal({ type: 'offer', sdp: pc.localDescription, to: target, recovery: true });
+    } finally { if (_call.pc === pc) _call.makingOffer = false; }
+  };
+  _call.recoveryFailed = () => {
+    stopCall(true, false, false, false, true);
+    showError(tr('call_connection_lost'));
+  };
+
+  useEffect(() => {
+    let lastBytes: number | null = null;
+    let lastProgress = Date.now();
+    let checkingStats = false;
+    const resume = () => {
+      if (!_call.wasConnected || !_call.pc) return;
+      if (document.visibilityState !== 'visible') { _call.recovery?.suspend(); return; }
+      lastProgress = Date.now();
+      if (_call.remoteStream) attachRemoteStream(_call.remoteStream);
+      // Explicit resume also covers connected ICE with stopped local capture.
+      if (_call.targetId) sendSignal({ type: 'call-resume', to: _call.targetId });
+      _call.recovery?.recover(true);
+    };
+    const offline = () => { if (_call.wasConnected) _call.recovery?.recover(); };
+    document.addEventListener('visibilitychange', resume);
+    document.addEventListener('resume', resume);
+    window.addEventListener('pageshow', resume);
+    window.addEventListener('online', resume);
+    window.addEventListener('offline', offline);
+    const watchdog = setInterval(() => {
+      const pc = _call.pc;
+      if (!pc || !_call.wasConnected) return;
+      if (['failed', 'disconnected', 'closed'].includes(pc.connectionState)
+          || _call.audioStream?.getAudioTracks().some(track => track.readyState === 'ended' || track.muted)) {
+        _call.recovery?.recover();
+      }
+      if (checkingStats || document.visibilityState !== 'visible') return;
+      checkingStats = true;
+      void pc.getStats().then(reports => {
+        if (_call.pc !== pc || !_call.wasConnected) return;
+        let bytes = 0;
+        let received = false;
+        reports.forEach(report => {
+          if (report.type === 'inbound-rtp' && typeof report.bytesReceived === 'number') {
+            bytes += report.bytesReceived;
+            received = true;
+          }
+        });
+        if (!received) return;
+        if (lastBytes === null || bytes !== lastBytes) {
+          const progressed = lastBytes !== null;
+          lastBytes = bytes;
+          lastProgress = Date.now();
+          if (progressed && _call.mediaStalled) {
+            _call.mediaStalled = false;
+            if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') _call.recovery?.connected();
+          }
+        } else if (Date.now() - lastProgress >= 20_000) {
+          _call.mediaStalled = true;
+          _call.recovery?.recover();
+        }
+      }).catch(() => {}).finally(() => { checkingStats = false; });
+    }, 5_000);
+    return () => {
+      clearInterval(watchdog);
+      document.removeEventListener('visibilitychange', resume);
+      document.removeEventListener('resume', resume);
+      window.removeEventListener('pageshow', resume);
+      window.removeEventListener('online', resume);
+      window.removeEventListener('offline', offline);
+    };
+  }, []);
 
   // ==================== UI ====================
   const remoteUser = remotePeerId ? friends.find(f => String(f.id) === remotePeerId) : null;
@@ -1429,6 +1636,10 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
 
   return (
     <div className={`call-window${inline ? ' inline-call' : ''}`} style={outerStyle}>
+      {playbackBlocked && <button onClick={() => {
+        if (_call.remoteStream) attachRemoteStream(_call.remoteStream);
+      }} style={{ padding: 10, border: 'none', cursor: 'pointer', background: 'var(--accent-primary)', color: '#fff' }}>{tr('call_restore_audio')}</button>}
+      {health === 'reconnecting' && <button onClick={() => _call.recovery?.recover(true)} style={{ padding: 8, border: 'none', cursor: 'pointer', background: 'var(--bg-secondary)', color: 'var(--text-primary)' }}>{tr('call_retry')}</button>}
       {/* Call header */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 12px', background: 'var(--bg-secondary)', flexShrink: 0 }}>
         {remotePeerId ? (
@@ -1436,7 +1647,7 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
             <UserAvatar name={remoteName} avatar={remoteAvatar} size={28} />
             <div style={{ flex: 1 }}>
               <div style={{ color: 'var(--text-primary)', fontWeight: 600, fontSize: 13, lineHeight: 1.2 }}>{remoteName}</div>
-              <div style={{ color: 'var(--text-secondary)', fontSize: 11 }}>{tr('call_in_call')}</div>
+              <div role="status" aria-live="polite" style={{ color: health === 'reconnecting' ? '#fbbf24' : 'var(--text-secondary)', fontSize: 11 }}>{tr(health === 'reconnecting' ? 'call_reconnecting' : _call.wasConnected ? 'call_in_call' : 'call_connecting')}</div>
             </div>
           </>
         ) : (
