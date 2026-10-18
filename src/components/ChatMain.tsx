@@ -161,7 +161,7 @@ const ChatHeader: React.FC<{
   pinnedOpen: boolean;
   pinnedCount: number;
 }> = ({ onSearchToggle, searchOpen, onPinnedToggle, pinnedOpen, pinnedCount }) => {
-  const { isCallActive, currentChat, friends, blockedContacts, toggleMobileSidebar, setCallActive, setVideoActive, setCallTargetId, setMobileActivePanel } = useApp();
+  const { isCallActive, currentChat, friends, blockedContacts, toggleMobileSidebar, startCall, setMobileActivePanel } = useApp();
   const tr = useTranslation();
 
   const friend = friends.find(f => String(f.id) === String(currentChat));
@@ -177,11 +177,9 @@ const ChatHeader: React.FC<{
 
   const displayName = accountDisplayName(chatUser);
 
-  const startCall = (withVideo = false) => {
+  const handleStartCall = (withVideo = false) => {
     // Prevent camera from turning on when starting a voice call (state can persist from a previous call)
-    setVideoActive(withVideo);
-    setCallTargetId(chatUser.id);
-    setCallActive(true);
+    startCall(chatUser.id, withVideo);
   };
 
   return (
@@ -212,10 +210,10 @@ const ChatHeader: React.FC<{
       </div>
       <div className="chat-header-actions">
         {!blockedUser && <>
-          <button className="icon-btn glass-btn" onClick={() => startCall(false)} title={tr('chat_voice_call')}>
+          <button className="icon-btn glass-btn" onClick={() => handleStartCall(false)} title={tr('chat_voice_call')}>
             <Phone size={20} />
           </button>
-          <button className="icon-btn glass-btn" onClick={() => startCall(true)} title={tr('chat_video_call')}>
+          <button className="icon-btn glass-btn" onClick={() => handleStartCall(true)} title={tr('chat_video_call')}>
             <Video size={20} />
           </button>
         </>}
@@ -1558,7 +1556,7 @@ const MessagesContainer: React.FC<{
   searchQuery: string;
   scrollToRef?: React.MutableRefObject<((id: string) => void) | null>;
 }> = ({ onReply, onEditText, searchQuery, scrollToRef }) => {
-  const { chatMessages, chatLoading, userIDonServer, loadOlderMessages, deleteMessage, pinMessage, reportMessage, customEmojis, currentChat, chatConversationId, editMessage, setCallActive, setVideoActive, setCallTargetId } = useApp();
+  const { chatMessages, chatLoading, userIDonServer, loadOlderMessages, deleteMessage, pinMessage, reportMessage, customEmojis, currentChat, chatConversationId, editMessage, startCall } = useApp();
   // Text edits happen inline in the composer (lifted to ChatView); only to-do
   // lists open the structured editor here.
   const [editingTodo, setEditingTodo] = useState<ChatMessageType | null>(null);
@@ -1676,10 +1674,8 @@ const MessagesContainer: React.FC<{
 
   const handleStartCall = useCallback((withVideo: boolean) => {
     if (!currentChat) return;
-    setVideoActive(withVideo);
-    setCallTargetId(String(currentChat));
-    setCallActive(true);
-  }, [currentChat, setCallActive, setVideoActive, setCallTargetId]);
+    startCall(String(currentChat), withVideo);
+  }, [currentChat, startCall]);
 
   return (
     <>

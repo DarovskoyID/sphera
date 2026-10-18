@@ -20,6 +20,7 @@ import { toUserMessage, readResponse, setErrorLang } from '../utils/errorManager
 import { publishWs } from '../sdk/wsBus';
 import { runLifecycle } from '../sdk/lifecycle';
 import { isBusy, setBusy } from '../sdk/runtime';
+import { t } from '../i18n';
 
 
 // ── Inject X-Ionik-Client header into every fetch ────────────────────────────
@@ -189,6 +190,7 @@ interface AppContextType extends AppState {
   setLanguage: (lang: string) => void;
   toggleMobileSidebar: () => void;
   setMobileActivePanel: (panel: MobilePanel) => void;
+  startCall: (peerId: string, withVideo?: boolean) => void;
   setCallActive: (active: boolean) => void;
   setDemonstrationActive: (DemonstrationActive: boolean) => void;
   setVideoActive: (VideoActive: boolean) => void;
@@ -304,12 +306,16 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
 
   const signalingWs = useRef<WebSocket | null>(null);
   const callTargetIdRef = useRef<string | null>(null);
+  const activeCallPeerRef = useRef<string | null>(null);
   const [signalingPeers, setSignalingPeers] = useState<Array<{ id: string; name: string }>>([]);
   const onSignalingMessage = useRef<((msg: any) => void) | null>(null);
   const pendingStatusRef = useRef<Record<string, string>>({});
   const selfRef = useRef<{ id: string; username: string; nickname: string }>({ id: '', username: '', nickname: '' });
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const showError = useCallback((message: string) => setErrorMessage(message), []);
+  const showError = useCallback((message: string) => {
+    setErrorMessage(message);
+    _dispatch(message);
+  }, []);
   const clearError = useCallback(() => setErrorMessage(null), []);
   const toastIdRef = useRef(0);
   const [toasts, setToasts] = useState<Array<{ id: number; message: string }>>([]);
@@ -1587,6 +1593,11 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
           return;
         }
         if (data.type === 'offer' && data.from) {
+          // Reply here even while CallWindow is mounting or changing views.
+          if (isBusy() && activeCallPeerRef.current !== String(data.from)) {
+            ws.send(JSON.stringify({ type: 'call-rejected', to: data.from, callStatus: 'busy' }));
+            return;
+          }
           setState(prev => {
             if (prev.isCallActive || isBusy() || prev.incomingOffer) return prev;
             const callerFriend = prev.friends.find((f: any) => String(f.id) === String(data.from));
@@ -1851,8 +1862,27 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     }
     return { ...prev, mobileActivePanel: panel };
   });
+  const startCall = (peerId: string, withVideo = false) => {
+    if (isBusy()) {
+      showError(t(state.language, 'call_local_busy'));
+      return;
+    }
+    const target = String(peerId);
+    activeCallPeerRef.current = target;
+    callTargetIdRef.current = target;
+    setBusy('call', true);
+    void runLifecycle('callStart');
+    setState(prev => ({ ...prev, currentChat: target, callTargetId: target,
+      isVideoActive: withVideo, isCallActive: true, incomingOffer: null }));
+  };
   const setCallActive = (active: boolean) => {
-    if (active && isBusy()) return;
+    if (active && isBusy()) {
+      showError(t(state.language, 'call_local_busy'));
+      return;
+    }
+    activeCallPeerRef.current = active
+      ? String(callTargetIdRef.current || state.incomingOffer?.from || '') || null
+      : null;
     setBusy('call', active);
     if (active) void runLifecycle('callStart');
     setState(prev => ({ ...prev, isCallActive: active }));
@@ -1872,6 +1902,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
   const setCurrentServerIP = (ip: string) => setState(prev => ({ ...prev, currentServerIP: ip }));
   const setUserIDonServer = (id: string) => setState(prev => ({ ...prev, userIDonServer: id }));
   const setCallTargetId = (id: string | null) => {
+    if (id && isBusy()) return;
     callTargetIdRef.current = id;
     setState(prev => ({ ...prev, callTargetId: id }));
   };
@@ -1941,6 +1972,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       setLanguage,
       toggleMobileSidebar,
       setMobileActivePanel,
+      startCall,
       setCallActive,
       setDemonstrationActive,
       setVideoActive,
