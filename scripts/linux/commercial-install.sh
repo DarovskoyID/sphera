@@ -6,7 +6,7 @@ stage="${1:-}"
 key=/etc/sfera/commercial-github
 app=/opt/sfera-commercial
 repo=git@github.com:DarovskoyID/sphera-commercial.git
-[[ "$stage" == prepare || "$stage" == deploy ]] || { echo 'Expected prepare or deploy'; exit 2; }
+[[ "$stage" == prepare || "$stage" == deploy || "$stage" == status ]] || { echo 'Expected prepare, deploy or status'; exit 2; }
 [[ $(id -u) == 0 ]] || { echo 'Run as root'; exit 2; }
 mkdir -p /etc/sfera
 if [[ ! -f "$key" ]]; then
@@ -20,6 +20,13 @@ if [[ "$stage" == prepare ]]; then
 fi
 command -v docker >/dev/null
 docker compose version >/dev/null
+if [[ "$stage" == status ]]; then
+  cd "$app"
+  docker compose ps
+  docker compose logs --tail 60 commercial-api
+  curl --silent --show-error --max-time 10 -o /dev/null -w 'Commercial HTTP status: %{http_code}\n' http://127.0.0.1:8020/health/
+  exit 0
+fi
 export GIT_SSH_COMMAND="ssh -i $key -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
 if [[ ! -e "$app" ]]; then
   git clone --branch main "$repo" "$app"
@@ -45,7 +52,7 @@ for attempt in $(seq 1 90); do
   if curl --fail --silent http://127.0.0.1:8020/health/ >/dev/null; then ready=1; break; fi
   sleep 2
 done
-[[ "$ready" == 1 ]] || { echo 'Commercial API did not become healthy'; exit 1; }
+[[ "$ready" == 1 ]] || { echo 'Commercial API did not become healthy'; docker compose logs --tail 60 commercial-api; exit 1; }
 docker compose exec -T commercial-api python manage.py bootstrap_operator --token-file /app/state/operator.json
 if ! docker compose exec -T commercial-api test -f /app/state/core-instance.json; then
   docker compose exec -T commercial-api python manage.py issue_instance --name company-node --token-file /app/state/core-instance.json
