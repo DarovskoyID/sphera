@@ -111,6 +111,7 @@ export const ru: Translations = {
   call_msg_missed: 'Пропущенный звонок',
   call_msg_declined: 'Звонок отклонён',
   call_msg_cancelled: 'Звонок отменён',
+  call_msg_busy: 'Абонент занят',
   call_msg_no_answer: 'Нет ответа',
   call_msg_voice: 'Голосовой звонок',
   call_msg_video: 'Видеозвонок',

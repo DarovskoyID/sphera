@@ -219,6 +219,7 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
     setMicActive,
     setHeadphonesActive,
     setCallStatus,
+    showError,
     sendSignal,
     onSignalingMessage,
     callTargetId,
@@ -795,7 +796,9 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
       return;
     } else if (msg.type === 'call-end' || msg.type === 'call-rejected') {
       if (String(_call.targetId) === senderId) {
-        stopCall(false, true);
+        const busy = msg.type === 'call-rejected' && msg.callStatus === 'busy';
+        stopCall(false, true, false, busy);
+        if (busy) showError(tr('call_msg_busy'));
       }
       return;
     }
@@ -977,7 +980,7 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
     } catch { }
   };
 
-  const stopCall = (notifyRemote = true, remoteInitiated = false, timedOut = false) => {
+  const stopCall = (notifyRemote = true, remoteInitiated = false, timedOut = false, busy = false) => {
     ++_call.generation;
     stopDialTone();
     const targetId = _call.targetId;
@@ -1013,6 +1016,8 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
     if (wasConnected && callStartTime) {
       callStatus = 'completed';
       duration = Math.round((Date.now() - callStartTime) / 1000);
+    } else if (busy) {
+      callStatus = 'busy';
     } else if (timedOut) {
       callStatus = 'no_answer';
     } else if (notifyRemote && !wasIncoming) {
@@ -1031,7 +1036,7 @@ export const CallWindow = ({ inline = false }: { inline?: boolean }) => {
 
     // Only the side that actively ends/cancels sends the call message to chat.
     // The other side will see it via the chat WS broadcast.
-    if (!remoteInitiated) {
+    if (!remoteInitiated || busy) {
       addCallMessage({ status: callStatus, duration, video: wasVideo });
     }
 

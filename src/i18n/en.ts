@@ -114,6 +114,7 @@ export const en = {
   call_msg_missed: 'Missed call',
   call_msg_declined: 'Call declined',
   call_msg_cancelled: 'Call cancelled',
+  call_msg_busy: 'User is busy',
   call_msg_no_answer: 'No answer',
   call_msg_voice: 'Voice call',
   call_msg_video: 'Video call',

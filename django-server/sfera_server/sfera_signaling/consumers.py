@@ -126,7 +126,9 @@ class SignalingConsumer(AsyncWebsocketConsumer):
             elif signal_type == 'answer':
                 me['in_call_with'] = str(data.get('from', target_id))
             elif signal_type in ('call-end', 'call-rejected'):
-                me['in_call_with'] = None
+                # Rejecting another caller must preserve the active conversation.
+                if me.get('in_call_with') == target_id:
+                    me['in_call_with'] = None
 
         if target:
             await self.channel_layer.send(target['channel'], {

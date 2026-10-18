@@ -68,7 +68,7 @@ export interface ChatAttachment {
   url: string;
 }
 
-export type CallStatus = 'completed' | 'missed' | 'declined' | 'cancelled' | 'no_answer';
+export type CallStatus = 'completed' | 'missed' | 'declined' | 'cancelled' | 'no_answer' | 'busy';
 
 export interface CallInfo {
   status: CallStatus;
