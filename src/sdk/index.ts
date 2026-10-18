@@ -24,7 +24,7 @@ export { createTailCache } from '../utils/cachedTail';
 export type { TailEntry } from '../utils/cachedTail';
 export type { RichMessageType, RichPayload, RichUserBrief, PollPayload } from '../types';
 export { openModuleSocket } from './realtime';
-export { tmStatic, goTo, setBusy } from './runtime';
+export { tmStatic, goTo, setBusy, isBusy } from './runtime';
 export type { ModuleSocket } from './realtime';
 export { reportError } from '../context/AppContext';
 // Feed / media building blocks.
