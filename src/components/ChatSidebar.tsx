@@ -91,7 +91,7 @@ const FriendContextMenu: React.FC<{
 }> = ({ ctx, onClose, onOpenProfile }) => {
   const {
     currentServerIP, authToken,
-    setCurrentChat, setCallActive, setCallTargetId,
+    setCurrentChat, startCall,
     chatConversationId, currentChat,
     blockUser, removeFriend, currentUser,
   } = useApp();
@@ -170,9 +170,7 @@ const FriendContextMenu: React.FC<{
 
   const handleStartCall = () => {
     onClose();
-    setCurrentChat(friend.id);
-    setCallTargetId(friend.id);
-    setCallActive(true);
+    startCall(friend.id);
   };
 
   const isMuted = getMuteExpiry(friend.id) > Date.now();
@@ -476,7 +474,7 @@ export const ChatSidebar: React.FC = () => {
     isMobileSidebarOpen, toggleMobileSidebar, setAuthToken,
     friends, friendsLoaded, blockedContacts, pendingRequests, sentRequests, sendFriendRequest, acceptFriendRequest,
     rejectFriendRequest, searchUsers,
-    setCallActive, setCallTargetId, setVideoActive, currentUser, language,
+    startCall, currentUser, language,
   } = useApp();
   const tr = useTranslation();
   const isMobile = useIsMobile();
@@ -581,11 +579,7 @@ export const ChatSidebar: React.FC = () => {
   const handleProfileCall = (withVideo: boolean) => {
     if (!profileFriend) return;
     setProfileFriend(null);
-    setCurrentChat(profileFriend.id);
-    // Prevent camera from turning on when starting a voice call (state can persist from a previous call)
-    setVideoActive(withVideo);
-    setCallTargetId(profileFriend.id);
-    setCallActive(true);
+    startCall(profileFriend.id, withVideo);
   };
 
   return (

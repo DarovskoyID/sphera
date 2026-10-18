@@ -29,6 +29,7 @@ export const zh: Translations = {
   welcome_title: '你的消息', welcome_desc: '从侧边栏选择一个对话开始聊天。',
   friends_search: '搜索好友', friends_requests: '好友请求', friends_wants_to_be: '想成为好友', friends_accept: '接受', friends_decline: '拒绝', friends_direct_messages: '私信', friends_add: '添加好友', friends_search_placeholder: '按用户名或昵称搜索', friends_find: '查找', friends_no_users: '未找到用户', friends_search_failed: '搜索失败', friends_request_sent: '请求已发送！', friends_request_pending: '已发送请求', friends_requests_sent: '已发送的请求', friends_none: '还没有好友。点击 + 添加。',
   call_incoming: '来电', call_calling_you: '正在呼叫你...', call_accept: '接听', call_decline: '拒绝', call_no_video: '无视频', call_video_playing: '视频播放中', call_video_enabled: '视频已开启', call_video_disabled: '视频已关闭', call_video_off: '视频已关闭', call_remote_video_off: '对方已关闭视频', call_msg_completed: '通话结束', call_msg_missed: '未接来电', call_msg_declined: '通话已拒绝', call_msg_cancelled: '通话已取消',
+  call_local_busy: '请先结束当前通话或会议',
   call_msg_busy: '对方忙线中',
   call_msg_no_answer: '无人接听', call_msg_voice: '语音通话', call_msg_video: '视频通话', call_msg_duration: '时长', call_msg_callback: '回拨',
   remove_friend_title: '删除好友', remove_friend_confirm: '确定要将此人从好友列表中删除吗？', remove_friend_button: '删除', delete_message_title: '删除消息', delete_message_confirm: '确定要删除此消息吗？此操作无法撤销。', delete_message_button: '删除',
