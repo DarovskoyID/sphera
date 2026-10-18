@@ -3,7 +3,7 @@ import {
   ChevronLeft, ChevronRight, Copy, Hand, LayoutGrid, Link2, Maximize2, MessageSquare, Mic, MicOff, MonitorUp, MonitorX, MoreVertical, PhoneOff,
   Send, Smile, UserCheck, UserX, Users, Video, VideoOff, WifiOff, X,
 } from 'lucide-react';
-import { reportError, setBusy, useModuleT } from '@sfera/sdk';
+import { reportError, setBusy, isBusy, useCore, useModuleT } from '@sfera/sdk';
 import { conferenceLink, type Conn } from './api';
 import { RoomClient, type Participant } from './roomClient';
 import { Avatar, Button, IconButton, MenuItem, PopMenu, inputStyle, useIsMobile } from './ui';
@@ -31,7 +31,7 @@ function VideoEl({ track, stream, muted, mirror, fit = 'cover', onVisible }: {
   }, []);
   return (
     <video ref={ref} autoPlay playsInline muted={muted}
-      style={{ width: '100%', height: '100%', objectFit: fit, transform: mirror ? 'scaleX(-1)' : undefined, background: '#000', display: 'block' }} />
+      style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: fit, transform: mirror ? 'scaleX(-1)' : undefined, background: '#000', display: 'block' }} />
   );
 }
 
@@ -314,19 +314,19 @@ function Stage({ client, mobile }: { client: RoomClient; mobile: boolean }) {
   );
 
   if (focus) {
-    const stripVertical = !mobile && size.w > size.h;
+    const stripVertical = size.w > size.h;
     return (
       <div ref={box} style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: stripVertical ? 'row' : 'column', gap: 8, padding: 8, position: 'relative' }}>
         {audio}
         <div style={{ flex: 1, minWidth: 0, minHeight: 0, display: 'flex' }}>
-          <div style={{ flex: 1, display: 'grid' }}>
+          <div style={{ flex: 1, minWidth: 0, minHeight: 0, display: 'grid', gridTemplateRows: 'minmax(0, 1fr)', gridTemplateColumns: 'minmax(0, 1fr)' }}>
             <Tile tile={focus} client={client} pinned={pinned === focus.key} onPin={() => setPinned(pinned === focus.key ? null : focus.key)} />
           </div>
         </div>
         {visible.length > 0 && (
           <div style={{
-            display: 'grid', gap: 8, overflow: 'auto', position: 'relative',
-            ...(stripVertical ? { width: 220, gridAutoRows: 124 } : { height: 110, gridAutoFlow: 'column', gridAutoColumns: 160 }),
+            display: 'grid', gap: 8, overflow: 'auto', position: 'relative', flexShrink: 0,
+            ...(stripVertical ? { width: mobile ? 120 : 220, gridAutoRows: mobile ? 76 : 124 } : { height: 110, gridAutoFlow: 'column', gridAutoColumns: 160 }),
           }}>
             {visible.map(tile => <Tile key={tile.key} tile={tile} client={client} compact onPin={() => setPinned(tile.key)} />)}
             {pager}
@@ -468,6 +468,7 @@ export function Room({ conn, slug, guestPass, title, displayName, onLeave }: {
   conn: Conn; slug: string; guestPass?: string; title: string; displayName: string; onLeave: () => void;
 }) {
   const mobile = useIsMobile();
+  const { isCallActive } = useCore();
   const [client, setClient] = useState<RoomClient | null>(null);
   const [panel, setPanel] = useState<'chat' | 'people' | null>(null);
   const [reactions, setReactions] = useState(false);
@@ -476,15 +477,21 @@ export function Room({ conn, slug, guestPass, title, displayName, onLeave }: {
 
   useEffect(() => {
     if (!joinOpts) return;
+    if (isBusy()) {
+      reportError(new Error('Сначала завершите текущий звонок или конференцию'));
+      setJoinOpts(null);
+      return;
+    }
     const c = new RoomClient(conn, slug, guestPass);
     setClient(c);
-    void c.join(joinOpts);
     setBusy('conference', true);
+    void c.join(joinOpts);
     const beforeUnload = () => c.leave();
     window.addEventListener('beforeunload', beforeUnload);
     return () => { window.removeEventListener('beforeunload', beforeUnload); c.leave(); setBusy('conference', false); };
   }, [conn, slug, guestPass, joinOpts]);
 
+  if (isCallActive) return <div role="status" style={{ padding: 24 }}>Сначала завершите текущий звонок.</div>;
   if (!joinOpts) return <PreJoin title={title} name={displayName} onJoin={setJoinOpts} onCancel={onLeave} />;
   if (!client) return null;
   return <RoomView client={client} slug={slug} title={title} mobile={mobile} panel={panel} setPanel={setPanel}
