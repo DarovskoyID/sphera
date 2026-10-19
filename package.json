@@ -14,6 +14,7 @@
   "dependencies": {
     "@supabase/supabase-js": "^2.57.4",
     "@tensorflow/tfjs": "^4.22.0",
+    "hash-wasm": "4.12.0",
     "livekit-client": "2.22.3",
     "lucide-react": "^0.344.0",
     "nsfwjs": "^4.3.0",

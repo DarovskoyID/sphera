@@ -55,7 +55,7 @@ jobs:
           cache: npm
 
       - name: Build frontend (core only)
-        run: npm ci && node scripts/test-busy-calls.cjs && node scripts/test-call-recovery.cjs && node scripts/test-commercial-ui.cjs && node scripts/test-commercial-runtime.cjs && node scripts/test-commercial-install.cjs && node scripts/test-legal-requests.cjs && npm run build
+        run: npm ci && node scripts/test-busy-calls.cjs && node scripts/test-call-recovery.cjs && node scripts/test-commercial-ui.cjs && node scripts/test-commercial-runtime.cjs && node scripts/test-commercial-install.cjs && node scripts/test-legal-requests.cjs && node scripts/test-mesh-vault.cjs && npm run build
 
       - uses: actions/setup-python@v5
         with:
@@ -76,7 +76,7 @@ jobs:
 
       - name: Mesh checkpoint certificates
         working-directory: django-server/sfera_server
-        run: python -m unittest sfera_mesh.test_certificates
+        run: python -m unittest sfera_mesh.test_certificates sfera_mesh.test_transport
 
       - name: Django check, migrations and core tests
         working-directory: django-server/sfera_server
@@ -118,7 +118,7 @@ jobs:
         run: npm ci
 
       - name: Build frontend
-        run: node scripts/test-busy-calls.cjs && node scripts/test-call-recovery.cjs && node scripts/test-commercial-ui.cjs && node scripts/test-commercial-runtime.cjs && node scripts/test-commercial-install.cjs && node scripts/test-legal-requests.cjs && npm run build
+        run: node scripts/test-busy-calls.cjs && node scripts/test-call-recovery.cjs && node scripts/test-commercial-ui.cjs && node scripts/test-commercial-runtime.cjs && node scripts/test-commercial-install.cjs && node scripts/test-legal-requests.cjs && node scripts/test-mesh-vault.cjs && npm run build
 
       - uses: actions/setup-python@v5
         with:
