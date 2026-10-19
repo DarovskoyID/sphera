@@ -56,6 +56,9 @@ done
 docker compose exec -T commercial-api python manage.py smoke_crm </dev/null
 # This script may arrive over SSH stdin. Exec must not consume its remaining lines.
 docker compose exec -T commercial-api python manage.py bootstrap_operator --token-file /app/state/operator.json </dev/null
+# Persistent signing identity; stdout contains public trust material only.
+docker compose exec -T commercial-api python manage.py bootstrap_mesh_issuer </dev/null
+docker compose exec -T commercial-api python manage.py smoke_mesh </dev/null
 if ! docker compose exec -T commercial-api test -f /app/state/core-instance.json </dev/null; then
   docker compose exec -T commercial-api python manage.py issue_instance --name company-node --token-file /app/state/core-instance.json </dev/null
 fi

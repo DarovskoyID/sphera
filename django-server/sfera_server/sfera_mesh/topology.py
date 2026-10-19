@@ -1,6 +1,7 @@
 """Deterministic placement policy; input grants must be verified by the caller."""
 from dataclasses import dataclass, replace
 from itertools import combinations
+import time
 
 
 @dataclass(frozen=True)
@@ -11,10 +12,12 @@ class Candidate:
     memberships: frozenset[str] = frozenset()
     capacity_ok: bool = True
     grant_verified: bool = False
+    grant_expires_at: int | None = None
 
 
-def choose_cluster(candidates):
-    eligible = [n for n in candidates if n.capacity_ok and n.grant_verified and len(n.memberships) < 2]
+def choose_cluster(candidates, *, now=None):
+    current = int(time.time() if now is None else now)
+    eligible = [n for n in candidates if n.capacity_ok and n.grant_verified and (n.grant_expires_at is None or n.grant_expires_at > current) and len(n.memberships) < 2]
     choices = []
     for group in combinations(eligible, 3):
         if len({n.node_id for n in group}) != 3 or len({n.failure_domain for n in group}) != 3:

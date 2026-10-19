@@ -76,7 +76,7 @@ jobs:
 
       - name: Mesh checkpoint certificates
         working-directory: django-server/sfera_server
-        run: python -m unittest sfera_mesh.test_certificates sfera_mesh.test_transport
+        run: python -m unittest sfera_mesh.test_certificates sfera_mesh.test_transport sfera_mesh.test_licenses sfera_mesh.test_license_client
 
       - name: Django check, migrations and core tests
         working-directory: django-server/sfera_server
