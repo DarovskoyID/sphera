@@ -9,6 +9,7 @@ import { useTranslation } from '../../i18n/useTranslation';
 import { useSlot, type ExploreSearchResult, type SlotEntry } from '../../sdk/slots';
 import { installModule, uninstallModule, updateModule, useModules, type ModuleInfo } from '../modules/registry';
 import { CardGridSkeleton } from '../../components/Skeleton';
+import { CommercialCards } from '../commercial/Cards';
 
 const CATEGORIES = [
   { icon: Gamepad2, ru: 'Игры', en: 'Gaming', tag: 'gaming', color: '#5865f2' },
@@ -289,6 +290,7 @@ export const ExploreSphere: React.FC<{ style?: React.CSSProperties }> = ({ style
           </div>
         </div>
 
+        {!query && <CommercialCards />}
         {!query && (
           <div style={{ padding: '20px 24px 0' }}>
             <h3 style={sectionTitle}>{isRu ? 'Модули' : 'Modules'}</h3>

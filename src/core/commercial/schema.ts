@@ -1,5 +1,5 @@
 export type Scalar = string | number | boolean | null;
-export type ServiceField = { id: string; label: string; kind: 'text' | 'number' | 'checkbox' | 'select'; required?: boolean; options?: string[] };
+export type ServiceField = { id: string; label: string; kind: 'text' | 'password' | 'number' | 'checkbox' | 'select'; required?: boolean; options?: string[] };
 export type ServiceNode =
   | { kind: 'text'; text: string }
   | { kind: 'section'; title: string; nodes: ServiceNode[] }
@@ -70,7 +70,7 @@ export function parseServiceDocument(input: unknown): ServiceDocument {
           keys(field, ['id', 'label', 'kind', 'required', 'options']); id(field.id); text(field.label, 200);
           if (fields.has(field.id as string)) invalid();
           fields.add(field.id as string);
-          if (typeof field.kind !== 'string' || !['text', 'number', 'checkbox', 'select'].includes(field.kind)) invalid();
+          if (typeof field.kind !== 'string' || !['text', 'password', 'number', 'checkbox', 'select'].includes(field.kind)) invalid();
           if (field.required !== undefined && typeof field.required !== 'boolean') invalid();
           if (field.kind === 'select') {
             const options = list(field.options, 100);
@@ -86,14 +86,15 @@ export function parseServiceDocument(input: unknown): ServiceDocument {
   return input as ServiceDocument;
 }
 
-export type CommercialService = { id: string; name: Record<string, string>; paid: true; scope: 'instance'; delivery: 'declarative'; available: boolean; subscription: { status: 'active' | 'expired' | 'required' | 'paused' | 'revoked'; expires_at: string | null } };
+export type CommercialService = { id: string; name: Record<string, string>; paid: true; scope: 'instance'; delivery: 'declarative'; migrated?: boolean; available: boolean; subscription: { status: 'active' | 'expired' | 'required' | 'paused' | 'revoked'; expires_at: string | null } };
 export function parseServiceCatalog(input: unknown): CommercialService[] {
   const catalog = record(input);
   keys(catalog, ['instance_id', 'modules']); text(catalog.instance_id, 64);
   const ids = new Set<string>();
   list(catalog.modules, 100).forEach(input => {
     const service = record(input);
-    keys(service, ['id', 'name', 'paid', 'scope', 'delivery', 'available', 'subscription']);
+    keys(service, ['id', 'name', 'paid', 'scope', 'delivery', 'migrated', 'available', 'subscription']);
+    if (service.migrated !== undefined && typeof service.migrated !== 'boolean') invalid();
     id(service.id);
     if (ids.has(service.id as string)) invalid();
     ids.add(service.id as string);

@@ -6,6 +6,9 @@ import { onWs } from '../../sdk/wsBus';
 import { onLifecycle } from '../../sdk/lifecycle';
 import { registerModuleStrings } from '../../i18n/moduleStrings';
 
+// These services use the core's data-only runtime. Never import their old bundles.
+const COMMERCIAL_IDS = new Set(['amocrm', 'bitrix', 'onec']);
+
 export interface ModuleInfo {
   id: string;
   version: string;
@@ -84,6 +87,7 @@ async function loadBundle(bundle: string): Promise<SferaModule> {
 }
 
 async function activate(id: string) {
+  if (COMMERCIAL_IDS.has(id)) { deactivate(id); return; }
   const info = state.modules.find(m => m.id === id);
   if (disposers.has(id)) {
     if (!info?.bundle || activeBundles.get(id) === info.bundle) return;

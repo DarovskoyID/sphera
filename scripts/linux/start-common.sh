@@ -256,6 +256,8 @@ server {
     index index.html;
 
     ssl_certificate $SSL_CERT;
+    # Optional company API; only its versioned bearer-authenticated routes.
+    include /etc/nginx/sfera-commercial/*.conf;
     ssl_certificate_key $SSL_KEY;
     ssl_session_cache shared:SSL:10m;
     ssl_session_timeout 1d;

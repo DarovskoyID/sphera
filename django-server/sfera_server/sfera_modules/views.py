@@ -8,6 +8,7 @@ from .purge import purge_module_data
 from .loader import SDK_VERSION, discover
 from .models import InstanceModule
 from .permissions import can_manage, enforced, installed_ids
+from .commercial import CRM_IDS, crm_enabled
 
 
 def _pick(manifest: dict, key: str, default):
@@ -57,6 +58,10 @@ def module_list(request):
     repo, repo_error = remote.catalog(force=request.query_params.get('refresh') == '1' and can_manage(request.user))
     manage = can_manage(request.user)
     installed = installed_ids() | {m for m in InstanceModule.objects.values_list('module_id', flat=True)}
+    if crm_enabled():
+        installed -= CRM_IDS
+        deployed = {mid: spec for mid, spec in deployed.items() if mid not in CRM_IDS}
+        repo = {mid: spec for mid, spec in repo.items() if mid not in CRM_IDS}
     remote.auto_update(repo, deployed, installed)
     ids = sorted(set(deployed) | (set(repo) if manage else set()) | ({m for m in installed if remote.job(m)}))
     return Response({
@@ -83,6 +88,8 @@ def public_modules(request):
 @permission_classes([AllowAny])
 def module_bundle(request, module_id):
     """Frontend of a module checked out on this server, built on first request."""
+    if module_id in CRM_IDS and crm_enabled():
+        return Response({'error': 'commercial_runtime_required'}, status=410)
     if module_id not in discover() or not remote.has_frontend(module_id):
         return Response({'error': 'unknown_module'}, status=404)
     try:
@@ -103,6 +110,8 @@ def module_install(request, module_id):
     user = request.user
     if not can_manage(user):
         return Response({'error': 'superuser_only'}, status=403)
+    if module_id in CRM_IDS and crm_enabled():
+        return Response({'error': 'commercial_runtime_required'}, status=409)
     if not remote.ID_RE.match(module_id):
         return Response({'error': 'unknown_module'}, status=404)
 
@@ -183,6 +192,7 @@ def commercial_catalog(request):
         result = call(request.user)
         response = Response(result)
         response['Cache-Control'] = 'no-store'
+        response['X-Sfera-Module-Runtime'] = 'commercial-api'
         return response
     except CommercialError as error:
         return Response({'error': error.code}, status=error.status)
@@ -195,6 +205,7 @@ def commercial_view(request, module_id):
     try:
         response = Response(call(request.user, module_id=module_id))
         response['Cache-Control'] = 'no-store'
+        response['X-Sfera-Module-Runtime'] = 'commercial-api'
         return response
     except CommercialError as error:
         return Response({'error': error.code}, status=error.status)
@@ -207,8 +218,9 @@ def commercial_action(request, module_id, action_id):
         return Response({'error': 'invalid_values'}, status=400)
     from .commercial import call, CommercialError
     try:
-        response = Response(call(request.user, module_id=module_id, action_id=action_id, values=request.data.get('values', {})))
+        response = Response(call(request.user, module_id=module_id, action_id=action_id, values=request.data.get('values', {}), request_id=request.data.get('request_id')))
         response['Cache-Control'] = 'no-store'
+        response['X-Sfera-Module-Runtime'] = 'commercial-api'
         return response
     except CommercialError as error:
         return Response({'error': error.code}, status=error.status)

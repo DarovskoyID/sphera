@@ -53,6 +53,7 @@ for attempt in $(seq 1 90); do
   sleep 2
 done
 [[ "$ready" == 1 ]] || { echo 'Commercial API did not become healthy'; docker compose logs --tail 60 commercial-api; exit 1; }
+docker compose exec -T commercial-api python manage.py smoke_crm </dev/null
 # This script may arrive over SSH stdin. Exec must not consume its remaining lines.
 docker compose exec -T commercial-api python manage.py bootstrap_operator --token-file /app/state/operator.json </dev/null
 if ! docker compose exec -T commercial-api test -f /app/state/core-instance.json </dev/null; then
@@ -85,4 +86,17 @@ printf '[Service]\nEnvironmentFile=/etc/sfera/commercial.env\n' > /etc/systemd/s
 systemctl daemon-reload
 systemctl restart sfera-daphne
 systemctl is-active --quiet sfera-daphne
+mkdir -p /etc/nginx/sfera-commercial
+cat > /etc/nginx/sfera-commercial/api.conf <<'NGINX'
+location ^~ /commercial-api/v1/ {
+    proxy_pass http://127.0.0.1:8020/v1/;
+    proxy_set_header Host 127.0.0.1;
+    proxy_set_header X-Forwarded-Proto https;
+    proxy_read_timeout 60s;
+    client_max_body_size 64k;
+}
+NGINX
+chmod 644 /etc/nginx/sfera-commercial/api.conf
+nginx -t
+systemctl reload nginx
 echo 'Commercial API healthy; instance credential connected to the core. No subscriptions activated automatically.'

@@ -3,6 +3,7 @@ import { useApp } from '../../context/AppContext';
 import { useSlot } from '../../sdk/slots';
 import { connectModules, connectPublicModules, disconnectModules, useModules } from './registry';
 import { bindHost } from '../../sdk/runtime';
+import { CommercialRuntime } from '../commercial/Runtime';
 
 /** Loads the user's installed modules and mounts their providers and overlays. */
 export function ModuleHost({ children }: { children: ReactNode }) {
@@ -35,7 +36,7 @@ export function ModuleHost({ children }: { children: ReactNode }) {
   }
   return providers.reduceRight<ReactNode>(
     (acc, p) => <p.render key={`${p.moduleId}:${p.id}`}>{acc}</p.render>,
-    <>{children}</>,
+    <><CommercialRuntime />{children}</>,
   );
 }
 

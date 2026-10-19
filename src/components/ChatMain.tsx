@@ -70,6 +70,7 @@ const SETTINGS_PAGE_TITLE: Record<string, string> = {
   apps: 'settings_apps',
   nitro: 'settings_nitro',
   subscribes: 'settings_subscribes',
+  subscriptions: 'settings_subscribes',
   gifts: 'settings_gifts',
   payments: 'settings_payments',
   view: 'settings_appearance',
