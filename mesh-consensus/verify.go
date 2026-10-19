@@ -75,6 +75,22 @@ func verifyEvidence(genesis *types.GenesisDoc, evidence Evidence, now time.Time)
 			return nil, errors.New("invalid snapshot account")
 		}
 	}
+	counts := map[string]int{}
+	if err := verifyPlacementHistory(state); err != nil {
+		return nil, err
+	}
+	for cluster, head := range state.Placements {
+		p, h, err := decodePlacement(canonical(head.Record), state.Network)
+		if err != nil || p.Body.Cluster != cluster || h != head.Digest {
+			return nil, errors.New("invalid snapshot placement")
+		}
+		for _, member := range p.Body.Members {
+			counts[member]++
+			if counts[member] > 2 {
+				return nil, errors.New("snapshot membership limit")
+			}
+		}
+	}
 	return &Verified{state, hex.EncodeToString(signed.Hash()), signed.Time.Unix(), hex.EncodeToString(set.Hash())}, nil
 }
 func verifyInput(genesisPath string) error {

@@ -12,7 +12,7 @@ import time
 from pathlib import Path
 from urllib.error import HTTPError
 
-from .consensus_directory import validate_address
+from .consensus_directory import validate_address, ConsensusDirectory
 from .directory import digest64
 from .identity import node_id
 from .refresh_lock import RefreshLock
@@ -22,7 +22,9 @@ from .transport import exchange
 
 
 class ReplicaJournal:
-    def __init__(self, path, key, verifier, endpoints):
+    def __init__(self, path, key, verifier, endpoints, *, require_consensus=False):
+        if type(require_consensus) is not bool:
+            raise ValueError('invalid_replication_mode')
         if not 3 <= len(endpoints) <= 64 or any(not digest64(node) or node not in verifier.roster for node in endpoints):
             raise ValueError('explicit_replica_roster_required')
         for endpoint in endpoints.values():
@@ -41,6 +43,9 @@ class ReplicaJournal:
             CREATE TABLE IF NOT EXISTS replica_identity (singleton INTEGER PRIMARY KEY CHECK(singleton=1), context BLOB NOT NULL);
             CREATE TABLE IF NOT EXISTS replica_clusters (id TEXT PRIMARY KEY, epoch INTEGER NOT NULL, members BLOB NOT NULL);
             CREATE TABLE IF NOT EXISTS replica_sources (cluster TEXT, node TEXT, PRIMARY KEY(cluster,node));
+            CREATE TABLE IF NOT EXISTS replica_trust (singleton INTEGER PRIMARY KEY CHECK(singleton=1), pin TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS replica_required (singleton INTEGER PRIMARY KEY CHECK(singleton=1));
+            CREATE TABLE IF NOT EXISTS replica_confirmations (cluster TEXT PRIMARY KEY, epoch INTEGER, digest TEXT NOT NULL, height INTEGER NOT NULL);
             CREATE TABLE IF NOT EXISTS replica_jobs (cluster TEXT NOT NULL, digest TEXT NOT NULL, payload BLOB, epoch INTEGER NOT NULL, retry_at REAL NOT NULL DEFAULT 0, attempts INTEGER NOT NULL DEFAULT 0, state TEXT NOT NULL DEFAULT 'pending', error TEXT, PRIMARY KEY(cluster,digest));
             CREATE INDEX IF NOT EXISTS pending_replica_jobs ON replica_jobs(cluster,state,retry_at);
             CREATE TABLE IF NOT EXISTS replica_receipts (cluster TEXT, digest TEXT, epoch INTEGER, node TEXT, checked_at INTEGER NOT NULL, PRIMARY KEY(cluster,digest,epoch,node));
@@ -53,6 +58,8 @@ class ReplicaJournal:
                 if old and old[0] != context:
                     raise ValueError('replica_journal_context_changed')
                 self.db.execute('INSERT OR IGNORE INTO replica_identity VALUES (1,?)', (context,))
+                if require_consensus:
+                    self.db.execute('INSERT OR IGNORE INTO replica_required VALUES (1)')
         except Exception:
             self.db.close()
             raise
@@ -64,11 +71,65 @@ class ReplicaJournal:
     def _memberships(self, node):
         return frozenset(cluster for cluster, members in self.db.execute('SELECT id,members FROM replica_clusters') if node in json.loads(members))
 
+    def _operator_only(self):
+        if self.db.execute('SELECT 1 FROM replica_trust').fetchone() or self.db.execute('SELECT 1 FROM replica_required').fetchone():
+            raise ValueError('consensus_placement_required')
+
+    def _require_confirmed(self, cluster):
+        if (self.db.execute('SELECT 1 FROM replica_trust').fetchone() or self.db.execute('SELECT 1 FROM replica_required').fetchone()) and not self.db.execute('SELECT 1 FROM replica_confirmations WHERE cluster=?', (cluster,)).fetchone():
+            raise ValueError('cluster_not_confirmed')
+
+    def apply_confirmed_placement(self, directory, cluster, profiles):
+        if not isinstance(directory, ConsensusDirectory) or directory.network != self.verifier.network:
+            raise ValueError('matching_verified_directory_required')
+        with directory.lock, self.lock, self.db:
+            confirmed = directory.placement(cluster)
+            history = directory.placement_history(cluster)
+            body, digest = confirmed['record']['body'], confirmed['record_hash']
+            self.db.execute('BEGIN IMMEDIATE')
+            pin = self.db.execute('SELECT pin FROM replica_trust').fetchone()
+            if pin and pin[0] != directory.pin:
+                raise ValueError('placement_trust_changed')
+            prior = self.db.execute('SELECT epoch,digest FROM replica_confirmations WHERE cluster=?', (cluster,)).fetchone()
+            if prior and prior == (body['epoch'], digest):
+                return {'epoch': body['epoch'], 'changed': False}
+            if prior and (body['epoch'] <= prior[0] or len(history) < prior[0] or history[prior[0]-1]['digest'] != prior[1]):
+                raise ValueError('placement_history_required')
+            if not 3 <= len(profiles) <= 64:
+                raise ValueError('bounded_placement_profiles_required')
+            prepared = {}
+            for node in profiles:
+                known = {other for other, head in directory.current['state'].get('placements', {}).items() if other != cluster and node.node_id in head['record']['body']['members']}
+                memberships = (node.memberships | self._memberships(node.node_id) | frozenset(known)) - {cluster}
+                prepared[node.node_id] = replace(node, memberships=memberships, grant_verified=node.grant_verified and type(node.grant_expires_at) is int)
+            if len(prepared) != len(profiles) or any(node not in self.endpoints for node in prepared) or any(node not in prepared for node in body['members']):
+                raise ValueError('unknown_or_duplicate_placement_profile')
+            if body['epoch'] > 1:
+                old_members = history[-2]['record']['body']['members']
+                survivors = [prepared[node] for node in old_members if node in body['members']]
+                chosen = choose_replacement(survivors, [node for node in prepared.values() if node.node_id not in old_members], cluster)
+                if chosen is None or sorted([node.node_id for node in survivors] + [chosen.node_id]) != body['members']:
+                    raise ValueError('confirmed_placement_violates_local_policy')
+            elif sorted(node.node_id for node in choose_cluster(list(prepared.values()))) != body['members']:
+                raise ValueError('confirmed_placement_violates_local_policy')
+            self.db.execute('INSERT OR IGNORE INTO replica_trust VALUES (1,?)', (directory.pin,))
+            self.db.execute('INSERT OR IGNORE INTO replica_required VALUES (1)')
+            self.db.execute('INSERT OR REPLACE INTO replica_clusters VALUES (?,?,?)', (cluster, body['epoch'], canonical(body['members'])))
+            self.db.execute('INSERT OR REPLACE INTO replica_confirmations VALUES (?,?,?,?)', (cluster, body['epoch'], digest, confirmed['finality']['height']))
+            self.db.execute('DELETE FROM replica_receipts WHERE cluster=? AND epoch=?', (cluster,body['epoch']))
+            sources = {node for head in history for node in head['record']['body']['members']}
+            if any(node not in self.endpoints for node in sources):
+                raise ValueError('historical_source_roster_required')
+            self.db.executemany('INSERT OR IGNORE INTO replica_sources VALUES (?,?)', [(cluster,node) for node in sources])
+            self.db.execute("UPDATE replica_jobs SET epoch=?,retry_at=0,attempts=0,state='pending',error=NULL WHERE cluster=?", (body['epoch'],cluster))
+            return {'epoch': body['epoch'], 'changed': True}
+
     def register_cluster(self, cluster, members):
         if not isinstance(cluster, str) or not 1 <= len(cluster) <= 128 or len(members) != 3:
             raise ValueError('invalid_cluster')
         with self.lock, self.db:
             self.db.execute('BEGIN IMMEDIATE')
+            self._operator_only()
             old = self.db.execute('SELECT epoch,members FROM replica_clusters WHERE id=?', (cluster,)).fetchone()
             ids = sorted(node.node_id for node in members)
             if old:
@@ -88,6 +149,7 @@ class ReplicaJournal:
             raise ValueError('invalid_replacement_context')
         with self.lock, self.db:
             self.db.execute('BEGIN IMMEDIATE')
+            self._operator_only()
             row = self.db.execute('SELECT epoch,members FROM replica_clusters WHERE id=?', (cluster,)).fetchone()
             if row is None or row[0] != expected_epoch or failed not in json.loads(row[1]):
                 raise ValueError('placement_changed')
@@ -120,6 +182,7 @@ class ReplicaJournal:
             raise ValueError('invalid_manifest_digest')
         with self.lock, self.db:
             self.db.execute('BEGIN IMMEDIATE')
+            self._require_confirmed(cluster)
             row = self.db.execute('SELECT epoch FROM replica_clusters WHERE id=?', (cluster,)).fetchone()
             if row is None:
                 raise ValueError('unknown_cluster')
@@ -165,6 +228,7 @@ class ReplicaJournal:
             if not self.process_lock.acquire():
                 return {'busy': True, 'processed': 0}
             try:
+                self._require_confirmed(cluster)
                 placement = self.db.execute('SELECT epoch,members FROM replica_clusters WHERE id=?', (cluster,)).fetchone()
                 if placement is None:
                     raise ValueError('unknown_cluster')

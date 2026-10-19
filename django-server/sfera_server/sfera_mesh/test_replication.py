@@ -196,6 +196,17 @@ class ReplicationTests(unittest.TestCase):
         finally:
             storage.close()
 
+    def test_required_consensus_mode_cannot_be_disabled_by_reopening(self):
+        self.journal.close()
+        self.journal = ReplicaJournal(self.path, self.keys[0], self.checks[0], self.endpoints, require_consensus=True)
+        self.reopen()  # Default False must not erase the persisted requirement.
+        with self.assertRaises(ValueError):
+            self.journal.stage('A', b'encrypted bytes')
+        with self.assertRaises(ValueError):
+            self.journal.run_batch('A')
+        with self.assertRaises(ValueError):
+            self.journal.register_cluster('C', self.profiles[:3])
+
 
 if __name__ == '__main__':
     unittest.main()

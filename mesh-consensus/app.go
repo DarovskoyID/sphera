@@ -37,9 +37,11 @@ type Head struct {
 	Digest string `json:"digest"`
 }
 type State struct {
-	Network  string          `json:"network"`
-	Height   int64           `json:"height"`
-	Accounts map[string]Head `json:"accounts"`
+	Network          string                     `json:"network"`
+	Height           int64                      `json:"height"`
+	Accounts         map[string]Head            `json:"accounts"`
+	Placements       map[string]PlacementHead   `json:"placements,omitempty"`
+	PlacementHistory map[string][]PlacementHead `json:"placement_history,omitempty"`
 }
 type Application struct {
 	abci.BaseApplication
@@ -73,6 +75,10 @@ func canonical(v any) []byte {
 	return raw
 }
 func digest(v any) []byte { sum := sha256.Sum256(canonical(v)); return sum[:] }
+func hashNode(public []byte) []byte {
+	sum := sha256.Sum256(append([]byte("sfera-mesh-node-v1\x00"), public...))
+	return sum[:]
+}
 func decodeRecord(tx []byte, network string) (Record, string, error) {
 	var r Record
 	if len(tx) > 16384 {
@@ -108,6 +114,20 @@ func decodeRecord(tx []byte, network string) (Record, string, error) {
 	return r, hex.EncodeToString(digest(r)), nil
 }
 func apply(s *State, tx []byte) error {
+	if len(tx) > 16384 {
+		return errors.New("transaction too large")
+	}
+	var kind struct {
+		Body struct {
+			Domain string `json:"domain"`
+		} `json:"body"`
+	}
+	if err := json.Unmarshal(tx, &kind); err != nil {
+		return err
+	}
+	if kind.Body.Domain == "sfera-mesh-placement-v1" {
+		return applyPlacement(s, tx)
+	}
 	r, h, err := decodeRecord(tx, s.Network)
 	if err != nil {
 		return err
@@ -168,6 +188,14 @@ func clone(s State) State {
 	c.Accounts = make(map[string]Head, len(s.Accounts))
 	for k, v := range s.Accounts {
 		c.Accounts[k] = v
+	}
+	c.Placements = make(map[string]PlacementHead, len(s.Placements))
+	for k, v := range s.Placements {
+		c.Placements[k] = v
+	}
+	c.PlacementHistory = make(map[string][]PlacementHead, len(s.PlacementHistory))
+	for k, v := range s.PlacementHistory {
+		c.PlacementHistory[k] = append([]PlacementHead(nil), v...)
 	}
 	return c
 }

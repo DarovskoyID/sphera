@@ -2,6 +2,7 @@
 import base64
 import copy
 import json
+import importlib.util
 import os
 from pathlib import Path
 import subprocess
@@ -326,12 +327,16 @@ def main():
                         process.kill()
                         process.wait(timeout=10)
             watchers.clear()
+            spec = importlib.util.spec_from_file_location('mesh_placement_fixture', ROOT / 'scripts' / 'mesh-placement-fixture.py')
+            placement_fixture = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(placement_fixture)
+            placement_fixture.verify_placements(lab['chain'], temp, directory, address, submit, wait_for)
             for i in list(processes):
                 stop(i)
             for i in range(4):
                 start(i)
             wait_for(lambda: all(head(i) and head(i)['record'] == third for i in processes), timeout=60)
-            print('Consensus passed: four processes, quorum loss/recovery, durable restart; pinned commit verification, snapshot binding, tamper/rollback rejection and freshness.')
+            print('Consensus passed: four processes, quorum recovery, pinned snapshots, consented placement epochs, policy-bound replication and history catch-up.')
         except BaseException:
             for log in logs:
                 log.flush()

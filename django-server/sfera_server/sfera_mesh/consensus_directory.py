@@ -17,6 +17,7 @@ from urllib.parse import urlsplit
 
 from .storage import canonical
 from .directory import validate_record, digest64
+from .placements import validate_placement, validate_history
 
 
 class ConsensusUnavailable(ValueError):
@@ -138,6 +139,16 @@ class ConsensusDirectory:
             _, digest = validate_record(head['record'], self.network, identity)
             if digest != head['digest']:
                 raise ValueError('invalid_verified_record')
+        counts = {}
+        validate_history(state, self.network)
+        for cluster, head in state.get('placements', {}).items():
+            body, digest = validate_placement(head['record'], self.network)
+            if body['cluster'] != cluster or digest != head['digest']:
+                raise ValueError('invalid_verified_placement')
+            for member in body['members']:
+                counts[member] = counts.get(member, 0) + 1
+                if counts[member] > 2:
+                    raise ValueError('placement_membership_limit')
         return verified
 
     def import_evidence(self, evidence):
@@ -159,6 +170,10 @@ class ConsensusDirectory:
                 # An account cannot disappear or regress in this immutable state machine.
                 previous = self.current
                 if previous is not None:
+                    for cluster, head in previous['state'].get('placements', {}).items():
+                        new = verified['state'].get('placements', {}).get(cluster)
+                        if not new or new['record']['body']['epoch'] < head['record']['body']['epoch'] or (new['record']['body']['epoch'] == head['record']['body']['epoch'] and new['digest'] != head['digest']):
+                            raise ValueError('placement_rollback_or_fork')
                     for identity, head in previous['state']['accounts'].items():
                         new = verified['state']['accounts'].get(identity)
                         if not new or new['record']['body']['version'] < head['record']['body']['version'] or (new['record']['body']['version'] == head['record']['body']['version'] and new['digest'] != head['digest']):
@@ -200,6 +215,14 @@ class ConsensusDirectory:
             # JSON roundtrip prevents callers mutating the cached verified snapshot.
             return {'record': json.loads(canonical(head['record'])), 'record_hash': head['digest'], 'finality': anchor}
 
+    def placement_history(self, cluster):
+        with self.lock:
+            self.anchor()
+            history = self.current['state'].get('placement_history', {}).get(cluster)
+            if history is None:
+                raise ValueError('placement_history_required')
+            return json.loads(canonical(history))
+
     def close(self):
         with self.refresh_lock, self.lock:
             if self.update_owner is not None:
@@ -208,6 +231,14 @@ class ConsensusDirectory:
                 self.current = None
                 self.closed = True
                 self.db.close()
+
+    def placement(self, cluster):
+        with self.lock:
+            anchor = self.anchor()
+            head = self.current['state'].get('placements', {}).get(cluster)
+            if head is None:
+                raise ValueError('placement_not_confirmed')
+            return {'record': json.loads(canonical(head['record'])), 'record_hash': head['digest'], 'finality': anchor}
 
     def execute(self, operation, payload):
         # Old account-confirm wire format must never inject fixture certificates.
