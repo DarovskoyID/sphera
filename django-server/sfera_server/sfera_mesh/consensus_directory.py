@@ -102,18 +102,23 @@ class ConsensusDirectory:
         self.refresh_lock = threading.RLock()
         self.closed = False
         self.update_owner = None
+        self.refresh_lock_path = None if str(path) == ':memory:' else str(Path(path).resolve()) + '.refresh.lock'
         self.db = sqlite3.connect(path, check_same_thread=False)
         self.db.execute('PRAGMA synchronous=FULL')
         self.db.executescript('''
             CREATE TABLE IF NOT EXISTS consensus_pin (singleton INTEGER PRIMARY KEY CHECK(singleton=1), digest TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS consensus_snapshot (singleton INTEGER PRIMARY KEY CHECK(singleton=1), height INTEGER NOT NULL, header_hash TEXT NOT NULL, evidence BLOB NOT NULL);
         ''')
-        row = self.db.execute('SELECT digest FROM consensus_pin').fetchone()
-        if row and row[0] != self.pin:
+        try:
+            with self.db:
+                self.db.execute('BEGIN IMMEDIATE')
+                row = self.db.execute('SELECT digest FROM consensus_pin').fetchone()
+                if row and row[0] != self.pin:
+                    raise ValueError('pinned_genesis_changed')
+                self.db.execute('INSERT OR IGNORE INTO consensus_pin VALUES (1,?)', (self.pin,))
+        except Exception:
             self.db.close()
-            raise ValueError('pinned_genesis_changed')
-        with self.db:
-            self.db.execute('INSERT OR IGNORE INTO consensus_pin VALUES (1,?)', (self.pin,))
+            raise
         self.current = None
 
     def _verify(self, evidence):

@@ -65,8 +65,8 @@ def verify_http_login(auth, directory, owner, identity):
 
 def main():
     binary = Path(sys.argv[1]).resolve()
-    processes, logs = {}, []
-    directory = auth = updater = None
+    processes, logs, watchers = {}, [], []
+    directory = auth = updater = follower = follower_directory = None
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
     with tempfile.TemporaryDirectory(prefix='sfera-consensus-') as temp:
         home = Path(temp) / 'lab'
@@ -233,6 +233,11 @@ def main():
             updater = ConsensusUpdater(directory, [lab['rpc'][3].replace('tcp://', 'http://'), address], interval=2, max_backoff=4).start()
             wait_for(lambda: updater.status()['successes'] > 0)
             assert updater.status()['failures'] >= 1
+            follower_directory = ConsensusDirectory(str(Path(temp) / 'verified.sqlite'), binary, genesis)
+            follower = ConsensusUpdater(follower_directory, [address], interval=2, max_backoff=4).start()
+            wait_for(lambda: follower.status()['role'] == 'follower' and follower.status()['ready'])
+            assert follower.status()['attempts'] == 0
+            assert follower_directory.get(identity)['record'] == second
             try:
                 ConsensusUpdater(directory, [address]).start()
             except ValueError:
@@ -258,6 +263,8 @@ def main():
             wait_for(lambda: all(head(i) and head(i)['record'] == third for i in processes), timeout=60)
             wait_for(lambda: directory.get(identity)['record'] == third, timeout=60)
             assert updater.status()['ready']
+            wait_for(lambda: follower_directory.get(identity)['record'] == third)
+            assert follower.status()['attempts'] == 0
             try:
                 auth.complete(pending['body']['challenge_id'], key.sign(canonical(pending['body'])).hex())
             except (LoginRequestChanged, ValueError):
@@ -282,6 +289,43 @@ def main():
             updater.stop()
             assert not updater.status()['running']
             updater = None
+            wait_for(lambda: follower.status()['role'] == 'leader' and follower.status()['successes'] > 0)
+            follower.stop()
+            follower = None
+            # Two independent Python runtimes share one local DB. Kill the
+            # network updater; the other must acquire the released OS lock.
+            shared_path = Path(temp) / 'process-shared.sqlite'
+            def launch_watcher(name):
+                path = Path(temp) / (name + '.log')
+                stream = open(path, 'wb')
+                logs.append(stream)
+                process = subprocess.Popen([sys.executable, str(ROOT / 'scripts' / 'mesh-directory-watch.py'), '--binary', str(binary), '--genesis', str(genesis), '--state', str(shared_path), '--rpc', address], stdout=stream, stderr=stream)
+                watchers.append(process)
+                return process, path
+            def watcher_status(process, path):
+                if process.poll() is not None:
+                    raise AssertionError('directory watcher exited early')
+                lines = path.read_text().splitlines()
+                return json.loads(lines[-1]) if lines else {}
+            leader_process, leader_log = launch_watcher('watcher-leader')
+            wait_for(lambda: watcher_status(leader_process, leader_log).get('ready'))
+            follower_process, follower_log = launch_watcher('watcher-follower')
+            wait_for(lambda: watcher_status(follower_process, follower_log).get('ready') and watcher_status(follower_process, follower_log).get('role') == 'follower')
+            assert watcher_status(follower_process, follower_log)['attempts'] == 0
+            observer = ConsensusDirectory(str(shared_path), binary, genesis)
+            try:
+                leader_process.kill()
+                leader_process.wait(timeout=10)
+                wait_for(lambda: watcher_status(follower_process, follower_log).get('role') == 'leader')
+                before = observer.restore()['height']
+                wait_for(lambda: observer.restore()['height'] > before)
+            finally:
+                observer.close()
+                for process in watchers:
+                    if process.poll() is None:
+                        process.kill()
+                        process.wait(timeout=10)
+            watchers.clear()
             for i in list(processes):
                 stop(i)
             for i in range(4):
@@ -297,6 +341,14 @@ def main():
                     print(path.name, content[-3000:], file=sys.stderr)
             raise
         finally:
+            for process in watchers:
+                if process.poll() is None:
+                    process.kill()
+                    process.wait(timeout=10)
+            if follower is not None:
+                follower.stop()
+            if follower_directory is not None:
+                follower_directory.close()
             if updater is not None:
                 updater.stop()
             if auth is not None:

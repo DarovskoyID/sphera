@@ -100,7 +100,7 @@ jobs:
 
       - name: Mesh directory, transport, licensing and authentication
         working-directory: django-server/sfera_server
-        run: python -m unittest sfera_mesh.test_certificates sfera_mesh.test_transport sfera_mesh.test_licenses sfera_mesh.test_license_client sfera_mesh.test_directory sfera_mesh.test_auth sfera_mesh.test_consensus_updater
+        run: python -m unittest sfera_mesh.test_certificates sfera_mesh.test_transport sfera_mesh.test_licenses sfera_mesh.test_license_client sfera_mesh.test_directory sfera_mesh.test_auth sfera_mesh.test_consensus_updater sfera_mesh.test_refresh_lock
 
       - name: Mesh account recovery and login on seven nodes
         run: python scripts/test-mesh-account-integration.py

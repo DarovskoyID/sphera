@@ -31,7 +31,7 @@ def main():
         while not stopping.is_set():
             status = updater.status()
             # Log only changes in readiness/error, never account records or tokens.
-            current = (status['running'], status['ready'], status['last_error'])
+            current = (status['running'], status['role'], status['ready'], status['last_error'])
             if current != previous:
                 print(json.dumps(status), flush=True)
                 previous = current

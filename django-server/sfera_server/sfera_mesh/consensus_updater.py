@@ -5,6 +5,7 @@ import threading
 import time
 
 from .consensus_directory import ConsensusUnavailable, validate_address
+from .refresh_lock import RefreshLock
 
 
 class ConsensusUpdater:
@@ -22,7 +23,8 @@ class ConsensusUpdater:
         self.stop_event = threading.Event()
         self.lock = threading.Lock()
         self.thread = None
-        self.stats = {'attempts': 0, 'successes': 0, 'failures': 0, 'last_success': None, 'last_error': None}
+        self.process_lock = RefreshLock(getattr(directory, 'refresh_lock_path', None))
+        self.stats = {'attempts': 0, 'successes': 0, 'failures': 0, 'cache_reads': 0, 'role': 'starting', 'last_success': None, 'last_error': None}
 
     def start(self):
         with self.directory.lock:
@@ -64,7 +66,21 @@ class ConsensusUpdater:
             except (ValueError, OSError, subprocess.SubprocessError):
                 pass
             while not self.stop_event.is_set():
+                if not self.process_lock.acquire():
+                    with self.lock:
+                        self.stats['role'] = 'follower'
+                    try:
+                        self.directory.restore()
+                        with self.lock:
+                            self.stats['cache_reads'] += 1
+                            self.stats['last_error'] = None
+                    except (ValueError, OSError, subprocess.SubprocessError):
+                        with self.lock:
+                            self.stats['last_error'] = 'shared_snapshot_unavailable'
+                    self.stop_event.wait(self.interval)
+                    continue
                 with self.lock:
+                    self.stats['role'] = 'leader'
                     self.stats['attempts'] += 1
                 error = None
                 try:
@@ -93,7 +109,13 @@ class ConsensusUpdater:
                 # Jitter spreads load while preserving a strict minimum and maximum delay.
                 delay = min(self.max_backoff, max(self.interval, delay * random.SystemRandom().uniform(.8, 1.2)))
                 self.stop_event.wait(delay)
+        except Exception:
+            with self.lock:
+                self.stats['last_error'] = 'coordination_error'
         finally:
+            self.process_lock.release()
+            with self.lock:
+                self.stats['role'] = 'stopped'
             with self.directory.lock:
                 if self.directory.update_owner is self:
                     self.directory.update_owner = None
