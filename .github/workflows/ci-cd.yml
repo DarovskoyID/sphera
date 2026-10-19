@@ -56,6 +56,9 @@ jobs:
       - name: Test and build consensus application
         working-directory: mesh-consensus
         run: go test ./... && go vet ./... && go build -o ../mesh-consensus-lab .
+      - name: Audit reachable Go vulnerabilities
+        working-directory: mesh-consensus
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
       - name: Verify failures, quorum loss and durable recovery
         run: python scripts/test-mesh-consensus.py ./mesh-consensus-lab
 
