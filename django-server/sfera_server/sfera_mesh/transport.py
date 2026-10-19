@@ -6,6 +6,7 @@ licence inheritance, account login or consensus acknowledgement is exposed.
 import json
 import sqlite3
 import threading
+import time
 from hashlib import sha256
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.request import Request, build_opener, ProxyHandler, HTTPRedirectHandler
@@ -77,7 +78,7 @@ class Handler(BaseHTTPRequestHandler):
         if self.path.startswith('/mesh-lab/auth/'):
             return self.do_auth()
         operation = self.path.removeprefix("/mesh-lab/v1/")
-        if self.path not in tuple("/mesh-lab/v1/" + name for name in ("put", "get", "account-put", "account-get", "account-confirm")):
+        if self.path not in tuple("/mesh-lab/v1/" + name for name in ("put", "get", "probe", "account-put", "account-get", "account-confirm")):
             self.send_error(404)
             return
         try:
@@ -90,7 +91,12 @@ class Handler(BaseHTTPRequestHandler):
                 raise ValueError("incomplete_body")
             request = json.loads(data)
             sender, payload = self.server.verifier.verify(request, operation)
-            if operation.startswith('account-'):
+            if operation == 'probe':
+                from .directory import digest64
+                if not isinstance(payload, dict) or set(payload) != {'challenge'} or not digest64(payload['challenge']):
+                    raise ValueError('invalid_probe')
+                result = {'challenge': payload['challenge'], 'alive': True}
+            elif operation.startswith('account-'):
                 if self.server.directory is None:
                     raise ValueError('directory_unavailable')
                 result = self.server.directory.execute(operation, payload)
@@ -151,7 +157,7 @@ def exchange(endpoint, key, verifier, recipient, operation, payload, *, committe
     url = urlsplit(endpoint)
     if url.scheme != "http" or url.hostname != "127.0.0.1" or url.username or url.password or url.path or url.query or url.fragment:
         raise ValueError("loopback_lab_only")
-    if operation not in ("get", "put", "account-put", "account-get", "account-confirm"):
+    if operation not in ("get", "put", "probe", "account-put", "account-get", "account-confirm"):
         raise ValueError("unsupported_operation")
     if operation == 'account-confirm':
         from .directory import validate_directory_certificate
@@ -160,8 +166,18 @@ def exchange(endpoint, key, verifier, recipient, operation, payload, *, committe
         validate_directory_certificate(committee, payload['certificate'])
     signed = envelope(key, verifier.network, recipient, operation, payload)
     request = Request(endpoint + "/mesh-lab/v1/" + operation, data=canonical(signed), headers={"Content-Type": "application/json"}, method="POST")
+    deadline = time.monotonic() + 3
+    chunks, size = [], 0
     with build_opener(ProxyHandler({}), NoRedirect()).open(request, timeout=3) as response:
-        data = response.read(MAX_BYTES + 1)
+        while size <= MAX_BYTES:
+            if time.monotonic() >= deadline:
+                raise TimeoutError('mesh_response_deadline')
+            chunk = response.read1(min(65536, MAX_BYTES + 1 - size))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            size += len(chunk)
+    data = b''.join(chunks)
     if len(data) > MAX_BYTES:
         raise ValueError("response_too_large")
     sender, response = verifier.verify(json.loads(data), operation + "-response")
@@ -170,6 +186,10 @@ def exchange(endpoint, key, verifier, recipient, operation, payload, *, committe
     result = response.get("result")
     if not isinstance(result, dict):
         raise ValueError("invalid_result")
+    if operation == 'probe':
+        if set(payload) != {'challenge'} or result != {'challenge': payload['challenge'], 'alive': True}:
+            raise ValueError('probe_response_mismatch')
+        return result
     if operation == 'account-get':
         from .directory import verify_account_result
         return verify_account_result(result, verifier.network, payload['user_id'], payload['version'], payload['confirmed'], committee)

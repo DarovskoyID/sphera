@@ -8,6 +8,7 @@ import time
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from sfera_mesh.directory import ZERO
 from sfera_mesh.identity import node_id, EnvelopeVerifier
+from sfera_mesh.health import HealthJournal
 from sfera_mesh.placements import cluster_id, consent_placement, validate_placement
 from sfera_mesh.replication import ReplicaJournal
 from sfera_mesh.storage import canonical
@@ -30,6 +31,7 @@ def verify_placements(network, temp, directory, address, submit, wait_for):
     path = str(Path(temp) / 'confirmed-replication.sqlite')
     journal = ReplicaJournal(path, keys[0], checks[0], endpoints, require_consensus=True)
     lagging = ReplicaJournal(str(Path(temp) / 'lagging-replication.sqlite'), keys[0], checks[0], endpoints, require_consensus=True)
+    health = HealthJournal(str(Path(temp) / 'health.sqlite'), keys[0], checks[0], endpoints)
     profiles = [Candidate(node, f'failure-domain-{i}', frozenset({'office'}), grant_verified=True, grant_expires_at=int(time.time()) + 300) for i, node in enumerate(ids)]
     members = sorted(node.node_id for node in choose_cluster(profiles))
     cluster = cluster_id(network, members)
@@ -59,10 +61,22 @@ def verify_placements(network, temp, directory, address, submit, wait_for):
         lagging.stage(cluster, b'encrypted block under confirmed placement')
         journal.run_batch(cluster)
         assert journal.status(cluster, digest)['replicated']
+        for node in members:
+            health.probe(node, now=100)
+            health.probe(node, now=105)
         failed = members[-1]
         server = servers[ids.index(failed)]
         server.shutdown()
         server.server_close()
+        for moment in (110,115,120):
+            health.probe(failed, now=moment)
+        for node in members:
+            if node != failed:
+                health.probe(node, now=120)
+        advisory = health.advisory(directory, cluster, now=120)
+        assert advisory['can_request_consents']
+        assert not advisory['replacement_authorised']
+        assert directory.placement(cluster)['record']['body']['epoch'] == 1  # Observation alone changes nothing.
         profiles = [replace(node, capacity_ok=False) if node.node_id == failed else node for node in profiles]
         survivors = [node for node in profiles if node.node_id in members and node.node_id != failed]
         chosen = choose_replacement(survivors, [node for node in profiles if node.node_id not in members], cluster)
@@ -111,6 +125,7 @@ def verify_placements(network, temp, directory, address, submit, wait_for):
         lagging.run_batch(cluster)
         assert lagging.status(cluster, digest)['replicated']
     finally:
+        health.close()
         lagging.close()
         journal.close()
         for server in servers:
