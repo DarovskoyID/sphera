@@ -209,6 +209,13 @@ func (a *Application) Query(_ context.Context, r *abci.RequestQuery) (*abci.Resp
 	if r.Prove {
 		return &abci.ResponseQuery{Code: 1, Log: "proof adapter not implemented"}, nil
 	}
+	if r.Path == "/snapshot" && (r.Height == 0 || r.Height == a.state.Height) {
+		value := canonical(a.state)
+		if len(value) > 1048576 {
+			return &abci.ResponseQuery{Code: 1, Log: "snapshot exceeds lab limit"}, nil
+		}
+		return &abci.ResponseQuery{Value: value, Height: a.state.Height}, nil
+	}
 	if r.Path != "/account" || (r.Height != 0 && r.Height != a.state.Height) {
 		return &abci.ResponseQuery{Code: 1, Log: "unsupported query"}, nil
 	}

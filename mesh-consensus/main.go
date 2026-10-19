@@ -159,9 +159,12 @@ func main() {
 	root := flag.String("home", "", "new lab directory / existing validator home parent")
 	index := flag.Int("validator", -1, "validator 0..3")
 	init := flag.Bool("init", false, "initialize four-node lab exclusively")
+	verify := flag.String("verify-genesis", "", "verify stdin evidence against a locally pinned genesis")
 	flag.Parse()
 	var e error
-	if *root == "" {
+	if *verify != "" {
+		e = verifyInput(*verify)
+	} else if *root == "" {
 		e = fmt.Errorf("--home is required")
 	} else if *init {
 		e = initialize(*root)

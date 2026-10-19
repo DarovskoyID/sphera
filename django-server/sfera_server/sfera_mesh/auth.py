@@ -1,7 +1,8 @@
 """Entry-point-scoped proof-of-possession authentication for the isolated lab.
 
 Not a production Django/JWT adapter. Every operation except logout requires a
-fresh quorum read lease. No passwords, plaintext archive keys or module grants.
+fresh quorum read lease or a verified CometBFT snapshot from a pinned laboratory
+genesis. No passwords, plaintext archive keys or module grants.
 """
 from hashlib import sha256
 import json
@@ -16,6 +17,7 @@ from .directory import digest64
 from .identity import node_id
 from .readiness import validate_read_lease
 from .storage import canonical
+from .consensus_directory import ConsensusDirectory
 
 
 class DirectoryNotReady(ValueError):
@@ -34,7 +36,8 @@ class MeshAuth:
     def __init__(self, path, key, directory, *, pending_limit=1024, per_user_limit=4):
         if type(pending_limit) is not int or type(per_user_limit) is not int or not 1 <= per_user_limit <= pending_limit <= 4096:
             raise ValueError('invalid_login_limits')
-        if directory.committee is None:
+        self.consensus_directory = isinstance(directory, ConsensusDirectory)
+        if not self.consensus_directory and directory.committee is None:
             raise ValueError('trusted_directory_required')
         self.key, self.directory = key, directory
         self.network = directory.network
@@ -56,7 +59,8 @@ class MeshAuth:
                 token_hash TEXT PRIMARY KEY, session_id TEXT UNIQUE NOT NULL, user_id TEXT NOT NULL,
                 expires INTEGER NOT NULL, revoked INTEGER NOT NULL DEFAULT 0);
         """)
-        identity = (self.network, self.entry_node, directory.committee.identifier)
+        trust_context = 'cometbft-v1:' + directory.pin if self.consensus_directory else directory.committee.identifier
+        identity = (self.network, self.entry_node, trust_context)
         old = self.db.execute('SELECT network, entry_node, committee FROM auth_identity WHERE singleton=1').fetchone()
         if old is not None and tuple(old) != identity:
             self.db.close()
@@ -72,6 +76,8 @@ class MeshAuth:
 
     def _ready(self, current):
         try:
+            if self.consensus_directory:
+                return self.directory.anchor(now=current)
             row = self.db.execute("SELECT value FROM auth_meta WHERE name='read_lease'").fetchone()
             if row is None:
                 raise ValueError('directory_not_ready')
@@ -81,14 +87,16 @@ class MeshAuth:
 
     def _account(self, identity):
         try:
-            account = self.directory.get(identity, confirmed=True)
-            if account == {'error': 'not_found'}:
+            account = self.directory.get(identity) if self.consensus_directory else self.directory.get(identity, confirmed=True)
+            if account.get('error') == 'not_found':
                 raise ValueError('account_not_confirmed')
             return account
         except (ValueError, TypeError) as exc:
             raise DirectoryNotReady('account_not_confirmed') from exc
 
     def set_read_lease(self, lease, *, now=None):
+        if self.consensus_directory:
+            raise ValueError('cometbft_evidence_required')
         current = int(time.time() if now is None else now)
         with self.directory.lock, self.lock, self.db:
             self.db.execute('BEGIN IMMEDIATE')
