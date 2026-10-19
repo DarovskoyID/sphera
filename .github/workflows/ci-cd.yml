@@ -38,6 +38,27 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  mesh-consensus:
+    name: Four-validator consensus laboratory
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: mesh-consensus/go.mod
+          cache-dependency-path: mesh-consensus/go.sum
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install laboratory crypto dependency
+        run: python -m pip install cryptography==46.0.3
+      - name: Test and build consensus application
+        working-directory: mesh-consensus
+        run: go test ./... && go vet ./... && go build -o ../mesh-consensus-lab .
+      - name: Verify failures, quorum loss and durable recovery
+        run: python scripts/test-mesh-consensus.py ./mesh-consensus-lab
+
   core:
     # The core must stand on its own: no modules checked out at all.
     name: Core without modules
@@ -181,7 +202,7 @@ jobs:
 
   deploy:
     name: Deploy
-    needs: [core, ci]
+    needs: [core, ci, mesh-consensus]
     runs-on: ubuntu-latest
     if: >
       (github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.SFERA_DEPLOY_ENABLED == 'true') ||
