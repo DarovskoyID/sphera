@@ -2,7 +2,7 @@ import { useEffect, type CSSProperties } from 'react';
 import { useApp } from '../../context/AppContext';
 import { registerSlot } from '../../sdk/slots';
 import { CommercialServicesPage } from './ServicesPage';
-import { connectCommercial } from './store';
+import { connectCommercial, refreshCommercial } from './store';
 
 export const MIGRATED_COMMERCIAL_IDS = new Set(['amocrm', 'bitrix', 'onec']);
 
@@ -10,6 +10,11 @@ export const MIGRATED_COMMERCIAL_IDS = new Set(['amocrm', 'bitrix', 'onec']);
 export function CommercialRuntime() {
   const { authToken, currentServerIP } = useApp();
   useEffect(() => connectCommercial(currentServerIP, authToken), [currentServerIP, authToken]);
+  useEffect(() => {
+    if (!authToken) return;
+    const timer = setInterval(() => { if (document.visibilityState === 'visible') void refreshCommercial(true); }, 15000);
+    return () => clearInterval(timer);
+  }, [authToken, currentServerIP]);
   useEffect(() => {
     if (!authToken) return;
     const cleanup = [...MIGRATED_COMMERCIAL_IDS].map(id => registerSlot('commercial-core', 'main.view', {

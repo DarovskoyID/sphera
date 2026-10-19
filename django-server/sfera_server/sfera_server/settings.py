@@ -20,6 +20,7 @@ def _env_bool(name, default=False):
 # rotated.
 # DEBUG defaults to OFF. Local dev opts in with SFERA_DEBUG=1.
 DEBUG = _env_bool('SFERA_DEBUG', False)
+SFERA_LICENSE_ENFORCE = _env_bool('SFERA_LICENSE_ENFORCE', not DEBUG)
 
 _DEV_SECRET_KEY = 'sfera-local-development-secret-key-not-for-production'
 SECRET_KEY = os.environ.get('SFERA_SECRET_KEY') or (_DEV_SECRET_KEY if DEBUG else '')
@@ -126,6 +127,7 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'sfera_modules.workspace_access.WorkspaceLicenseMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'sfera_server.metrics.MetricsMiddleware',

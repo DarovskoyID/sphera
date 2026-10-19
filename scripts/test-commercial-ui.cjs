@@ -20,6 +20,9 @@ const valid = { schema: 'sfera-ui/v1', title: 'Paid service', nodes: [{ kind: 't
 assert.equal(parseServiceDocument(valid), valid);
 const reject = nodes => assert.throws(() => parseServiceDocument({ schema: 'sfera-ui/v1', title: 'x', nodes }));
 reject([{ kind: 'script', source: 'alert(1)' }]);
+assert.equal(parseServiceDocument({ schema: 'sfera-ui/v1', title: 'Planner', nodes: [{ kind: 'workspace', id: 'planner' }] }).nodes[0].id, 'planner');
+reject([{ kind: 'workspace', id: 'https://evil.test/plugin.js' }]);
+reject([{ kind: 'workspace', id: 'planner', source: 'eval()' }]);
 reject([{ kind: 'text', text: 'x', html: '<script />' }]);
 reject([{ kind: 'form', id: 'f', action: 'https://evil.test', label: 'x', fields: [] }]);
 reject([{ kind: 'form', id: 'f', action: 'ok', label: 'x', fields: [{ id: '__proto__', kind: 'text', label: 'x' }] }]);

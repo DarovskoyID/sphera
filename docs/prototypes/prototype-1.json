@@ -1,0 +1,70 @@
+{
+  "format": "sfera-prototype/v1",
+  "created_at": "2026-10-19T04:20:12.045540+00:00",
+  "core": {
+    "tag": "prototype-1-core-before-commercial",
+    "commit": "a0cc146fbb61a768f4e214129edc841366a7d8d3"
+  },
+  "modules": {
+    "amocrm": {
+      "tag": "prototype-1-module-amocrm",
+      "commit": "d9aaf0c610d3d4fa01ad9b9af937e2ba34b1ac5e"
+    },
+    "bitrix": {
+      "tag": "prototype-1-module-bitrix",
+      "commit": "cd4661ec48056cb1032964a02031529df2f479a6"
+    },
+    "onec": {
+      "tag": "prototype-1-module-onec",
+      "commit": "50a77b5292eb37a711e2e7d9eb6fb52c47f49ad1"
+    },
+    "office": {
+      "tag": "prototype-1-module-office",
+      "commit": "38d4ed1a652bec848b5053e57f8cb8ad5a3d7d2e"
+    },
+    "whiteboard": {
+      "tag": "prototype-1-module-whiteboard",
+      "commit": "8d6e327c86e1a102686a4a82a1d2ce2877f063d9"
+    },
+    "planner": {
+      "tag": "prototype-1-module-planner",
+      "commit": "9cb390a0863496b93a937b38dfc3c54629245e29"
+    },
+    "conference": {
+      "tag": "prototype-1-module-conference",
+      "commit": "9c9931ed93040986770a12268f0fb42cddac48fe"
+    },
+    "servers": {
+      "tag": "prototype-1-module-servers",
+      "commit": "31151fc327a6a80da7bc4058ffd97d41ced307c0"
+    },
+    "channels": {
+      "tag": "prototype-1-module-channels",
+      "commit": "3eecfc8d2b8d70b3fe03ca4f3c7a9f4188851ebd"
+    },
+    "bots": {
+      "tag": "prototype-1-module-bots",
+      "commit": "b751a862c9172979b82b84fac70a7d312289c3d4"
+    },
+    "diary": {
+      "tag": "prototype-1-module-diary",
+      "commit": "ba3f282cadb715a81651d1e3078e8102eeb2c7c8"
+    },
+    "family": {
+      "tag": "prototype-1-module-family",
+      "commit": "6586704f31eea340ee94ab8baf654f47113f4895"
+    },
+    "legal": {
+      "tag": "prototype-1-module-legal",
+      "commit": "4220808e80455a3eec4c52f84253c0bd99c82f48"
+    },
+    "multiserver": {
+      "tag": "prototype-1-module-multiserver",
+      "commit": "2d011e886001303a681206aaac6063e5c08b8a06"
+    },
+    "totp": {
+      "tag": "prototype-1-module-totp",
+      "commit": "9489b5f73b5f88b11d184c0912721494b41353b5"
+    }
+  }
+}

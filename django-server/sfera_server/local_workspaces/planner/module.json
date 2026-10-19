@@ -1,0 +1,23 @@
+{
+  "id": "planner",
+  "name": {
+    "ru": "Планировщик задач",
+    "en": "Task planner"
+  },
+  "description": {
+    "ru": "Проекты с канбан-досками, списком и календарём: сроки, исполнители, чек-листы, повторы и напоминания",
+    "en": "Projects with kanban boards, list and calendar: due dates, assignees, checklists, recurrence and reminders"
+  },
+  "version": "1.1.0",
+  "sdkVersion": 1,
+  "deps": [],
+  "backendApp": "sfera_planner",
+  "urlPrefix": "api/planner/",
+  "icon": "calendar-check",
+  "provides": [
+    "nav.rail",
+    "main.view",
+    "explore.card",
+    "app.overlay"
+  ]
+}

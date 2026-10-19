@@ -1,0 +1,15 @@
+{
+  "id": "family",
+  "name": { "ru": "Семейный центр", "en": "Family centre" },
+  "description": {
+    "ru": "Детские аккаунты под присмотром родителей, одобрение друзей, геолокация семьи",
+    "en": "Parent-managed child accounts, friend approvals and family locations"
+  },
+  "version": "1.0.0",
+  "sdkVersion": 1,
+  "deps": [],
+  "backendApp": "sfera_family",
+  "urlPrefix": "api/family/",
+  "icon": "home",
+  "provides": ["settings.page"]
+}

@@ -1,0 +1,15 @@
+{
+  "id": "totp",
+  "name": { "ru": "Двухфакторная аутентификация", "en": "Two-factor authentication" },
+  "description": {
+    "ru": "Вход по коду из Google Authenticator и подобных приложений: резервные коды, обязательность для всех по решению администратора и блокировка приложения до подключения",
+    "en": "Sign-in with a code from Google Authenticator and similar apps: backup codes, a server-wide requirement set by the superuser and a hard block until the authenticator is connected"
+  },
+  "version": "1.0.2",
+  "sdkVersion": 2,
+  "deps": [],
+  "backendApp": "sfera_totp",
+  "urlPrefix": "api/totp/",
+  "icon": "shield-check",
+  "provides": ["settings.page", "app.overlay"]
+}

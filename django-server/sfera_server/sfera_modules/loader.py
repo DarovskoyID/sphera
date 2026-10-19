@@ -122,7 +122,16 @@ def discover() -> dict[str, ModuleManifest]:
 def backend_apps() -> list[str]:
     """Django app labels contributed by modules; also puts backend/ on sys.path."""
     apps = []
+    from .local_workspaces import manifests
+    local = manifests()
+    for mid, (path, manifest) in local.items():
+        app = manifest.get('backendApp')
+        if not app: continue
+        backend = path / 'backend'
+        if str(backend) not in sys.path: sys.path.insert(0, str(backend))
+        apps.append(app)
     for m in discover().values():
+        if m.id in local: continue
         if not m.backend_app:
             continue
         backend = m.path / 'backend'
@@ -138,7 +147,13 @@ def url_patterns() -> list:
     from django.urls import include, path
 
     out = []
+    from .local_workspaces import manifests
+    local = manifests()
+    for path_, manifest in local.values():
+        if manifest.get('backendApp') and manifest.get('urlPrefix'):
+            out.append(path(manifest['urlPrefix'], include(manifest['backendApp'] + '.urls')))
     for m in discover().values():
+        if m.id in local: continue
         if m.backend_app and m.url_prefix:
             try:
                 import_module(f'{m.backend_app}.urls')
@@ -155,7 +170,22 @@ def websocket_patterns() -> list:
     from importlib import import_module
 
     out = []
+    from .local_workspaces import manifests
+    local = manifests()
+    for path_, manifest in local.values():
+        app = manifest.get('backendApp')
+        if not app: continue
+        try: routing = import_module(app + '.routing')
+        except ModuleNotFoundError as error:
+            if error.name != app + '.routing': raise
+            continue
+        from .workspace_sockets import LicensedSocket
+        for pattern in getattr(routing, 'websocket_urlpatterns', []):
+            if not isinstance(pattern.callback, LicensedSocket):
+                pattern.callback = LicensedSocket(pattern.callback, manifest['id'])
+            out.append(pattern)
     for m in discover().values():
+        if m.id in local: continue
         if not m.backend_app:
             continue
         try:

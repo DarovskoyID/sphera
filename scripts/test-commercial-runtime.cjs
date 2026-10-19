@@ -26,8 +26,16 @@ const response = id => ({ ok: true, json: async () => catalog(id) });
   b(); assert.equal(store.exports.useCommercial().services.length, 0);
 
   let imported = false;
+  let nativeLoaded = 0;
+  const nativeIds = ['office', 'whiteboard', 'planner', 'conference', 'servers', 'channels', 'bots', 'diary', 'family', 'legal', 'multiserver', 'totp'];
+  const native = {
+    NATIVE_INFO: nativeIds.map(id => ({ id, installed: true, deployed: true, deps: [], bundle: 'core-native:' + id, delivery: 'core-native' })),
+    NATIVE_LOADERS: Object.fromEntries(nativeIds.map(id => [id, async () => { nativeLoaded++; return { default: { id, sdkVersion: 2, setup: () => {} } }; }])),
+  };
   const registry = { exports: {}, console, fetch: async () => ({ ok: true, json: async () => ({ modules: ['amocrm', 'bitrix', 'onec'].map(id => ({ id, installed: true, deployed: true, deps: [], bundle: 'api/modules/' + id + '/bundle.js' })) }) }), require: name => {
     if (name === 'react') return react;
+    if (name.endsWith('/workspaces/native')) return native;
+    if (name.endsWith('/WorkspaceContract')) return { wrapWorkspaceComponent: (_id, component) => component };
     if (name.endsWith('defineModule')) return { SDK_VERSION: 2 };
     if (name.endsWith('slots')) return { unregisterModuleSlots: () => {} };
     if (name.includes('api/modules/')) imported = true;
@@ -36,6 +44,8 @@ const response = id => ({ ok: true, json: async () => catalog(id) });
   vm.createContext(registry); vm.runInContext(compile('src/core/modules/registry.ts'), registry);
   await registry.exports.connectModules('https://node.test', 'token');
   assert.equal(imported, false);
-  assert.ok(registry.exports.useModules().modules.every(module => !module.active));
-  console.log('PASS: catalog loads on login; stale node responses are ignored; logout clears subscriptions; migrated CRM never imports legacy JS bundles.');
+  assert.ok(registry.exports.useModules().modules.filter(module => ['amocrm', 'bitrix', 'onec'].includes(module.id)).every(module => !module.active));
+  assert.equal(nativeLoaded, 12);
+  assert.ok(registry.exports.useModules().modules.filter(module => nativeIds.includes(module.id)).every(module => module.active));
+  console.log('PASS: catalog loads on login; stale node responses are ignored; logout clears subscriptions; CRM never imports legacy JS; 12 native editors load only from fixed core factories.');
 })().catch(error => { console.error(error); process.exitCode = 1; });

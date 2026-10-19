@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 import { parseServiceDocument, type ServiceDocument, type ServiceNode, type Scalar } from './schema';
 
-type Messages = { invalid: string; failed: string; pending: string };
+type Messages = { invalid: string; failed: string; pending: string; openWorkspace?: string };
 type Action = (action: string, values: Record<string, Scalar>, requestId: string) => Promise<void>;
 function newRequestId() {
   if (typeof crypto.randomUUID === 'function') return crypto.randomUUID();
@@ -41,19 +41,20 @@ function Form({ node, onAction, messages }: { node: Extract<ServiceNode, { kind:
     {failed && <p role="alert">{failed}</p>}
   </form>;
 }
-function Nodes({ nodes, onAction, messages }: { nodes: ServiceNode[]; onAction: Action; messages: Messages }) {
+function Nodes({ nodes, onAction, messages, onWorkspace }: { nodes: ServiceNode[]; onAction: Action; messages: Messages; onWorkspace?: (id: string) => void }) {
   return <>{nodes.map((node, index) => {
     switch (node.kind) {
+      case 'workspace': return <button key={node.id} onClick={() => onWorkspace?.(node.id)} disabled={!onWorkspace}>{messages.openWorkspace || 'Open'}</button>;
       case 'text': return <p key={index}>{node.text}</p>;
-      case 'section': return <section key={index}><h3>{node.title}</h3><Nodes nodes={node.nodes} onAction={onAction} messages={messages} /></section>;
+      case 'section': return <section key={index}><h3>{node.title}</h3><Nodes nodes={node.nodes} onAction={onAction} messages={messages} onWorkspace={onWorkspace} /></section>;
       case 'table': return <div key={index} style={{ overflowX: 'auto' }}><table><thead><tr>{node.columns.map((column, i) => <th key={i}>{column}</th>)}</tr></thead><tbody>{node.rows.map((row, i) => <tr key={i}>{row.map((cell, j) => <td key={j}>{cell === null ? '' : String(cell)}</td>)}</tr>)}</tbody></table></div>;
       case 'form': return <Form key={node.id} node={node} onAction={onAction} messages={messages} />;
     }
   })}</>;
 }
 /** The host supplies the authenticated action transport; the document cannot choose a URL. */
-export function CommercialDocument({ document, onAction, messages }: { document: unknown; onAction: Action; messages: Messages }) {
+export function CommercialDocument({ document, onAction, messages, onWorkspace }: { document: unknown; onAction: Action; messages: Messages; onWorkspace?: (id: string) => void }) {
   let validated: ServiceDocument;
   try { validated = parseServiceDocument(document); } catch { return <p role="alert">{messages.invalid}</p>; }
-  return <article><h2>{validated.title}</h2><Nodes nodes={validated.nodes} onAction={onAction} messages={messages} /></article>;
+  return <article><h2>{validated.title}</h2><Nodes nodes={validated.nodes} onAction={onAction} messages={messages} onWorkspace={onWorkspace} /></article>;
 }

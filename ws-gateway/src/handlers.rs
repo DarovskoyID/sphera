@@ -331,7 +331,7 @@ pub async fn guild_ws(
     }
 
     ws.protocols(["ionik.jwt"])
-        .on_upgrade(move |socket| handle_guild(socket, state, guild_id, channel_id, claims.user_id))
+        .on_upgrade(move |socket| handle_guild(socket, state, guild_id, channel_id, claims.user_id, token))
 }
 
 async fn handle_guild(
@@ -340,6 +340,7 @@ async fn handle_guild(
     guild_id: String,
     channel_id: String,
     user_id: String,
+    token: String,
 ) {
     metrics::conn_open();
     let room = format!("guild_channel_{}", channel_id);
@@ -406,6 +407,13 @@ async fn handle_guild(
             }
             match msg {
                 Message::Text(text) => {
+                    if !authorize_ws(
+                        &state2,
+                        &token,
+                        json!({"type": "guild_channel_send", "guild_id": guild_id.clone(), "channel_id": channel_id2.clone()}),
+                    ).await {
+                        continue;
+                    }
                     handle_guild_message(&state2, &room2, &channel_id2, &user_id2, &text).await;
                 }
                 Message::Close(_) => break,

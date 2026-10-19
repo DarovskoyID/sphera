@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 from django.test import SimpleTestCase, override_settings
 from .commercial import CommercialError, call, config, values_checked
 
-@override_settings(SFERA_COMMERCIAL_API_URL='http://127.0.0.1:8020', SFERA_COMMERCIAL_INSTANCE_ID='server-1', SFERA_COMMERCIAL_API_KEY='private-test-key')
+@override_settings(SFERA_COMMERCIAL_API_URL='http://127.0.0.1:8020', SFERA_COMMERCIAL_INSTANCE_ID='server-1', SFERA_COMMERCIAL_API_KEY='private-test-key', SFERA_COMMERCIAL_CREDENTIAL_SOURCE='environment')
 class CommercialBridgeTests(SimpleTestCase):
     def test_credentials_remain_on_backend(self):
         headers = Message(); headers['Content-Type'] = 'application/json'

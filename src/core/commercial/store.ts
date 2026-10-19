@@ -9,14 +9,14 @@ let generation = 0;
 let pending: AbortController | null = null;
 const emit = (value: State) => { state = value; listeners.forEach(listener => listener()); };
 
-export async function refreshCommercial() {
+export async function refreshCommercial(quiet = false) {
   if (!connection) return;
   const current = connection;
   const version = ++generation;
   pending?.abort();
   const controller = new AbortController(); pending = controller;
   const timeout = setTimeout(() => controller.abort(), 12000);
-  emit({ services: [], status: 'loading', server: current.server });
+  if (!quiet) emit({ services: [], status: 'loading', server: current.server });
   try {
     const response = await fetch(`${current.server}/api/modules/commercial/`, { headers: { Authorization: `Bearer ${current.token}` }, signal: controller.signal });
     const data = await response.json();
@@ -37,4 +37,12 @@ export function connectCommercial(server: string, token: string | null) {
 
 export function useCommercial() {
   return useSyncExternalStore(listener => { listeners.add(listener); return () => { listeners.delete(listener); }; }, () => state);
+}
+
+export function workspaceWritable(moduleId: string) {
+  return state.status === 'ready' && state.services.some(service => service.id === moduleId && service.available);
+}
+
+export function subscribeCommercial(listener: () => void) {
+  listeners.add(listener); return () => { listeners.delete(listener); };
 }

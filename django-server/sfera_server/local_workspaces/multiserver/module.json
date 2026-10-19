@@ -1,0 +1,14 @@
+{
+  "id": "multiserver",
+  "name": { "ru": "Несколько серверов", "en": "Multiple servers" },
+  "description": {
+    "ru": "Подключение к другим серверам Сферы: список серверов, пинг и свои TURN/STUN",
+    "en": "Connect to other Sfera servers: server list, ping and custom TURN/STUN"
+  },
+  "version": "1.0.0",
+  "sdkVersion": 1,
+  "deps": [],
+  "preAuth": true,
+  "icon": "globe",
+  "provides": ["auth.footer", "settings.page"]
+}

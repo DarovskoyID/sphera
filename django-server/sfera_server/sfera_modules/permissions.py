@@ -20,6 +20,9 @@ def can_manage(user) -> bool:
 
 
 def has_module(user, module_id: str) -> bool:
+    from .workspace_access import enforced as licensed
+    from .local_workspaces import IDS
+    if licensed() and module_id in IDS: return True
     if not enforced():
         return True
     if not user or not user.is_authenticated:
@@ -31,9 +34,12 @@ def installed_ids(user=None) -> set[str]:
     from .loader import discover
 
     present = set(discover())
+    from .workspace_access import enforced as licensed
+    from .local_workspaces import IDS
+    present |= IDS
     if not enforced():
         return present
-    return present & set(InstanceModule.objects.values_list('module_id', flat=True))
+    return (present & set(InstanceModule.objects.values_list('module_id', flat=True))) | (IDS if licensed() else set())
 
 
 def requires_module(module_id: str):

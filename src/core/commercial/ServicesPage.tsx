@@ -3,6 +3,8 @@ import { useApp } from '../../context/AppContext';
 import { CommercialDocument } from './ServiceDocument';
 import { parseServiceDocument } from './schema';
 import { refreshCommercial, useCommercial } from './store';
+import { ActivationForm } from './ActivationForm';
+import { openWorkspace } from './navigation';
 
 
 export function CommercialServicesPage({ initialModule }: { initialModule?: string }) {
@@ -52,6 +54,7 @@ export function CommercialServicesPage({ initialModule }: { initialModule?: stri
     {initialModule && <button onClick={() => { setCurrentServer('settings'); setCurrentSettingsPage('subscriptions'); }}>{ru ? 'Все сервисы' : 'All services'}</button>}
     <h1>{initialModule ? services.find(service => service.id === initialModule)?.name[language] || initialModule : ru ? 'Подписки на сервер' : 'Server subscriptions'}</h1>
     <p>{ru ? 'Одна подписка на модуль действует для всех пользователей этого сервера. Базовое общение остаётся доступным без подписки.' : 'One module subscription covers everyone on this server. Basic messaging remains available without a subscription.'}</p>
+    {!initialModule && <ActivationForm />}
     <button onClick={() => void refreshCommercial()} disabled={status === 'loading'}>{ru ? 'Обновить подписки' : 'Refresh subscriptions'}</button>
     {error && <p role="alert">{error === 'subscription_required' ? (ru ? 'Для этого действия нужна активная подписка.' : 'An active subscription is required.') : (ru ? 'Не удалось открыть сервис. Проверьте подключение и права доступа.' : 'Could not open the service. Check your connection and permissions.')}</p>}
     {status === 'loading' && <p role="status">{ru ? 'Загрузка…' : 'Loading…'}</p>}
@@ -60,8 +63,8 @@ export function CommercialServicesPage({ initialModule }: { initialModule?: stri
       : (ru ? 'Сервис подписок сейчас недоступен.' : 'The subscription service is currently unavailable.')}</p>}
     {selected ? <>
       <button onClick={() => { ++selection.current; setSelected(null); setDocument(null); }}>{ru ? 'К списку модулей' : 'Back to modules'}</button>
-      {document === null ? <p role="status">{ru ? 'Загрузка…' : 'Loading…'}</p> : <CommercialDocument key={`${selected}:${revision}`} document={document}
-        messages={{ invalid: ru ? 'Не удалось показать модуль: неверный ответ сервиса.' : 'The service returned an invalid document.', pending: ru ? 'Выполняется…' : 'Working…', failed: ru ? 'Действие не выполнено.' : 'The action failed.' }}
+      {document === null ? <p role="status">{ru ? 'Загрузка…' : 'Loading…'}</p> : <CommercialDocument key={`${selected}:${revision}`} document={document} onWorkspace={id => { if (id === selected) openWorkspace(id, setCurrentServer, setCurrentSettingsPage); }}
+        messages={{ invalid: ru ? 'Не удалось показать модуль: неверный ответ сервиса.' : 'The service returned an invalid document.', pending: ru ? 'Выполняется…' : 'Working…', failed: ru ? 'Действие не выполнено.' : 'The action failed.', openWorkspace: ru ? 'Открыть' : 'Open' }}
         onAction={async (action, values, requestId) => { const version = selection.current; const result = await request(`${encodeURIComponent(selected)}/actions/${encodeURIComponent(action)}/`, values, undefined, requestId); if (selection.current !== version) return; const data = parseServiceDocument(result.document ?? await request(`${encodeURIComponent(selected)}/view/`)); if (selection.current === version) { setDocument(data); setRevision(value => value + 1); } }} />}
     </> : (server === currentServerIP ? services : []).filter(service => !initialModule || service.id === initialModule).map(service => <div key={service.id} style={{ padding: 16, marginBottom: 12, border: '1px solid var(--border-color)', borderRadius: 8 }}>
       <h3>{service.name[language] || service.name.en || service.id}</h3>

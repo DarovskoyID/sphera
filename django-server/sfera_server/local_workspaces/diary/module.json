@@ -1,0 +1,15 @@
+{
+  "id": "diary",
+  "name": { "ru": "Личные дневники", "en": "Personal diaries" },
+  "description": {
+    "ru": "Приватные записи, задачи, геометки и файлы — только для вас",
+    "en": "Private notes, tasks, locations and files — just for you"
+  },
+  "version": "1.0.0",
+  "sdkVersion": 1,
+  "deps": [],
+  "backendApp": "sfera_diary",
+  "urlPrefix": "api/diary/",
+  "icon": "notebook-pen",
+  "provides": ["nav.rail", "main.view", "explore.card"]
+}

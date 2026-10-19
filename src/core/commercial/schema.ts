@@ -1,6 +1,7 @@
 export type Scalar = string | number | boolean | null;
 export type ServiceField = { id: string; label: string; kind: 'text' | 'password' | 'number' | 'checkbox' | 'select'; required?: boolean; options?: string[] };
 export type ServiceNode =
+  | { kind: 'workspace'; id: string }
   | { kind: 'text'; text: string }
   | { kind: 'section'; title: string; nodes: ServiceNode[] }
   | { kind: 'table'; columns: string[]; rows: Scalar[][] }
@@ -42,6 +43,10 @@ export function parseServiceDocument(input: unknown): ServiceDocument {
     if (--budget < 0 || depth > 6) invalid();
     const node = record(input);
     switch (node.kind) {
+      case 'workspace':
+        keys(node, ['kind', 'id']);
+        if (typeof node.id !== 'string' || !['office', 'whiteboard', 'planner', 'conference', 'servers', 'channels', 'bots', 'diary', 'family', 'legal', 'multiserver', 'totp'].includes(node.id)) invalid();
+        break;
       case 'text': keys(node, ['kind', 'text']); text(node.text); break;
       case 'section':
         keys(node, ['kind', 'title', 'nodes']); text(node.title, 200);

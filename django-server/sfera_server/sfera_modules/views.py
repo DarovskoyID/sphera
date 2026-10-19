@@ -9,6 +9,22 @@ from .loader import SDK_VERSION, discover
 from .models import InstanceModule
 from .permissions import can_manage, enforced, installed_ids
 from .commercial import CRM_IDS, crm_enabled
+from .local_workspaces import IDS as LOCAL_IDS
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def commercial_activate(request):
+    from .commercial import activate_key, CommercialError
+    try:
+        if not isinstance(request.data, dict): return Response({'error': 'invalid_activation'}, status=400)
+        response = Response(activate_key(request.user, request.data.get('license_key'), request.data.get('module_id')))
+        response['Cache-Control'] = 'no-store'
+        return response
+    except CommercialError as error:
+        response = Response({'error': error.code}, status=error.status)
+        response['Cache-Control'] = 'no-store'
+        return response
 
 
 def _pick(manifest: dict, key: str, default):
@@ -59,9 +75,9 @@ def module_list(request):
     manage = can_manage(request.user)
     installed = installed_ids() | {m for m in InstanceModule.objects.values_list('module_id', flat=True)}
     if crm_enabled():
-        installed -= CRM_IDS
-        deployed = {mid: spec for mid, spec in deployed.items() if mid not in CRM_IDS}
-        repo = {mid: spec for mid, spec in repo.items() if mid not in CRM_IDS}
+        installed -= CRM_IDS | LOCAL_IDS
+        deployed = {mid: spec for mid, spec in deployed.items() if mid not in CRM_IDS | LOCAL_IDS}
+        repo = {mid: spec for mid, spec in repo.items() if mid not in CRM_IDS | LOCAL_IDS}
     remote.auto_update(repo, deployed, installed)
     ids = sorted(set(deployed) | (set(repo) if manage else set()) | ({m for m in installed if remote.job(m)}))
     return Response({
@@ -88,7 +104,7 @@ def public_modules(request):
 @permission_classes([AllowAny])
 def module_bundle(request, module_id):
     """Frontend of a module checked out on this server, built on first request."""
-    if module_id in CRM_IDS and crm_enabled():
+    if module_id in CRM_IDS | LOCAL_IDS and crm_enabled():
         return Response({'error': 'commercial_runtime_required'}, status=410)
     if module_id not in discover() or not remote.has_frontend(module_id):
         return Response({'error': 'unknown_module'}, status=404)
@@ -110,7 +126,7 @@ def module_install(request, module_id):
     user = request.user
     if not can_manage(user):
         return Response({'error': 'superuser_only'}, status=403)
-    if module_id in CRM_IDS and crm_enabled():
+    if module_id in CRM_IDS | LOCAL_IDS and crm_enabled():
         return Response({'error': 'commercial_runtime_required'}, status=409)
     if not remote.ID_RE.match(module_id):
         return Response({'error': 'unknown_module'}, status=404)

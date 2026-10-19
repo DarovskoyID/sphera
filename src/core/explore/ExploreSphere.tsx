@@ -10,6 +10,7 @@ import { useSlot, type ExploreSearchResult, type SlotEntry } from '../../sdk/slo
 import { installModule, uninstallModule, updateModule, useModules, type ModuleInfo } from '../modules/registry';
 import { CardGridSkeleton } from '../../components/Skeleton';
 import { CommercialCards } from '../commercial/Cards';
+import { PAID_MODULE_IDS } from '../commercial/catalog';
 
 const CATEGORIES = [
   { icon: Gamepad2, ru: 'Игры', en: 'Gaming', tag: 'gaming', color: '#5865f2' },
@@ -258,7 +259,7 @@ export const ExploreSphere: React.FC<{ style?: React.CSSProperties }> = ({ style
   useEffect(() => { if (!hasSearch) setQuery(''); }, [hasSearch]);
 
   const sorted = useMemo(
-    () => [...modules.modules].sort((a, b) => Number(b.installed) - Number(a.installed) || a.id.localeCompare(b.id)),
+    () => modules.modules.filter(module => !PAID_MODULE_IDS.has(module.id)).sort((a, b) => Number(b.installed) - Number(a.installed) || a.id.localeCompare(b.id)),
     [modules.modules],
   );
 
@@ -291,7 +292,7 @@ export const ExploreSphere: React.FC<{ style?: React.CSSProperties }> = ({ style
         </div>
 
         {!query && <CommercialCards />}
-        {!query && (
+        {!query && sorted.length > 0 && (
           <div style={{ padding: '20px 24px 0' }}>
             <h3 style={sectionTitle}>{isRu ? 'Модули' : 'Modules'}</h3>
             {modules.canManage && modules.repoError && (

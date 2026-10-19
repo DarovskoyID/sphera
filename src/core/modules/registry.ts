@@ -5,12 +5,16 @@ import { registerSlot, unregisterModuleSlots } from '../../sdk/slots';
 import { onWs } from '../../sdk/wsBus';
 import { onLifecycle } from '../../sdk/lifecycle';
 import { registerModuleStrings } from '../../i18n/moduleStrings';
+import { NATIVE_INFO, NATIVE_LOADERS } from '../workspaces/native';
+import { wrapWorkspaceComponent } from '../commercial/WorkspaceContract';
+import type { SlotMap } from '../../sdk/slots';
 
 // These services use the core's data-only runtime. Never import their old bundles.
 const COMMERCIAL_IDS = new Set(['amocrm', 'bitrix', 'onec']);
 
 export interface ModuleInfo {
   id: string;
+  delivery?: 'core-native';
   version: string;
   name: Record<string, string>;
   description: Record<string, string>;
@@ -98,11 +102,16 @@ async function activate(id: string) {
   disposers.set(id, bag);
   activeBundles.set(id, info.bundle);
   try {
-    const mod = await loadBundle(info.bundle);
+    const mod = NATIVE_LOADERS[id] ? (await NATIVE_LOADERS[id]()).default : await loadBundle(info.bundle);
     if (mod.sdkVersion > SDK_VERSION) throw new Error(`sdkVersion ${mod.sdkVersion} needs a newer core (${SDK_VERSION})`);
     const ctx: ModuleContext = {
       id,
-      slot: (slot, item) => { bag.push(registerSlot(id, slot, item)); },
+      slot: (slot, item) => {
+        if (NATIVE_LOADERS[id] && (slot === 'main.view' || slot === 'settings.page')) {
+          const rendered = item as SlotMap['main.view'];
+          bag.push(registerSlot(id, slot, { ...item, render: wrapWorkspaceComponent(id, rendered.render) }));
+        } else bag.push(registerSlot(id, slot, item));
+      },
       onWs: (channel, type, handler) => { bag.push(onWs(channel, type, handler)); },
       onLifecycle: (event, fn) => { bag.push(onLifecycle(event, fn)); },
       strings: dicts => { bag.push(registerModuleStrings(id, dicts)); },
@@ -145,7 +154,7 @@ async function activateInstalled(modules: ModuleInfo[]) {
 
 async function refresh() {
   const data = await api('');
-  const modules: ModuleInfo[] = (data.modules as Omit<ModuleInfo, 'active'>[]).map(m => ({
+  const modules: ModuleInfo[] = [...(data.modules as ModuleInfo[]).filter(m => !NATIVE_LOADERS[m.id]), ...NATIVE_INFO].map(m => ({
     ...m,
     active: disposers.has(m.id),
   }));
@@ -171,7 +180,7 @@ export async function connectPublicModules(serverIP: string) {
   try {
     const res = await fetch(`${serverIP}/api/modules/public/`);
     const data = res.ok ? await res.json() : { modules: [] };
-    const modules: ModuleInfo[] = (data.modules ?? []).map((m: Omit<ModuleInfo, 'active'>) => ({
+    const modules: ModuleInfo[] = [...(data.modules ?? []).filter((m: ModuleInfo) => !NATIVE_LOADERS[m.id]), ...NATIVE_INFO.filter(m => m.preAuth)].map((m: Omit<ModuleInfo, 'active'>) => ({
       ...m, installed: true, deployed: true, active: disposers.has(m.id),
     }));
     set({ modules });

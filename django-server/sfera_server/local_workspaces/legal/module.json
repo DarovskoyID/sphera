@@ -1,0 +1,16 @@
+{
+  "id": "legal",
+  "name": { "ru": "Юридическая фиксация переписки", "en": "Legal evidence of conversations" },
+  "description": {
+    "ru": "Протокол переписки с хеш-цепочкой, подписи сторон и публичная проверка подлинности — чтобы переписку можно было предъявить в суд",
+    "en": "A conversation protocol with a hash chain, signatures of the parties and public verification — so a chat can be shown in court"
+  },
+  "version": "1.0.0",
+  "sdkVersion": 1,
+  "deps": [],
+  "backendApp": "sfera_legal",
+  "urlPrefix": "api/legal/",
+  "icon": "scale",
+  "preAuth": true,
+  "provides": ["nav.rail", "main.view", "explore.card", "settings.page", "chat.composerAction", "app.overlay", "auth.route"]
+}
