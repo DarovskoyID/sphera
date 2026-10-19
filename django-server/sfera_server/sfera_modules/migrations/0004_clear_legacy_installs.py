@@ -1,7 +1,7 @@
 """Replace legacy installation flags with commercial entitlements; keep content."""
 from django.db import migrations
 
-IDS = ('amocrm', 'bitrix', 'onec', 'office', 'whiteboard', 'planner', 'conference',
+IDS = ('office', 'whiteboard', 'planner', 'conference',
        'servers', 'channels', 'bots', 'diary', 'family', 'legal', 'multiserver', 'totp')
 
 
