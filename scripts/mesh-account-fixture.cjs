@@ -5,7 +5,7 @@ const path = require('node:path');
 const Module = require('node:module');
 const esbuild = require('esbuild');
 globalThis.crypto = require('node:crypto').webcrypto;
-const built = esbuild.buildSync({ stdin: { contents: "export * from './src/core/mesh/account'; export * from './src/core/mesh/vault';", resolveDir: process.cwd(), loader: 'ts' }, bundle: true, write: false, platform: 'node', format: 'cjs' });
+const built = esbuild.buildSync({ stdin: { contents: "export * from './src/core/mesh/account'; export * from './src/core/mesh/vault'; export * from './src/core/mesh/auth';", resolveDir: process.cwd(), loader: 'ts' }, bundle: true, write: false, platform: 'node', format: 'cjs' });
 const loaded = new Module(path.resolve('output/mesh-account-fixture.cjs'), module);
 loaded.filename = path.resolve('output/mesh-account-fixture.cjs');
 loaded.paths = module.paths;
@@ -29,6 +29,23 @@ const plaintext = 'Disposable encrypted archive message';
       process.stdout.write(JSON.stringify({ record: result.record, vault_hex: encode(result.vaultBytes), index_hex: encode(indexBytes), archive_hex: encode(archiveBytes) }));
     } finally { account.root.fill(0); }
   } else if (input.mode === 'open') {
+    let challenge, clientNonce;
+    async function authRequest(operation, body, token) {
+      assert.match(input.entry.endpoint, /^http:\/\/127\.0\.0\.1:[0-9]+$/);
+      const response = await fetch(input.entry.endpoint + '/mesh-lab/auth/' + operation, { method: 'POST', redirect: 'error', signal: AbortSignal.timeout(5000), headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}) }, body: JSON.stringify(body) });
+      if (!response.ok) { await response.arrayBuffer(); throw new Error('Lab authentication rejected: ' + response.status); }
+      return response.json();
+    }
+    if (input.entry) {
+      clientNonce = api.loginNonce();
+      challenge = await authRequest('challenge', { user_id: input.expectedUser, client_nonce: clientNonce });
+      await api.verifyLoginChallenge(challenge, input.entry.pin, input.record, input.expectedUser, clientNonce);
+      const forged = structuredClone(challenge); forged.signature = '0'.repeat(128);
+      await assert.rejects(api.verifyLoginChallenge(forged, input.entry.pin, input.record, input.expectedUser, clientNonce));
+      await assert.rejects(api.verifyLoginChallenge(challenge, input.entry.pin, input.record, input.expectedUser, clientNonce, challenge.body.expires_at));
+      await assert.rejects(api.verifyLoginChallenge(challenge, { ...input.entry.pin, nodeId: '0'.repeat(64) }, input.record, input.expectedUser, clientNonce));
+      await assert.rejects(api.verifyLoginChallenge(challenge, input.entry.pin, input.record, input.expectedUser, api.loginNonce()));
+    }
     const root = await api.openMeshAccount(input.record, decode(input.vault_hex), password, 'lab', input.expectedUser);
     try {
       const indexBytes = decode(input.index_hex);
@@ -40,7 +57,33 @@ const plaintext = 'Disposable encrypted archive message';
       const message = JSON.parse(Buffer.from(archiveBytes).toString('utf8'));
       const recovered = await api.decryptArchive(root, input.expectedUser, item.dialogId, item.messageId, message);
       assert.equal(new TextDecoder().decode(recovered), plaintext);
-      process.stdout.write(JSON.stringify({ opened: true, user_id: input.expectedUser }));
+      let authenticated = false;
+      if (input.entry) {
+        await assert.rejects(api.answerLogin(new Uint8Array(32), challenge, input.entry.pin, input.record, input.expectedUser, clientNonce));
+        const proof = await api.answerLogin(root, challenge, input.entry.pin, input.record, input.expectedUser, clientNonce);
+        const response = await authRequest('complete', proof);
+        const session = await api.verifyLoginSession(response, input.entry.pin, challenge, input.record, input.expectedUser, clientNonce);
+        await assert.rejects(api.verifyLoginSession(response, input.entry.pin, challenge, input.record, input.expectedUser, clientNonce, response.body.expires_at));
+        const tampered = structuredClone(response); tampered.body.scope = 'admin';
+        await assert.rejects(api.verifyLoginSession(tampered, input.entry.pin, challenge, input.record, input.expectedUser, clientNonce));
+        await assert.rejects(authRequest('complete', proof));
+        if (input.other_entry) {
+          assert.match(input.other_entry, /^http:\/\/127\.0\.0\.1:[0-9]+$/);
+          const other = await fetch(input.other_entry + '/mesh-lab/auth/session', { method: 'POST', redirect: 'error', signal: AbortSignal.timeout(5000), headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + session.token }, body: JSON.stringify({ client_nonce: api.loginNonce() }) });
+          assert.equal(other.status, 401);
+          await other.arrayBuffer();
+        }
+        const stateNonce = api.loginNonce();
+        const state = await authRequest('session', { client_nonce: stateNonce }, session.token);
+        await api.verifySessionState(state, input.entry.pin, input.expectedUser, session.session_id, stateNonce);
+        const logoutNonce = api.loginNonce();
+        const logout = await authRequest('logout', { client_nonce: logoutNonce }, session.token);
+        await api.verifyLogout(logout, input.entry.pin, input.expectedUser, session.session_id, logoutNonce);
+        await assert.rejects(api.verifyLogout(logout, input.entry.pin, input.expectedUser, session.session_id, api.loginNonce()));
+        await assert.rejects(authRequest('session', { client_nonce: api.loginNonce() }, session.token));
+        authenticated = true;
+      }
+      process.stdout.write(JSON.stringify({ opened: true, user_id: input.expectedUser, ...(input.entry ? { authenticated, revoked: true } : {}) }));
     } finally { root.fill(0); }
   } else { throw new Error('Unknown test mode'); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

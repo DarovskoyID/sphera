@@ -48,9 +48,13 @@ export async function verifyAccount(record: AccountRecord, network: string, expe
   if (!await crypto.subtle.verify('Ed25519', publicKey, buffer(fromHex(record.signature, 64)), buffer(accountBytes(body)))) throw new Error('invalid_account_signature');
   return accountDigest(accountBytes(record));
 }
-export async function signAccount(root: Uint8Array, body: AccountBody): Promise<AccountRecord> {
+/** Low-level local signing. Protocol callers must validate the domain/context first. */
+export async function signIdentityStatement(root: Uint8Array, bytes: Uint8Array) {
   const key = await privateKey(root);
-  const signature = hex(new Uint8Array(await crypto.subtle.sign('Ed25519', key, buffer(accountBytes(body)))));
+  return new Uint8Array(await crypto.subtle.sign('Ed25519', key, buffer(bytes)));
+}
+export async function signAccount(root: Uint8Array, body: AccountBody): Promise<AccountRecord> {
+  const signature = hex(await signIdentityStatement(root, accountBytes(body)));
   const record = { body, signature };
   await verifyAccount(record, body.network, body.user_id); // Root must match advertised identity.
   return record;

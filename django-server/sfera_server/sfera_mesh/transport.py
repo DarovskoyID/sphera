@@ -9,7 +9,7 @@ import threading
 from hashlib import sha256
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.request import Request, build_opener, ProxyHandler, HTTPRedirectHandler
-from .identity import MAX_BYTES, envelope
+from .identity import MAX_BYTES, envelope, node_id
 from .storage import canonical
 
 
@@ -55,9 +55,11 @@ class BlobStore:
 class LabServer(ThreadingHTTPServer):
     daemon_threads = True
 
-    def __init__(self, key, verifier, store, directory=None):
+    def __init__(self, key, verifier, store, directory=None, auth=None):
         self.key, self.verifier, self.store = key, verifier, store
-        self.directory = directory
+        self.directory, self.auth = directory, auth
+        if auth is not None and (auth.entry_node != node_id(key.public_key().public_bytes_raw()) or auth.network != verifier.network or auth.directory is not directory):
+            raise ValueError('auth_server_identity_mismatch')
         super().__init__(("127.0.0.1", 0), Handler)
 
     @property
@@ -70,6 +72,8 @@ class Handler(BaseHTTPRequestHandler):
         pass  # Never log signed payloads or ciphertext.
 
     def do_POST(self):
+        if self.path.startswith('/mesh-lab/auth/'):
+            return self.do_auth()
         operation = self.path.removeprefix("/mesh-lab/v1/")
         if self.path not in tuple("/mesh-lab/v1/" + name for name in ("put", "get", "account-put", "account-get", "account-confirm")):
             self.send_error(404)
@@ -100,6 +104,43 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(body)
         except (ValueError, TypeError, KeyError, UnicodeError):
             self.send_error(400, "invalid_mesh_request")
+
+    def do_auth(self):
+        from .auth import DirectoryNotReady, ChallengeLimit, LoginRequestChanged
+        operation = self.path.removeprefix('/mesh-lab/auth/')
+        if self.server.auth is None or operation not in ('challenge', 'complete', 'session', 'logout'):
+            self.send_error(404)
+            return
+        try:
+            size = int(self.headers.get('Content-Length', '0'))
+            if not 0 < size <= 32768 or self.headers.get_content_type() != 'application/json':
+                raise ValueError('invalid_auth_request')
+            self.connection.settimeout(3)
+            data = self.rfile.read(size)
+            if len(data) != size:
+                raise ValueError('invalid_auth_request')
+            payload = json.loads(data)
+            bearer = self.headers.get('Authorization', '')
+            token = bearer[7:] if bearer.startswith('Bearer ') else None
+            response = self.server.auth.execute(operation, payload, token)
+            status = 200
+        except DirectoryNotReady:
+            response, status = {'error': 'mesh_directory_unavailable'}, 503
+        except ChallengeLimit:
+            response, status = {'error': 'mesh_login_rate_limited'}, 429
+        except LoginRequestChanged:
+            response, status = {'error': 'mesh_login_retry_required'}, 409
+        except (ValueError, TypeError, KeyError, UnicodeError):
+            response, status = {'error': 'mesh_auth_failed'}, 401
+        body = canonical(response)
+        self.send_response(status)
+        if status == 429:
+            self.send_header('Retry-After', '60')
+        self.send_header('Content-Type', 'application/json')
+        self.send_header('Content-Length', str(len(body)))
+        self.send_header('Cache-Control', 'no-store')
+        self.end_headers()
+        self.wfile.write(body)
 
 
 def exchange(endpoint, key, verifier, recipient, operation, payload, *, committee=None):

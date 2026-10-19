@@ -94,7 +94,7 @@ class AccountDirectory:
             raise ValueError('directory_trust_configuration_changed')
         with self.db:
             self.db.execute('INSERT OR IGNORE INTO directory_identity VALUES (1, ?, ?)', identity)
-        self.lock = threading.Lock()
+        self.lock = threading.RLock()
 
     def close(self):
         self.db.close()
@@ -155,6 +155,15 @@ class AccountDirectory:
             self.db.execute('INSERT INTO directory_certificates VALUES (?, ?, ?, ?)', (committee, height, digest, canonical(certificate)))
             self.db.execute('INSERT OR REPLACE INTO confirmed_accounts VALUES (?, ?, ?, ?)', (checkpoint['user_id'], checkpoint['version'], checkpoint['record_hash'], canonical(certificate)))
         return {'confirmed': True, 'height': height, 'checkpoint_hash': digest}
+
+    def latest_checkpoint(self):
+        if self.committee is None:
+            raise ValueError('no_trusted_committee')
+        with self.lock:
+            row = self.db.execute('SELECT height, digest FROM directory_certificates WHERE committee=? ORDER BY height DESC LIMIT 1', (self.committee.identifier,)).fetchone()
+        if row is None:
+            raise ValueError('directory_unconfirmed')
+        return {'committee': self.committee.identifier, 'height': row[0], 'checkpoint_hash': row[1]}
 
     def execute(self, operation, payload):
         if not isinstance(payload, dict):
