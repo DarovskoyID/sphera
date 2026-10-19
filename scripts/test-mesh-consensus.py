@@ -22,6 +22,7 @@ from sfera_mesh.consensus_directory import ConsensusDirectory, ConsensusUnavaila
 from sfera_mesh.auth import MeshAuth, DirectoryNotReady, LoginRequestChanged
 from sfera_mesh.identity import EnvelopeVerifier
 from sfera_mesh.transport import BlobStore, LabServer
+from sfera_mesh.consensus_updater import ConsensusUpdater
 
 
 def verify_http_login(auth, directory, owner, identity):
@@ -65,7 +66,7 @@ def verify_http_login(auth, directory, owner, identity):
 def main():
     binary = Path(sys.argv[1]).resolve()
     processes, logs = {}, []
-    directory = auth = None
+    directory = auth = updater = None
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
     with tempfile.TemporaryDirectory(prefix='sfera-consensus-') as temp:
         home = Path(temp) / 'lab'
@@ -227,6 +228,23 @@ def main():
                     pass
                 else:
                     raise AssertionError('expired snapshot still authorized a read')
+            # First known source is offline; fallback changes only the source of
+            # signed directory metadata, never the user's authentication entry point.
+            updater = ConsensusUpdater(directory, [lab['rpc'][3].replace('tcp://', 'http://'), address], interval=2, max_backoff=4).start()
+            wait_for(lambda: updater.status()['successes'] > 0)
+            assert updater.status()['failures'] >= 1
+            try:
+                ConsensusUpdater(directory, [address]).start()
+            except ValueError:
+                pass
+            else:
+                raise AssertionError('two refresh workers started for one directory')
+            try:
+                directory.close()
+            except ValueError:
+                pass
+            else:
+                raise AssertionError('directory closed while refresh worker owned it')
             stop(2)
             # Allow any block already signed before disconnection to finish.
             time.sleep(2)
@@ -238,7 +256,8 @@ def main():
             assert heights == [int(rpc(i, 'status')['sync_info']['latest_block_height']) for i in processes]
             start(2)
             wait_for(lambda: all(head(i) and head(i)['record'] == third for i in processes), timeout=60)
-            wait_for(lambda: directory.refresh(address) and directory.get(identity)['record'] == third)
+            wait_for(lambda: directory.get(identity)['record'] == third, timeout=60)
+            assert updater.status()['ready']
             try:
                 auth.complete(pending['body']['challenge_id'], key.sign(canonical(pending['body'])).hex())
             except (LoginRequestChanged, ValueError):
@@ -260,6 +279,9 @@ def main():
             fork['body']['vault_digest'] = 'a' * 64
             fork['signature'] = key.sign(canonical(fork['body'])).hex()
             assert submit(fork)['code'] != 0
+            updater.stop()
+            assert not updater.status()['running']
+            updater = None
             for i in list(processes):
                 stop(i)
             for i in range(4):
@@ -275,6 +297,8 @@ def main():
                     print(path.name, content[-3000:], file=sys.stderr)
             raise
         finally:
+            if updater is not None:
+                updater.stop()
             if auth is not None:
                 auth.close()
             if directory is not None:

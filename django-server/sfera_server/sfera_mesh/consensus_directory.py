@@ -28,14 +28,30 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
-def rpc(address, method, params):
+def validate_address(address):
+    if not isinstance(address, str) or len(address) > 2048:
+        raise ValueError('lab_loopback_required')
     parsed = urlsplit(address)
     if parsed.scheme != 'http' or parsed.hostname != '127.0.0.1' or not parsed.port or parsed.path not in ('', '/') or parsed.query or parsed.fragment or parsed.username or parsed.password:
         raise ValueError('lab_loopback_required')
+
+
+def rpc(address, method, params, *, stop_event=None):
+    validate_address(address)
     request = urllib.request.Request(address, data=canonical({'jsonrpc': '2.0', 'id': 1, 'method': method, 'params': params}), headers={'Content-Type': 'application/json'})
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
+    deadline = time.monotonic() + 4
+    chunks, length = [], 0
     with opener.open(request, timeout=4) as response:
-        data = response.read(2 * 1048576 + 1)
+        while length <= 2 * 1048576:
+            if time.monotonic() >= deadline or (stop_event is not None and stop_event.is_set()):
+                raise ConsensusUnavailable('rpc_deadline_or_stop')
+            chunk = response.read1(min(65536, 2 * 1048576 + 1 - length))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            length += len(chunk)
+    data = b''.join(chunks)
     if len(data) > 2 * 1048576:
         raise ValueError('rpc_response_too_large')
     result = json.loads(data)
@@ -44,8 +60,10 @@ def rpc(address, method, params):
     return result['result']
 
 
-def fetch_evidence(address):
-    response = rpc(address, 'abci_query', {'path': '/snapshot', 'prove': False})['response']
+def fetch_evidence(address, *, stop_event=None):
+    if stop_event is not None and stop_event.is_set():
+        raise ConsensusUnavailable('refresh_stopped')
+    response = rpc(address, 'abci_query', {'path': '/snapshot', 'prove': False}, stop_event=stop_event)['response']
     if response.get('code', 0):
         raise ConsensusUnavailable('snapshot_unavailable')
     raw = base64.b64decode(response['value'], validate=True)
@@ -59,12 +77,17 @@ def fetch_evidence(address):
     deadline = time.monotonic() + 4
     while True:
         try:
-            header = rpc(address, 'commit', {'height': str(state['height'] + 1)})['signed_header']
+            if stop_event is not None and stop_event.is_set():
+                raise ConsensusUnavailable('refresh_stopped')
+            header = rpc(address, 'commit', {'height': str(state['height'] + 1)}, stop_event=stop_event)['signed_header']
             break
         except ConsensusUnavailable:
             if time.monotonic() >= deadline:
                 raise
-            time.sleep(.15)
+            if stop_event is None:
+                time.sleep(.5)
+            elif stop_event.wait(.5):
+                raise ConsensusUnavailable('refresh_stopped')
     return {'state': state, 'signed_header': header}
 
 
@@ -76,6 +99,9 @@ class ConsensusDirectory:
         self.pin = sha256(Path(self.genesis).read_bytes()).hexdigest()
         self.network = json.loads(Path(self.genesis).read_bytes())['chain_id']
         self.lock = threading.RLock()
+        self.refresh_lock = threading.RLock()
+        self.closed = False
+        self.update_owner = None
         self.db = sqlite3.connect(path, check_same_thread=False)
         self.db.execute('PRAGMA synchronous=FULL')
         self.db.executescript('''
@@ -110,8 +136,15 @@ class ConsensusDirectory:
         return verified
 
     def import_evidence(self, evidence):
-        with self.lock:
+        # Slow cryptographic verification must not block reads of a fresh cache.
+        with self.refresh_lock:
             verified = self._verify(evidence)
+            return self._install(verified, evidence)
+
+    def _install(self, verified, evidence):
+        with self.lock:
+            if self.closed:
+                raise ConsensusUnavailable('directory_closed')
             height, block = verified['state']['height'], verified['header_hash']
             with self.db:
                 self.db.execute('BEGIN IMMEDIATE')
@@ -129,21 +162,25 @@ class ConsensusDirectory:
             self.current = verified
             return self.anchor()
 
-    def refresh(self, address):
-        return self.import_evidence(fetch_evidence(address))
+    def refresh(self, address, *, stop_event=None):
+        evidence = fetch_evidence(address, stop_event=stop_event)
+        if stop_event is not None and stop_event.is_set():
+            raise ConsensusUnavailable('refresh_stopped')
+        return self.import_evidence(evidence)
 
     def restore(self):
         with self.lock:
             row = self.db.execute('SELECT evidence FROM consensus_snapshot').fetchone()
             if row is None:
                 raise ConsensusUnavailable('no_consensus_snapshot')
-            return self.import_evidence(json.loads(row[0]))
+            evidence = json.loads(row[0])
+        return self.import_evidence(evidence)
 
     def anchor(self, *, now=None):
         with self.lock:
             current = self.current
             now = time.time() if now is None else now
-            if current is None or not now - 30 < current['header_time'] <= now + 5:
+            if self.closed or current is None or not now - 30 < current['header_time'] <= now + 5:
                 raise ConsensusUnavailable('consensus_snapshot_not_fresh')
             return {'network': self.network, 'height': current['state']['height'], 'header_hash': current['header_hash'], 'validators_hash': current['validators_hash'], 'expires_at': current['header_time'] + 30}
 
@@ -159,8 +196,13 @@ class ConsensusDirectory:
             return {'record': json.loads(canonical(head['record'])), 'record_hash': head['digest'], 'finality': anchor}
 
     def close(self):
-        self.current = None
-        self.db.close()
+        with self.refresh_lock, self.lock:
+            if self.update_owner is not None:
+                raise ValueError('stop_directory_updater_before_close')
+            if not self.closed:
+                self.current = None
+                self.closed = True
+                self.db.close()
 
     def execute(self, operation, payload):
         # Old account-confirm wire format must never inject fixture certificates.
