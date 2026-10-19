@@ -55,8 +55,9 @@ class BlobStore:
 class LabServer(ThreadingHTTPServer):
     daemon_threads = True
 
-    def __init__(self, key, verifier, store):
+    def __init__(self, key, verifier, store, directory=None):
         self.key, self.verifier, self.store = key, verifier, store
+        self.directory = directory
         super().__init__(("127.0.0.1", 0), Handler)
 
     @property
@@ -70,7 +71,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         operation = self.path.removeprefix("/mesh-lab/v1/")
-        if self.path not in ("/mesh-lab/v1/put", "/mesh-lab/v1/get"):
+        if self.path not in tuple("/mesh-lab/v1/" + name for name in ("put", "get", "account-put", "account-get", "account-confirm")):
             self.send_error(404)
             return
         try:
@@ -83,7 +84,12 @@ class Handler(BaseHTTPRequestHandler):
                 raise ValueError("incomplete_body")
             request = json.loads(data)
             sender, payload = self.server.verifier.verify(request, operation)
-            result = self.server.store.execute(operation, payload)
+            if operation.startswith('account-'):
+                if self.server.directory is None:
+                    raise ValueError('directory_unavailable')
+                result = self.server.directory.execute(operation, payload)
+            else:
+                result = self.server.store.execute(operation, payload)
             response = envelope(self.server.key, self.server.verifier.network, sender, operation + "-response", {"request_nonce": request["record"]["nonce"], "result": result})
             body = canonical(response)
             self.send_response(200)
@@ -96,14 +102,19 @@ class Handler(BaseHTTPRequestHandler):
             self.send_error(400, "invalid_mesh_request")
 
 
-def exchange(endpoint, key, verifier, recipient, operation, payload):
+def exchange(endpoint, key, verifier, recipient, operation, payload, *, committee=None):
     # Laboratory only: no remote URL supplied by a peer is ever followed.
     from urllib.parse import urlsplit
     url = urlsplit(endpoint)
     if url.scheme != "http" or url.hostname != "127.0.0.1" or url.username or url.password or url.path or url.query or url.fragment:
         raise ValueError("loopback_lab_only")
-    if operation not in ("get", "put"):
+    if operation not in ("get", "put", "account-put", "account-get", "account-confirm"):
         raise ValueError("unsupported_operation")
+    if operation == 'account-confirm':
+        from .directory import validate_directory_certificate
+        if committee is None or committee.network != verifier.network:
+            raise ValueError('no_trusted_committee')
+        validate_directory_certificate(committee, payload['certificate'])
     signed = envelope(key, verifier.network, recipient, operation, payload)
     request = Request(endpoint + "/mesh-lab/v1/" + operation, data=canonical(signed), headers={"Content-Type": "application/json"}, method="POST")
     with build_opener(ProxyHandler({}), NoRedirect()).open(request, timeout=3) as response:
@@ -116,6 +127,22 @@ def exchange(endpoint, key, verifier, recipient, operation, payload):
     result = response.get("result")
     if not isinstance(result, dict):
         raise ValueError("invalid_result")
+    if operation == 'account-get':
+        from .directory import verify_account_result
+        return verify_account_result(result, verifier.network, payload['user_id'], payload['version'], payload['confirmed'], committee)
+    if operation == 'account-put':
+        from .directory import validate_record
+        body, digest = validate_record(payload['record'], verifier.network)
+        if result != {'user_id': body['user_id'], 'version': body['version'], 'record_hash': digest, 'stored': True}:
+            raise ValueError('account_receipt_mismatch')
+        return result
+    if operation == 'account-confirm':
+        # This is only a delivery receipt, never proof of network consensus.
+        from .certificates import statement
+        certificate = payload['certificate']
+        if committee is None or result != {'confirmed': True, 'height': certificate['height'], 'checkpoint_hash': sha256(statement(committee, certificate['height'], certificate['previous'], certificate['checkpoint'])).hexdigest()}:
+            raise ValueError('checkpoint_receipt_mismatch')
+        return result
     if result == {"error": "not_found"} and operation == "get":
         return result
     if result.get("digest") != payload.get("digest"):

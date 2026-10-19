@@ -27,7 +27,7 @@ async function passwordKey(password: string, salt: Uint8Array) {
   try { return await crypto.subtle.importKey('raw', derived.buffer as ArrayBuffer, 'AES-GCM', false, ['encrypt', 'decrypt']); }
   finally { derived.fill(0); }
 }
-async function wrap(root: Uint8Array, userId: string, password: string): Promise<Vault> {
+export async function wrapArchiveRoot(root: Uint8Array, userId: string, password: string): Promise<Vault> {
   if (root.length !== 32) throw new Error('invalid_root');
   const salt = random(16), nonce = random(12);
   const key = await passwordKey(password, salt);
@@ -37,7 +37,7 @@ async function wrap(root: Uint8Array, userId: string, password: string): Promise
 export async function createVault(userId: string, password: string): Promise<{ vault: Vault; root: Uint8Array }> {
   identifier(userId);
   const root = random(32);
-  try { return { vault: await wrap(root, userId, password), root }; }
+  try { return { vault: await wrapArchiveRoot(root, userId, password), root }; }
   catch (error) { root.fill(0); throw error; }
 }
 export async function unlockVault(value: Vault, expectedUserId: string, password: string): Promise<Uint8Array> {
@@ -48,7 +48,7 @@ export async function unlockVault(value: Vault, expectedUserId: string, password
 }
 export async function changeVaultPassword(value: Vault, userId: string, oldPassword: string, newPassword: string): Promise<Vault> {
   const root = await unlockVault(value, userId, oldPassword);
-  try { return await wrap(root, userId, newPassword); }
+  try { return await wrapArchiveRoot(root, userId, newPassword); }
   finally { root.fill(0); }
 }
 async function archiveKey(root: Uint8Array, userId: string, dialogId: string, messageId: string) {
