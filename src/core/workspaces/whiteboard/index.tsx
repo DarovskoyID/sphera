@@ -1,3 +1,4 @@
+import { useCommercial, workspaceEnabled } from '../../commercial/store';
 import { useEffect } from 'react';
 import { PenTool } from 'lucide-react';
 import { ToolCard, defineModule, navigate, useCore, useModuleT } from '@sfera/sdk';
@@ -6,10 +7,12 @@ import { ROUTE, WhiteboardView } from './BoardsView';
 import { strings } from './i18n';
 
 function Connector({ children }: { children: React.ReactNode }) {
-  const { authToken, currentServerIP } = useCore();
+  const { authToken, currentServerIP, currentServer } = useCore();
+  useCommercial();
+  const enabled = workspaceEnabled('whiteboard', currentServerIP, currentServer);
   useEffect(() => {
-    boards.connect(authToken ? { token: authToken, serverIP: currentServerIP } : null);
-  }, [authToken, currentServerIP]);
+    boards.connect(enabled && authToken ? { token: authToken, serverIP: currentServerIP } : null);
+  }, [authToken, currentServerIP, enabled]);
   return <>{children}</>;
 }
 

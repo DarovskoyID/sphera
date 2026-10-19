@@ -1,3 +1,4 @@
+import './commercial.css';
 import { useEffect, type CSSProperties } from 'react';
 import { useApp } from '../../context/AppContext';
 import { registerSlot } from '../../sdk/slots';

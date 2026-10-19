@@ -107,7 +107,7 @@ export const api = {
   list: (c: Conn, offset = 0) => call<Protocol[]>(c, `packages/?offset=${offset}`),
   create: (c: Conn, body: { scope: string; title?: string; period_from?: string | null; period_to?: string | null }) =>
     call<Protocol>(c, 'packages/', json('POST', body)),
-  get: (c: Conn, id: string) => call<Protocol>(c, `packages/${id}/`),
+  get: (c: Conn, id: string, signal?: AbortSignal) => call<Protocol>(c, `packages/${id}/`, { signal }),
   remove: (c: Conn, id: string) => call<void>(c, `packages/${id}/`, json('DELETE')),
   seal: (c: Conn, id: string) => call<Protocol>(c, `packages/${id}/seal/`, json('POST', {})),
   requestCode: (c: Conn, id: string) => call<{ ok: boolean; email: string }>(c, `packages/${id}/code/`, json('POST', {})),

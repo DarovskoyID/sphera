@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import {
   BadgeCheck, Check, Copy, Download, FileSignature, FileText, History, Link2, Lock, Printer, Scale, Search,
   Settings2, ShieldAlert, ShieldCheck, Trash2, Upload, UserPlus,
@@ -274,8 +274,20 @@ function ProtocolDetail({ id, onBack }: { id: string; onBack: () => void }) {
   const [ask, setAsk] = useState(false);
   const [remove, setRemove] = useState(false);
 
-  const load = useCallback(() => { api.get(conn, id).then(setP).catch(() => onBack()); }, [conn, id, onBack]);
-  useEffect(load, [load]);
+  const onBackRef = useRef(onBack);
+  onBackRef.current = onBack;
+  // Parent/context rerenders create a new onBack closure. It is not a reason
+  // to refetch the same package (which used to generate a request loop).
+  const load = useCallback((signal?: AbortSignal) => {
+    return api.get(conn, id, signal).then(value => {
+      if (!signal?.aborted) setP(value);
+    }).catch(() => { if (!signal?.aborted) onBackRef.current(); });
+  }, [conn, id]);
+  useEffect(() => {
+    const controller = new AbortController();
+    void load(controller.signal);
+    return () => controller.abort();
+  }, [load]);
   if (!p) return <div style={{ padding: 20, color: 'var(--text-tertiary)' }}>…</div>;
 
   const mine = p.signatures.some(s => s.user_id === currentUser?.id);

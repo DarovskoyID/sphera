@@ -1,3 +1,4 @@
+import { useCommercial, workspaceEnabled } from '../../commercial/store';
 import { useEffect, useState, type CSSProperties } from 'react';
 import { NotebookPen, Trash2, X } from 'lucide-react';
 import { ToolCard, navigate, useCore, useModuleStore, useModuleT } from '@sfera/sdk';
@@ -9,10 +10,12 @@ export const ROUTE = 'diary';
 
 /** Keeps the store connected to the signed-in account. */
 export function DiaryConnector({ children }: { children: React.ReactNode }) {
-  const { authToken, currentServerIP } = useCore();
+  const { authToken, currentServerIP, currentServer } = useCore();
+  useCommercial();
+  const enabled = workspaceEnabled('diary', currentServerIP, currentServer);
   useEffect(() => {
-    diary.connect(authToken ? { token: authToken, serverIP: currentServerIP } : null);
-  }, [authToken, currentServerIP]);
+    diary.connect(enabled && authToken ? { token: authToken, serverIP: currentServerIP } : null);
+  }, [authToken, currentServerIP, enabled]);
   useEffect(() => () => diary.connect(null), []);
   return <>{children}</>;
 }

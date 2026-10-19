@@ -1,3 +1,4 @@
+import { useCommercial, workspaceEnabled } from '../../commercial/store';
 import { useEffect, useState } from 'react';
 import { FileSignature, Scale, X } from 'lucide-react';
 import { ToolCard, defineModule, navigate, showDesktopNotification, tmStatic, useCore, useModuleT, type ComposerActionProps, type ModuleContext } from '@sfera/sdk';
@@ -17,11 +18,13 @@ const listeners = new Set<(r: Request) => void>();
 let seq = 0;
 
 function Connector({ children }: { children: React.ReactNode }) {
-  const { authToken, currentServerIP, currentUser, setCurrentServer } = useCore();
+  const { authToken, currentServerIP, currentUser, setCurrentServer, currentServer } = useCore();
+  useCommercial();
+  const enabled = workspaceEnabled('legal', currentServerIP, currentServer);
 
   useEffect(() => {
-    legal.connect(authToken ? { token: authToken, serverIP: currentServerIP } : null);
-  }, [authToken, currentServerIP]);
+    legal.connect(enabled && authToken ? { token: authToken, serverIP: currentServerIP } : null);
+  }, [authToken, currentServerIP, enabled]);
 
   // Recording and the timestamp service are a server-wide decision: only the superuser gets the page.
   useEffect(() => {

@@ -17,8 +17,8 @@ function InstallDialog({ module, close }: { module: Module; close: () => void })
   const ru = language === 'ru';
   const dialog = useRef<HTMLDialogElement>(null);
   const [pending, setPending] = useState(false);
-  useEffect(() => { dialog.current?.showModal(); }, []);
-  return createPortal(<dialog ref={dialog} aria-labelledby="module-install-title" onCancel={event => { event.preventDefault(); if (!pending) close(); }} style={{ width: 'min(460px, calc(100vw - 32px))', boxSizing: 'border-box', padding: 24, borderRadius: 20, border: '1px solid var(--border-color)', background: 'var(--bg-primary)', color: 'var(--text-primary)', boxShadow: '0 24px 80px #0008', maxHeight: 'calc(100dvh - 32px)', overflowY: 'auto' }}>
+  useEffect(() => { dialog.current?.showModal(); dialog.current?.querySelector('input')?.focus(); }, []);
+  return createPortal(<dialog className="commercial-surface" ref={dialog} aria-labelledby="module-install-title" onCancel={event => { event.preventDefault(); if (!pending) close(); }} style={{ position: 'fixed', inset: 0, margin: 'auto', width: 'min(460px, calc(100vw - 32px))', height: 'fit-content', boxSizing: 'border-box', padding: 24, borderRadius: 20, border: '1px solid var(--border-color)', background: 'var(--bg-primary)', color: 'var(--text-primary)', boxShadow: '0 24px 80px #0008', maxHeight: 'calc(100dvh - 32px)', overflowY: 'auto' }}>
     <style>{'dialog::backdrop { background: rgba(0,0,0,.65); backdrop-filter: blur(4px); }'}</style>
     <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
       <KeyRound size={24} style={{ color: 'var(--accent-primary)', flexShrink: 0 }} />
@@ -39,7 +39,7 @@ export function CommercialCards() {
   // A node/user change closes the key form instead of submitting it elsewhere.
   useEffect(() => setInstall(null), [currentServerIP, currentUser?.id]);
   const current = server === currentServerIP && status === 'ready';
-  return <section style={{ padding: '20px 24px 0' }}>
+  return <section className="commercial-surface" style={{ padding: '20px 24px 0' }}>
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 14 }}>
       <h3 style={{ margin: 0, fontSize: 13, fontWeight: 700, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '.5px' }}>{ru ? 'Модули' : 'Modules'}</h3>
       <button onClick={() => { setCurrentServer('settings'); setCurrentSettingsPage('subscriptions'); }} style={{ border: 0, background: 'transparent', color: 'var(--accent-primary)', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>{ru ? 'Ключи и подписки' : 'Keys and subscriptions'} <ArrowUpRight size={13} style={{ verticalAlign: 'middle' }} /></button>

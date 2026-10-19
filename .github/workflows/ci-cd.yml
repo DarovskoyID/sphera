@@ -55,7 +55,7 @@ jobs:
           cache: npm
 
       - name: Build frontend (core only)
-        run: npm ci && node scripts/test-busy-calls.cjs && node scripts/test-call-recovery.cjs && node scripts/test-commercial-ui.cjs && node scripts/test-commercial-runtime.cjs && node scripts/test-commercial-install.cjs && npm run build
+        run: npm ci && node scripts/test-busy-calls.cjs && node scripts/test-call-recovery.cjs && node scripts/test-commercial-ui.cjs && node scripts/test-commercial-runtime.cjs && node scripts/test-commercial-install.cjs && node scripts/test-legal-requests.cjs && npm run build
 
       - uses: actions/setup-python@v5
         with:
@@ -107,7 +107,7 @@ jobs:
         run: npm ci
 
       - name: Build frontend
-        run: node scripts/test-busy-calls.cjs && node scripts/test-call-recovery.cjs && node scripts/test-commercial-ui.cjs && node scripts/test-commercial-runtime.cjs && node scripts/test-commercial-install.cjs && npm run build
+        run: node scripts/test-busy-calls.cjs && node scripts/test-call-recovery.cjs && node scripts/test-commercial-ui.cjs && node scripts/test-commercial-runtime.cjs && node scripts/test-commercial-install.cjs && node scripts/test-legal-requests.cjs && npm run build
 
       - uses: actions/setup-python@v5
         with:

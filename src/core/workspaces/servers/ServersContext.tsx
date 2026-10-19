@@ -1,3 +1,4 @@
+import { useCommercial, workspaceWritable } from '../../commercial/store';
 /**
  * Servers module state: guilds, channels, messages, voice.
  *
@@ -133,6 +134,8 @@ export function useApp() {
 
 export function ServersProvider({ children }: { children: ReactNode }) {
   const core = useCore();
+  useCommercial();
+  const enabled = workspaceWritable('servers', core.currentServerIP);
   const [gs, setGs] = useState<GuildState>(INITIAL);
   const coreRef = useRef(core);
   coreRef.current = core;
@@ -1522,7 +1525,12 @@ export function ServersProvider({ children }: { children: ReactNode }) {
 
   // Load guilds on login; restore saved guild on refresh
   useEffect(() => {
-    if (!state.authToken) { setState(prev => ({ ...prev, guilds: [], currentGuild: null, currentGuildChannel: null, guildMessages: [] })); return; }
+    if (!state.authToken || !enabled) {
+      closeGuildWs();
+      guildPresenceWs.current?.close(); guildPresenceWs.current = null;
+      setState(prev => ({ ...prev, guilds: [], currentGuild: null, currentGuildChannel: null, guildMessages: [] }));
+      return;
+    }
     apiGet('/api/guilds/', state.authToken, state.currentServerIP)
       .then((guilds: Guild[]) => {
         setState(prev => ({ ...prev, guilds }));
@@ -1534,7 +1542,7 @@ export function ServersProvider({ children }: { children: ReactNode }) {
         setState(prev => ({ ...prev, serverLayout: Array.isArray(r?.layout) ? r.layout : [] }));
       })
       .catch(() => { /* non-fatal: bar falls back to default order */ });
-  }, [state.authToken]);
+  }, [state.authToken, state.currentServerIP, enabled]);
 
 
   // ── Signals that concern servers ─────────────────────────────────────────
@@ -1604,7 +1612,7 @@ export function ServersProvider({ children }: { children: ReactNode }) {
   // session) opens that guild once it is known.
   useEffect(() => {
     const cur = core.currentServer;
-    if (core.currentView !== 'server' || gs.currentGuild?.id === cur) return;
+    if (!enabled || core.currentView !== 'server' || gs.currentGuild?.id === cur) return;
     const target = gs.guilds.find(g => String(g.id) === cur);
     if (target) { selectGuild(target); return; }
     // Not in the list yet (e.g. a family server created a moment ago): reload once.
@@ -1613,7 +1621,7 @@ export function ServersProvider({ children }: { children: ReactNode }) {
       void loadGuilds();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [core.currentServer, core.currentView, gs.guilds]);
+  }, [core.currentServer, core.currentView, gs.guilds, enabled]);
 
   // A DM call ends voice; deafening in the call UI also deafens the voice room.
   useEffect(() => {

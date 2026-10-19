@@ -8,6 +8,7 @@ import { registerModuleStrings } from '../../i18n/moduleStrings';
 import { NATIVE_INFO, NATIVE_LOADERS } from '../workspaces/native';
 import { wrapWorkspaceComponent } from '../commercial/WorkspaceContract';
 import type { SlotMap } from '../../sdk/slots';
+import { workspaceWritable, subscribeCommercial } from '../commercial/store';
 
 // These services use the core's data-only runtime. Never import their old bundles.
 const COMMERCIAL_IDS = new Set(['amocrm', 'bitrix', 'onec']);
@@ -57,6 +58,17 @@ const disposers = new Map<string, (() => void)[]>();
 const activeBundles = new Map<string, string>();
 let conn: { serverIP: string; token: string } | null = null;
 let publicServerIP: string | null = null;
+let stopCommercial: (() => void) | null = null;
+
+function nativeInstalled(id: string) {
+  return !!conn && workspaceWritable(id, conn.serverIP);
+}
+
+function syncNativeAccess() {
+  if (!conn) return;
+  const modules = state.modules.map(module => NATIVE_LOADERS[module.id] ? { ...module, installed: nativeInstalled(module.id) } : module);
+  if (modules.some((module, index) => module.installed !== state.modules[index].installed)) set({ modules });
+}
 
 function set(next: Partial<State>) {
   state = { ...state, ...next };
@@ -107,10 +119,24 @@ async function activate(id: string) {
     const ctx: ModuleContext = {
       id,
       slot: (slot, item) => {
-        if (NATIVE_LOADERS[id] && (slot === 'main.view' || slot === 'settings.page')) {
-          const rendered = item as SlotMap['main.view'];
-          bag.push(registerSlot(id, slot, { ...item, render: wrapWorkspaceComponent(id, rendered.render) }));
-        } else bag.push(registerSlot(id, slot, item));
+        if (!NATIVE_LOADERS[id]) { bag.push(registerSlot(id, slot, item)); return; }
+        const rendered = item as SlotMap['main.view'];
+        const entry = slot === 'main.view' || slot === 'settings.page'
+          ? { ...item, render: wrapWorkspaceComponent(id, rendered.render) } : item;
+        // Providers stay mounted to avoid remounting personal calls when a key
+        // changes. Read-only routes and mandatory 2FA also remain available.
+        const core = ['app.provider', 'main.view', 'auth.route', 'auth.footer'].includes(slot)
+          || (slot === 'app.overlay' && (id === 'totp' || id === 'servers'))
+          || (slot === 'sidebar.userPanel' && id === 'servers');
+        let remove: (() => void) | null = null;
+        const sync = () => {
+          const visible = core || nativeInstalled(id);
+          if (visible && !remove) remove = registerSlot(id, slot, entry);
+          else if (!visible && remove) { remove(); remove = null; }
+        };
+        sync();
+        const unsubscribe = subscribeCommercial(sync);
+        bag.push(() => { unsubscribe(); remove?.(); });
       },
       onWs: (channel, type, handler) => { bag.push(onWs(channel, type, handler)); },
       onLifecycle: (event, fn) => { bag.push(onLifecycle(event, fn)); },
@@ -138,7 +164,7 @@ function deactivate(id: string) {
 async function activateInstalled(modules: ModuleInfo[]) {
   const done = new Set<string>();
   const visit = async (m: ModuleInfo) => {
-    if (done.has(m.id) || !m.installed) return;
+    if (done.has(m.id) || (!m.installed && !NATIVE_LOADERS[m.id])) return;
     done.add(m.id);
     for (const d of m.deps) {
       const dep = modules.find(x => x.id === d);
@@ -148,7 +174,7 @@ async function activateInstalled(modules: ModuleInfo[]) {
   };
   for (const m of modules) await visit(m);
   for (const id of [...disposers.keys()]) {
-    if (!modules.some(m => m.id === id && m.installed && m.deployed)) deactivate(id);
+    if (!modules.some(m => m.id === id && (m.installed || !!NATIVE_LOADERS[m.id]) && m.deployed)) deactivate(id);
   }
 }
 
@@ -156,6 +182,7 @@ async function refresh() {
   const data = await api('');
   const modules: ModuleInfo[] = [...(data.modules as ModuleInfo[]).filter(m => !NATIVE_LOADERS[m.id]), ...NATIVE_INFO].map(m => ({
     ...m,
+    installed: NATIVE_LOADERS[m.id] ? nativeInstalled(m.id) : m.installed,
     active: disposers.has(m.id),
   }));
   set({ loaded: true, canManage: Boolean(data.can_manage), repoError: data.repo_error ?? null, modules });
@@ -166,6 +193,7 @@ async function refresh() {
 /** Called by ModuleHost on login / server change. */
 export async function connectModules(serverIP: string, token: string) {
   conn = { serverIP, token };
+  stopCommercial ??= subscribeCommercial(syncNativeAccess);
   try {
     const modules = await refresh();
     if (modules.some(m => m.pending)) void waitForPending();
@@ -194,6 +222,7 @@ export async function connectPublicModules(serverIP: string) {
 }
 
 export function disconnectModules() {
+  stopCommercial?.(); stopCommercial = null;
   for (const id of [...disposers.keys()]) deactivate(id);
   conn = null;
   set({ loaded: false, ready: false, canManage: false, modules: [] });

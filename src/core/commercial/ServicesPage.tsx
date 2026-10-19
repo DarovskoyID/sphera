@@ -50,7 +50,7 @@ export function CommercialServicesPage({ initialModule }: { initialModule?: stri
   useEffect(() => {
     if (initialModule && status === 'ready' && server === currentServerIP && services.find(service => service.id === initialModule)?.available) void open(initialModule);
   }, [initialModule, status, server, currentServerIP, request]);
-  return <section>
+  return <section className="commercial-surface">
     {initialModule && <button onClick={() => { setCurrentServer('settings'); setCurrentSettingsPage('subscriptions'); }}>{ru ? 'Все сервисы' : 'All services'}</button>}
     <h1>{initialModule ? services.find(service => service.id === initialModule)?.name[language] || initialModule : ru ? 'Подписки на сервер' : 'Server subscriptions'}</h1>
     <p>{ru ? 'Одна подписка на модуль действует для всех пользователей этого сервера. Базовое общение остаётся доступным без подписки.' : 'One module subscription covers everyone on this server. Basic messaging remains available without a subscription.'}</p>

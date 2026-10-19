@@ -12,7 +12,7 @@ export function ActivationForm({ moduleId, onActivated, onPendingChange, autoFoc
   const [message, setMessage] = useState('');
   const lock = useRef(false);
   if (!currentUser?.is_superuser) return <p style={{ fontSize: 12, lineHeight: 1.5, color: 'var(--text-secondary)' }}>{ru ? 'Ключ доступа активирует администратор сервера.' : 'The server administrator activates access keys.'}</p>;
-  return <form autoComplete="off" onSubmit={async event => {
+  return <form className="commercial-surface" autoComplete="off" onSubmit={async event => {
     event.preventDefault();
     if (lock.current) return;
     lock.current = true; setPending(true); onPendingChange?.(true); setMessage('');

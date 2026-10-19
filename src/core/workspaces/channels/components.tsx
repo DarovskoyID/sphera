@@ -1,3 +1,4 @@
+import { useCommercial, workspaceEnabled } from '../../commercial/store';
 import { useEffect, useState, type CSSProperties } from 'react';
 import { Rss, X } from 'lucide-react';
 import { navigate, reportError, useCore, useModuleStore, useModuleT } from '@sfera/sdk';
@@ -7,10 +8,12 @@ import { PersonalChannelFeed } from './PersonalChannelFeed';
 import type { FeedChannel } from './types';
 
 export function ChannelsConnector({ children }: { children: React.ReactNode }) {
-  const { authToken, currentServerIP } = useCore();
+  const { authToken, currentServerIP, currentServer } = useCore();
+  useCommercial();
+  const enabled = workspaceEnabled('channels', currentServerIP, currentServer);
   useEffect(() => {
-    feed.connect(authToken ? { token: authToken, serverIP: currentServerIP } : null);
-  }, [authToken, currentServerIP]);
+    feed.connect(enabled && authToken ? { token: authToken, serverIP: currentServerIP } : null);
+  }, [authToken, currentServerIP, enabled]);
   useEffect(() => () => feed.connect(null), []);
   return <>{children}</>;
 }

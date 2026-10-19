@@ -1,3 +1,4 @@
+import { useCommercial, workspaceEnabled } from '../../commercial/store';
 import { useEffect, useRef, useState } from 'react';
 import { Bell, CalendarCheck, X } from 'lucide-react';
 import { ToolCard, defineModule, navigate, showDesktopNotification, useCore, useModuleT } from '@sfera/sdk';
@@ -9,10 +10,12 @@ import { strings } from './i18n';
 import type { Task } from './types';
 
 function PlannerConnector({ children }: { children: React.ReactNode }) {
-  const { authToken, currentServerIP } = useCore();
+  const { authToken, currentServerIP, currentServer } = useCore();
+  useCommercial();
+  const enabled = workspaceEnabled('planner', currentServerIP, currentServer);
   useEffect(() => {
-    planner.connect(authToken ? { token: authToken, serverIP: currentServerIP } : null);
-  }, [authToken, currentServerIP]);
+    planner.connect(enabled && authToken ? { token: authToken, serverIP: currentServerIP } : null);
+  }, [authToken, currentServerIP, enabled]);
   return <>{children}</>;
 }
 

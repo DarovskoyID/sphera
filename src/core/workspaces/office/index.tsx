@@ -1,3 +1,4 @@
+import { useCommercial, workspaceEnabled } from '../../commercial/store';
 import { useEffect, useState } from 'react';
 import { FileText, X } from 'lucide-react';
 import {
@@ -13,10 +14,12 @@ const listeners = new Set<(s: Shared) => void>();
 let seq = 0;
 
 function Connector({ children }: { children: React.ReactNode }) {
-  const { authToken, currentServerIP } = useCore();
+  const { authToken, currentServerIP, currentServer } = useCore();
+  useCommercial();
+  const enabled = workspaceEnabled('office', currentServerIP, currentServer);
   useEffect(() => {
-    office.connect(authToken ? { token: authToken, serverIP: currentServerIP } : null);
-  }, [authToken, currentServerIP]);
+    office.connect(enabled && authToken ? { token: authToken, serverIP: currentServerIP } : null);
+  }, [authToken, currentServerIP, enabled]);
   return <>{children}</>;
 }
 

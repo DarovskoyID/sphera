@@ -23,9 +23,9 @@ export function WorkspaceContract({ moduleId, children }: { moduleId: string; ch
   const explicitlyDenied = status === 'ready' && services.some(service => service.id === moduleId && service.subscription.status !== 'active');
   const local = moduleId === 'conference' ? !explicitlyDenied : available || moduleId !== 'multiserver';
   return <div style={{ display: 'contents' }}>
-    {!available && <div role="status" style={{ position: 'fixed', right: 16, top: 12, zIndex: 90, maxWidth: 360, padding: 12, borderRadius: 8, background: 'var(--bg-secondary)', border: '1px solid var(--border-color)' }}>
+    {!available && <div className="commercial-surface" role="status" style={{ position: 'fixed', right: 16, top: 12, zIndex: 90, maxWidth: 360, padding: 12, borderRadius: 8, background: 'var(--bg-secondary)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}>
       {ru ? 'Для платных операций нужен ключ. Ваши данные доступны на этом узле.' : 'Paid operations require an access key. Your data remains available on this node.'}
-      <button onClick={() => { setCurrentServer('settings'); setCurrentSettingsPage('subscriptions'); }}>{ru ? 'Активировать ключ' : 'Activate key'}</button>
+      <button style={{ display: 'block', marginTop: 10, padding: '9px 14px', borderRadius: 8, border: 0, background: 'var(--accent-primary)', color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer' }} onClick={() => { setCurrentServer('settings'); setCurrentSettingsPage('subscriptions'); }}>{ru ? 'Активировать ключ' : 'Activate key'}</button>
     </div>}
     {local && children}
   </div>;

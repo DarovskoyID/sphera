@@ -1,0 +1,21 @@
+.commercial-surface {
+  color: var(--text-primary);
+}
+.commercial-surface button {
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font: inherit;
+  cursor: pointer;
+}
+.commercial-surface button:disabled {
+  opacity: .55;
+  cursor: default;
+}
+.commercial-surface button:focus-visible,
+.commercial-surface input:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+}

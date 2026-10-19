@@ -39,10 +39,15 @@ export function useCommercial() {
   return useSyncExternalStore(listener => { listeners.add(listener); return () => { listeners.delete(listener); }; }, () => state);
 }
 
-export function workspaceWritable(moduleId: string) {
-  return state.status === 'ready' && state.services.some(service => service.id === moduleId && service.available);
+export function workspaceWritable(moduleId: string, server?: string) {
+  return (!server || state.server === server) && state.status === 'ready' && state.services.some(service => service.id === moduleId && service.available);
 }
 
 export function subscribeCommercial(listener: () => void) {
   listeners.add(listener); return () => { listeners.delete(listener); };
+}
+
+/** Keep local data accessible on an explicitly opened read-only route. */
+export function workspaceEnabled(moduleId: string, server: string, route: string) {
+  return workspaceWritable(moduleId, server) || route.startsWith(moduleId + ':');
 }

@@ -288,4 +288,4 @@ const manifests = [
     ]
   }
 ];
-export const NATIVE_INFO: (ModuleInfo & { preAuth: boolean })[] = manifests.map(manifest => ({ ...manifest, deps: manifest.deps || [], preAuth: !!('preAuth' in manifest && manifest.preAuth), delivery: 'core-native', bundle: 'core-native:' + manifest.id, installed: true, deployed: true, active: false }));
+export const NATIVE_INFO: (ModuleInfo & { preAuth: boolean })[] = manifests.map(manifest => ({ ...manifest, deps: manifest.deps || [], preAuth: !!('preAuth' in manifest && manifest.preAuth), delivery: 'core-native', bundle: 'core-native:' + manifest.id, installed: false, deployed: true, active: false }));
