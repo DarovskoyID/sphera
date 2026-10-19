@@ -22,6 +22,15 @@ def _env_bool(name, default=False):
 DEBUG = _env_bool('SFERA_DEBUG', False)
 SFERA_LICENSE_ENFORCE = _env_bool('SFERA_LICENSE_ENFORCE', not DEBUG)
 
+# Existing deployments remain standalone. Never expose the legacy shared-key
+# services as an implementation of the new mesh protocol.
+SFERA_DEPLOYMENT_MODE = os.environ.get('SFERA_DEPLOYMENT_MODE', 'personal')
+if SFERA_DEPLOYMENT_MODE not in ('corporate', 'personal', 'mesh'):
+    raise ImproperlyConfigured('Invalid SFERA_DEPLOYMENT_MODE.')
+if SFERA_DEPLOYMENT_MODE == 'mesh':
+    raise ImproperlyConfigured('Mesh production runtime is not implemented yet; use the isolated protocol test harness.')
+
+
 _DEV_SECRET_KEY = 'sfera-local-development-secret-key-not-for-production'
 SECRET_KEY = os.environ.get('SFERA_SECRET_KEY') or (_DEV_SECRET_KEY if DEBUG else '')
 if not SECRET_KEY:

@@ -993,6 +993,7 @@ Type=simple
 WorkingDirectory=$DJANGO_DIR
 # Секреты (SECRET_KEY, STATUS_TOKEN, ключ шифрования) — из защищённого файла.
 EnvironmentFile=-/etc/sfera/secrets.env
+EnvironmentFile=-/etc/sfera/deployment.env
 # Прод: DEBUG выключен, Host/Origin ограничены доменом, HTTPS-редирект включён.
 Environment=SFERA_DEBUG=0
 Environment=SFERA_DOMAIN=$DOMAIN
@@ -1278,6 +1279,7 @@ Type=simple
 WorkingDirectory=$DJANGO_DIR
 # Секреты (SECRET_KEY, STATUS_TOKEN, ключ шифрования) — из защищённого файла.
 EnvironmentFile=-/etc/sfera/secrets.env
+EnvironmentFile=-/etc/sfera/deployment.env
 # Прод: DEBUG выключен, Host/Origin ограничены доменом, HTTPS-редирект включён.
 Environment=SFERA_DEBUG=0
 Environment=SFERA_DOMAIN=$DOMAIN
