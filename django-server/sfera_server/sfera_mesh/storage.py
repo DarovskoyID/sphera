@@ -27,6 +27,7 @@ class Storage:
                 cluster_id TEXT NOT NULL, digest TEXT NOT NULL, count INTEGER NOT NULL,
                 previous TEXT, next TEXT, PRIMARY KEY(dialog, position));
             CREATE INDEX IF NOT EXISTS cluster_blocks ON blocks(cluster_id);
+            CREATE INDEX IF NOT EXISTS cluster_block_page ON blocks(cluster_id,dialog,position);
             CREATE TABLE IF NOT EXISTS merkle_nodes (
                 dialog TEXT NOT NULL, level INTEGER NOT NULL, position INTEGER NOT NULL,
                 digest BLOB NOT NULL, PRIMARY KEY(dialog, level, position));
@@ -112,6 +113,16 @@ class Storage:
         # Indexed lookup, independent of whether ciphertext is still reachable.
         return list(self.index.execute("SELECT dialog, position, block_id, digest FROM blocks WHERE cluster_id=? ORDER BY dialog, position", (cluster_id,)))
 
+    def affected_page(self, cluster_id, *, after=None, limit=64):
+        """Seek an affected range through the placement index, never walk history."""
+        if type(limit) is not int or not 1 <= limit <= 256 or not isinstance(cluster_id, str) or not cluster_id:
+            raise ValueError('invalid_manifest_page')
+        if after is None:
+            return list(self.index.execute('SELECT dialog,position,block_id,digest FROM blocks WHERE cluster_id=? ORDER BY dialog,position LIMIT ?', (cluster_id, limit)))
+        if not isinstance(after, (list, tuple)) or len(after) != 2 or not isinstance(after[0], str) or type(after[1]) is not int or after[1] < 0:
+            raise ValueError('invalid_manifest_cursor')
+        return list(self.index.execute('SELECT dialog,position,block_id,digest FROM blocks WHERE cluster_id=? AND (dialog,position)>(?,?) ORDER BY dialog,position LIMIT ?', (cluster_id, after[0], after[1], limit)))
+
     def read(self, block_id):
         expected = self.index.execute("SELECT digest FROM blocks WHERE block_id=?", (block_id,)).fetchone()
         data = self.payload.execute("SELECT data FROM payloads WHERE block_id=?", (block_id,)).fetchone()
@@ -122,6 +133,16 @@ class Storage:
         if sha256(data[0]).hexdigest() != expected[0]:
             raise ValueError("ciphertext_corrupt")
         return tuple(bytes.fromhex(x) for x in json.loads(data[0]))
+
+    def restore_payload(self, block_id, data):
+        expected = self.index.execute('SELECT digest,count FROM blocks WHERE block_id=?', (block_id,)).fetchone()
+        if expected is None or not isinstance(data, bytes) or sha256(data).hexdigest() != expected[0]:
+            raise ValueError('restored_payload_manifest_mismatch')
+        values = json.loads(data)
+        if not isinstance(values, list) or len(values) != expected[1] or any(not isinstance(value, str) or not bytes.fromhex(value) for value in values):
+            raise ValueError('restored_payload_count_mismatch')
+        with self.payload:
+            self.payload.execute('INSERT INTO payloads VALUES (?,?) ON CONFLICT(block_id) DO UPDATE SET data=excluded.data', (block_id, data))
 
     def recent(self, dialog, limit=100):
         if limit < 0:

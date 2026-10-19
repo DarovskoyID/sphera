@@ -39,7 +39,9 @@ class BlobStore:
             if not data or digest != payload["digest"]:
                 raise ValueError("digest_mismatch")
             with self.lock, self.db:
-                self.db.execute("INSERT OR IGNORE INTO blobs VALUES (?, ?)", (digest, data))
+                # A valid content-addressed put can safely heal corrupt bytes:
+                # its hash was verified above, so the immutable content is unchanged.
+                self.db.execute("INSERT INTO blobs VALUES (?, ?) ON CONFLICT(digest) DO UPDATE SET data=excluded.data", (digest, data))
             return {"digest": digest, "stored": True}
         if operation == "get" and set(payload) == {"digest"} and isinstance(payload["digest"], str):
             with self.lock:
