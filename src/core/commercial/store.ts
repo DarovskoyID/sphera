@@ -40,7 +40,7 @@ export function useCommercial() {
 }
 
 export function workspaceWritable(moduleId: string, server?: string) {
-  return (!server || state.server === server) && state.status === 'ready' && state.services.some(service => service.id === moduleId && service.available);
+  return (!server || state.server === server) && state.status === 'ready' && state.services.some(service => service.id === moduleId && service.available && service.installed !== false);
 }
 
 export function subscribeCommercial(listener: () => void) {
@@ -50,4 +50,22 @@ export function subscribeCommercial(listener: () => void) {
 /** Keep local data accessible on an explicitly opened read-only route. */
 export function workspaceEnabled(moduleId: string, server: string, route: string) {
   return workspaceWritable(moduleId, server) || route.startsWith(moduleId + ':');
+}
+
+export async function setCommercialInstallation(moduleId: string, installed: boolean) {
+  if (!connection) throw new Error('not_connected');
+  const current = connection;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 12000);
+  try {
+    const response = await fetch(`${current.server}/api/modules/commercial/${encodeURIComponent(moduleId)}/installation/`, {
+      signal: controller.signal,
+      method: installed ? 'PUT' : 'DELETE', headers: { Authorization: `Bearer ${current.token}` },
+    });
+    const data = await response.json();
+    if (!response.ok || data.module !== moduleId || data.installed !== installed) throw new Error(data.error || 'installation_failed');
+    if (connection !== current) return;
+    emit({ ...state, services: state.services.map(service => service.id === moduleId ? { ...service, installed } : service) });
+    await refreshCommercial(true);
+  } finally { clearTimeout(timeout); }
 }

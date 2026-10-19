@@ -9,7 +9,9 @@ const { parseServiceCatalog } = context.exports;
 const service = { id: 'office', name: { ru: 'Документы', en: 'Documents' }, paid: true, scope: 'instance', delivery: 'declarative', available: true, subscription: { status: 'active', expires_at: '2030-01-01T00:00:00Z' } };
 const catalog = modules => ({ instance_id: 'server-id', modules });
 assert.equal(parseServiceCatalog(catalog([service]))[0], service);
+assert.equal(parseServiceCatalog(catalog([{ ...service, installed: false }]))[0].installed, false);
 for (const bad of [
+  { ...service, installed: 'yes' }, { ...service, installed: true, available: false },
   { ...service, paid: false }, { ...service, scope: 'user' },
   { ...service, url: 'https://evil.test' },
   { ...service, subscription: { status: 'expired', expires_at: null } },
@@ -44,3 +46,16 @@ assert.ok(html.includes('&lt;script&gt;')); assert.ok(!html.includes('<script>')
 const invalid = renderToStaticMarkup(React.createElement(renderer.exports.CommercialDocument, { document: { ...valid, script: 'x' }, messages, onAction: async () => {} }));
 assert.ok(invalid.includes('Invalid response'));
 console.log('PASS: declarative contract accepts known UI; rejects executable/HTML/URL nodes, prototype keys, oversized/nested payloads and invalid tables; renderer escapes remote strings.');
+
+const expiryContext = { exports: {} }; vm.createContext(expiryContext);
+vm.runInContext(compile(fs.readFileSync('src/core/commercial/subscription.ts', 'utf8')), expiryContext);
+const oldTimezone = process.env.TZ;
+try {
+  process.env.TZ = 'Europe/Moscow';
+  const end = expiryContext.exports.formatSubscriptionExpiry('2027-10-18T21:00:00Z', 'ru');
+  assert.ok(end.includes('19.10.2027') && end.includes('00:00'), end);
+  assert.ok(/GMT\+3|МСК|MSK/.test(end), end);
+  assert.equal(expiryContext.exports.formatSubscriptionExpiry(null, 'ru'), null);
+  assert.equal(expiryContext.exports.formatSubscriptionExpiry('not-a-date', 'ru'), null);
+} finally { if (oldTimezone === undefined) delete process.env.TZ; else process.env.TZ = oldTimezone; }
+console.log('PASS: subscription expiration includes local date, time and timezone; UTC date rollover is correct.');

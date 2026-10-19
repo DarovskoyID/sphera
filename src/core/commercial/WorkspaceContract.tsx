@@ -6,7 +6,7 @@ import { parseServiceDocument } from './schema';
 export function WorkspaceContract({ moduleId, children }: { moduleId: string; children: ReactNode }) {
   const { currentServerIP, authToken, language, setCurrentServer, setCurrentSettingsPage } = useApp();
   const { services, status } = useCommercial();
-  const available = status === 'ready' && services.some(service => service.id === moduleId && service.available);
+  const available = status === 'ready' && services.some(service => service.id === moduleId && service.available && service.installed !== false);
   const [contract, setContract] = useState<'loading' | 'valid' | 'invalid'>('loading');
   const ru = language === 'ru';
   useEffect(() => {
@@ -20,7 +20,7 @@ export function WorkspaceContract({ moduleId, children }: { moduleId: string; ch
   }, [moduleId, currentServerIP, authToken, available]);
   if (available && contract === 'loading') return <p role="status">{ru ? 'Открываем сервис…' : 'Opening service…'}</p>;
   if (available && contract === 'invalid') return <p role="alert">{ru ? 'Не удалось получить интерфейс сервиса.' : 'Could not load the service interface.'}</p>;
-  const explicitlyDenied = status === 'ready' && services.some(service => service.id === moduleId && service.subscription.status !== 'active');
+  const explicitlyDenied = status === 'ready' && services.some(service => service.id === moduleId && (service.subscription.status !== 'active' || service.installed === false));
   const local = moduleId === 'conference' ? !explicitlyDenied : available || moduleId !== 'multiserver';
   return <div style={{ display: 'contents' }}>
     {!available && <div className="commercial-surface" role="status" style={{ position: 'fixed', right: 16, top: 12, zIndex: 90, maxWidth: 360, padding: 12, borderRadius: 8, background: 'var(--bg-secondary)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}>

@@ -9,6 +9,8 @@ from .commercial import config, CommercialError
 def allowed(module_id):
     if not enforced(): return True
     try:
+        from .installation import assert_enabled
+        assert_enabled(module_id)
         base, instance, token = config()
         key = f'commercial:socket:{instance}:{module_id}'
         result = cache.get(key)

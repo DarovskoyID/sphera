@@ -41,3 +41,10 @@ class UserModule(models.Model):
 
     def __str__(self):
         return f'{self.user_id}:{self.module_id}'
+
+
+class DisabledCommercialModule(models.Model):
+    """Local uninstall preference; never revokes a license or deletes content."""
+    module_id = models.CharField(max_length=64, primary_key=True)
+    disabled_at = models.DateTimeField(auto_now_add=True)
+    disabled_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL)

@@ -91,14 +91,14 @@ export function parseServiceDocument(input: unknown): ServiceDocument {
   return input as ServiceDocument;
 }
 
-export type CommercialService = { id: string; name: Record<string, string>; paid: true; scope: 'instance'; delivery: 'declarative'; migrated?: boolean; available: boolean; subscription: { status: 'active' | 'expired' | 'required' | 'paused' | 'revoked'; expires_at: string | null } };
+export type CommercialService = { id: string; name: Record<string, string>; paid: true; scope: 'instance'; delivery: 'declarative'; migrated?: boolean; available: boolean; installed?: boolean; subscription: { status: 'active' | 'expired' | 'required' | 'paused' | 'revoked'; expires_at: string | null } };
 export function parseServiceCatalog(input: unknown): CommercialService[] {
   const catalog = record(input);
   keys(catalog, ['instance_id', 'modules']); text(catalog.instance_id, 64);
   const ids = new Set<string>();
   list(catalog.modules, 100).forEach(input => {
     const service = record(input);
-    keys(service, ['id', 'name', 'paid', 'scope', 'delivery', 'migrated', 'available', 'subscription']);
+    keys(service, ['id', 'name', 'paid', 'scope', 'delivery', 'migrated', 'available', 'installed', 'subscription']);
     if (service.migrated !== undefined && typeof service.migrated !== 'boolean') invalid();
     id(service.id);
     if (ids.has(service.id as string)) invalid();
@@ -115,6 +115,8 @@ export function parseServiceCatalog(input: unknown): CommercialService[] {
       if (!Number.isFinite(Date.parse(sub.expires_at))) invalid();
     }
     if (service.available && sub.status !== 'active') invalid();
+    if (service.installed !== undefined && typeof service.installed !== 'boolean') invalid();
+    if (service.installed === true && !service.available) invalid();
   });
   return catalog.modules as CommercialService[];
 }

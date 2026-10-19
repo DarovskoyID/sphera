@@ -15,6 +15,8 @@ def enforced():
 
 def require(module_id, operation, *, method='MUTATE', transport='engine', values=None, user=None):
     if not enforced(): return
+    from .installation import assert_enabled
+    assert_enabled(module_id)
     actor = user or SimpleNamespace(id='node', is_superuser=False)
     data = {'operation': operation, 'method': method, 'transport': transport}
     if values: data.update(values)

@@ -18,7 +18,12 @@ def commercial_activate(request):
     from .commercial import activate_key, CommercialError
     try:
         if not isinstance(request.data, dict): return Response({'error': 'invalid_activation'}, status=400)
-        response = Response(activate_key(request.user, request.data.get('license_key'), request.data.get('module_id')))
+        result = activate_key(request.user, request.data.get('license_key'), request.data.get('module_id'))
+        selected = request.data.get('module_id')
+        if selected and selected in result['modules']:
+            from .models import DisabledCommercialModule
+            DisabledCommercialModule.objects.filter(module_id=selected).delete()
+        response = Response(result)
         response['Cache-Control'] = 'no-store'
         return response
     except CommercialError as error:
@@ -205,7 +210,8 @@ def module_install(request, module_id):
 def commercial_catalog(request):
     from .commercial import call, CommercialError
     try:
-        result = call(request.user)
+        from .installation import annotate_catalog
+        result = annotate_catalog(call(request.user))
         response = Response(result)
         response['Cache-Control'] = 'no-store'
         response['X-Sfera-Module-Runtime'] = 'commercial-api'
@@ -219,6 +225,8 @@ def commercial_catalog(request):
 def commercial_view(request, module_id):
     from .commercial import call, CommercialError
     try:
+        from .installation import assert_enabled
+        assert_enabled(module_id)
         response = Response(call(request.user, module_id=module_id))
         response['Cache-Control'] = 'no-store'
         response['X-Sfera-Module-Runtime'] = 'commercial-api'
@@ -234,9 +242,37 @@ def commercial_action(request, module_id, action_id):
         return Response({'error': 'invalid_values'}, status=400)
     from .commercial import call, CommercialError
     try:
+        from .installation import assert_enabled
+        assert_enabled(module_id)
         response = Response(call(request.user, module_id=module_id, action_id=action_id, values=request.data.get('values', {}), request_id=request.data.get('request_id')))
         response['Cache-Control'] = 'no-store'
         response['X-Sfera-Module-Runtime'] = 'commercial-api'
         return response
     except CommercialError as error:
         return Response({'error': error.code}, status=error.status)
+
+
+@api_view(['PUT', 'DELETE'])
+@permission_classes([IsAuthenticated])
+def commercial_installation(request, module_id):
+    from .commercial import MODULE_IDS, call, CommercialError
+    from .models import DisabledCommercialModule
+    response = None
+    if not can_manage(request.user):
+        response = Response({'error': 'admin_required'}, status=403)
+    elif module_id not in MODULE_IDS:
+        response = Response({'error': 'unknown_module'}, status=404)
+    elif request.method == 'DELETE':
+        DisabledCommercialModule.objects.get_or_create(module_id=module_id, defaults={'disabled_by': request.user})
+        response = Response({'module': module_id, 'installed': False})
+    else:
+        try:
+            catalog = call(request.user)
+            active = any(row.get('id') == module_id and row.get('available') is True and row.get('subscription', {}).get('status') == 'active' for row in catalog.get('modules', []))
+            if not active: raise CommercialError('subscription_required', 403)
+            DisabledCommercialModule.objects.filter(module_id=module_id).delete()
+            response = Response({'module': module_id, 'installed': True})
+        except CommercialError as error:
+            response = Response({'error': error.code}, status=error.status)
+    response['Cache-Control'] = 'no-store'
+    return response
