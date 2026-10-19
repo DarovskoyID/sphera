@@ -38,7 +38,25 @@ func freeAddress() (string, error) {
 	defer l.Close()
 	return l.Addr().String(), nil
 }
-func initialize(root string) error {
+func initialize(root string, issuerPath string) error {
+	var issuerConfig []byte
+	if issuerPath != "" {
+		raw, e := os.ReadFile(issuerPath)
+		if e != nil {
+			return e
+		}
+		var issuers map[string]string
+		if e = json.Unmarshal(raw, &issuers); e != nil {
+			return e
+		}
+		if e = validateIssuers(issuers); e != nil {
+			return e
+		}
+		if len(issuers) == 0 {
+			return fmt.Errorf("explicit issuer file must not be empty")
+		}
+		issuerConfig = canonical(GenesisApplication{issuers})
+	}
 	if _, e := os.Stat(root); !os.IsNotExist(e) {
 		return fmt.Errorf("lab directory must not exist")
 	}
@@ -73,6 +91,7 @@ func initialize(root string) error {
 		lab.RPC = append(lab.RPC, "tcp://"+addr)
 	}
 	genesis := &types.GenesisDoc{GenesisTime: time.Now().UTC(), ChainID: lab.Chain, ConsensusParams: types.DefaultConsensusParams(), Validators: validators}
+	genesis.AppState = issuerConfig
 	for i := 0; i < 4; i++ {
 		if e := genesis.SaveAs(filepath.Join(root, fmt.Sprint(i), "config", "genesis.json")); e != nil {
 			return e
@@ -129,7 +148,15 @@ func run(root string, index int) error {
 		return e
 	}
 	defer db.Close()
-	app, e := NewApplication(db, lab.Chain)
+	genesis, e := types.GenesisDocFromFile(c.GenesisFile())
+	if e != nil {
+		return e
+	}
+	issuers, e := genesisIssuers(genesis.AppState)
+	if e != nil {
+		return e
+	}
+	app, e := NewApplicationWithIssuers(db, lab.Chain, issuers)
 	if e != nil {
 		return e
 	}
@@ -160,14 +187,17 @@ func main() {
 	index := flag.Int("validator", -1, "validator 0..3")
 	init := flag.Bool("init", false, "initialize four-node lab exclusively")
 	verify := flag.String("verify-genesis", "", "verify stdin evidence against a locally pinned genesis")
+	issuers := flag.String("license-issuers", "", "public issuer map for a NEW laboratory genesis")
 	flag.Parse()
 	var e error
-	if *verify != "" {
+	if *issuers != "" && !*init {
+		e = fmt.Errorf("license issuer configuration is only accepted with --init")
+	} else if *verify != "" {
 		e = verifyInput(*verify)
 	} else if *root == "" {
 		e = fmt.Errorf("--home is required")
 	} else if *init {
-		e = initialize(*root)
+		e = initialize(*root, *issuers)
 	} else {
 		e = run(*root, *index)
 	}

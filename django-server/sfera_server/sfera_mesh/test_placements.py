@@ -1,10 +1,11 @@
 import copy
 from hashlib import sha256
 import unittest
+import uuid
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from .directory import ZERO
 from .identity import node_id
-from .placements import cluster_id, consent_placement, validate_placement, validate_history
+from .placements import cluster_id, consent_placement, consent_licensed_placement, validate_placement, validate_history, verify_placement_licenses
 from .storage import canonical
 
 
@@ -44,3 +45,24 @@ class PlacementTests(unittest.TestCase):
         for history in ([], [head, head]):
             bad = {**state, 'placement_history': {body['cluster']: history}}
             with self.assertRaises(ValueError): validate_history(bad, 'lab')
+
+    def test_company_profiles_bound_to_consents_and_verified_at_acceptance_time(self):
+        issuer = Ed25519PrivateKey.generate()
+        public = issuer.public_key().public_bytes_raw()
+        issuer_id = sha256(public).hexdigest()
+        trusted = {issuer_id:public}
+        body = {**self.record['body'], 'domain':'sfera-mesh-placement-v2'}
+        documents = []
+        for node in body['members']:
+            claims = {'schema':'sfera-mesh-license-v1','issuer':issuer_id,'instance_id':str(uuid.uuid4()),'node_id':node,'network':'lab','issued_at':100,'expires_at':400,'modules':[]}
+            documents.append({'claims':claims,'signature':issuer.sign(canonical(claims)).hex()})
+        body['licenses_hash'] = sha256(canonical(documents)).hexdigest()
+        record = {'body':body,'licenses':documents,'consents':[consent_licensed_placement(body,documents,key,trusted,now=200) for key in self.keys]}
+        self.assertEqual([len(profile.modules) for profile in verify_placement_licenses(record,trusted,now=200)], [0,0,0])
+        with self.assertRaises(ValueError): verify_placement_licenses(record,trusted,now=400)
+        head = {'record':record,'digest':sha256(canonical(record)).hexdigest(),'accepted_at':200}
+        state = {'block_time':5000,'placements':{body['cluster']:head},'placement_history':{body['cluster']:[head]}}
+        validate_history(state,'lab',trusted_issuers=trusted)  # Historical data survives expiry.
+        changed = copy.deepcopy(record)
+        changed['licenses'][0]['claims']['modules'] = [{'id':'office','expires_at':1000}]
+        with self.assertRaises(ValueError): validate_placement(changed,'lab')

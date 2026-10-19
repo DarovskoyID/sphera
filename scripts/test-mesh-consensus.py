@@ -71,7 +71,11 @@ def main():
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
     with tempfile.TemporaryDirectory(prefix='sfera-consensus-') as temp:
         home = Path(temp) / 'lab'
-        subprocess.run([str(binary), '--home', str(home), '--init'], check=True)
+        license_issuer = Ed25519PrivateKey.generate()  # Isolated fixture only; never a node/user root.
+        issuer_public = license_issuer.public_key().public_bytes_raw()
+        issuer_file = Path(temp) / 'issuer-public.json'
+        issuer_file.write_bytes(canonical({sha256(issuer_public).hexdigest():issuer_public.hex()}))
+        subprocess.run([str(binary), '--home', str(home), '--init', '--license-issuers', str(issuer_file)], check=True)
         lab = json.loads((home / 'lab.json').read_text())
 
         def rpc(index, method, params=None):
@@ -330,7 +334,7 @@ def main():
             spec = importlib.util.spec_from_file_location('mesh_placement_fixture', ROOT / 'scripts' / 'mesh-placement-fixture.py')
             placement_fixture = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(placement_fixture)
-            placement_fixture.verify_placements(lab['chain'], temp, directory, address, submit, wait_for)
+            placement_fixture.verify_placements(lab['chain'], temp, directory, address, submit, wait_for, license_issuer)
             for i in list(processes):
                 stop(i)
             for i in range(4):

@@ -11,24 +11,27 @@ import (
 )
 
 type PlacementBody struct {
-	Domain   string   `json:"domain"`
-	Network  string   `json:"network"`
-	Cluster  string   `json:"cluster"`
-	Epoch    int64    `json:"epoch"`
-	Previous string   `json:"previous"`
-	Members  []string `json:"members"`
+	Domain       string   `json:"domain"`
+	Network      string   `json:"network"`
+	Cluster      string   `json:"cluster"`
+	Epoch        int64    `json:"epoch"`
+	Previous     string   `json:"previous"`
+	Members      []string `json:"members"`
+	LicensesHash string   `json:"licenses_hash,omitempty"`
 }
 type Consent struct {
 	PublicKey string `json:"public_key"`
 	Signature string `json:"signature"`
 }
 type Placement struct {
-	Body     PlacementBody `json:"body"`
-	Consents []Consent     `json:"consents"`
+	Body     PlacementBody     `json:"body"`
+	Consents []Consent         `json:"consents"`
+	Licenses []LicenseDocument `json:"licenses,omitempty"`
 }
 type PlacementHead struct {
-	Record Placement `json:"record"`
-	Digest string    `json:"digest"`
+	Record     Placement `json:"record"`
+	Digest     string    `json:"digest"`
+	AcceptedAt int64     `json:"accepted_at,omitempty"`
 }
 
 func clusterID(network string, members []string) string {
@@ -36,7 +39,7 @@ func clusterID(network string, members []string) string {
 }
 func decodePlacement(tx []byte, network string) (Placement, string, error) {
 	var p Placement
-	if len(tx) > 4096 {
+	if len(tx) > 16384 {
 		return p, "", errors.New("placement too large")
 	}
 	d := json.NewDecoder(bytes.NewReader(tx))
@@ -48,8 +51,15 @@ func decodePlacement(tx []byte, network string) (Placement, string, error) {
 		return p, "", errors.New("trailing placement")
 	}
 	b := p.Body
-	if !bytes.Equal(tx, canonical(p)) || b.Domain != "sfera-mesh-placement-v1" || b.Network != network || !hex64.MatchString(b.Cluster) || b.Epoch < 1 || !hex64.MatchString(b.Previous) || len(b.Members) != 3 || len(p.Consents) != 3 || !sort.StringsAreSorted(b.Members) {
+	if !bytes.Equal(tx, canonical(p)) || (b.Domain != "sfera-mesh-placement-v1" && b.Domain != "sfera-mesh-placement-v2") || b.Network != network || !hex64.MatchString(b.Cluster) || b.Epoch < 1 || !hex64.MatchString(b.Previous) || len(b.Members) != 3 || len(p.Consents) != 3 || !sort.StringsAreSorted(b.Members) {
 		return p, "", errors.New("placement context")
+	}
+	if b.Domain == "sfera-mesh-placement-v1" {
+		if b.LicensesHash != "" || len(p.Licenses) != 0 {
+			return p, "", errors.New("legacy placement fields")
+		}
+	} else if len(p.Licenses) != 3 || b.LicensesHash != hex.EncodeToString(digest(p.Licenses)) {
+		return p, "", errors.New("consented licenses hash mismatch")
 	}
 	if b.Epoch == 1 && (b.Previous != zero || b.Cluster != clusterID(network, b.Members)) {
 		return p, "", errors.New("initial cluster identity")
@@ -79,6 +89,9 @@ func applyPlacement(s *State, tx []byte) error {
 	old, exists := s.Placements[p.Body.Cluster]
 	if exists && old.Digest == h {
 		return nil
+	}
+	if err := verifyPlacementLicenses(p, s.Issuers, s.BlockTime); err != nil {
+		return err
 	}
 	if !exists && p.Body.Epoch != 1 {
 		return errors.New("initial epoch required")
@@ -118,11 +131,11 @@ func applyPlacement(s *State, tx []byte) error {
 	if s.Placements == nil {
 		s.Placements = map[string]PlacementHead{}
 	}
-	s.Placements[p.Body.Cluster] = PlacementHead{p, h}
+	s.Placements[p.Body.Cluster] = PlacementHead{p, h, s.BlockTime}
 	if s.PlacementHistory == nil {
 		s.PlacementHistory = map[string][]PlacementHead{}
 	}
-	s.PlacementHistory[p.Body.Cluster] = append(s.PlacementHistory[p.Body.Cluster], PlacementHead{p, h})
+	s.PlacementHistory[p.Body.Cluster] = append(s.PlacementHistory[p.Body.Cluster], PlacementHead{p, h, s.BlockTime})
 	return nil
 }
 
@@ -142,6 +155,16 @@ func verifyPlacementHistory(state State) error {
 			if err != nil || h != item.Digest || p.Body.Cluster != cluster || p.Body.Epoch != int64(i+1) || p.Body.Previous != previous {
 				return errors.New("invalid placement chain")
 			}
+			if p.Body.Domain == "sfera-mesh-placement-v2" {
+				if item.AcceptedAt > state.BlockTime {
+					return errors.New("future license acceptance")
+				}
+				if err := verifyPlacementLicenses(p, state.Issuers, item.AcceptedAt); err != nil {
+					return err
+				}
+			} else if len(state.Issuers) > 0 {
+				return errors.New("legacy placement in issuer-pinned network")
+			}
 			if prior != nil {
 				overlap := 0
 				for _, node := range p.Body.Members {
@@ -159,7 +182,7 @@ func verifyPlacementHistory(state State) error {
 			prior = &b
 			previous = h
 		}
-		if previous != head.Digest {
+		if previous != head.Digest || !bytes.Equal(canonical(head), canonical(history[len(history)-1])) {
 			return errors.New("placement head mismatch")
 		}
 	}

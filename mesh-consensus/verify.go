@@ -65,6 +65,21 @@ func verifyEvidence(genesis *types.GenesisDoc, evidence Evidence, now time.Time)
 	if state.Network != genesis.ChainID || state.Height < 1 || state.Height != signed.Height-1 || state.Accounts == nil || !bytes.Equal(evidence.State, canonical(state)) {
 		return nil, errors.New("snapshot context")
 	}
+	issuers, err := genesisIssuers(genesis.AppState)
+	if err != nil {
+		return nil, err
+	}
+	if len(issuers) != len(state.Issuers) {
+		return nil, errors.New("snapshot issuer mismatch")
+	}
+	for k, v := range issuers {
+		if state.Issuers[k] != v {
+			return nil, errors.New("snapshot issuer mismatch")
+		}
+	}
+	if state.BlockTime > signed.Time.Unix() {
+		return nil, errors.New("snapshot future block time")
+	}
 	// Header at H+1 commits the application state produced at H.
 	if !bytes.Equal(digest(state), signed.AppHash) {
 		return nil, errors.New("snapshot app hash mismatch")

@@ -98,7 +98,9 @@ class ConsensusDirectory:
         self.binary = str(Path(binary).resolve())
         self.genesis = str(Path(genesis).resolve())
         self.pin = sha256(Path(self.genesis).read_bytes()).hexdigest()
-        self.network = json.loads(Path(self.genesis).read_bytes())['chain_id']
+        genesis = json.loads(Path(self.genesis).read_bytes())
+        self.network = genesis['chain_id']
+        self.license_issuers = (genesis.get('app_state') or {}).get('license_issuers', {})
         self.lock = threading.RLock()
         self.refresh_lock = threading.RLock()
         self.closed = False
@@ -133,6 +135,8 @@ class ConsensusDirectory:
             raise ConsensusUnavailable('invalid_or_stale_consensus_evidence')
         verified = json.loads(result.stdout)
         state = verified['state']
+        if state.get('license_issuers',{}) != self.license_issuers:
+            raise ValueError('verified_issuer_configuration_changed')
         if state['network'] != self.network or not digest64(verified['header_hash']):
             raise ValueError('invalid_verifier_output')
         for identity, head in state['accounts'].items():
@@ -140,7 +144,7 @@ class ConsensusDirectory:
             if digest != head['digest']:
                 raise ValueError('invalid_verified_record')
         counts = {}
-        validate_history(state, self.network)
+        validate_history(state, self.network, trusted_issuers={issuer:bytes.fromhex(public) for issuer,public in self.license_issuers.items()})
         for cluster, head in state.get('placements', {}).items():
             body, digest = validate_placement(head['record'], self.network)
             if body['cluster'] != cluster or digest != head['digest']:

@@ -42,6 +42,8 @@ type State struct {
 	Accounts         map[string]Head            `json:"accounts"`
 	Placements       map[string]PlacementHead   `json:"placements,omitempty"`
 	PlacementHistory map[string][]PlacementHead `json:"placement_history,omitempty"`
+	Issuers          map[string]string          `json:"license_issuers,omitempty"`
+	BlockTime        int64                      `json:"block_time,omitempty"`
 }
 type Application struct {
 	abci.BaseApplication
@@ -125,7 +127,7 @@ func apply(s *State, tx []byte) error {
 	if err := json.Unmarshal(tx, &kind); err != nil {
 		return err
 	}
-	if kind.Body.Domain == "sfera-mesh-placement-v1" {
+	if kind.Body.Domain == "sfera-mesh-placement-v1" || kind.Body.Domain == "sfera-mesh-placement-v2" {
 		return applyPlacement(s, tx)
 	}
 	r, h, err := decodeRecord(tx, s.Network)
@@ -143,10 +145,22 @@ func apply(s *State, tx []byte) error {
 	return nil
 }
 func NewApplication(db dbm.DB, network string) (*Application, error) {
+	return NewApplicationWithIssuers(db, network, nil)
+}
+func NewApplicationWithIssuers(db dbm.DB, network string, issuers map[string]string) (*Application, error) {
+	if err := validateIssuers(issuers); err != nil {
+		return nil, err
+	}
 	if !networkName.MatchString(network) {
 		return nil, errors.New("invalid network")
 	}
 	a := &Application{db: db, state: State{Network: network, Accounts: map[string]Head{}}}
+	if len(issuers) > 0 {
+		a.state.Issuers = make(map[string]string, len(issuers))
+		for k, v := range issuers {
+			a.state.Issuers[k] = v
+		}
+	}
 	raw, err := db.Get([]byte("state"))
 	if err != nil {
 		return nil, err
@@ -157,6 +171,14 @@ func NewApplication(db dbm.DB, network string) (*Application, error) {
 		}
 		if a.state.Network != network || a.state.Accounts == nil {
 			return nil, errors.New("state context")
+		}
+		if len(a.state.Issuers) != len(issuers) {
+			return nil, errors.New("issuer configuration changed")
+		}
+		for k, v := range issuers {
+			if a.state.Issuers[k] != v {
+				return nil, errors.New("issuer configuration changed")
+			}
 		}
 	}
 	return a, nil
@@ -169,7 +191,16 @@ func (a *Application) Info(context.Context, *abci.RequestInfo) (*abci.ResponseIn
 func (a *Application) InitChain(_ context.Context, r *abci.RequestInitChain) (*abci.ResponseInitChain, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if r.ChainId != a.state.Network || r.InitialHeight != 1 || len(r.AppStateBytes) != 0 {
+	issuers, err := genesisIssuers(r.AppStateBytes)
+	if err != nil || len(issuers) != len(a.state.Issuers) {
+		return nil, errors.New("genesis issuer mismatch")
+	}
+	for k, v := range issuers {
+		if a.state.Issuers[k] != v {
+			return nil, errors.New("genesis issuer mismatch")
+		}
+	}
+	if r.ChainId != a.state.Network || r.InitialHeight != 1 {
 		return nil, errors.New("unsupported genesis context")
 	}
 	return &abci.ResponseInitChain{AppHash: digest(a.state)}, nil
@@ -207,6 +238,12 @@ func (a *Application) FinalizeBlock(_ context.Context, r *abci.RequestFinalizeBl
 	}
 	s := clone(a.state)
 	results := make([]*abci.ExecTxResult, len(r.Txs))
+	if !r.Time.IsZero() {
+		if r.Time.Unix() < s.BlockTime {
+			return nil, errors.New("block time rollback")
+		}
+		s.BlockTime = r.Time.Unix()
+	}
 	for i, tx := range r.Txs {
 		results[i] = &abci.ExecTxResult{}
 		if err := apply(&s, tx); err != nil {
