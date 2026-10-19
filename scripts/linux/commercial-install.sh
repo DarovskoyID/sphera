@@ -53,9 +53,10 @@ for attempt in $(seq 1 90); do
   sleep 2
 done
 [[ "$ready" == 1 ]] || { echo 'Commercial API did not become healthy'; docker compose logs --tail 60 commercial-api; exit 1; }
-docker compose exec -T commercial-api python manage.py bootstrap_operator --token-file /app/state/operator.json
-if ! docker compose exec -T commercial-api test -f /app/state/core-instance.json; then
-  docker compose exec -T commercial-api python manage.py issue_instance --name company-node --token-file /app/state/core-instance.json
+# This script may arrive over SSH stdin. Exec must not consume its remaining lines.
+docker compose exec -T commercial-api python manage.py bootstrap_operator --token-file /app/state/operator.json </dev/null
+if ! docker compose exec -T commercial-api test -f /app/state/core-instance.json </dev/null; then
+  docker compose exec -T commercial-api python manage.py issue_instance --name company-node --token-file /app/state/core-instance.json </dev/null
 fi
 docker compose cp commercial-api:/app/state/core-instance.json /etc/sfera/commercial-instance.json
 chmod 600 /etc/sfera/commercial-instance.json
