@@ -1,0 +1,27 @@
+[Unit]
+Description=Sphere verified headless point supervisor
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=sfera
+Group=sfera
+ExecStart=/opt/sfera/operations/venv/bin/python -B /opt/sfera/operations/source/scripts/server_update.py --deployment /etc/sfera/initial-release.json --trust /etc/sfera/release-trust.json --config /etc/sfera/point.json --operations-directory /var/lib/sfera-updates --minimum-sequence 4
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=300
+KillMode=mixed
+SendSIGKILL=no
+StateDirectory=sfera-point sfera-updates
+StateDirectoryMode=0700
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/sfera-point /var/lib/sfera-updates
+Environment=PYTHONDONTWRITEBYTECODE=1
+
+[Install]
+WantedBy=multi-user.target

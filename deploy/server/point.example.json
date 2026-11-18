@@ -1,0 +1,21 @@
+{
+  "domain": "sphere-mesh-point-runtime-v1",
+  "network": "REPLACE_WITH_REAL_CHAIN_ID",
+  "listen_host": "0.0.0.0",
+  "listen_port": 8443,
+  "public_endpoint": "https://REPLACE_WITH_POINT_DOMAIN:8443",
+  "state_directory": "/var/lib/sfera-point",
+  "node_key": "/etc/sfera/point.key",
+  "genesis": "/etc/sfera/genesis.json",
+  "genesis_sha256": "REPLACE_WITH_INDEPENDENTLY_VERIFIED_SHA256",
+  "verifier_binary": "/opt/sfera/server/current/bin/mesh-verifier",
+  "verifier_sha256": "REPLACE_WITH_INDEPENDENTLY_VERIFIED_SHA256",
+  "tls_certificate": "/etc/sfera/tls/fullchain.pem",
+  "tls_private_key": "/etc/sfera/tls/privkey.pem",
+  "peers": {},
+  "consensus_rpc": ["http://127.0.0.1:26657"],
+  "max_blob_bytes": 1073741824,
+  "max_connections": 32,
+  "health_observer": false,
+  "replication_worker": false
+}

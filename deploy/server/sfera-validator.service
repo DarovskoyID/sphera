@@ -1,0 +1,24 @@
+[Unit]
+Description=Sphere provisioned consensus validator
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=sfera-validator
+Group=sfera-validator
+ExecStart=/opt/sfera/consensus/mesh-verifier --node-config /etc/sfera/validator.json
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=90
+StateDirectory=sfera-validator
+StateDirectoryMode=0700
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/sfera-validator
+
+[Install]
+WantedBy=multi-user.target

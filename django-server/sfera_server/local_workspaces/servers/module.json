@@ -1,0 +1,15 @@
+{
+  "id": "servers",
+  "name": { "ru": "Серверы", "en": "Servers" },
+  "description": {
+    "ru": "Сообщества с текстовыми и голосовыми каналами, ролями и приглашениями",
+    "en": "Communities with text and voice channels, roles and invites"
+  },
+  "version": "1.0.0",
+  "sdkVersion": 1,
+  "deps": [],
+  "backendApp": "sfera_servers",
+  "urlPrefix": "api/",
+  "icon": "users",
+  "provides": ["nav.rail", "main.view", "explore.search", "profile.section"]
+}

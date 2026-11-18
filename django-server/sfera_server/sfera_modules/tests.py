@@ -1,0 +1,416 @@
+import json
+import tempfile
+from pathlib import Path
+from unittest import mock
+
+from django.contrib.auth import get_user_model
+from django.core.management import call_command
+from django.db import IntegrityError, transaction
+from django.test import TestCase, override_settings
+from rest_framework.test import APIClient
+
+from . import loader
+from .models import InstanceModule
+from .permissions import has_module
+
+
+def _write_modules(root: Path, specs: dict):
+    for mid, extra in specs.items():
+        d = root / mid
+        d.mkdir()
+        (d / 'module.json').write_text(json.dumps({'id': mid, 'version': '1.0.0', **extra}), encoding='utf-8')
+
+
+class ModuleRegistryTests(TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        root = Path(self.tmp.name)
+        _write_modules(root, {
+            'servers': {},
+            'channels': {},
+            'family': {'deps': ['servers']},
+            'orphan': {'deps': ['missing']},
+            'future': {'sdkVersion': 99},
+            'multiserver': {'preAuth': True},
+        })
+        self.patches = [
+            mock.patch.object(loader, 'MODULES_DIR', root),
+            mock.patch.object(loader, '_cache', None),
+        ]
+        for p in self.patches:
+            p.start()
+        User = get_user_model()
+        self.user = User.objects.create_superuser(username='root', email='root@x.ru', password='pass12345')
+        self.member = User.objects.create_user(username='u1', email='u1@x.ru', password='pass12345')
+        self.client = APIClient(headers={'X-Ionik-Client': '1'})
+        self.client.force_authenticate(self.user)
+        self.member_client = APIClient(headers={'X-Ionik-Client': '1'})
+        self.member_client.force_authenticate(self.member)
+
+    def tearDown(self):
+        for p in self.patches:
+            p.stop()
+        self.tmp.cleanup()
+
+    def test_discover_skips_missing_deps_and_foreign_sdk(self):
+        self.assertEqual(set(loader.discover()), {'servers', 'channels', 'family', 'multiserver'})
+
+    @override_settings(SFERA_MODULES_ENFORCE=True)
+    def test_install_pulls_deps_and_uninstall_is_guarded(self):
+        r = self.client.post('/api/modules/family/install/')
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(set(r.data['installed']), {'family', 'servers'})
+
+        r = self.client.delete('/api/modules/servers/install/')
+        self.assertEqual(r.status_code, 409)
+
+        self.assertEqual(self.client.delete('/api/modules/family/install/').status_code, 200)
+        self.assertEqual(self.client.delete('/api/modules/servers/install/').status_code, 200)
+        self.assertFalse(InstanceModule.objects.exists())
+
+    @override_settings(SFERA_MODULES_ENFORCE=True)
+    def test_list_and_gate(self):
+        self.assertFalse(has_module(self.member, 'channels'))
+        self.client.post('/api/modules/channels/install/')
+        # Installed by the superuser for the whole instance.
+        self.assertTrue(has_module(self.member, 'channels'))
+        data = self.member_client.get('/api/modules/').data
+        self.assertFalse(data['can_manage'])
+        mods = {m['id']: m['installed'] for m in data['modules']}
+        self.assertEqual(mods, {'servers': False, 'channels': True, 'family': False, 'multiserver': False})
+        self.assertTrue(self.client.get('/api/modules/').data['can_manage'])
+
+    @override_settings(SFERA_MODULES_ENFORCE=True)
+    def test_public_modules_for_sign_in_screen(self):
+        anon = APIClient(headers={'X-Ionik-Client': '1'})
+        self.assertEqual(anon.get('/api/modules/public/').data['modules'], [])
+        self.client.post('/api/modules/multiserver/install/')
+        self.client.post('/api/modules/servers/install/')
+        ids = [m['id'] for m in anon.get('/api/modules/public/').data['modules']]
+        self.assertEqual(ids, ['multiserver'])
+
+    @override_settings(SFERA_MODULES_ENFORCE=True)
+    def test_only_superuser_manages_modules(self):
+        self.assertEqual(self.member_client.post('/api/modules/servers/install/').status_code, 403)
+        self.client.post('/api/modules/servers/install/')
+        self.assertEqual(self.member_client.delete('/api/modules/servers/install/').status_code, 403)
+        self.assertTrue(InstanceModule.objects.filter(module_id='servers').exists())
+
+    def test_unknown_module(self):
+        self.assertEqual(self.client.post('/api/modules/nope/install/').status_code, 404)
+
+    def test_not_enforced_means_everything_installed(self):
+        self.assertTrue(has_module(self.user, 'servers'))
+
+
+class UninstallTests(TestCase):
+    """Removing a module removes its say and its data."""
+
+    def setUp(self):
+        from django.core.cache import cache
+
+        cache.clear()
+        self.addCleanup(cache.clear)
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        root = Path(self.tmp.name)
+        _write_modules(root, {'guarded': {}})
+        for patch in (mock.patch.object(loader, 'MODULES_DIR', root), mock.patch.object(loader, '_cache', None)):
+            patch.start()
+            self.addCleanup(patch.stop)
+        User = get_user_model()
+        self.admin = User.objects.create_superuser(username='root', email='r@x.ru', password='pass12345')
+        self.member = User.objects.create_user(username='u1', email='u1@x.ru', password='pass12345')
+        self.client = APIClient(headers={'X-Ionik-Client': '1'})
+        self.client.force_authenticate(self.admin)
+
+        from . import hooks
+
+        self.hooks = hooks
+        hooks.register(hooks.ACCESS_GUARD, 'guarded', lambda user_id: {'error': 'blocked', 'allow': ()})
+        hooks.register(hooks.LOGIN_GUARD, 'guarded', lambda user, request=None: {'error': 'second_factor_required'})
+        self.addCleanup(lambda: [hooks._registries[r].pop('guarded', None)
+                                 for r in (hooks.ACCESS_GUARD, hooks.LOGIN_GUARD, hooks.PURGE_DATA)])
+
+    @override_settings(SFERA_MODULES_ENFORCE=True)
+    def test_an_uninstalled_module_stops_guarding_sign_in_and_access(self):
+        """Its hooks stay registered until a restart — they must not be asked."""
+        self.client.post('/api/modules/guarded/install/')
+        self.assertIsNotNone(self.hooks.access_block(self.member.id))
+        self.assertIsNotNone(self.hooks.login_block(self.member))
+
+        self.assertEqual(self.client.delete('/api/modules/guarded/install/').status_code, 200)
+
+        self.assertIsNone(self.hooks.access_block(self.member.id), 'uninstalled module still blocks the app')
+        self.assertIsNone(self.hooks.login_block(self.member), 'uninstalled module still asks for a code')
+
+    @override_settings(SFERA_MODULES_ENFORCE=True)
+    def test_uninstalling_runs_the_module_s_own_clean_up(self):
+        called = []
+        self.hooks.register(self.hooks.PURGE_DATA, 'guarded', lambda: called.append(True))
+        self.client.post('/api/modules/guarded/install/')
+
+        r = self.client.delete('/api/modules/guarded/install/')
+
+        self.assertEqual(r.status_code, 200)
+        self.assertTrue(called, 'PURGE_DATA was not called')
+        self.assertIn('purged', r.data)
+
+
+class PurgeDataTests(TestCase):
+    """Emptying the tables of a module's own Django app."""
+
+    def test_rows_and_files_of_the_app_are_removed(self):
+        from django.core.files.base import ContentFile
+
+        from sfera_auth.models import CustomEmoji
+        from .purge import _drop_files
+
+        user = get_user_model().objects.create_user(username='u2', email='u2@x.ru', password='pass12345')
+        emoji = CustomEmoji.objects.create(name='hey', created_by=user)
+        emoji.image.save('hey.png', ContentFile(b'not really a png'), save=True)
+        path = emoji.image.path
+
+        import os
+
+        self.assertTrue(os.path.exists(path))
+        self.assertEqual(_drop_files(CustomEmoji), 1)
+        self.assertFalse(os.path.exists(path), 'the file behind a FileField stayed')
+
+    def test_a_module_this_process_never_loaded_is_not_an_error(self):
+        from .purge import purge_module_data
+
+        self.assertEqual(purge_module_data('nothing-like-this')['rows'], 0)
+
+
+class SuperuserTests(TestCase):
+    def test_only_one_superuser(self):
+        User = get_user_model()
+        User.objects.create_superuser(username='root', email='r@x.ru', password='pass12345')
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            User.objects.create_superuser(username='root2', email='r2@x.ru', password='pass12345')
+
+    def test_ensure_superuser_from_env_is_idempotent(self):
+        User = get_user_model()
+        env = {'SFERA_SUPERUSER_USERNAME': 'boss', 'SFERA_SUPERUSER_PASSWORD': 'Very-Strong-Pass-42'}
+        with mock.patch.dict('os.environ', env):
+            call_command('ensure_superuser', '--no-input')
+            call_command('ensure_superuser', '--no-input', '--username', 'other', '--password', 'Very-Strong-Pass-43')
+        self.assertEqual(list(User.objects.filter(is_superuser=True).values_list('username', flat=True)), ['boss'])
+        self.assertTrue(User.objects.get(username='boss').check_password('Very-Strong-Pass-42'))
+
+    def test_ensure_superuser_without_credentials_does_nothing(self):
+        with mock.patch.dict('os.environ', {}, clear=False):
+            call_command('ensure_superuser', '--no-input')
+        self.assertFalse(get_user_model().objects.filter(is_superuser=True).exists())
+
+
+class RemoteCatalogTests(TestCase):
+    """Modules listed from module/<id> branches and installed from the repository."""
+
+    def setUp(self):
+        from . import remote
+
+        self.remote = remote
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        _write_modules(self.root, {'diary': {'backendApp': None}})
+        (self.root / 'diary' / 'frontend').mkdir()
+        (self.root / 'diary' / 'frontend' / 'index.tsx').write_text('export default {}', encoding='utf-8')
+        self.repo = {
+            'diary': {'ref': 'a' * 40, 'manifest': {'id': 'diary', 'version': '1.1.0'}},
+            'planner': {'ref': 'b' * 40, 'manifest': {'id': 'planner', 'version': '1.0.0', 'name': {'ru': 'Планировщик'}, 'deps': [], 'backendApp': 'sfera_planner'}},
+        }
+        for p in (
+            mock.patch.object(loader, 'MODULES_DIR', self.root),
+            mock.patch.object(loader, '_cache', None),
+            mock.patch.object(remote, 'catalog', return_value=(self.repo, None)),
+            mock.patch.object(remote, 'disk_ref', side_effect=lambda mid: ('c' * 40) if (self.root / mid / 'module.json').exists() else None),
+            mock.patch.object(remote, '_loaded_refs', {}),
+        ):
+            p.start()
+            self.addCleanup(p.stop)
+        self.addCleanup(self.tmp.cleanup)
+        User = get_user_model()
+        self.admin = User.objects.create_superuser(username='root', email='root@x.ru', password='pass12345')
+        self.member = User.objects.create_user(username='u1', email='u1@x.ru', password='pass12345')
+        self.client = APIClient(headers={'X-Ionik-Client': '1'})
+        self.client.force_authenticate(self.admin)
+
+    @override_settings(SFERA_MODULES_ENFORCE=True)
+    def test_catalog_shows_repository_versions_and_updates(self):
+        data = self.client.get('/api/modules/').data
+        mods = {m['id']: m for m in data['modules']}
+        self.assertEqual(set(mods), {'diary', 'planner'})
+        self.assertTrue(mods['diary']['deployed'])
+        self.assertEqual(mods['diary']['latestVersion'], '1.1.0')
+        self.assertTrue(mods['diary']['updateAvailable'])
+        self.assertTrue(mods['diary']['bundle'].startswith('api/modules/diary/bundle.js?v='))
+        self.assertFalse(mods['planner']['deployed'])
+        self.assertEqual(mods['planner']['name'], {'ru': 'Планировщик'})
+        # Members only see what is on the server.
+        member = APIClient(headers={'X-Ionik-Client': '1'})
+        member.force_authenticate(self.member)
+        self.assertEqual([m['id'] for m in member.get('/api/modules/').data['modules']], ['diary'])
+
+    @override_settings(SFERA_MODULES_ENFORCE=True)
+    def test_install_from_repository_starts_a_job(self):
+        with mock.patch.object(self.remote, '_enqueue') as enqueue:
+            r = self.client.post('/api/modules/planner/install/')
+        self.assertEqual(r.status_code, 202)
+        self.assertEqual(r.data['jobs'], ['planner'])
+        enqueue.assert_called_once()
+        self.assertTrue(InstanceModule.objects.filter(module_id='planner').exists())
+        planner = next(m for m in self.client.get('/api/modules/').data['modules'] if m['id'] == 'planner')
+        self.assertEqual(planner['pending'], 'installing')
+        # Already on the server at the wanted code: installed at once, no job.
+        r = self.client.post('/api/modules/diary/install/')
+        self.assertEqual((r.status_code, r.data['jobs']), (200, []))
+
+    @override_settings(SFERA_MODULES_ENFORCE=True)
+    def test_installed_modules_update_themselves(self):
+        InstanceModule.objects.create(module_id='diary')
+        with mock.patch.object(self.remote, '_enqueue') as enqueue:
+            self.client.get('/api/modules/')
+        self.assertEqual([item[0] for item in enqueue.call_args[0][0]], ['diary'])
+        with mock.patch.dict('os.environ', {'SFERA_MODULES_AUTOUPDATE': '0'}), mock.patch.object(self.remote, '_enqueue') as enqueue:
+            (self.root / '.jobs' / 'diary.json').unlink(missing_ok=True)
+            self.client.get('/api/modules/')
+        enqueue.assert_not_called()
+
+    def test_restart_job_ends_when_the_new_code_is_loaded(self):
+        (self.root / '.jobs').mkdir()
+        (self.root / '.jobs' / 'diary.json').write_text(json.dumps({'status': 'restarting', 'ref': 'c' * 40}), encoding='utf-8')
+        self.assertIsNone(self.remote.job('diary'))
+        self.assertFalse((self.root / '.jobs' / 'diary.json').exists())
+
+    @override_settings(SFERA_MODULES_ENFORCE=True)
+    def test_a_module_whose_code_is_gone_can_still_be_removed(self):
+        """A failed install leaves the row without the code; the card must not be stuck."""
+        InstanceModule.objects.create(module_id='planner')  # installed, never deployed
+        (self.root / '.jobs').mkdir(exist_ok=True)
+        (self.root / '.jobs' / 'planner.json').write_text(
+            json.dumps({'status': 'failed', 'error': 'migrate: boom'}), encoding='utf-8')
+
+        r = self.client.delete('/api/modules/planner/install/')
+
+        self.assertEqual(r.status_code, 200, r.data)
+        self.assertTrue(r.data['uninstalled'])
+        self.assertFalse(InstanceModule.objects.filter(module_id='planner').exists())
+        # The failed job goes with it, or the card keeps showing yesterday's error.
+        self.assertFalse((self.root / '.jobs' / 'planner.json').exists())
+
+    @override_settings(SFERA_MODULES_ENFORCE=True)
+    def test_uninstalling_a_module_without_code_leaves_nothing_behind(self):
+        """So the next install starts over instead of trusting a stale record."""
+        InstanceModule.objects.create(module_id='planner')
+        self.remote._write_json(self.root / '.installed.json',
+                                {'planner': {'branch': 'module/planner', 'ref': 'b' * 40}})
+
+        self.assertEqual(self.client.delete('/api/modules/planner/install/').status_code, 200)
+
+        self.assertNotIn('planner', self.remote.installed_refs())
+        self.assertFalse(InstanceModule.objects.filter(module_id='planner').exists())
+        # And it can be installed again, from the repository.
+        with mock.patch.object(self.remote, '_enqueue') as enqueue:
+            r = self.client.post('/api/modules/planner/install/')
+        self.assertEqual((r.status_code, r.data['jobs']), (202, ['planner']))
+        enqueue.assert_called_once()
+
+    @override_settings(SFERA_MODULES_ENFORCE=True)
+    def test_code_on_disk_that_the_server_never_loaded_is_installed_again(self):
+        """A failed migrate leaves the code in place and the process without it."""
+        # An app name this test run certainly does not have in INSTALLED_APPS.
+        _write_modules(self.root, {'planner': {'backendApp': 'sfera_never_loaded'}})
+        self.repo['planner']['manifest']['backendApp'] = 'sfera_never_loaded'
+        self.repo['planner']['ref'] = 'c' * 40  # exactly what disk_ref reports
+
+        with mock.patch.object(self.remote, '_enqueue') as enqueue:
+            r = self.client.post('/api/modules/planner/install/')
+
+        # Nothing to fetch, yet there is work: migrate and restart into the code.
+        self.assertEqual((r.status_code, r.data['jobs']), (202, ['planner']))
+        enqueue.assert_called_once()
+
+    @override_settings(SFERA_MODULES_ENFORCE=True)
+    def test_restore_works_while_the_repository_is_unreachable(self):
+        InstanceModule.objects.create(module_id='planner')
+        known = {'ref': 'b' * 40, 'manifest': self.repo['planner']['manifest']}
+        with mock.patch.object(self.remote, 'catalog', return_value=({}, 'ssh: connect timed out')), \
+             mock.patch.object(self.remote, 'known_spec', return_value=known), \
+             mock.patch.object(self.remote, '_enqueue') as enqueue:
+            r = self.client.post('/api/modules/planner/install/')
+        self.assertEqual(r.status_code, 202, r.data)
+        self.assertEqual(r.data['jobs'], ['planner'])
+        enqueue.assert_called_once()
+
+    @override_settings(SFERA_MODULES_ENFORCE=True)
+    def test_a_module_built_for_a_newer_core_is_refused_not_half_installed(self):
+        self.repo['planner']['manifest']['sdkVersion'] = loader.SDK_VERSION + 1
+        card = next(m for m in self.client.get('/api/modules/').data['modules'] if m['id'] == 'planner')
+        self.assertEqual(card['needsCoreSdk'], loader.SDK_VERSION + 1)
+
+        with mock.patch.object(self.remote, '_enqueue') as enqueue:
+            r = self.client.post('/api/modules/planner/install/')
+
+        self.assertEqual(r.status_code, 409)
+        self.assertEqual(r.data['error'], 'core_too_old')
+        enqueue.assert_not_called()
+        self.assertFalse(InstanceModule.objects.filter(module_id='planner').exists())
+
+    def test_unknown_or_malformed_module(self):
+        self.assertEqual(self.client.post('/api/modules/nope/install/').status_code, 404)
+        self.assertEqual(self.client.post('/api/modules/..%2Fetc/install/').status_code, 404)
+        self.assertEqual(APIClient().get('/api/modules/nope/bundle.js').status_code, 404)
+
+    def test_bundle_is_served_without_the_app_header(self):
+        built = self.root / '.bundles' / 'diary' / 'x.js'
+        built.parent.mkdir(parents=True)
+        built.write_text('export default 1', encoding='utf-8')
+        with mock.patch.object(self.remote, 'build_bundle', return_value=built):
+            r = APIClient().get('/api/modules/diary/bundle.js?v=1')
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r['Content-Type'], 'text/javascript; charset=utf-8')
+        self.assertIn('immutable', r['Cache-Control'])
+        r.close()  # releases the file (Windows keeps it locked)
+
+
+class InstallQueueTests(TestCase):
+    """Several installs at once: one worker, one restart at the end, interrupted jobs resume."""
+
+    def setUp(self):
+        from . import remote
+
+        self.remote = remote
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        for p in (
+            mock.patch.object(loader, 'MODULES_DIR', self.root),
+            mock.patch.object(loader, '_cache', None),
+            mock.patch.object(remote, 'disk_ref', return_value=None),
+            mock.patch.object(remote, 'has_frontend', return_value=False),
+        ):
+            p.start()
+            self.addCleanup(p.stop)
+
+    def test_many_installs_restart_once_after_all(self):
+        order = []
+        repo = {m: {'ref': m * 4, 'manifest': {'backendApp': f'sfera_{m}'}} for m in ('a', 'b', 'c', 'd', 'e')}
+        with mock.patch.object(self.remote, '_checkout', side_effect=lambda mid, ref: order.append(mid)), \
+                mock.patch.object(self.remote, '_migrate_and_restart') as restart:
+            for mid in repo:
+                self.remote.start([mid], repo, update=False)
+            while self.remote._worker and self.remote._worker.is_alive():
+                self.remote._worker.join(0.1)
+        self.assertEqual(sorted(order), list('abcde'))
+        restart.assert_called_once()
+        self.assertEqual(sorted(restart.call_args[0][0]), list('abcde'))
+
+    def test_job_from_a_previous_process_is_resumed(self):
+        (self.root / '.jobs').mkdir()
+        (self.root / '.jobs' / 'x.json').write_text(json.dumps({'status': 'installing', 'ref': 'r', 'pid': -1}), encoding='utf-8')
+        with mock.patch.object(self.remote, '_git', return_value='{"backendApp": null}'), \
+                mock.patch.object(self.remote, '_enqueue') as enqueue:
+            self.remote.job('x')
+        enqueue.assert_called_once_with([('x', 'r', False)])

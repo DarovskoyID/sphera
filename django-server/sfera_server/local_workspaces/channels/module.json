@@ -1,0 +1,15 @@
+{
+  "id": "channels",
+  "name": { "ru": "Каналы", "en": "Channels" },
+  "description": {
+    "ru": "Личные каналы-ленты: публикуйте посты, подписывайтесь, комментируйте",
+    "en": "Personal feed channels: publish posts, subscribe and comment"
+  },
+  "version": "1.0.0",
+  "sdkVersion": 1,
+  "deps": [],
+  "backendApp": "sfera_channels",
+  "urlPrefix": "api/channels/",
+  "icon": "rss",
+  "provides": ["nav.rail", "main.view", "explore.search"]
+}

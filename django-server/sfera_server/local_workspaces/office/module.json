@@ -1,0 +1,15 @@
+{
+  "id": "office",
+  "name": { "ru": "Документы", "en": "Documents" },
+  "description": {
+    "ru": "Групповые документы, таблицы и презентации: совместное редактирование в реальном времени, формулы, комментарии, история версий и экспорт",
+    "en": "Group documents, spreadsheets and presentations: real-time co-editing, formulas, comments, version history and export"
+  },
+  "version": "1.0.1",
+  "sdkVersion": 1,
+  "deps": [],
+  "backendApp": "sfera_office",
+  "urlPrefix": "api/office/",
+  "icon": "file-text",
+  "provides": ["nav.rail", "main.view", "explore.card", "chat.composerAction", "app.overlay"]
+}

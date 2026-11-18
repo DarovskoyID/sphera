@@ -1,0 +1,26 @@
+[Unit]
+Description=Sphere headless mesh point
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=sfera
+Group=sfera
+WorkingDirectory=/opt/sfera/server/current
+ExecStart=/opt/sfera/server/current/.venv/bin/python /opt/sfera/server/current/scripts/mesh_point.py run --config /etc/sfera/point.json
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=45
+StateDirectory=sfera-point
+StateDirectoryMode=0700
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/sfera-point
+Environment=PYTHONDONTWRITEBYTECODE=1
+
+[Install]
+WantedBy=multi-user.target
