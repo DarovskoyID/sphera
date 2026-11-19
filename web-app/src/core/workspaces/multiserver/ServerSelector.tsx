@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { MeshTrustedServerPicker } from '../../../components/MeshTrustedServerPicker';
 import {
   loadServers, saveServers, loadSelectedServer, saveSelectedServer, pingServer, pingStun, getResolvedTurn, API_BASE_URL,
   useCore, useT, type ServerEntry,
@@ -133,6 +134,11 @@ export const ServerSelector: React.FC<Props> = ({ compact, maxListHeight }) => {
   }, []);
 
   useEffect(() => { runPings(); }, [runPings]);
+  useEffect(() => {
+    const refresh = () => { setServers(loadServers()); setSelected(loadSelectedServer()); };
+    window.addEventListener('sfera-mesh-entry-change', refresh);
+    return () => window.removeEventListener('sfera-mesh-entry-change', refresh);
+  }, []);
 
   const handleSelect = (url: string) => {
     setSelected(url);
@@ -296,6 +302,8 @@ export const ServerSelector: React.FC<Props> = ({ compact, maxListHeight }) => {
       })}
 
       </div>
+
+      <MeshTrustedServerPicker />
 
       <div style={{ ...card, padding: 12 }}>
         <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>{tr('srv_add_server')}</div>

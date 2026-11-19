@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useApp } from '../context/AppContext';
-import { saveSelectedServer } from '../config/network';
+import { loadServers, saveServers, saveSelectedServer } from '../config/network';
 import { entryProbeNonce, loadEntryPointPin, saveEntryPointPin, validateTrustedEntryPoints, verifyEntryProbe } from '../core/mesh/entryPoint';
 
 export function MeshTrustedServerPicker() {
@@ -35,6 +35,11 @@ export function MeshTrustedServerPicker() {
       await verifyEntryProbe(await response.json(), pin, nonce);
       if (generation.current !== revision) return;
       saveEntryPointPin(localStorage, pin);
+      const servers = loadServers();
+      const existing = servers.findIndex(server => server.url === pin.url);
+      if (existing < 0) servers.push({ url: pin.url, name: pin.label });
+      else servers[existing] = { ...servers[existing], name: pin.label };
+      saveServers(servers);
       saveSelectedServer(pin.url);
       setAuthToken('');
       setCurrentServerIP(pin.url);

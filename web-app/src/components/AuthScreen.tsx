@@ -5,11 +5,10 @@ import { useTranslation } from '../i18n/useTranslation';
 import { languages, type LangCode } from '../i18n';
 import { SlotList } from '../core/modules/Slots';
 import { useSlot } from '../sdk/slots';
-import { API_BASE_URL, saveSelectedServer } from '../config/network';
 import { CodeInput, CODE_LENGTH } from './CodeInput';
 import { AuthBackdrop } from './AuthBackdrop';
 import { MeshApplicationAccess } from './MeshApplicationAccess';
-import { MeshTrustedServerPicker } from './MeshTrustedServerPicker';
+import { AuthServerPicker } from './AuthServerPicker';
 import { readResponse, toUserMessage } from '../utils/errorManager';
 
 export const AuthScreen = () => {
@@ -36,7 +35,6 @@ export const AuthScreen = () => {
   const [loading, setLoading] = useState(false);
   // Choosing another server is the multiserver module (auth.footer slot).
   const serverPickers = useSlot('auth.footer');
-  const { setCurrentServerIP } = useApp();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -461,7 +459,6 @@ export const AuthScreen = () => {
             </p>
           )}
 
-          <MeshTrustedServerPicker />
           <MeshApplicationAccess />
           <div className="auth-foot">
             <div className="auth-foot-row">
@@ -470,14 +467,9 @@ export const AuthScreen = () => {
                   <option key={code} value={code}>{name}</option>
                 ))}
               </select>
-              {serverPickers.length === 0 && currentServerIP !== API_BASE_URL && (
-                // Without the module there is no way back from another server — offer one.
-                <button type="button" onClick={() => { saveSelectedServer(API_BASE_URL); setCurrentServerIP(API_BASE_URL); }}>
-                  {language === 'ru' ? 'Основной сервер' : 'Main server'}
-                </button>
-              )}
             </div>
             <SlotList slot="auth.footer" />
+            {serverPickers.length === 0 && <AuthServerPicker />}
           </div>
         </div>
         </div>

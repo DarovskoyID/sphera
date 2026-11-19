@@ -1,27 +1,7 @@
-import { useState } from 'react';
-import { Lock, Server } from 'lucide-react';
+import { Server } from 'lucide-react';
 import { defineModule, tmStatic, useT } from '@sfera/sdk';
 import { ServerSelector } from './ServerSelector';
-
-/** Under the sign-in form: pick which Sfera server to sign in to. */
-function AuthServerPicker() {
-  const tr = useT();
-  const [open, setOpen] = useState(false);
-  return (
-    <div style={{ marginTop: 8 }}>
-      <button type="button" onClick={() => setOpen(v => !v)}
-        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 13, padding: 0 }}>
-        <Lock size={13} />
-        {tr('srv_title')}
-      </button>
-      {open && (
-        <div style={{ marginTop: 12 }}>
-          <ServerSelector compact maxListHeight={200} />
-        </div>
-      )}
-    </div>
-  );
-}
+import { AuthServerPicker } from '../../../components/AuthServerPicker';
 
 function ServersSettings() {
   const tr = useT();

@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path, PurePosixPath
 import pwd
+import re
 import subprocess
 import sys
 import tarfile
@@ -74,8 +75,9 @@ def main():
     # Preserve the existing ACME state and mesh routes. App API integration is
     # not implemented by the mesh login bridge; fail explicitly until it exists.
     current = (WEB / 'Caddyfile').read_text()
-    replacement = current.replace('root * /opt/sphere-web/site', 'root * ' + str(target))
-    if replacement == current and 'root * ' + str(target) not in current:
+    replacement, roots = re.subn(r'(?m)^([ \t]*)root \* /opt/sphere-web/(?:site|app-[0-9a-f]{16})$',
+                                 lambda match: match[1] + 'root * ' + str(target), current)
+    if roots != 1:
         raise ValueError('unexpected_web_root')
     replacement = replacement.replace(
         "style-src 'self'; img-src 'self' data:; connect-src 'self';",
