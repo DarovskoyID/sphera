@@ -1,0 +1,1 @@
+This is the original project App, not web-entry. Build with npm ci and npm run build. The WAN point deployment currently serves this frontend only; its Django application API is not yet connected to the mesh runtime. Chat/call availability must not be inferred from the frontend build.

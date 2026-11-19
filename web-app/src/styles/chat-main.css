@@ -1,0 +1,472 @@
+/* ================================
+   MAIN CHAT AREA
+   ================================ */
+
+.chat-main {
+  display: flex;
+  flex-direction: column;
+  background-color: var(--bg-chat);
+  overflow: hidden;
+  position: relative;
+  transition: background-color var(--transition-normal);
+}
+
+/* Chat Header */
+.chat-header {
+  padding: var(--spacing-md) var(--spacing-lg);
+  border-bottom: 1px solid var(--border-color);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--spacing-md);
+  min-height: 60px;
+  /* It is a flex item of .chat-main, so min-width defaults to its content —
+     a long name would widen the header past the screen instead of eliding. */
+  min-width: 0;
+}
+
+.chat-header-info {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  /* Must be allowed to shrink, or a long name pushes the call buttons out. */
+  flex: 1;
+  min-width: 0;
+}
+
+.chat-header-text {
+  min-width: 0;
+}
+
+.header-avatar {
+  position: relative;
+  width: 40px;
+  height: 40px;
+}
+
+.header-avatar img {
+  width: 100%;
+  height: 100%;
+  border-radius: var(--radius-full);
+  object-fit: cover;
+}
+
+.header-avatar .status-indicator {
+  border-color: var(--bg-chat);
+}
+
+/*
+ * The name and its BOT chip belong on one line.
+ *
+ * As a plain block, a name that filled the width pushed the chip onto a second
+ * line and the @username onto a third, which is what made the bot header look
+ * broken on a phone. A flex row with a truncating name keeps it to two lines
+ * at any width: the name gives way, the chip never does.
+ */
+.chat-header h3 {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  font-size: 18.4px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.chat-header h3 > span:first-child {
+  /* A flex item defaults to min-width:auto, which is its full text width — so
+     without this the name refuses to shrink and pushes the call buttons out. */
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-header-actions {
+  flex: none;
+}
+
+.chat-header p {
+  font-size: 14.9px;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-header-actions {
+  display: flex;
+  gap: var(--spacing-sm);
+  align-items: center;
+}
+
+/* Messages Container */
+.messages-container {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--spacing-lg);
+  display: flex;
+  flex-direction: column;
+}
+
+.messages-container::-webkit-scrollbar {
+  width: 8px;
+}
+
+.messages-container::-webkit-scrollbar-thumb {
+  background-color: var(--border-color);
+  border-radius: 4px;
+}
+
+.messages-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--chat-message-gap, 16px);
+}
+
+.scroll-to-bottom-btn {
+  position: absolute;
+  right: 24px;
+  bottom: 92px;
+  width: 44px;
+  height: 44px;
+  border: 1px solid var(--border-color);
+  border-radius: 50%;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  box-shadow: var(--shadow-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 20;
+  transition: transform var(--transition-fast), background-color var(--transition-fast), border-color var(--transition-fast);
+}
+
+.scroll-to-bottom-btn:hover {
+  transform: translateY(-1px);
+  background: var(--hover-bg);
+  border-color: var(--accent-primary);
+}
+
+.scroll-to-bottom-count {
+  position: absolute;
+  top: -7px;
+  right: -7px;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--accent-primary);
+  color: #fff;
+  border: 2px solid var(--bg-chat);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+  box-sizing: border-box;
+}
+
+/* Date Separator */
+.date-separator {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px;
+  user-select: none;
+}
+
+.date-separator::before,
+.date-separator::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border-color);
+}
+
+.date-separator-label {
+  font-size: 13.8px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+}
+
+/* Message Item */
+.message-item {
+  display: flex;
+  gap: var(--spacing-md);
+  padding: 0 var(--spacing-sm);
+  border-radius: var(--radius-md);
+  transition: background-color var(--transition-fast);
+}
+
+.message-item:hover {
+  background-color: var(--hover-bg);
+}
+
+.message-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-full);
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.message-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.message-header {
+  display: flex;
+  align-items: baseline;
+  gap: var(--spacing-sm);
+  margin-bottom: var(--spacing-xs);
+}
+
+.message-author {
+  font-size: 17.2px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.message-timestamp {
+  font-size: 13.8px;
+  color: var(--text-tertiary);
+}
+
+.message-text {
+  font-size: 17.2px;
+  line-height: 1.5;
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+
+.message-item.own {
+  flex-direction: row-reverse;
+}
+
+.message-reply-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  font-size: 14.9px;
+  padding: 6px 10px;
+  margin-bottom: 4px;
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.06);
+  border-left: 3px solid var(--accent-primary);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.message-reply-preview:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.message-reply-author {
+  font-weight: 600;
+  font-size: 16.1px;
+  color: var(--text-primary);
+  display: block;
+}
+
+.message-reply-text {
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: block;
+  font-size: 14.9px;
+}
+
+.message-item.own .message-content {
+  text-align: right;
+}
+
+.message-item.own .message-bubble {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+.message-item.own .message-text {
+  display: inline-block;
+  text-align: left;
+  background-color: var(--message-own);
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-radius: var(--radius-md);
+  border-bottom-right-radius: 4px;
+  max-width: 80%;
+}
+
+.message-item:not(.own) .message-text {
+  display: inline-block;
+  background-color: var(--message-other);
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-radius: var(--radius-md);
+  border-bottom-left-radius: 4px;
+  max-width: 80%;
+}
+
+.message-timestamp {
+  padding-left: 4px;
+}
+
+/* Author name above the bubble line — pinned to the right for own messages */
+.message-item.own .message-author-bubble {
+  text-align: right;
+  display: block;
+}
+
+/* message-line is the row that holds body + timestamp + read-receipt.
+   For own messages we put receipt + time on the LEFT of the body. */
+.message-line {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  /* No wrap: the body shrinks and wraps its own text while the timestamp +
+     read-receipt stay pinned to the bottom-right corner of the bubble. */
+  flex-wrap: nowrap;
+}
+
+/* Body takes the remaining width and wraps internally; min-width:0 lets it
+   shrink below its content size so the timestamp is never pushed to a new row. */
+.message-body {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* Timestamp + read-receipt never shrink and sit at the bottom-right. */
+.message-timestamp,
+.message-line > svg {
+  flex-shrink: 0;
+  align-self: flex-end;
+}
+
+/* For own messages: body first, then time, then receipt on the RIGHT */
+.message-item.own .message-timestamp {
+  padding-left: 4px;
+  padding-right: 0;
+  order: 2;
+}
+
+.message-item.own .message-body {
+  order: 1;
+}
+
+/* Read receipt (svg from lucide) sits RIGHTMOST for own messages */
+.message-item.own .message-line > svg {
+  order: 3;
+}
+
+/* Date Divider */
+.date-divider {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  margin: var(--spacing-lg) 0;
+  font-size: 13.8px;
+  color: var(--text-tertiary);
+  font-weight: 600;
+}
+
+.date-divider::before,
+.date-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background-color: var(--border-color);
+}
+
+/* Message Input */
+.message-input-container {
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-top: 1px solid var(--border-color);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.message-input-wrapper {
+  flex: 1;
+  position: relative;
+}
+
+.message-input {
+  width: 100%;
+  padding: var(--spacing-md);
+  background-color: var(--bg-secondary);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-size: 17.2px;
+  transition: background-color var(--transition-fast);
+  resize: none;
+}
+
+.message-input:focus {
+  background-color: var(--bg-tertiary);
+}
+
+.message-input::placeholder {
+  color: var(--text-tertiary);
+}
+
+/* ── Direct messages: hide avatars & author names, edge-to-edge on mobile ──
+   Scoped to .chat-main (the DM view). Guild chats use .guild-chat-main and
+   are unaffected. */
+.chat-main .message-avatar-slot,
+.chat-main .message-author-bubble {
+  display: none !important;
+}
+
+@media (max-width: 768px) {
+  /* Push DM bubbles to the edges — no more than 7px of side padding. */
+  .chat-main .messages-container {
+    padding-left: 7px;
+    padding-right: 7px;
+  }
+  .chat-main .message-item {
+    padding-left: 0;
+    padding-right: 0;
+  }
+  .chat-main .message-item:not(.own) .message-text,
+  .chat-main .message-item.own .message-text {
+    max-width: 92%;
+  }
+}
+
+/* Typing Indicator */
+.typing-indicator {
+  position: absolute;
+  bottom: -20px;
+  left: var(--spacing-md);
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.typing-dot {
+  width: 6px;
+  height: 6px;
+  background-color: var(--text-tertiary);
+  border-radius: var(--radius-full);
+  animation: typing 1.4s infinite;
+}
+
+.typing-dot:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.typing-dot:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+@keyframes typing {
+  0%, 60%, 100% {
+    transform: translateY(0);
+  }
+  30% {
+    transform: translateY(-8px);
+  }
+}
+

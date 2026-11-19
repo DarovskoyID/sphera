@@ -1,0 +1,2704 @@
+import React, { useState, useEffect, useRef, useCallback, useLayoutEffect, useMemo } from 'react';
+import { createPortal } from 'react-dom';
+import { Phone, PhoneOff, PhoneIncoming, PhoneMissed, Video, Search, Menu, ArrowLeft, Plus, Send, FileText, FileImage, FileVideo, FileAudio, File, Download, X, MoreHorizontal, Reply, Copy, Trash2, Flag, Pin, Ban, Check, CheckCheck, ChevronUp, ChevronDown, Mic, Circle, Play, Square, Pause, CheckSquare, MapPin, Pencil, Clock, User as UserIcon } from 'lucide-react';
+import { MessageEditModal } from './MessageEditModal';
+import type { ChatAttachment, ChatMessage as ChatMessageType, ServerUser } from '../types';
+import { useApp, reportError } from '../context/AppContext';
+import { Settings } from './Settings';
+import { CallWindow } from './CallWindow';
+import { useTranslation } from '../i18n/useTranslation';
+import { RichMessage } from './RichMessage';
+import { RichComposer } from './RichComposer';
+import { AccountBadge, accountDisplayName, isBot } from './BotBadge';
+import { ComposerActions } from '../core/modules/Slots';
+import { DmCipherProvider, DmCipherPanel, DmCipherComposer, DmCipherMessageView, useDmCipher } from './DmCipherAccess';
+import type { RichMessageType, RichPayload } from '../types';
+
+// ── Rich messages (checklist / contact / location). Polls are guild-only. ────
+const DM_RICH_KINDS: readonly string[] = ['todo', 'contact', 'location'];
+
+function isRichMsg(msg: ChatMessageType): boolean {
+  return !!msg.payload && !!msg.message_type && DM_RICH_KINDS.includes(msg.message_type);
+}
+
+const DmRichCard: React.FC<{
+  msg: ChatMessageType;
+  isOwn: boolean;
+  showAuthor: boolean;
+  displayName: string;
+}> = ({ msg, isOwn, showAuthor, displayName }) => {
+  const { chatConversationId, toggleTodoItem, pushLiveLocation, setCurrentChat } = useApp();
+  if (!chatConversationId) return null;
+  const scope = { kind: 'dm' as const, conversationId: chatConversationId };
+  const id = String(msg.id);
+  return (
+    <div style={{ position: 'relative' }}>
+      {showAuthor && <div className="message-author-bubble">{displayName}</div>}
+      <RichMessage
+        type={msg.message_type as RichMessageType}
+        payload={msg.payload as RichPayload}
+        isOwn={isOwn}
+        authorId={msg.author?.id}
+        onToggleTodo={(itemId) => { void toggleTodoItem(scope, id, itemId); }}
+        onStopLive={() => { void pushLiveLocation(scope, id, { stop: true }); }}
+        onMessageContact={(userId) => setCurrentChat(userId)}
+      />
+    </div>
+  );
+};
+import { MessageText, CensoredPlainText } from './EmojiPicker';
+import { HideSelectionButton } from './HideSelectionButton';
+import { UnifiedPicker } from './StickerGifPicker';
+import type { CustomEmoji } from '../types';
+import ConfirmModal from './ConfirmModal';
+import { getDraftText, setDraftText, getDraftFiles, setDraftFiles } from '../utils/drafts';
+import { censorPlain } from '../utils/censor';
+import { BlurredMedia } from './BlurredMedia';
+import { pickRecorderFormat, mediaUnsupportedReason, describeMediaError } from '../utils/recording';
+import { useAnchoredMenu } from './useAnchoredMenu';
+import { MediaSkeleton, MessageListSkeleton } from './Skeleton';
+
+// Maps a settings page key to its translation key, so the mobile settings
+// header shows a translated title instead of the raw page id.
+const SETTINGS_PAGE_TITLE: Record<string, string> = {
+  profile: 'settings_my_account',
+  content: 'settings_privacy',
+  data: 'settings_data',
+  devices: 'settings_devices',
+  servers: 'settings_servers',
+  integration: 'settings_integration',
+  notifications: 'settings_notifications',
+  apps: 'settings_apps',
+  nitro: 'settings_nitro',
+  subscribes: 'settings_subscribes',
+  subscriptions: 'settings_subscribes',
+  gifts: 'settings_gifts',
+  payments: 'settings_payments',
+  view: 'settings_appearance',
+  special: 'settings_special',
+  voiceAndVideo: 'settings_voice_video',
+  chat: 'settings_chat',
+  formatting: 'settings_formatting',
+  binds: 'settings_binds',
+  language: 'settings_language',
+  exportImport: 'settings_export_import',
+  streamer: 'settings_streamer',
+  more: 'settings_more',
+  privacyOfActivity: 'settings_activity_privacy',
+  games: 'settings_games',
+};
+
+export const ChatMain: React.FC = () => {
+  const { currentView, currentChat, currentSettingsPage, setMobileActivePanel } = useApp();
+  const tr = useTranslation();
+
+  if (currentView === 'settings') {
+    if (!currentSettingsPage) {
+      return (
+        <main className="chat-main">
+          <SettingsView />
+        </main>
+      );
+    }
+    return (
+      <main className="chat-main">
+        <header className="chat-header glass-panel settings-mobile-header">
+          <button className="icon-btn glass-btn mobile-back-btn" onClick={() => setMobileActivePanel('chat-list')} title={tr('nav_back')}>
+            <ArrowLeft size={20} />
+          </button>
+          <h3>{SETTINGS_PAGE_TITLE[currentSettingsPage] ? tr(SETTINGS_PAGE_TITLE[currentSettingsPage] as any) : currentSettingsPage}</h3>
+        </header>
+        <Settings />
+      </main>
+    );
+  }
+
+  if (currentView === 'home') {
+    if (!currentChat) {
+      return (
+        <main className="chat-main">
+          <WelcomeScreen />
+        </main>
+      );
+    }
+    return <ChatView />;
+  }
+
+  if (currentView === 'server') {
+    return <ChatView />;
+  }
+
+  return null;
+};
+
+/** Profile of the current chat partner when they are in neither list.
+ *
+ * The DM list is built from contacts, but a chat can also be opened with
+ * someone who is not one — a bot reached from the server bar. Without this the
+ * header would have nothing to render and the whole view would stay blank.
+ */
+const useUnknownPeer = (userId: string, known: boolean) => {
+  const { authToken, currentServerIP } = useApp();
+  const [peer, setPeer] = useState<ServerUser | null>(null);
+
+  useEffect(() => {
+    if (!userId || known || !authToken) { setPeer(null); return; }
+    let cancelled = false;
+    fetch(`${currentServerIP}/api/auth/users/${userId}/profile/`, {
+      headers: { Authorization: `Bearer ${authToken}` },
+    })
+      .then(res => (res.ok ? res.json() : null))
+      .then(data => { if (!cancelled) setPeer(data); })
+      .catch(() => { if (!cancelled) setPeer(null); });
+    return () => { cancelled = true; };
+  }, [authToken, currentServerIP, known, userId]);
+
+  return peer;
+};
+
+const ChatHeader: React.FC<{
+  onSearchToggle: () => void;
+  searchOpen: boolean;
+  onPinnedToggle: () => void;
+  pinnedOpen: boolean;
+  pinnedCount: number;
+}> = ({ onSearchToggle, searchOpen, onPinnedToggle, pinnedOpen, pinnedCount }) => {
+  const { isCallActive, currentChat, friends, blockedContacts, toggleMobileSidebar, startCall, setMobileActivePanel } = useApp();
+  const tr = useTranslation();
+
+  const friend = friends.find(f => String(f.id) === String(currentChat));
+  const blockedUser = !friend ? blockedContacts.find(u => String(u.id) === String(currentChat)) : null;
+  const unknownPeer = useUnknownPeer(String(currentChat || ''), !!(friend || blockedUser));
+  const chatUser = friend ?? blockedUser ?? unknownPeer;
+
+  if (isCallActive) {
+    return <CallWindow inline />;
+  }
+
+  if (!chatUser) return null;
+
+  const displayName = accountDisplayName(chatUser);
+
+  const handleStartCall = (withVideo = false) => {
+    // Prevent camera from turning on when starting a voice call (state can persist from a previous call)
+    startCall(chatUser.id, withVideo);
+  };
+
+  return (
+    <header className="chat-header glass-panel">
+      <button className="icon-btn glass-btn mobile-back-btn" onClick={() => setMobileActivePanel('chat-list')} title={tr('nav_back')}>
+        <ArrowLeft size={20} />
+      </button>
+      <div className="chat-header-info">
+        <div className="header-avatar">
+          {chatUser.avatar
+            ? <img src={chatUser.avatar} alt={displayName} />
+            : <div style={{ width: 32, height: 32, borderRadius: '50%', background: 'var(--accent-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 700, fontSize: 14 }}>
+                {displayName[0].toUpperCase()}
+              </div>
+          }
+          {blockedUser
+            ? <span style={{ position: 'absolute', bottom: 0, right: 0, width: 10, height: 10, borderRadius: '50%', background: '#f97316', border: '2px solid var(--bg-secondary)' }} />
+            : <span className={`status-indicator ${chatUser.status ?? 'offline'}`} />
+          }
+        </div>
+        <div className="chat-header-text">
+          <h3><span>{displayName}</span><AccountBadge account={chatUser} size="md" /></h3>
+          {blockedUser
+            ? <p style={{ color: '#f97316' }}>{tr('status_blocked')}</p>
+            : <p>@{chatUser.username}</p>
+          }
+        </div>
+      </div>
+      <div className="chat-header-actions">
+        {!blockedUser && <>
+          <button className="icon-btn glass-btn" onClick={() => handleStartCall(false)} title={tr('chat_voice_call')}>
+            <Phone size={20} />
+          </button>
+          <button className="icon-btn glass-btn" onClick={() => handleStartCall(true)} title={tr('chat_video_call')}>
+            <Video size={20} />
+          </button>
+        </>}
+        {pinnedCount > 0 && (
+          <button
+            className="icon-btn glass-btn"
+            title={tr('chat_pinned_messages')}
+            onClick={onPinnedToggle}
+            style={{ color: pinnedOpen ? 'var(--accent-primary)' : undefined, position: 'relative' }}
+          >
+            <Pin size={20} />
+            <span style={{
+              position: 'absolute', top: 2, right: 2,
+              background: 'var(--accent-primary)', color: '#fff',
+              fontSize: 9, fontWeight: 700, borderRadius: '50%',
+              width: 14, height: 14, display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}>{pinnedCount}</span>
+          </button>
+        )}
+        <button
+          className="icon-btn glass-btn"
+          title={tr('chat_search')}
+          onClick={onSearchToggle}
+          style={{ color: searchOpen ? 'var(--accent-primary)' : undefined }}
+        >
+          <Search size={20} />
+        </button>
+        <button className="icon-btn glass-btn mobile-menu-btn" onClick={toggleMobileSidebar}>
+          <Menu size={20} />
+        </button>
+      </div>
+    </header>
+  );
+};
+
+// ── ChatView — holds reply state, wires header + messages + input ─────────────
+
+type ScheduledItem = { id: string; send_at: string; content: string };
+
+const MessageSearchBar: React.FC<{
+  query: string;
+  onChange: (q: string) => void;
+  onClose: () => void;
+  matchCount: number;
+}> = ({ query, onChange, onClose, matchCount }) => {
+  const tr = useTranslation();
+  const inputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => { inputRef.current?.focus(); }, []);
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 8,
+      padding: '6px 12px', background: 'var(--bg-secondary)',
+      borderBottom: '1px solid var(--border-color)', flexShrink: 0,
+    }}>
+      <Search size={15} style={{ color: 'var(--text-tertiary)', flexShrink: 0 }} />
+      <input
+        ref={inputRef}
+        className="field-input"
+        type="text"
+        placeholder={tr('chat_search_messages')}
+        value={query}
+        onChange={e => onChange(e.target.value)}
+        style={{ flex: 1, border: 'none', background: 'transparent', fontSize: 14 }}
+      />
+      {query && (
+        <span style={{ fontSize: 12, color: 'var(--text-tertiary)', whiteSpace: 'nowrap' }}>
+          {matchCount} {matchCount !== 1 ? tr('chat_results') : tr('chat_result')}
+        </span>
+      )}
+      <button
+        onClick={onClose}
+        style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', display: 'flex', padding: 2 }}
+      >
+        <X size={15} />
+      </button>
+    </div>
+  );
+};
+
+const PinnedBar: React.FC<{
+  onClose: () => void;
+  onScrollTo: (msgId: string) => void;
+}> = ({ onClose, onScrollTo }) => {
+  const { chatMessages, pinMessage } = useApp();
+  const tr = useTranslation();
+  const pinned = chatMessages.filter(m => m.is_pinned);
+  const [idx, setIdx] = useState(0);
+
+  useEffect(() => { setIdx(0); }, [pinned.length]);
+
+  if (pinned.length === 0) return null;
+
+  const current = pinned[Math.min(idx, pinned.length - 1)];
+  const preview = current.content?.slice(0, 80) || tr('chat_attachment_label');
+
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 8,
+      padding: '6px 12px', background: 'var(--bg-secondary)',
+      borderBottom: '1px solid var(--border-color)', flexShrink: 0,
+      minHeight: 40,
+    }}>
+      <Pin size={14} style={{ color: 'var(--accent-primary)', flexShrink: 0 }} />
+      <div
+        style={{ flex: 1, minWidth: 0, cursor: 'pointer', overflow: 'hidden' }}
+        onClick={() => onScrollTo(current.id)}
+      >
+        <div style={{ fontSize: 12, color: 'var(--text-secondary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}><CensoredPlainText text={preview} authorId={current.author?.id} /></div>
+      </div>
+      {pinned.length > 1 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 0, flexShrink: 0 }}>
+          <button
+            onClick={() => setIdx(i => (i - 1 + pinned.length) % pinned.length)}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', padding: 0, lineHeight: 1, display: 'flex' }}
+          ><ChevronUp size={14} /></button>
+          <button
+            onClick={() => setIdx(i => (i + 1) % pinned.length)}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', padding: 0, lineHeight: 1, display: 'flex' }}
+          ><ChevronDown size={14} /></button>
+        </div>
+      )}
+      <span style={{ fontSize: 11, color: 'var(--text-tertiary)', flexShrink: 0 }}>
+        {pinned.length > 1 ? `${Math.min(idx, pinned.length - 1) + 1}/${pinned.length}` : ''}
+      </span>
+      <button
+        onClick={() => pinMessage(current.id)}
+        title={tr('chat_unpin')}
+        style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-tertiary)', padding: 2, display: 'flex', flexShrink: 0 }}
+      ><X size={14} /></button>
+      <button
+        onClick={onClose}
+        title={tr('chat_close')}
+        style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-tertiary)', padding: 2, display: 'flex', flexShrink: 0 }}
+      ><X size={16} /></button>
+    </div>
+  );
+};
+
+const ChatView: React.FC = () => <DmCipherProvider><ChatViewContent /></DmCipherProvider>;
+const ChatViewContent: React.FC = () => {
+  const cipher = useDmCipher();
+  const { chatConversationId, listScheduled, cancelScheduledMessage, chatMessages, currentChat, blockedContacts, chatBlockedByOther } = useApp();
+  const tr = useTranslation();
+  const isBlockedByMe = blockedContacts.some(u => String(u.id) === String(currentChat));
+  const blockedName = isBlockedByMe ? (blockedContacts.find(u => String(u.id) === String(currentChat))?.nickname || blockedContacts.find(u => String(u.id) === String(currentChat))?.username || '') : '';
+  const [replyTo, setReplyTo] = useState<ChatMessageType | null>(null);
+  const [editingText, setEditingText] = useState<ChatMessageType | null>(null);
+  const [scheduled, setScheduled] = useState<ScheduledItem[]>([]);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [pinnedBarOpen, setPinnedBarOpen] = useState(false);
+  const scrollToMsgRef = useRef<((id: string) => void) | null>(null);
+
+  // Load pending scheduled messages when conversation opens
+  useEffect(() => {
+    if (!chatConversationId) return;
+    listScheduled(chatConversationId).then(setScheduled);
+  }, [chatConversationId]);
+
+  const handleCancelScheduled = useCallback(async (id: string) => {
+    await cancelScheduledMessage(id);
+    setScheduled(prev => prev.filter(s => s.id !== id));
+  }, [cancelScheduledMessage]);
+
+  // Remove from list once the countdown expires (server will deliver it)
+  useEffect(() => {
+    if (scheduled.length === 0) return;
+    const nearest = Math.min(...scheduled.map(s => new Date(s.send_at).getTime()));
+    const delay = nearest - Date.now();
+    if (delay <= 0) {
+      setScheduled(prev => prev.filter(s => new Date(s.send_at).getTime() > Date.now()));
+      return;
+    }
+    const t = setTimeout(() => {
+      setScheduled(prev => prev.filter(s => new Date(s.send_at).getTime() > Date.now()));
+    }, delay + 500);
+    return () => clearTimeout(t);
+  }, [scheduled]);
+
+  const searchMatches = searchQuery.trim()
+    ? chatMessages.filter(m =>
+        m.content?.toLowerCase().includes(searchQuery.toLowerCase())
+      )
+    : [];
+
+  return (
+    <main className="chat-main">
+      <ChatHeader
+        onSearchToggle={() => { setSearchOpen(v => !v); setSearchQuery(''); }}
+        searchOpen={searchOpen}
+        onPinnedToggle={() => setPinnedBarOpen(v => !v)}
+        pinnedOpen={pinnedBarOpen}
+        pinnedCount={chatMessages.filter(m => m.is_pinned).length}
+      />
+      <DmCipherPanel />
+      {pinnedBarOpen && (
+        <PinnedBar
+          onClose={() => setPinnedBarOpen(false)}
+          onScrollTo={id => scrollToMsgRef.current?.(id)}
+        />
+      )}
+      {searchOpen && (
+        <MessageSearchBar
+          query={searchQuery}
+          onChange={setSearchQuery}
+          onClose={() => { setSearchOpen(false); setSearchQuery(''); }}
+          matchCount={searchMatches.length}
+        />
+      )}
+      {scheduled.map(s => (
+        <ScheduledBanner key={s.id} item={s} onCancel={handleCancelScheduled} />
+      ))}
+      <MessagesContainer
+        onReply={setReplyTo}
+        onEditText={setEditingText}
+        searchQuery={searchQuery}
+        scrollToRef={scrollToMsgRef}
+      />
+      {isBlockedByMe
+        ? <div style={{
+            padding: '14px 20px', background: 'var(--bg-secondary)',
+            borderTop: '1px solid var(--border-color)',
+            display: 'flex', alignItems: 'center', gap: 10,
+            color: '#f97316', fontSize: 14, flexShrink: 0,
+          }}>
+            <Ban size={16} />
+            {tr('chat_blocked_messaging')} <strong style={{ marginLeft: 3 }}>{blockedName}</strong> {tr('chat_blocked_messaging_suffix')}
+          </div>
+        : chatBlockedByOther
+        ? <div style={{
+            padding: '14px 20px', background: 'var(--bg-secondary)',
+            borderTop: '1px solid var(--border-color)',
+            display: 'flex', alignItems: 'center', gap: 10,
+            color: 'var(--text-secondary)', fontSize: 14, flexShrink: 0,
+          }}>
+            <Ban size={16} />
+            {tr('chat_cannot_send')}
+          </div>
+        : !cipher?.checked ? <div role="status">Проверяю режим диалога…</div>
+        : cipher.protected ? <DmCipherComposer key={chatConversationId} replyTo={replyTo ? String(replyTo.id) : null} onSent={() => setReplyTo(null)} />
+        : <MessageInput replyTo={replyTo} onCancelReply={() => setReplyTo(null)} editing={editingText} onCancelEdit={() => setEditingText(null)} onScheduled={item => setScheduled(prev => [...prev, item])} />
+      }
+    </main>
+  );
+};
+
+const ScheduledBanner: React.FC<{ item: ScheduledItem; onCancel: (id: string) => void }> = ({ item, onCancel }) => {
+  const tr = useTranslation();
+  const [remaining, setRemaining] = useState(() => Math.max(0, Math.round((new Date(item.send_at).getTime() - Date.now()) / 1000)));
+
+  useEffect(() => {
+    const iv = setInterval(() => {
+      setRemaining(Math.max(0, Math.round((new Date(item.send_at).getTime() - Date.now()) / 1000)));
+    }, 1000);
+    return () => clearInterval(iv);
+  }, [item.send_at]);
+
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '4px 8px 0', padding: '7px 12px', borderRadius: 8, background: 'rgba(88,101,242,0.15)', border: '1px solid var(--accent-primary)', flexShrink: 0 }}>
+      <Clock size={14} style={{ color: 'var(--accent-primary)', flexShrink: 0 }} />
+      <span style={{ fontSize: 13, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        {tr('chat_sending_in')} <b>{remaining}s</b>: {item.content || tr('chat_attachment_label')}
+      </span>
+      <button onClick={() => onCancel(item.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ff6666', fontSize: 12, padding: 0, flexShrink: 0 }}>{tr('cancel')}</button>
+    </div>
+  );
+};
+
+function getDateLabel(dateStr: string, tr: (key: any) => string): string {
+  const date = new Date(dateStr);
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+  const msgDay = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+
+  if (msgDay.getTime() === today.getTime()) return tr('chat_today');
+  if (msgDay.getTime() === yesterday.getTime()) return tr('chat_yesterday');
+  return date.toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: date.getFullYear() !== now.getFullYear() ? 'numeric' : undefined });
+}
+
+function shouldShowDateSeparator(current: ChatMessageType, prev?: ChatMessageType): boolean {
+  if (!prev) return true;
+  const d1 = new Date(prev.created_at);
+  const d2 = new Date(current.created_at);
+  return d1.getFullYear() !== d2.getFullYear() || d1.getMonth() !== d2.getMonth() || d1.getDate() !== d2.getDate();
+}
+
+const DateSeparator: React.FC<{ label: string }> = ({ label }) => (
+  <div className="date-separator">
+    <span className="date-separator-label">{label}</span>
+  </div>
+);
+
+const MSG_HEIGHT = 60;
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function getFileIcon(contentType: string) {
+  if (contentType.startsWith('image/')) return <FileImage size={20} />;
+  if (contentType.startsWith('video/')) return <FileVideo size={20} />;
+  if (contentType.startsWith('audio/')) return <FileAudio size={20} />;
+  if (contentType === 'application/pdf' || contentType.startsWith('text/')) return <FileText size={20} />;
+  return <File size={20} />;
+}
+
+// Fetches media with auth token and renders as blob URL
+const AuthMedia: React.FC<{ url: string; contentType: string; filename: string; caption?: string; authorId?: string }> = ({ url, contentType, filename, caption, authorId }) => {
+  const { authToken, currentServerIP } = useApp();
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+
+  const blobUrlRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    let revoked = false;
+    (async () => {
+      const blob = await fetchMediaBlob(currentServerIP, authToken, url);
+      if (!blob || revoked) return;
+      const bu = URL.createObjectURL(blob);
+      blobUrlRef.current = bu;
+      setBlobUrl(bu);
+    })();
+    return () => {
+      revoked = true;
+      if (blobUrlRef.current) {
+        URL.revokeObjectURL(blobUrlRef.current);
+        blobUrlRef.current = null;
+      }
+    };
+  }, [url, authToken, currentServerIP]);
+
+  if (!blobUrl) return <MediaSkeleton width={200} height={120} />;
+
+  if (contentType.startsWith('image/')) {
+    return (
+      <BlurredMedia filename={filename} text={caption} authorId={authorId} src={blobUrl} mediaKey={url}>
+        <img
+          src={blobUrl}
+          alt={filename}
+          style={{ maxWidth: 320, maxHeight: 300, borderRadius: 8, display: 'block', cursor: 'pointer', marginTop: 6 }}
+          onClick={() => window.open(blobUrl, '_blank')}
+        />
+      </BlurredMedia>
+    );
+  }
+
+  return (
+    <BlurredMedia filename={filename} text={caption} authorId={authorId} src={blobUrl} mediaKey={url} isVideo>
+      <video
+        src={blobUrl}
+        controls
+        style={{ maxWidth: 400, maxHeight: 280, borderRadius: 8, display: 'block', marginTop: 6 }}
+      />
+    </BlurredMedia>
+  );
+};
+
+// ── Voice Message Player ─────────────────────────────────────────────────────
+
+export const VoiceMessagePlayer: React.FC<{ url: string }> = ({ url }) => {
+  const { authToken, currentServerIP } = useApp();
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+  const [playing, setPlaying] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [bars, setBars] = useState<number[]>([]);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const rafRef = useRef(0);
+
+  useEffect(() => {
+    let revoked = false;
+    (async () => {
+      try {
+        const res = await fetch(`${currentServerIP}${url}`, {
+          headers: { Authorization: `Bearer ${authToken}` },
+        });
+        if (!res.ok) return;
+        const blob = await res.blob();
+        if (revoked) return;
+        const bu = URL.createObjectURL(blob);
+        setBlobUrl(bu);
+
+        try {
+          const ac = new AudioContext();
+          const ab = await ac.decodeAudioData(await blob.arrayBuffer());
+          const raw = ab.getChannelData(0);
+          const count = 40;
+          const step = Math.floor(raw.length / count);
+          const result: number[] = [];
+          for (let i = 0; i < count; i++) {
+            let sum = 0;
+            for (let j = 0; j < step; j++) sum += Math.abs(raw[i * step + j]);
+            result.push(sum / step);
+          }
+          const mx = Math.max(...result, 0.01);
+          setBars(result.map(v => Math.max(0.08, v / mx)));
+          ac.close();
+        } catch {
+          setBars(Array.from({ length: 40 }, () => 0.15 + Math.random() * 0.85));
+        }
+      } catch { /* ignore */ }
+    })();
+    return () => { revoked = true; };
+  }, [url, authToken, currentServerIP]);
+
+  useEffect(() => {
+    return () => { if (blobUrl) URL.revokeObjectURL(blobUrl); };
+  }, [blobUrl]);
+
+  useEffect(() => {
+    return () => {
+      cancelAnimationFrame(rafRef.current);
+      if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
+    };
+  }, []);
+
+  const tick = useCallback(() => {
+    const a = audioRef.current;
+    if (!a) return;
+    if (a.duration) {
+      setProgress(a.currentTime / a.duration);
+      setDuration(a.duration);
+    }
+    if (!a.paused) rafRef.current = requestAnimationFrame(tick);
+  }, []);
+
+  const toggle = useCallback(() => {
+    if (!blobUrl) return;
+    if (!audioRef.current) {
+      const a = document.createElement('audio');
+      a.src = blobUrl;
+      a.onended = () => { setPlaying(false); setProgress(0); };
+      a.onloadedmetadata = () => setDuration(a.duration);
+      audioRef.current = a;
+    }
+    const a = audioRef.current;
+    if (playing) { a.pause(); setPlaying(false); cancelAnimationFrame(rafRef.current); }
+    else { a.play(); setPlaying(true); rafRef.current = requestAnimationFrame(tick); }
+  }, [blobUrl, playing, tick]);
+
+  const seek = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    const a = audioRef.current;
+    if (!a || !a.duration) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const p = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    a.currentTime = p * a.duration;
+    setProgress(p);
+  }, []);
+
+  const fmt = (s: number) => `${Math.floor(s / 60)}:${Math.floor(s % 60).toString().padStart(2, '0')}`;
+
+  if (!blobUrl) {
+    return (
+      <div style={{ width: 240, height: 48, borderRadius: 20, background: 'var(--bg-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginTop: 6 }}>
+        <div style={{ width: 16, height: 16, border: '2px solid var(--accent-primary)', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} />
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6, padding: '8px 12px', borderRadius: 20, background: 'var(--bg-secondary)', maxWidth: 320, minWidth: 220 }}>
+      <button onClick={toggle} style={{ width: 36, height: 36, borderRadius: '50%', background: 'var(--accent-primary)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, color: '#fff' }}>
+        {playing ? <Pause size={16} /> : <Play size={16} style={{ marginLeft: 2 }} />}
+      </button>
+      <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
+        <div onClick={seek} style={{ display: 'flex', alignItems: 'flex-end', gap: 1.5, height: 28, cursor: 'pointer' }}>
+          {bars.map((h, i) => {
+            const filled = i / bars.length < progress;
+            return (
+              <div key={i} style={{
+                flex: 1, minWidth: 2, maxWidth: 4, borderRadius: 2,
+                height: `${Math.max(15, h * 100)}%`,
+                background: filled ? 'var(--accent-primary)' : 'var(--text-secondary)',
+                opacity: filled ? 1 : 0.35,
+                transition: 'background 0.1s',
+              }} />
+            );
+          })}
+        </div>
+        <span style={{ fontSize: 11, color: 'var(--text-secondary)', userSelect: 'none' }}>
+          {playing || progress > 0 ? fmt(duration * progress) : fmt(duration)}
+        </span>
+      </div>
+    </div>
+  );
+};
+
+// ── Video Circle Player ──────────────────────────────────────────────────────
+
+export const VideoCirclePlayer: React.FC<{ url: string }> = ({ url }) => {
+  const { authToken, currentServerIP } = useApp();
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+  const [playing, setPlaying] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [holding, setHolding] = useState(false);
+  const [seeking, setSeeking] = useState(false);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const rafRef = useRef(0);
+  const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isDown = useRef(false);
+  const lastTouchRef = useRef(0);
+
+  useEffect(() => {
+    let revoked = false;
+    (async () => {
+      try {
+        const res = await fetch(`${currentServerIP}${url}`, {
+          headers: { Authorization: `Bearer ${authToken}` },
+        });
+        if (!res.ok) return;
+        const blob = await res.blob();
+        if (!revoked) setBlobUrl(URL.createObjectURL(blob));
+      } catch { /* ignore */ }
+    })();
+    return () => { revoked = true; };
+  }, [url, authToken, currentServerIP]);
+
+  useEffect(() => {
+    return () => { if (blobUrl) URL.revokeObjectURL(blobUrl); };
+  }, [blobUrl]);
+
+  useEffect(() => {
+    return () => {
+      cancelAnimationFrame(rafRef.current);
+      if (holdTimer.current) { clearTimeout(holdTimer.current); holdTimer.current = null; }
+    };
+  }, []);
+
+  const tick = useCallback(() => {
+    const v = videoRef.current;
+    if (!v) return;
+    if (v.duration) setProgress(v.currentTime / v.duration);
+    if (!v.paused) rafRef.current = requestAnimationFrame(tick);
+  }, []);
+
+  const toggle = useCallback(() => {
+    const v = videoRef.current;
+    if (!v) return;
+    if (playing) { v.pause(); setPlaying(false); cancelAnimationFrame(rafRef.current); }
+    else {
+      const p = v.play();
+      if (p && typeof p.then === 'function') p.then(() => { setPlaying(true); rafRef.current = requestAnimationFrame(tick); }).catch(() => { setPlaying(false); });
+      else { setPlaying(true); rafRef.current = requestAnimationFrame(tick); }
+    }
+  }, [playing, tick]);
+
+  const seekFromEvent = useCallback((clientX: number, clientY: number) => {
+    const el = containerRef.current;
+    const v = videoRef.current;
+    if (!el || !v || !v.duration) return;
+    const rect = el.getBoundingClientRect();
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top + rect.height / 2;
+    let angle = Math.atan2(clientY - cy, clientX - cx) + Math.PI / 2;
+    if (angle < 0) angle += 2 * Math.PI;
+    const p = angle / (2 * Math.PI);
+    v.currentTime = p * v.duration;
+    setProgress(p);
+  }, []);
+
+  const onDown = useCallback((e: React.MouseEvent | React.TouchEvent) => {
+    const isTouch = 'touches' in e;
+    // Ignore the synthetic mouse events the browser fires right after a touch —
+    // otherwise onDown/onUp run twice and toggle() plays then instantly pauses.
+    if (isTouch) lastTouchRef.current = Date.now();
+    else if (Date.now() - lastTouchRef.current < 700) return;
+    isDown.current = true;
+    const el = containerRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top + rect.height / 2;
+    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
+    const dist = Math.sqrt((clientX - cx) ** 2 + (clientY - cy) ** 2);
+    const r = rect.width / 2;
+
+    if (dist > r * 0.82) {
+      setSeeking(true);
+      seekFromEvent(clientX, clientY);
+      return;
+    }
+
+    holdTimer.current = setTimeout(() => {
+      setHolding(true);
+      const v = videoRef.current;
+      if (v) { v.playbackRate = 2; if (v.paused) { v.play(); setPlaying(true); rafRef.current = requestAnimationFrame(tick); } }
+    }, 300);
+  }, [tick, seekFromEvent]);
+
+  const onMove = useCallback((e: MouseEvent | TouchEvent) => {
+    if (!seeking) return;
+    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
+    seekFromEvent(clientX, clientY);
+  }, [seeking, seekFromEvent]);
+
+  const onUp = useCallback(() => {
+    if (!isDown.current) return;
+    isDown.current = false;
+    if (holdTimer.current) { clearTimeout(holdTimer.current); holdTimer.current = null; }
+    if (seeking) {
+      setSeeking(false);
+      return;
+    }
+    if (holding) {
+      setHolding(false);
+      const v = videoRef.current;
+      if (v) v.playbackRate = 1;
+    } else {
+      toggle();
+    }
+  }, [holding, seeking, toggle]);
+
+  useEffect(() => {
+    window.addEventListener('mouseup', onUp);
+    window.addEventListener('touchend', onUp);
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('touchmove', onMove);
+    return () => {
+      window.removeEventListener('mouseup', onUp);
+      window.removeEventListener('touchend', onUp);
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('touchmove', onMove);
+    };
+  }, [onUp, onMove]);
+
+  useEffect(() => {
+    const el = canvasRef.current;
+    if (!el) return;
+    const ctx = el.getContext('2d');
+    if (!ctx) return;
+    const ringW = 4;
+    const s = 200 + ringW * 2;
+    if (el.width !== s * 2) { el.width = s * 2; el.height = s * 2; }
+    const c = s;
+    const r = 200 / 2 + ringW / 2;
+    const scale = 2;
+    ctx.clearRect(0, 0, s * 2, s * 2);
+    ctx.lineWidth = ringW * scale;
+    // bg track
+    ctx.beginPath();
+    ctx.arc(c, c, r * scale, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+    ctx.stroke();
+    // progress
+    if (progress > 0.001) {
+      const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent-primary').trim() || '#3a8ee6';
+      ctx.beginPath();
+      ctx.arc(c, c, r * scale, -Math.PI / 2, -Math.PI / 2 + progress * Math.PI * 2);
+      ctx.strokeStyle = holding ? '#ff4444' : accent;
+      ctx.lineCap = 'round';
+      ctx.stroke();
+    }
+  }, [progress, holding]);
+
+  const size = 200;
+  const ringWidth = 4;
+  const accentColor = holding ? '#ff4444' : `var(--accent-primary)`;
+  const progressDeg = progress * 360;
+
+  const thumbAngle = (progress * 360 - 90) * (Math.PI / 180);
+  const thumbR = size / 2 + ringWidth / 2;
+  const thumbX = size / 2 + thumbR * Math.cos(thumbAngle);
+  const thumbY = size / 2 + thumbR * Math.sin(thumbAngle);
+
+  if (!blobUrl) {
+    return (
+      <div style={{ width: size, height: size, borderRadius: '50%', background: 'var(--bg-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginTop: 6 }}>
+        <div style={{ width: 20, height: 20, border: '2px solid var(--accent-primary)', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} />
+      </div>
+    );
+  }
+
+  return (
+    <div
+      ref={containerRef}
+      style={{
+        position: 'relative', width: size, height: size, marginTop: 6,
+        cursor: 'pointer', userSelect: 'none',
+        WebkitTapHighlightColor: 'transparent', WebkitTouchCallout: 'none', outline: 'none',
+      }}
+      onMouseDown={e => { e.preventDefault(); onDown(e); }}
+      onTouchStart={e => { onDown(e); }}
+    >
+      <video
+        ref={el => {
+          videoRef.current = el;
+          if (el) el.onended = () => { setPlaying(false); setProgress(0); };
+        }}
+        src={blobUrl}
+        playsInline
+        style={{
+          width: size, height: size,
+          borderRadius: '50%', objectFit: 'cover', background: '#000',
+          display: 'block', pointerEvents: 'none',
+          WebkitTapHighlightColor: 'transparent', outline: 'none',
+        }}
+      />
+      <canvas
+        ref={canvasRef}
+        style={{
+          position: 'absolute', top: -ringWidth, left: -ringWidth,
+          width: size + ringWidth * 2, height: size + ringWidth * 2,
+          pointerEvents: 'none',
+        }}
+      />
+      {/* Thumb */}
+      <div style={{
+        position: 'absolute',
+        width: seeking ? 14 : 10, height: seeking ? 14 : 10,
+        borderRadius: '50%',
+        background: accentColor,
+        border: '2px solid #fff',
+        boxShadow: '0 0 4px rgba(0,0,0,0.5)',
+        top: thumbY - (seeking ? 7 : 5),
+        left: thumbX - (seeking ? 7 : 5),
+        pointerEvents: 'none',
+      }} />
+      {!playing && progress === 0 && (
+        <div style={{
+          position: 'absolute',
+          top: 0, left: 0,
+          width: size, height: size,
+          borderRadius: '50%',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          background: 'rgba(0,0,0,0.35)',
+        }}>
+          <Play size={40} style={{ color: '#fff', marginLeft: 4 }} />
+        </div>
+      )}
+      {holding && (
+        <div style={{ position: 'absolute', bottom: 14, left: '50%', transform: 'translateX(-50%)', background: 'rgba(0,0,0,0.7)', color: '#fff', fontSize: 12, fontWeight: 700, padding: '2px 8px', borderRadius: 10 }}>
+          ×2
+        </div>
+      )}
+    </div>
+  );
+};
+
+// True for image / plain video attachments that belong in the media grid.
+// Voice notes and recorded video circles keep their dedicated players.
+function isGalleryMedia(att: ChatAttachment): boolean {
+  const isVoice = att.filename.startsWith('voice_') && att.filename.endsWith('.webm');
+  const isCircle = att.filename.startsWith('video_') && att.filename.endsWith('.webm');
+  if (isVoice || isCircle) return false;
+  return att.content_type.startsWith('image/') || att.content_type.startsWith('video/');
+}
+
+// Cap concurrent attachment fetches. A photo gallery mounts many thumbnails at
+// once; firing them all in parallel opened a DB connection per request on the
+// server and exhausted Postgres ("too many clients"). Gate them through a small
+// semaphore so at most MEDIA_CONCURRENCY are in flight at a time.
+const MEDIA_CONCURRENCY = 6;
+let _mediaActive = 0;
+const _mediaWaiters: Array<() => void> = [];
+function _acquireMedia(): Promise<void> {
+  return new Promise(resolve => {
+    if (_mediaActive < MEDIA_CONCURRENCY) { _mediaActive++; resolve(); }
+    else _mediaWaiters.push(resolve);
+  });
+}
+function _releaseMedia() {
+  const next = _mediaWaiters.shift();
+  if (next) next(); // hand the slot straight to the next waiter
+  else _mediaActive--;
+}
+async function fetchMediaBlob(serverIP: string, token: string, url: string): Promise<Blob | null> {
+  await _acquireMedia();
+  try {
+    const res = await fetch(`${serverIP}${url}`, { headers: { Authorization: `Bearer ${token}` } });
+    if (!res.ok) return null;
+    return await res.blob();
+  } catch { return null; }
+  finally { _releaseMedia(); }
+}
+
+// Fetches an auth-protected resource once and exposes it as an object URL.
+function useAuthObjectUrl(url: string): string | null {
+  const { authToken, currentServerIP } = useApp();
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+  useEffect(() => {
+    let revoked = false;
+    let created: string | null = null;
+    (async () => {
+      const blob = await fetchMediaBlob(currentServerIP, authToken, url);
+      if (!blob || revoked) return;
+      created = URL.createObjectURL(blob);
+      setBlobUrl(created);
+    })();
+    return () => { revoked = true; if (created) URL.revokeObjectURL(created); };
+  }, [url, authToken, currentServerIP]);
+  return blobUrl;
+}
+
+async function downloadAuthed(serverIP: string, token: string, url: string, filename: string) {
+  const blob = await fetchMediaBlob(serverIP, token, url);
+  if (!blob) return;
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+}
+
+const spin: React.CSSProperties = { width: 20, height: 20, border: '2px solid var(--accent-primary)', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.7s linear infinite' };
+
+const GalleryThumb: React.FC<{ att: ChatAttachment; onOpen: () => void; caption?: string; authorId?: string }> = ({ att, onOpen, caption, authorId }) => {
+  const blobUrl = useAuthObjectUrl(att.url);
+  const isVideo = att.content_type.startsWith('video/');
+  return (
+    <BlurredMedia filename={att.filename} text={caption} authorId={authorId} src={blobUrl ?? undefined} mediaKey={att.url} isVideo={isVideo} fill>
+    <div onClick={onOpen} style={{ position: 'relative', aspectRatio: '1 / 1', borderRadius: 8, overflow: 'hidden', cursor: 'pointer', background: 'var(--bg-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      {!blobUrl ? <div style={spin} /> : isVideo ? (
+        <>
+          <video src={blobUrl} muted preload="metadata" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+          <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.25)', pointerEvents: 'none' }}>
+            <Play size={26} style={{ color: '#fff', filter: 'drop-shadow(0 1px 3px rgba(0,0,0,0.6))' }} />
+          </div>
+        </>
+      ) : (
+        <img src={blobUrl} alt={att.filename} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+      )}
+    </div>
+    </BlurredMedia>
+  );
+};
+
+const MediaLightbox: React.FC<{
+  items: ChatAttachment[];
+  index: number;
+  onIndex: (i: number) => void;
+  onClose: () => void;
+  onDownloadAll: () => void;
+}> = ({ items, index, onIndex, onClose, onDownloadAll }) => {
+  const tr = useTranslation();
+  const { authToken, currentServerIP } = useApp();
+  const att = items[index];
+  const blobUrl = useAuthObjectUrl(att.url);
+  const isVideo = att.content_type.startsWith('video/');
+  const go = useCallback((d: number) => onIndex((index + d + items.length) % items.length), [index, items.length, onIndex]);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+      else if (e.key === 'ArrowRight') go(1);
+      else if (e.key === 'ArrowLeft') go(-1);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [go, onClose]);
+  const navBtn: React.CSSProperties = { position: 'absolute', top: '50%', transform: 'translateY(-50%)', width: 44, height: 44, borderRadius: '50%', border: 'none', background: 'rgba(0,0,0,0.5)', color: '#fff', fontSize: 28, lineHeight: 1, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' };
+  const topBtn: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 6, background: 'rgba(0,0,0,0.5)', border: 'none', color: '#fff', borderRadius: 8, padding: '8px 12px', cursor: 'pointer', fontSize: 13 };
+  return createPortal(
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,0.9)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ position: 'absolute', top: 16, right: 16, display: 'flex', gap: 8, alignItems: 'center' }}>
+        <span style={{ color: '#fff', fontSize: 13, opacity: 0.8, marginRight: 4 }}>{index + 1} / {items.length}</span>
+        <button style={topBtn} title={tr('gallery_download')} onClick={() => downloadAuthed(currentServerIP, authToken, att.url, att.filename)}><Download size={16} /></button>
+        {items.length > 1 && <button style={topBtn} title={tr('gallery_download_all')} onClick={onDownloadAll}><Download size={16} /> {items.length}</button>}
+        <button style={topBtn} title={tr('gallery_close')} onClick={onClose}><X size={18} /></button>
+      </div>
+      {items.length > 1 && <button style={{ ...navBtn, left: 16 }} onClick={(e) => { e.stopPropagation(); go(-1); }}>‹</button>}
+      <div onClick={(e) => e.stopPropagation()} style={{ maxWidth: '90vw', maxHeight: '85vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        {!blobUrl ? <div style={{ ...spin, width: 40, height: 40 }} /> : isVideo
+          ? <video src={blobUrl} controls autoPlay style={{ maxWidth: '90vw', maxHeight: '85vh', borderRadius: 8 }} />
+          : <img src={blobUrl} alt={att.filename} style={{ maxWidth: '90vw', maxHeight: '85vh', objectFit: 'contain', borderRadius: 8 }} />}
+      </div>
+      {items.length > 1 && <button style={{ ...navBtn, right: 16 }} onClick={(e) => { e.stopPropagation(); go(1); }}>›</button>}
+    </div>,
+    document.body,
+  );
+};
+
+const MediaGallery: React.FC<{ items: ChatAttachment[]; caption?: string; authorId?: string }> = ({ items, caption, authorId }) => {
+  const tr = useTranslation();
+  const { authToken, currentServerIP } = useApp();
+  const [lightbox, setLightbox] = useState<number | null>(null);
+  const downloadAll = useCallback(async () => {
+    for (const att of items) {
+      await downloadAuthed(currentServerIP, authToken, att.url, att.filename);
+      await new Promise(r => setTimeout(r, 250));
+    }
+  }, [items, authToken, currentServerIP]);
+
+  // Single item keeps the classic large preview.
+  if (items.length === 1) {
+    return <AuthMedia url={items[0].url} contentType={items[0].content_type} filename={items[0].filename} caption={caption} authorId={authorId} />;
+  }
+
+  const cols = items.length === 2 ? 2 : items.length === 4 ? 2 : 3;
+  return (
+    <div style={{ marginTop: 6, maxWidth: 360 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: `repeat(${cols}, 1fr)`, gap: 4 }}>
+        {items.map((att, i) => <GalleryThumb key={att.id} att={att} onOpen={() => setLightbox(i)} caption={caption} authorId={authorId} />)}
+      </div>
+      <button
+        onClick={downloadAll}
+        style={{ marginTop: 6, display: 'inline-flex', alignItems: 'center', gap: 6, background: 'var(--bg-secondary)', border: 'none', borderRadius: 8, padding: '6px 12px', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 12 }}
+        title={tr('gallery_download_all')}
+      >
+        <Download size={14} /> {tr('gallery_download_all')} ({items.length})
+      </button>
+      {lightbox !== null && (
+        <MediaLightbox items={items} index={lightbox} onIndex={setLightbox} onClose={() => setLightbox(null)} onDownloadAll={downloadAll} />
+      )}
+    </div>
+  );
+};
+
+const AttachmentView: React.FC<{ att: ChatAttachment; caption?: string; authorId?: string }> = ({ att, caption, authorId }) => {
+  const isImage = att.content_type.startsWith('image/');
+  const isVideo = att.content_type.startsWith('video/');
+  const isVoice = att.filename.startsWith('voice_') && att.filename.endsWith('.webm');
+  const isVideoCircle = att.filename.startsWith('video_') && att.filename.endsWith('.webm');
+
+  if (isVoice) return <VoiceMessagePlayer url={att.url} />;
+  if (isVideoCircle) return <VideoCirclePlayer url={att.url} />;
+
+  if (isImage || isVideo) {
+    return <AuthMedia url={att.url} contentType={att.content_type} filename={att.filename} caption={caption} authorId={authorId} />;
+  }
+
+  return (
+    <div style={{
+      marginTop: 6,
+      display: 'flex',
+      alignItems: 'center',
+      gap: 10,
+      background: 'var(--bg-secondary)',
+      borderRadius: 8,
+      padding: '10px 14px',
+      maxWidth: 320,
+    }}>
+      <div style={{ color: 'var(--accent-primary)', flexShrink: 0 }}>
+        {getFileIcon(att.content_type)}
+      </div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {att.filename}
+        </div>
+        <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 2 }}>
+          {formatFileSize(att.file_size)}
+        </div>
+      </div>
+      <AuthDownloadButton url={att.url} filename={att.filename} />
+    </div>
+  );
+};
+
+const AuthDownloadButton: React.FC<{ url: string; filename: string }> = ({ url, filename }) => {
+  const { authToken, currentServerIP } = useApp();
+  const tr = useTranslation();
+  const handleDownload = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    try {
+      const res = await fetch(`${currentServerIP}${url}`, {
+        headers: { Authorization: `Bearer ${authToken}` },
+      });
+      if (!res.ok) return;
+      const blob = await res.blob();
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = filename;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+    } catch { /* ignore */ }
+  };
+  return (
+    <button onClick={handleDownload} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', padding: 4, flexShrink: 0 }} title={tr('chat_download')}>
+      <Download size={16} />
+    </button>
+  );
+};
+
+// ── Context Menu ──────────────────────────────────────────────────────────────
+
+type CtxMenu = { x: number; y: number; msg: ChatMessageType };
+
+const MessageContextMenu: React.FC<{
+  menu: CtxMenu;
+  isOwn: boolean;
+  onClose: () => void;
+  onReply: (msg: ChatMessageType) => void;
+  onEdit: (msg: ChatMessageType) => void;
+  onDelete: (id: string) => void;
+  onPin: (id: string) => void;
+  onReport: (id: string) => void;
+  onCopy: (text: string) => void;
+}> = ({ menu, isOwn, onClose, onReply, onEdit, onDelete, onPin, onReport, onCopy }) => {
+  const tr = useTranslation();
+  const { ref, style: position, portal } = useAnchoredMenu(menu, onClose);
+
+  const style: React.CSSProperties = {
+    ...position,
+    background: 'var(--bg-primary, #1a1a2e)',
+    border: '1px solid var(--border-color, #333)',
+    borderRadius: 10,
+    boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+    minWidth: 180,
+    padding: '4px 0',
+  };
+
+  const item = (icon: React.ReactNode, label: string, onClick: () => void, danger = false) => (
+    <button
+      key={label}
+      onClick={() => { onClick(); onClose(); }}
+      style={{
+        display: 'flex', alignItems: 'center', gap: 10,
+        width: '100%', padding: '9px 14px', background: 'none',
+        border: 'none', cursor: 'pointer', fontSize: 14,
+        color: danger ? '#ff4444' : 'var(--text-primary, #fff)',
+        textAlign: 'left',
+      }}
+      onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg-secondary, #222)')}
+      onMouseLeave={e => (e.currentTarget.style.background = 'none')}
+    >
+      {icon}{label}
+    </button>
+  );
+
+  return portal(
+    <div ref={ref} style={style}>
+      {item(<Reply size={15} />, tr('chat_reply'), () => onReply(menu.msg))}
+      {/* A bot's own words are the bot's; nobody edits them from the UI. */}
+      {isOwn && !isBot(menu.msg.author) && (!menu.msg.message_type || menu.msg.message_type === 'text' || menu.msg.message_type === 'todo') &&
+        item(<Pencil size={15} />, tr('chat_edit'), () => onEdit(menu.msg))}
+      {item(<Copy size={15} />, tr('chat_copy_text'), () => onCopy(menu.msg.content))}
+      {item(<Pin size={15} />, menu.msg.is_pinned ? tr('chat_unpin_msg') : tr('chat_pin'), () => onPin(menu.msg.id))}
+      {!isOwn && item(<Flag size={15} />, tr('chat_report'), () => onReport(menu.msg.id))}
+      {isOwn && item(<Trash2 size={15} />, tr('chat_delete'), () => onDelete(menu.msg.id), true)}
+    </div>
+  );
+};
+
+// ── Message Row ───────────────────────────────────────────────────────────────
+
+function highlightText(rawText: string, query: string, authorId?: string): React.ReactNode {
+  // Apply the privacy content filter before highlighting so masked words/
+  // messages never leak through the search view.
+  const censored = censorPlain(rawText, undefined, authorId);
+  if (censored.blurred) return <span className="blurred-msg">{censored.text}</span>;
+  const text = censored.text;
+  if (!query.trim()) return text;
+  const idx = text.toLowerCase().indexOf(query.toLowerCase());
+  if (idx === -1) return text;
+  return (
+    <>
+      {text.slice(0, idx)}
+      <mark style={{ background: 'rgba(255,200,0,0.4)', color: 'inherit', borderRadius: 2 }}>
+        {text.slice(idx, idx + query.length)}
+      </mark>
+      {text.slice(idx + query.length)}
+    </>
+  );
+}
+
+// ── Read receipt indicator ────────────────────────────────────────────────────
+// ✓        = sent (server has the id)
+// ✓        = clock if id missing (still sending)
+// ✓✓       = delivered to recipient (their chat WS connected)
+// ✓✓ blue  = read (recipient opened the chat)
+const ReadReceipt: React.FC<{ msg: ChatMessageType }> = ({ msg }) => {
+  if (msg.publication_state === 'failed') {
+    return <X size={13} style={{ marginLeft: 4, color: 'var(--text-danger, #e74c3c)', verticalAlign: 'middle' }} />;
+  }
+  if (!msg.id || String(msg.id).startsWith('tmp-') || String(msg.id).startsWith('optimistic-') || msg.publication_state === 'pending') {
+    return <Clock size={13} style={{ marginLeft: 4, color: 'var(--text-tertiary)', verticalAlign: 'middle' }} />;
+  }
+  if (msg.read_at) {
+    return <CheckCheck size={14} style={{ marginLeft: 4, width: 15, color: '#3a8ee6', verticalAlign: 'middle' }} />;
+  }
+  if (msg.delivered_at) {
+    return <CheckCheck size={14} style={{ marginLeft: 4, width: 15, color: 'var(--text-tertiary)', verticalAlign: 'middle' }} />;
+  }
+  return <Check size={14} style={{ marginLeft: 4, width: 15, color: 'var(--text-tertiary)', verticalAlign: 'middle' }} />;
+};
+
+function formatCallDuration(seconds: number): string {
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = seconds % 60;
+  if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+
+const CallMessageRow: React.FC<{
+  msg: ChatMessageType;
+  isOwn: boolean;
+  onStartCall: (withVideo: boolean) => void;
+}> = ({ msg, isOwn, onStartCall }) => {
+  const tr = useTranslation();
+  const info = msg.call_info!;
+  const time = new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+  const statusMap: Record<string, string> = {
+    completed: tr('call_msg_completed'),
+    missed: tr('call_msg_missed'),
+    declined: tr('call_msg_declined'),
+    cancelled: tr('call_msg_cancelled'),
+    no_answer: tr('call_msg_no_answer'),
+    busy: tr('call_msg_busy'),
+  };
+  const statusText = statusMap[info.status] || info.status;
+  const typeText = info.video ? tr('call_msg_video') : tr('call_msg_voice');
+
+  const isBad = info.status === 'missed' || info.status === 'declined' || info.status === 'no_answer' || info.status === 'busy';
+  // The "call back" button belongs to the person who did NOT start the call
+  // (the recipient who missed/declined it). The initiator (author / isOwn)
+  // never sees it.
+  const isUnconnected = isBad || info.status === 'cancelled';
+  const showCallback = isUnconnected && !isOwn;
+  const accentColor = isBad ? '#ff4444' : '#44cc44';
+
+  const Icon = info.status === 'missed' ? PhoneMissed
+    : info.status === 'declined' || info.status === 'cancelled' || info.status === 'busy' ? PhoneOff
+    : info.status === 'no_answer' ? PhoneMissed
+    : info.video ? Video : Phone;
+
+  return (
+    <div style={{
+      display: 'flex',
+      justifyContent: 'center',
+      padding: '0 16px',
+    }}>
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 12,
+        padding: '10px 18px',
+        borderRadius: 12,
+        background: 'var(--bg-secondary)',
+        border: `1px solid ${isBad ? 'rgba(255,68,68,0.25)' : 'var(--border-color)'}`,
+        maxWidth: 380,
+        width: '100%',
+      }}>
+        <div style={{
+          width: 38,
+          height: 38,
+          borderRadius: '50%',
+          background: `${accentColor}20`,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          flexShrink: 0,
+        }}>
+          <Icon size={18} style={{ color: accentColor }} />
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>
+            {statusText}
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <span>{typeText}</span>
+            {info.duration != null && info.duration > 0 && (
+              <span>{formatCallDuration(info.duration)}</span>
+            )}
+          </div>
+        </div>
+        {showCallback && (
+          <button
+            onClick={() => onStartCall(!!info.video)}
+            style={{
+              background: 'none',
+              border: '1px solid var(--accent-primary)',
+              borderRadius: 8,
+              padding: '5px 12px',
+              cursor: 'pointer',
+              color: 'var(--accent-primary)',
+              fontSize: 12,
+              fontWeight: 600,
+              whiteSpace: 'nowrap',
+              flexShrink: 0,
+            }}
+          >
+            {tr('call_msg_callback')}
+          </button>
+        )}
+        <span style={{ fontSize: 11, color: 'var(--text-secondary)', alignSelf: 'flex-end', flexShrink: 0 }}>{time}</span>
+      </div>
+    </div>
+  );
+};
+
+const MessageRow = React.memo(({ msg, isOwn, isFirstInGroup, onContextMenu, onReply, customEmojis, searchQuery, highlight }: {
+  msg: ChatMessageType;
+  isOwn: boolean;
+  isFirstInGroup: boolean;
+  onContextMenu: (e: React.MouseEvent, msg: ChatMessageType) => void;
+  onReply: (msg: ChatMessageType) => void;
+  customEmojis: CustomEmoji[];
+  searchQuery?: string;
+  highlight?: boolean;
+}) => {
+  const tr = useTranslation();
+  const { currentUser, friends, blockedContacts, currentChat } = useApp();
+  // Server sometimes omits author name on the first message — resolve it from
+  // who we already know: ourselves (own messages) or the chat partner.
+  const known = isOwn
+    ? currentUser
+    : friends.find(f => String(f.id) === String(msg.author?.id))
+      ?? blockedContacts.find(u => String(u.id) === String(msg.author?.id))
+      ?? friends.find(f => String(f.id) === String(currentChat))
+      ?? blockedContacts.find(u => String(u.id) === String(currentChat));
+  const author = msg.author?.username ? msg.author : known;
+  const displayName = accountDisplayName(author);
+  const avatarSrc = msg.author?.avatar || known?.avatar;
+  const time = new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const [avatarError, setAvatarError] = useState(false);
+  // Long-press (mobile) opens the same context menu as right-click (desktop).
+  const lpTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lpFired = useRef(false);
+  const startLongPress = (e: React.TouchEvent) => {
+    const t = e.touches[0];
+    if (!t) return;
+    lpFired.current = false;
+    const x = t.clientX, y = t.clientY;
+    lpTimer.current = setTimeout(() => {
+      lpFired.current = true;
+      onContextMenu({ preventDefault() {}, stopPropagation() {}, clientX: x, clientY: y } as unknown as React.MouseEvent, msg);
+    }, 450);
+  };
+  const cancelLongPress = () => { if (lpTimer.current) { clearTimeout(lpTimer.current); lpTimer.current = null; } };
+
+  const isSearchMatch = !!(searchQuery?.trim() && msg.content?.toLowerCase().includes(searchQuery.toLowerCase()));
+
+  return (
+    <div
+      data-msg-id={msg.id}
+      className={`message-item ${isOwn ? 'own' : ''} ${isFirstInGroup ? '' : 'compact'}`}
+      style={{
+        minHeight: isFirstInGroup ? MSG_HEIGHT : undefined, position: 'relative',
+        background: highlight
+          ? 'rgba(0,112,243,0.18)'
+          : isSearchMatch
+          ? 'rgba(255,200,0,0.07)'
+          : msg.is_pinned ? 'rgba(0,112,243,0.08)' : undefined,
+        transition: 'background 0.3s ease',
+      }}
+      onContextMenu={e => { e.preventDefault(); onContextMenu(e, msg); }}
+      onTouchStart={startLongPress}
+      onTouchEnd={cancelLongPress}
+      onTouchMove={cancelLongPress}
+      onContextMenuCapture={e => { if (lpFired.current) e.preventDefault(); }}
+    >
+      {msg.is_pinned && (
+        <div style={{ position: 'absolute', top: 4, ...(isOwn ? { left: 4 } : { right: 4 }), color: 'var(--accent-primary)', opacity: 0.7, zIndex: 1 }}>
+          <Pin size={12} />
+        </div>
+      )}
+      <div className="message-avatar-slot">
+        {isFirstInGroup
+          ? (avatarSrc && !avatarError
+              ? <img src={avatarSrc} alt={displayName} style={{ width: 36, height: 36, borderRadius: '50%', objectFit: 'cover' }} onError={() => setAvatarError(true)} />
+              : <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'var(--accent-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 700, fontSize: 14 }}>
+                  {displayName[0].toUpperCase()}
+                </div>
+            )
+          : null
+        }
+      </div>
+      <div className="message-content" style={{ flex: 1, minWidth: 0 }}>
+        <div className="message-bubble">
+          {msg.message_type === 'cipher' && <DmCipherMessageView message={msg} />}
+          {msg.message_type !== 'cipher' && msg.content && (
+            <div className="message-text" style={{ position: 'relative' }}>
+              {isFirstInGroup && (
+                <div className="message-author-bubble">{displayName}<AccountBadge account={author} /></div>
+              )}
+              {msg.reply_to && (
+                <div className="message-reply-preview">
+                  {msg.reply_to.deleted ? (
+                    <span style={{ fontStyle: 'italic', opacity: 0.6 }}>{tr('chat_message_deleted')}</span>
+                  ) : (
+                    <>
+                      <span className="message-reply-author">
+                        {msg.reply_to.author.nickname || msg.reply_to.author.username}
+                      </span>
+                      <span className="message-reply-text">
+                        <MessageText text={msg.reply_to.content} customEmojis={customEmojis} authorId={msg.reply_to.author?.id} />
+                      </span>
+                    </>
+                  )}
+                </div>
+              )}
+              <div className="message-line">
+                <span className="message-body">
+                  {searchQuery?.trim()
+                    ? highlightText(msg.content, searchQuery, msg.author?.id)
+                    : <MessageText text={msg.content} customEmojis={customEmojis} authorId={msg.author?.id} isBot={isBot(msg.author)} />
+                  }
+                </span>
+                <span className="message-timestamp">{msg.edited && <span style={{ marginRight: 4, opacity: 0.75 }}>{tr('msg_edited')}</span>}{time}</span>
+                {isOwn && !msg.blocked_reason && <ReadReceipt msg={msg} />}
+              </div>
+              {msg.blocked_reason && (
+                <div role="alert" style={{ marginTop: 4, padding: '6px 10px', borderRadius: 8, fontSize: 13, lineHeight: 1.35, color: '#fff', background: 'var(--danger, #d9534f)' }}>
+                  {tr('msg_code_blocked')}
+                </div>
+              )}
+            </div>
+          )}
+          {isRichMsg(msg) && (
+            <DmRichCard msg={msg} isOwn={isOwn} showAuthor={isFirstInGroup && !msg.content} displayName={displayName} />
+          )}
+          {(() => {
+            const atts = msg.message_type === 'cipher' ? [] : msg.attachments ?? [];
+            const media = atts.filter(isGalleryMedia);
+            const rest = atts.filter(a => !isGalleryMedia(a));
+            return (
+              <>
+                {media.length > 0 && <MediaGallery items={media} caption={msg.content} authorId={msg.author?.id} />}
+                {rest.map(att => <AttachmentView key={att.id} att={att} caption={msg.content} authorId={msg.author?.id} />)}
+              </>
+            );
+          })()}
+          {/* Placeholder for a message whose media is still uploading: no text,
+              no attachments yet. Rich messages (poll/checklist/contact/location)
+              are legitimately text- and attachment-less, so they must not get it. */}
+          {!msg.content && !msg.attachments?.length && !isRichMsg(msg) && msg.message_type !== 'cipher' && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderRadius: 16, background: 'var(--bg-secondary)', maxWidth: 240, animation: 'pulse 1.5s ease-in-out infinite' }}>
+              <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'var(--border-color)', flexShrink: 0 }} />
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <div style={{ height: 10, borderRadius: 4, background: 'var(--border-color)', width: '80%' }} />
+                <div style={{ height: 8, borderRadius: 4, background: 'var(--border-color)', width: '50%' }} />
+              </div>
+            </div>
+          )}
+          {!msg.content && ((msg.attachments?.length ?? 0) > 0 || isRichMsg(msg)) && (
+            <span className="message-timestamp message-timestamp-standalone">
+              {msg.edited && <span style={{ marginRight: 4, opacity: 0.75 }}>{tr('msg_edited')}</span>}
+              {time}
+              {isOwn && <ReadReceipt msg={msg} />}
+            </span>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+});
+
+const MessagesContainer: React.FC<{
+  onReply: (msg: ChatMessageType) => void;
+  onEditText: (msg: ChatMessageType) => void;
+  searchQuery: string;
+  scrollToRef?: React.MutableRefObject<((id: string) => void) | null>;
+}> = ({ onReply, onEditText, searchQuery, scrollToRef }) => {
+  const { chatMessages, chatLoading, userIDonServer, loadOlderMessages, deleteMessage, pinMessage, reportMessage, customEmojis, currentChat, chatConversationId, editMessage, startCall } = useApp();
+  // Text edits happen inline in the composer (lifted to ChatView); only to-do
+  // lists open the structured editor here.
+  const [editingTodo, setEditingTodo] = useState<ChatMessageType | null>(null);
+  // Memoised so the array identity is stable: without it every render of this
+  // component handed a brand-new array to the list below, and the memoised
+  // MessageRows all re-rendered even when nothing about them had changed.
+  const filteredMessages = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    return q ? chatMessages.filter(m => m.content?.toLowerCase().includes(q)) : chatMessages;
+  }, [chatMessages, searchQuery]);
+  const tr = useTranslation();
+  const containerRef = useRef<HTMLDivElement>(null);
+  const wasAtBottom = useRef(true);
+  const loadingOlder = useRef(false);
+  const prevLenRef = useRef(0);
+  const lastMsgIdRef = useRef<string | null>(null);
+  const [ctxMenu, setCtxMenu] = useState<CtxMenu | null>(null);
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [highlightId, setHighlightId] = useState<string | null>(null);
+  // Floating "jump to bottom" button: shown when the user has scrolled up;
+  // the badge counts messages that arrived while they were reading history.
+  const [atBottom, setAtBottom] = useState(true);
+  const [newCount, setNewCount] = useState(0);
+
+  const scrollToBottom = useCallback(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
+    wasAtBottom.current = true;
+    setAtBottom(true);
+    setNewCount(0);
+  }, []);
+
+  // Reset tracking when switching conversations so a new chat opens at the
+  // bottom with no stale "new messages" count.
+  useEffect(() => {
+    prevLenRef.current = 0;
+    lastMsgIdRef.current = null;
+    wasAtBottom.current = true;
+    setAtBottom(true);
+    setNewCount(0);
+  }, [currentChat]);
+
+  useEffect(() => {
+    if (scrollToRef) {
+      scrollToRef.current = (id: string) => {
+        const el = containerRef.current;
+        if (!el) return;
+        const target = el.querySelector(`[data-msg-id="${id}"]`) as HTMLElement | null;
+        if (target) {
+          target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          setHighlightId(id);
+          setTimeout(() => setHighlightId(null), 1500);
+        }
+      };
+    }
+  }, [scrollToRef]);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const isInitialLoad = prevLenRef.current === 0;
+    const added = chatMessages.length - prevLenRef.current;
+    const shouldStickToBottom = wasAtBottom.current;
+    prevLenRef.current = chatMessages.length;
+
+    // Only a message that lands at the BOTTOM is "new". Detect that by the tail
+    // id changing — this is timing-proof, unlike the old loadingOlder flag which
+    // was already reset by the time this effect ran, so prepended history (a
+    // scroll-up load) got miscounted as dozens of unread messages.
+    const lastId = chatMessages.length ? String(chatMessages[chatMessages.length - 1].id) : null;
+    const appendedAtBottom = lastId !== lastMsgIdRef.current;
+    lastMsgIdRef.current = lastId;
+    if (!appendedAtBottom || added <= 0) return; // prepended history, deletion, or replace
+
+    if (isInitialLoad || shouldStickToBottom) {
+      requestAnimationFrame(() => {
+        const current = containerRef.current;
+        if (current) current.scrollTop = current.scrollHeight;
+      });
+      wasAtBottom.current = true;
+      setAtBottom(true);
+      setNewCount(0);
+      return;
+    }
+
+    wasAtBottom.current = false;
+    setAtBottom(false);
+    setNewCount(c => c + added);
+  }, [chatMessages.length]);
+
+  const handleScroll = async () => {
+    const el = containerRef.current;
+    if (!el) return;
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    wasAtBottom.current = nearBottom;
+    setAtBottom(nearBottom);
+    if (nearBottom) setNewCount(0);
+    if (el.scrollTop < 100 && !loadingOlder.current && chatMessages.length > 0) {
+      loadingOlder.current = true;
+      const prevHeight = el.scrollHeight;
+      const loaded = await loadOlderMessages();
+      if (loaded) requestAnimationFrame(() => { el.scrollTop = el.scrollHeight - prevHeight; });
+      loadingOlder.current = false;
+    }
+  };
+
+  const openCtx = useCallback((e: React.MouseEvent, msg: ChatMessageType) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setCtxMenu({ x: e.clientX, y: e.clientY, msg });
+  }, []);
+
+  const closeCtx = useCallback(() => setCtxMenu(null), []);
+
+  const handleStartCall = useCallback((withVideo: boolean) => {
+    if (!currentChat) return;
+    startCall(String(currentChat), withVideo);
+  }, [currentChat, startCall]);
+
+  return (
+    <>
+      {deleteConfirmId && (
+        <ConfirmModal
+          title={tr('delete_message_title')}
+          message={tr('delete_message_confirm')}
+          confirmLabel={tr('delete_message_button')}
+          cancelLabel={tr('cancel')}
+          onConfirm={() => { deleteMessage(deleteConfirmId); setDeleteConfirmId(null); }}
+          onCancel={() => setDeleteConfirmId(null)}
+        />
+      )}
+      {ctxMenu && (
+        <MessageContextMenu
+          menu={ctxMenu}
+          isOwn={String(ctxMenu.msg.author.id) === String(userIDonServer)}
+          onClose={closeCtx}
+          onReply={msg => { onReply(msg); closeCtx(); }}
+          onEdit={msg => { if (msg.message_type === 'todo') setEditingTodo(msg); else onEditText(msg); closeCtx(); }}
+          onDelete={id => { closeCtx(); setDeleteConfirmId(id); }}
+          onPin={id => pinMessage(id)}
+          onReport={id => reportMessage(id)}
+          onCopy={text => navigator.clipboard.writeText(text).catch(() => {})}
+        />
+      )}
+      {editingTodo && chatConversationId && (
+        <MessageEditModal
+          msg={editingTodo}
+          onCancel={() => setEditingTodo(null)}
+          onSave={async body => {
+            await editMessage({ kind: 'dm', conversationId: chatConversationId }, editingTodo.id, body);
+            setEditingTodo(null);
+          }}
+        />
+      )}
+      <div className="messages-container" ref={containerRef} onScroll={handleScroll}>
+        <div className="messages-list">
+          {chatLoading && <MessageListSkeleton />}
+          {!chatLoading && filteredMessages.length === 0 && (
+            <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-secondary)' }}>
+              {searchQuery.trim() ? tr('chat_no_search_results') : tr('chat_no_messages')}
+            </div>
+          )}
+          {filteredMessages.map((msg, i) => {
+            const prev = filteredMessages[i - 1];
+            const showDate = !searchQuery.trim() && shouldShowDateSeparator(msg, prev);
+            const dateSep = showDate ? <DateSeparator key={`date-${msg.id || i}`} label={getDateLabel(msg.created_at, tr)} /> : null;
+
+            if (msg.message_type === 'call' && msg.call_info) {
+              return (
+                <React.Fragment key={msg.id || `call-${i}`}>
+                  {dateSep}
+                  <CallMessageRow
+                    msg={msg}
+                    isOwn={String(msg.author.id) === String(userIDonServer)}
+                    onStartCall={handleStartCall}
+                  />
+                </React.Fragment>
+              );
+            }
+            const isFirstInGroup = showDate || !prev || String(prev.author?.id) !== String(msg.author?.id) || prev.message_type === 'call';
+            return (
+              <React.Fragment key={msg.id || `tmp-${i}`}>
+                {dateSep}
+                <MessageRow
+                  msg={msg}
+                  isOwn={String(msg.author.id) === String(userIDonServer)}
+                  isFirstInGroup={isFirstInGroup}
+                  onContextMenu={openCtx}
+                  onReply={onReply}
+                  customEmojis={customEmojis}
+                  searchQuery={searchQuery}
+                  highlight={highlightId === msg.id}
+                />
+              </React.Fragment>
+            );
+          })}
+        </div>
+      </div>
+      {(!atBottom || newCount > 0) && (
+        <button
+          className="scroll-to-bottom-btn"
+          onClick={scrollToBottom}
+          title="Scroll to bottom"
+          aria-label={newCount > 0 ? `Scroll to ${newCount} new messages` : 'Scroll to bottom'}
+        >
+          <ChevronDown size={20} />
+          {newCount > 0 && <span className="scroll-to-bottom-count">{newCount}</span>}
+        </button>
+      )}
+    </>
+  );
+};
+
+// Photos/videos per message. Selecting more is allowed — the send splits the
+// batch into several messages of ATTACHMENTS_PER_MESSAGE each (matches backend).
+const ATTACHMENTS_PER_MESSAGE = 15;
+const MAX_FILES = 100;
+
+type PendingFile = { file: File; preview?: string };
+
+type RecordMode = 'idle' | 'voice' | 'video';
+type RecordState = 'idle' | 'recording' | 'preview';
+
+/**
+ * The record button works the way Telegram's does: a tap switches between a
+ * voice message and a video circle, holding records, letting go sends.
+ * Sliding up while holding locks the recording hands-free, sliding left throws
+ * it away.
+ */
+const RECORD_TAP_MS = 350;
+const RECORD_LOCK_SLIDE = 56;
+const RECORD_CANCEL_SLIDE = 80;
+/** Shorter than this on release is a slip of the finger, not a message. */
+const RECORD_MIN_MS = 600;
+
+const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: () => void; editing?: ChatMessageType | null; onCancelEdit?: () => void; onScheduled: (item: ScheduledItem) => void }> = ({ replyTo, onCancelReply, editing, onCancelEdit, onScheduled }) => {
+  const { sendChatMessage, chatConversationId, currentServerIP, authToken, scheduleMessage, sendRichMessage, editMessage, friends, currentChat } = useApp();
+  const tr = useTranslation();
+  const [message, setMessage] = useState('');
+  const [attachMenu, setAttachMenu] = useState(false);
+  const [richType, setRichType] = useState<RichMessageType | null>(null);
+  const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
+  const [limitWarning, setLimitWarning] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [showPicker, setShowPicker] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const pickerButtonRef = useRef<HTMLButtonElement>(null);
+  const stickerSendGuard = useRef(false);
+  const composerInputRef = useRef<HTMLTextAreaElement>(null);
+
+  // Auto-grow the composer textarea up to 6 lines, then let it scroll.
+  const MAX_COMPOSER_LINES = 6;
+  const autoResizeComposer = useCallback(() => {
+    const el = composerInputRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    const cs = getComputedStyle(el);
+    const lh = parseFloat(cs.lineHeight) || 20;
+    const pad = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0);
+    const maxH = lh * MAX_COMPOSER_LINES + pad;
+    el.style.height = `${Math.min(el.scrollHeight, maxH)}px`;
+    el.style.overflowY = el.scrollHeight > maxH ? 'auto' : 'hidden';
+  }, []);
+
+  // Local draft (text + files) per conversation — survives switching chats.
+  // Restored in an effect; saved imperatively via the persist* helpers so the
+  // draft isn't clobbered by effects re-running on (re)mount / scope switch.
+  const draftScope = chatConversationId ? `dm_${chatConversationId}` : '';
+  useEffect(() => {
+    onCancelEdit?.();  // leaving a chat cancels any in-progress edit
+    if (!draftScope) { setMessage(''); setPendingFiles([]); return; }
+    setMessage(getDraftText(draftScope));
+    setPendingFiles(getDraftFiles(draftScope).map(f => ({ file: f, preview: f.type.startsWith('image/') ? URL.createObjectURL(f) : undefined })));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draftScope]);
+  const persistMessage = useCallback((v: string) => { setMessage(v); setDraftText(draftScope, v); }, [draftScope]);
+
+  // Inline edit: load the message text into the composer on entering edit mode,
+  // and restore the saved draft on cancel/save. Uses setMessage (not
+  // persistMessage) so the draft in storage is left intact while editing.
+  const editingIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (editing) {
+      if (editingIdRef.current !== editing.id) {
+        editingIdRef.current = editing.id;
+        setMessage(editing.content || '');
+        requestAnimationFrame(() => { autoResizeComposer(); composerInputRef.current?.focus(); });
+      }
+    } else if (editingIdRef.current !== null) {
+      editingIdRef.current = null;
+      setMessage(getDraftText(draftScope));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editing, draftScope]);
+  // Keep the textarea height in sync with its content (incl. draft restore / send).
+  useLayoutEffect(() => { autoResizeComposer(); }, [message, autoResizeComposer]);
+  const persistPendingFiles = useCallback((updater: PendingFile[] | ((prev: PendingFile[]) => PendingFile[])) => {
+    setPendingFiles(prev => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      setDraftFiles(draftScope, next.map(p => p.file));
+      return next;
+    });
+  }, [draftScope]);
+
+  const [recordMode, setRecordMode] = useState<RecordMode>('voice');
+  const [recordState, setRecordState] = useState<RecordState>('idle');
+  const [recordError, setRecordError] = useState<string | null>(null);
+  const [recordedBlob, setRecordedBlob] = useState<Blob | null>(null);
+  const [recordedUrl, setRecordedUrl] = useState<string | null>(null);
+  const [recordDuration, setRecordDuration] = useState(0);
+  const [isPlaying, setIsPlaying] = useState(false);
+  // Hands-free: the recording goes on after the finger is lifted.
+  const [recordLocked, setRecordLocked] = useState(false);
+  const holdRef = useRef<{ x: number; y: number; at: number } | null>(null);
+  const lockedRef = useRef(false);
+  // Set between stop() and onstop to say what the finished blob is for.
+  const abortRef = useRef(false);
+  const autoSendRef = useRef(false);
+  const sendRecordingRef = useRef<(() => Promise<void>) | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+  const recordTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const audioPreviewRef = useRef<HTMLAudioElement | null>(null);
+  const videoPreviewRef = useRef<HTMLVideoElement | null>(null);
+
+  const stopMediaStream = useCallback(() => {
+    mediaStreamRef.current?.getTracks().forEach(t => t.stop());
+    mediaStreamRef.current = null;
+  }, []);
+
+  const cleanupRecording = useCallback(() => {
+    if (recordTimerRef.current) { clearInterval(recordTimerRef.current); recordTimerRef.current = null; }
+    if (mediaRecorderRef.current?.state !== 'inactive') {
+      try { mediaRecorderRef.current?.stop(); } catch {}
+    }
+    mediaRecorderRef.current = null;
+    stopMediaStream();
+    chunksRef.current = [];
+  }, [stopMediaStream]);
+
+  const startRecording = useCallback(async (mode: RecordMode) => {
+    const unsupported = mediaUnsupportedReason();
+    if (unsupported) { setRecordError(unsupported); setTimeout(() => setRecordError(null), 6000); return; }
+    try {
+      const constraints = mode === 'video'
+        ? { audio: true, video: { width: 240, height: 240, facingMode: 'user' } }
+        : { audio: true };
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      mediaStreamRef.current = stream;
+      const { mimeType } = pickRecorderFormat(mode === 'video' ? 'video' : 'voice');
+      const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+      const actualType = recorder.mimeType || mimeType || '';
+      chunksRef.current = [];
+      recorder.ondataavailable = e => { if (e.data.size > 0) chunksRef.current.push(e.data); };
+      recorder.onstop = () => {
+        if (abortRef.current) {
+          // Slid left, or released before it was a message at all.
+          abortRef.current = false;
+          chunksRef.current = [];
+          setRecordState('idle');
+          setRecordDuration(0);
+          stopMediaStream();
+          return;
+        }
+        const blob = new Blob(chunksRef.current, { type: actualType });
+        const url = URL.createObjectURL(blob);
+        setRecordedBlob(blob);
+        setRecordedUrl(url);
+        setRecordState('preview');
+        stopMediaStream();
+      };
+      mediaRecorderRef.current = recorder;
+      recorder.start();
+      // Permission dialogs and camera start-up take time: the finger may already
+      // be up by now, and a recording nobody asked for must not stay on.
+      if (!holdRef.current && !lockedRef.current) {
+        abortRef.current = true;
+        try { recorder.stop(); } catch { /* already inactive */ }
+        return;
+      }
+      setRecordState('recording');
+      setRecordDuration(0);
+      recordTimerRef.current = setInterval(() => setRecordDuration(d => d + 1), 1000);
+    } catch (e) {
+      reportError(e);
+      setRecordError(describeMediaError(e));
+      setTimeout(() => setRecordError(null), 6000);
+      stopMediaStream();
+    }
+  }, [stopMediaStream]);
+
+  const stopRecording = useCallback(() => {
+    if (recordTimerRef.current) { clearInterval(recordTimerRef.current); recordTimerRef.current = null; }
+    if (mediaRecorderRef.current?.state === 'recording') {
+      mediaRecorderRef.current.stop();
+    }
+  }, []);
+
+  /** Stop and keep nothing: the slide-left gesture and too-short presses. */
+  const abortRecording = useCallback(() => {
+    abortRef.current = true;
+    if (mediaRecorderRef.current?.state === 'recording') {
+      if (recordTimerRef.current) { clearInterval(recordTimerRef.current); recordTimerRef.current = null; }
+      mediaRecorderRef.current.stop();
+    } else {
+      abortRef.current = false;
+      cleanupRecording();
+      setRecordState('idle');
+      setRecordDuration(0);
+    }
+  }, [cleanupRecording]);
+
+  const setLocked = useCallback((on: boolean) => {
+    lockedRef.current = on;
+    setRecordLocked(on);
+  }, []);
+
+  const onRecordDown = useCallback((e: React.PointerEvent<HTMLButtonElement>) => {
+    if (uploading) return;
+    // Locked and running: this press is the stop button.
+    if (recordState === 'recording') {
+      if (lockedRef.current) stopRecording();
+      return;
+    }
+    if (recordState === 'preview') return;
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+    holdRef.current = { x: e.clientX, y: e.clientY, at: Date.now() };
+    setLocked(false);
+    void startRecording(recordMode === 'video' ? 'video' : 'voice');
+  }, [uploading, recordState, stopRecording, startRecording, recordMode, setLocked]);
+
+  const onRecordMove = useCallback((e: React.PointerEvent<HTMLButtonElement>) => {
+    const hold = holdRef.current;
+    if (!hold || lockedRef.current) return;
+    if (hold.x - e.clientX > RECORD_CANCEL_SLIDE) {
+      holdRef.current = null;
+      abortRecording();
+      return;
+    }
+    if (hold.y - e.clientY > RECORD_LOCK_SLIDE) setLocked(true);
+  }, [abortRecording, setLocked]);
+
+  const onRecordUp = useCallback(() => {
+    const hold = holdRef.current;
+    holdRef.current = null;
+    if (!hold) return;              // already cancelled by the slide
+    if (lockedRef.current) return;  // hands-free: keep recording
+    const held = Date.now() - hold.at;
+    if (held < RECORD_TAP_MS) {
+      // A tap, not a recording: switch what the button records.
+      abortRecording();
+      setRecordMode(m => (m === 'video' ? 'voice' : 'video'));
+      return;
+    }
+    if (held < RECORD_MIN_MS) {
+      abortRecording();
+      return;
+    }
+    autoSendRef.current = true;     // letting go sends, as in Telegram
+    stopRecording();
+  }, [abortRecording, stopRecording]);
+
+  const onRecordCancel = useCallback(() => {
+    if (!holdRef.current || lockedRef.current) return;
+    holdRef.current = null;
+    abortRecording();
+  }, [abortRecording]);
+
+  const discardRecording = useCallback(() => {
+    cleanupRecording();
+    if (recordedUrl) URL.revokeObjectURL(recordedUrl);
+    setRecordedBlob(null);
+    setRecordedUrl(null);
+    setRecordState('idle');
+    setRecordDuration(0);
+    setIsPlaying(false);
+  }, [cleanupRecording, recordedUrl]);
+
+  const liveVideoRef = useRef<HTMLVideoElement | null>(null);
+
+  // Letting go of the button sends straight away; the hands-free recording
+  // stops into the preview instead, so it can still be listened to first.
+  useEffect(() => {
+    if (recordState === 'preview' && recordedBlob && autoSendRef.current) {
+      autoSendRef.current = false;
+      void sendRecordingRef.current?.();
+    }
+    if (recordState === 'idle') setLocked(false);
+  }, [recordState, recordedBlob, setLocked]);
+
+  useEffect(() => {
+    if (recordState === 'recording' && recordMode === 'video' && liveVideoRef.current && mediaStreamRef.current) {
+      liveVideoRef.current.srcObject = mediaStreamRef.current;
+    }
+  }, [recordState, recordMode]);
+
+  const togglePlayback = useCallback(() => {
+    if (!recordedUrl) return;
+    if (recordMode === 'video') {
+      const vid = videoPreviewRef.current;
+      if (!vid) return;
+      if (isPlaying) { vid.pause(); setIsPlaying(false); }
+      else { vid.play(); setIsPlaying(true); }
+    } else {
+      if (!audioPreviewRef.current) {
+        const a = document.createElement('audio');
+        a.src = recordedUrl;
+        a.onended = () => setIsPlaying(false);
+        audioPreviewRef.current = a;
+      }
+      if (isPlaying) { audioPreviewRef.current.pause(); setIsPlaying(false); }
+      else { audioPreviewRef.current.play(); setIsPlaying(true); }
+    }
+  }, [recordedUrl, isPlaying, recordMode]);
+
+  // One path for every way a file arrives: the picker, a drop, or a paste.
+  const addFiles = useCallback((selected: File[]) => {
+    if (!selected.length) return;
+
+    persistPendingFiles(prev => {
+      const available = MAX_FILES - prev.length;
+      if (available <= 0) {
+        setLimitWarning(true);
+        setTimeout(() => setLimitWarning(false), 3000);
+        return prev;
+      }
+      const allowed = selected.slice(0, available);
+      if (selected.length > available) {
+        setLimitWarning(true);
+        setTimeout(() => setLimitWarning(false), 3000);
+      }
+      const newEntries: PendingFile[] = allowed.map(f => ({
+        file: f,
+        preview: f.type.startsWith('image/') ? URL.createObjectURL(f) : undefined,
+      }));
+      return [...prev, ...newEntries];
+    });
+  }, [persistPendingFiles]);
+
+  const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const selected = Array.from(e.target.files || []);
+    e.target.value = '';
+    addFiles(selected);
+  }, [addFiles]);
+
+  // Ctrl+V of an image (or any file) from the clipboard. Text pastes carry no
+  // items of kind 'file', so typing is left completely alone.
+  const handlePaste = useCallback((e: React.ClipboardEvent) => {
+    if (uploading || recordState !== 'idle') return;
+    const files = Array.from(e.clipboardData?.items || [])
+      .filter(it => it.kind === 'file')
+      .map(it => it.getAsFile())
+      .filter((f): f is File => f != null);
+    if (!files.length) return;
+    e.preventDefault();
+    addFiles(files);
+  }, [addFiles, uploading, recordState]);
+
+  // Drag & drop onto the composer. dragDepth counts enter/leave across child
+  // elements so the highlight does not flicker as the cursor crosses them.
+  const dragDepth = useRef(0);
+  const [dragOver, setDragOver] = useState(false);
+
+  const hasDragFiles = (e: React.DragEvent) =>
+    Array.from(e.dataTransfer?.types || []).includes('Files');
+
+  const handleDragEnter = useCallback((e: React.DragEvent) => {
+    if (!hasDragFiles(e)) return;
+    e.preventDefault();
+    dragDepth.current += 1;
+    setDragOver(true);
+  }, []);
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    if (!hasDragFiles(e)) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    if (!hasDragFiles(e)) return;
+    dragDepth.current = Math.max(0, dragDepth.current - 1);
+    if (dragDepth.current === 0) setDragOver(false);
+  }, []);
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    if (!hasDragFiles(e)) return;
+    e.preventDefault();
+    dragDepth.current = 0;
+    setDragOver(false);
+    if (uploading || recordState !== 'idle') return;
+    addFiles(Array.from(e.dataTransfer.files || []));
+  }, [addFiles, uploading, recordState]);
+
+  const removeFile = useCallback((index: number) => {
+    persistPendingFiles(prev => {
+      const entry = prev[index];
+      if (entry?.preview) URL.revokeObjectURL(entry.preview);
+      return prev.filter((_, i) => i !== index);
+    });
+  }, [persistPendingFiles]);
+
+  const clearFiles = useCallback(() => {
+    persistPendingFiles(prev => {
+      prev.forEach(f => { if (f.preview) URL.revokeObjectURL(f.preview); });
+      return [];
+    });
+  }, [persistPendingFiles]);
+
+  const uploadFiles = useCallback(async (files: PendingFile[]): Promise<string[]> => {
+    if (!chatConversationId || files.length === 0) return [];
+    setUploading(true);
+    const attachmentIds: string[] = [];
+    try {
+      const results = await Promise.all(
+        files.map(async ({ file }) => {
+          const form = new FormData();
+          form.append('file', file);
+          const res = await fetch(
+            `${currentServerIP}/api/conversations/${chatConversationId}/upload/`,
+            { method: 'POST', headers: { Authorization: `Bearer ${authToken}` }, body: form }
+          );
+          if (res.ok) { const d = await res.json(); return d.id as string; }
+          return null;
+        })
+      );
+      results.forEach(id => { if (id != null) attachmentIds.push(id); });
+    } catch (e) { reportError(e); }
+    finally { setUploading(false); }
+    return attachmentIds;
+  }, [chatConversationId, currentServerIP, authToken]);
+
+  const doSend = useCallback(async (text: string, files: PendingFile[], replyId?: string) => {
+    const attachmentIds = await uploadFiles(files);
+    // With attachments, send over HTTP (send_message) instead of the chat WS:
+    // uploading many files concurrently can leave the WS stale-OPEN so the frame
+    // is silently dropped and the message never persists (files orphan on disk).
+    // send_message persists synchronously and broadcasts to the room.
+    if (attachmentIds.length > 0) {
+      if (!chatConversationId) return;
+      try {
+        await fetch(
+          `${currentServerIP}/api/conversations/${chatConversationId}/messages/send/`,
+          {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${authToken}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ content: text || '', attachment_ids: attachmentIds, reply_to_id: replyId || null }),
+          },
+        );
+      } catch (e) { reportError(e); }
+      return;
+    }
+    sendChatMessage(text, undefined, replyId);
+  }, [uploadFiles, sendChatMessage, chatConversationId, currentServerIP, authToken]);
+
+  const handleSend = useCallback(async () => {
+    // Saving an inline edit — content only, no attachments/reply.
+    if (editing) {
+      const t = message.trim();
+      if (!t || !chatConversationId) return;
+      try {
+        await editMessage({ kind: 'dm', conversationId: chatConversationId }, editing.id, { content: t });
+      } catch { return; }  // keep the composer open so the user can retry
+      onCancelEdit?.();
+      return;
+    }
+    if (!message.trim() && pendingFiles.length === 0) return;
+    const text = message;
+    const files = pendingFiles;
+    const replyId = replyTo?.id;
+    persistMessage('');
+    clearFiles();
+    onCancelReply();
+    if (files.length <= ATTACHMENTS_PER_MESSAGE) {
+      await doSend(text, files, replyId);
+      return;
+    }
+    // Too many attachments for one message — split into batches of 15. The
+    // first message carries the text/reply, the rest are attachment-only.
+    for (let i = 0; i < files.length; i += ATTACHMENTS_PER_MESSAGE) {
+      const chunk = files.slice(i, i + ATTACHMENTS_PER_MESSAGE);
+      await doSend(i === 0 ? text : '', chunk, i === 0 ? replyId : undefined);
+    }
+  }, [editing, chatConversationId, editMessage, onCancelEdit, message, pendingFiles, replyTo, doSend, clearFiles, onCancelReply, persistMessage]);
+
+  const handleDelayedSend = useCallback(async (delayMs: number) => {
+    if (!message.trim() && pendingFiles.length === 0) return;
+    if (!chatConversationId) return;
+    setShowPicker(false);
+    const text = message;
+    const files = [...pendingFiles];
+    const replyId = replyTo?.id;
+    persistMessage('');
+    clearFiles();
+    onCancelReply();
+
+    // Upload files first, then schedule on server
+    const attachmentIds = await uploadFiles(files);
+    const result = await scheduleMessage(
+      chatConversationId, text, attachmentIds,
+      Math.round(delayMs / 1000), replyId,
+    );
+    if (!result) return;
+    onScheduled({ id: result.id, send_at: result.send_at, content: text });
+  }, [message, pendingFiles, replyTo, chatConversationId, uploadFiles, scheduleMessage, clearFiles, onCancelReply, onScheduled, persistMessage]);
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    // On phones (≤768px) Enter inserts a newline — sending is via the button.
+    // Desktop keeps Enter-to-send (Shift+Enter for a newline).
+    if (e.key === 'Enter' && !e.shiftKey && !window.matchMedia('(max-width: 768px)').matches) {
+      e.preventDefault();
+      handleSend();
+    }
+  };
+
+  const sendRecording = useCallback(async () => {
+    if (!recordedBlob || !chatConversationId) return;
+    setUploading(true);
+    try {
+      const ext = recordedBlob.type.includes('mp4') ? (recordMode === 'video' ? 'mp4' : 'm4a') : recordedBlob.type.includes('aac') ? 'aac' : 'webm';
+      const fileName = recordMode === 'video' ? `video_${Date.now()}.${ext}` : `voice_${Date.now()}.${ext}`;
+      const form = new FormData();
+      form.append('file', recordedBlob, fileName);
+      const res = await fetch(
+        `${currentServerIP}/api/conversations/${chatConversationId}/upload/`,
+        { method: 'POST', headers: { Authorization: `Bearer ${authToken}` }, body: form }
+      );
+      if (res.ok) {
+        const d = await res.json();
+        // Send over HTTP (send_message) rather than the chat WebSocket: right
+        // after camera recording the WS can be stale-OPEN and silently drop the
+        // frame, so the note would upload but never actually send. send_message
+        // persists synchronously and broadcasts to the room, so it's reliable.
+        await fetch(
+          `${currentServerIP}/api/conversations/${chatConversationId}/messages/send/`,
+          {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${authToken}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ content: '', attachment_ids: [d.id], reply_to_id: replyTo?.id || null }),
+          },
+        );
+        onCancelReply();
+      }
+    } catch (e) { reportError(e); }
+    finally { setUploading(false); }
+    discardRecording();
+  }, [recordedBlob, chatConversationId, currentServerIP, authToken, sendChatMessage, replyTo, onCancelReply, discardRecording, recordMode]);
+  sendRecordingRef.current = sendRecording;
+
+  const cleanupRef = useRef(cleanupRecording);
+  cleanupRef.current = cleanupRecording;
+  const recordedUrlRef = useRef(recordedUrl);
+  recordedUrlRef.current = recordedUrl;
+
+  useEffect(() => {
+    return () => {
+      cleanupRef.current();
+      if (recordedUrlRef.current) URL.revokeObjectURL(recordedUrlRef.current);
+      if (audioPreviewRef.current) { audioPreviewRef.current.pause(); audioPreviewRef.current = null; }
+    };
+  }, []);
+
+  const canSend = message.trim().length > 0 || pendingFiles.length > 0;
+  const hasText = message.trim().length > 0;
+  const formatTime = (s: number) => `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, '0')}`;
+
+  return (
+    <div
+      className="message-input-container glass-panel"
+      style={{ flexDirection: 'column', gap: 0, alignItems: 'stretch', position: 'relative' }}
+      onDragEnter={handleDragEnter}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
+      {dragOver && (
+        <div style={{
+          position: 'absolute', inset: 4, zIndex: 50, pointerEvents: 'none',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+          borderRadius: 12, border: '2px dashed var(--accent-primary)',
+          background: 'var(--bg-secondary)', opacity: 0.96,
+          color: 'var(--accent-primary)', fontSize: 14, fontWeight: 600,
+        }}>
+          <Plus size={18} />{tr('chat_drop_files')}
+        </div>
+      )}
+      {/* Editing banner */}
+      {editing && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '8px 8px 0', padding: '6px 12px', borderRadius: 8, background: 'var(--bg-secondary)', borderLeft: '3px solid var(--accent-primary)' }}>
+          <Pencil size={13} style={{ color: 'var(--accent-primary)', flexShrink: 0 }} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--accent-primary)' }}>{tr('chat_edit_title')}</span>
+            <span style={{ fontSize: 12, color: 'var(--text-secondary)', marginLeft: 6, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'inline-block', maxWidth: 200, verticalAlign: 'middle' }}>
+              {editing.content}
+            </span>
+          </div>
+          <button onClick={() => onCancelEdit?.()} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', padding: 2, flexShrink: 0 }}>
+            <X size={14} />
+          </button>
+        </div>
+      )}
+
+      {/* Reply preview */}
+      {replyTo && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '8px 8px 0', padding: '6px 12px', borderRadius: 8, background: 'var(--bg-secondary)', borderLeft: '3px solid var(--accent-primary)' }}>
+          <Reply size={13} style={{ color: 'var(--accent-primary)', flexShrink: 0 }} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--accent-primary)' }}>
+              {replyTo.author.nickname || replyTo.author.username}
+            </span>
+            <span style={{ fontSize: 12, color: 'var(--text-secondary)', marginLeft: 6, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'inline-block', maxWidth: 200, verticalAlign: 'middle' }}>
+              {replyTo.content
+                ? <CensoredPlainText text={replyTo.content} authorId={replyTo.author?.id} />
+                : tr('chat_attachment_label')}
+            </span>
+          </div>
+          <button onClick={onCancelReply} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', padding: 2, flexShrink: 0 }}>
+            <X size={14} />
+          </button>
+        </div>
+      )}
+
+      {/* File limit warning */}
+      {limitWarning && (
+        <div style={{ margin: '8px 8px 0', padding: '8px 12px', borderRadius: 8, background: '#ff444422', border: '1px solid #ff4444', color: '#ff6666', fontSize: 13 }}>
+          {tr('chat_max_files').replace('{n}', String(MAX_FILES))}
+        </div>
+      )}
+
+      {/* Pending file previews — compact, horizontally scrollable thumbnail row */}
+      {pendingFiles.length > 0 && (
+        <div style={{ padding: '8px 12px 0' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+            <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{pendingFiles.length}</span>
+            {pendingFiles.length > 1 && (
+              <button onClick={clearFiles} title={tr('chat_remove')} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 12, padding: 2 }}>
+                <Trash2 size={13} />
+              </button>
+            )}
+          </div>
+          <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 4 }}>
+            {pendingFiles.map((pf, i) => (
+              <div key={i} style={{ position: 'relative', flexShrink: 0, width: 56, height: 56 }}>
+                {pf.preview
+                  ? <img src={pf.preview} alt="" style={{ width: 56, height: 56, objectFit: 'cover', borderRadius: 8, display: 'block' }} />
+                  : (
+                    <div style={{ width: 56, height: 56, borderRadius: 8, background: 'var(--bg-secondary)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2, padding: 3, boxSizing: 'border-box' }} title={pf.file.name}>
+                      <div style={{ color: 'var(--accent-primary)' }}>{getFileIcon(pf.file.type || 'application/octet-stream')}</div>
+                      <span style={{ fontSize: 9, color: 'var(--text-secondary)', maxWidth: 50, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pf.file.name}</span>
+                    </div>
+                  )
+                }
+                <button onClick={() => removeFile(i)} title={tr('chat_remove')} style={{ position: 'absolute', top: -5, right: -5, width: 18, height: 18, borderRadius: '50%', background: 'rgba(0,0,0,0.72)', border: 'none', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}>
+                  <X size={11} />
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Recording preview */}
+      {recordState === 'preview' && recordedUrl && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '8px 8px 0', padding: '8px 12px', borderRadius: 10, background: 'var(--bg-secondary)', border: '1px solid var(--border-color)' }}>
+          {recordMode === 'video' ? (
+            <video
+              ref={videoPreviewRef}
+              src={recordedUrl}
+              onEnded={() => setIsPlaying(false)}
+              style={{ width: 60, height: 60, borderRadius: '50%', objectFit: 'cover', background: '#000', flexShrink: 0 }}
+            />
+          ) : (
+            <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'var(--accent-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              <Mic size={18} style={{ color: '#fff' }} />
+            </div>
+          )}
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>
+              {recordMode === 'video' ? tr('chat_video_circle') : tr('chat_voice_message')}
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{formatTime(recordDuration)}</div>
+          </div>
+          <button onClick={togglePlayback} className="icon-btn glass-btn" title={isPlaying ? tr('chat_pause') : tr('chat_play')}>
+            {isPlaying ? <Pause size={18} /> : <Play size={18} />}
+          </button>
+          <button onClick={discardRecording} className="icon-btn glass-btn" title={tr('chat_record_cancel')} style={{ color: '#ff4444' }}>
+            <Trash2 size={18} />
+          </button>
+          <button onClick={sendRecording} className="icon-btn glass-btn send-btn" title={tr('chat_record_send')} disabled={uploading}>
+            <Send size={18} />
+          </button>
+        </div>
+      )}
+
+      {/* Recording indicator */}
+      {recordState === 'recording' && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '8px 8px 0', padding: '8px 12px', borderRadius: 10, background: 'var(--bg-secondary)', border: '1px solid #ff4444' }}>
+          {recordMode === 'video' ? (
+            <video
+              ref={liveVideoRef}
+              autoPlay muted playsInline
+              style={{ width: 48, height: 48, borderRadius: '50%', objectFit: 'cover', background: '#000', flexShrink: 0, border: '2px solid #ff4444' }}
+            />
+          ) : (
+            <div style={{ width: 10, height: 10, borderRadius: '50%', background: '#ff4444', animation: 'pulse 1s infinite', flexShrink: 0 }} />
+          )}
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: 13, color: '#ff4444', fontWeight: 600 }}>{tr('chat_recording')}</div>
+            <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+              {recordLocked ? tr('chat_record_locked') : tr('chat_record_hint')}
+            </div>
+          </div>
+          <span style={{ fontSize: 13, color: 'var(--text-secondary)', marginLeft: 'auto' }}>{formatTime(recordDuration)}</span>
+        </div>
+      )}
+
+      {recordError && (
+        <div style={{ margin: '0 8px 8px', padding: '8px 12px', borderRadius: 10, background: 'rgba(237,66,69,0.12)', color: '#ed4245', fontSize: 13, fontWeight: 500, lineHeight: 1.4 }}>
+          {recordError}
+        </div>
+      )}
+
+      {/* Input row */}
+      <div style={{ display: 'flex', gap : 8, alignItems: 'flex-end', width: '100%', position: 'relative' }}>
+        <input ref={fileInputRef} type="file" multiple style={{ display: 'none' }} onChange={handleFileSelect} />
+        <div className="composer-bar">
+          <button className="composer-icon-btn" title={tr('chat_attachment')} onClick={() => setAttachMenu(v => !v)} disabled={uploading}>
+            <Plus size={20} />
+          </button>
+          {attachMenu && (
+            <>
+              <div style={{ position: 'fixed', inset: 0, zIndex: 40 }} onClick={() => setAttachMenu(false)} />
+              <div style={{
+                position: 'absolute', bottom: '100%', left: 0, marginBottom: 8, zIndex: 41,
+                background: 'var(--bg-secondary, #2b2d31)', borderRadius: 10, padding: 5, minWidth: 190,
+                border: '1px solid var(--border-color, rgba(255,255,255,.1))',
+                boxShadow: '0 8px 24px rgba(0,0,0,.35)',
+              }}>
+                {([
+                  { key: 'file', icon: <Plus size={16} />, label: tr('chat_attachment'), run: () => fileInputRef.current?.click() },
+                  { key: 'todo', icon: <CheckSquare size={16} />, label: tr('attach_todo'), run: () => setRichType('todo') },
+                  { key: 'contact', icon: <UserIcon size={16} />, label: tr('attach_contact'), run: () => setRichType('contact') },
+                  { key: 'location', icon: <MapPin size={16} />, label: tr('attach_location'), run: () => setRichType('location') },
+                ] as const).map(item => (
+                  <button
+                    key={item.key}
+                    onClick={() => { setAttachMenu(false); item.run(); }}
+                    disabled={item.key === 'file' && pendingFiles.length >= MAX_FILES}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 9, width: '100%', padding: '8px 10px',
+                      borderRadius: 7, border: 'none', background: 'transparent', cursor: 'pointer',
+                      color: 'var(--text-primary)', fontSize: 14, textAlign: 'left',
+                    }}
+                  >
+                    {item.icon}{item.label}
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+          {richType && chatConversationId && (
+            <RichComposer
+              type={richType}
+              contacts={friends}
+              onCancel={() => setRichType(null)}
+              onSubmit={async (type, payload) => {
+                await sendRichMessage({ kind: 'dm', conversationId: chatConversationId }, type, payload);
+                setRichType(null);
+              }}
+            />
+          )}
+          <textarea
+            ref={composerInputRef}
+            rows={1}
+            className="composer-input"
+            placeholder={tr('chat_type_message')}
+            value={message}
+            maxLength={5000}
+            onChange={e => { if (editing) { setMessage(e.target.value); autoResizeComposer(); } else persistMessage(e.target.value); }}
+            onKeyDown={handleKeyDown}
+            onPaste={handlePaste}
+            disabled={uploading || recordState !== 'idle'}
+          />
+          {message.length > 4000 && (
+            <span style={{
+              alignSelf: 'center', flexShrink: 0,
+              fontSize: 11, color: message.length >= 4900 ? '#ff4444' : 'var(--text-secondary)',
+              pointerEvents: 'none', userSelect: 'none',
+            }}>
+              {message.length}/5000
+            </span>
+          )}
+          {!hasText && pendingFiles.length === 0 && recordState !== 'preview' && (
+            /* Tap switches voice ↔ circle, hold records, release sends; slide
+               up locks it hands-free, slide left throws it away. */
+            <button
+              className="composer-icon-btn"
+              title={recordState === 'recording'
+                ? (recordLocked ? tr('chat_record_stop') : tr('chat_record_release'))
+                : recordMode === 'video' ? tr('chat_record_hold_circle') : tr('chat_record_hold_voice')}
+              aria-label={recordMode === 'video' ? tr('chat_video_circle') : tr('chat_voice_message')}
+              disabled={uploading}
+              onPointerDown={onRecordDown}
+              onPointerMove={onRecordMove}
+              onPointerUp={onRecordUp}
+              onPointerCancel={onRecordCancel}
+              onContextMenu={e => e.preventDefault()}
+              style={{
+                touchAction: 'none',
+                userSelect: 'none',
+                color: recordState === 'recording' ? '#ed4245' : undefined,
+                transform: recordState === 'recording' && !recordLocked ? 'scale(1.18)' : undefined,
+                transition: 'transform 120ms ease',
+              }}
+            >
+              {recordState === 'recording' && recordLocked
+                ? <Square size={18} />
+                : recordMode === 'video' ? <Circle size={20} /> : <Mic size={20} />}
+            </button>
+          )}
+          <HideSelectionButton
+            inputRef={composerInputRef}
+            value={message}
+            onChange={next => {
+              // Same split as the textarea's own onChange: an edit in progress
+              // is local state, anything else is the persisted draft.
+              if (editing) setMessage(next); else persistMessage(next);
+              requestAnimationFrame(autoResizeComposer);
+            }}
+          />
+          <ComposerActions
+            kind="dm"
+            token={authToken}
+            serverIP={currentServerIP}
+            targetId={String(currentChat || '')}
+            onPick={cmd => {
+              persistMessage(cmd);
+              requestAnimationFrame(() => { autoResizeComposer(); composerInputRef.current?.focus(); });
+            }}
+          />
+          <button
+            ref={pickerButtonRef}
+            className={`composer-icon-btn ${showPicker ? 'active' : ''}`}
+            title={tr('chat_emoji')}
+            onClick={() => setShowPicker(v => !v)}
+          >
+            <MoreHorizontal size={20} />
+          </button>
+        </div>
+        {showPicker && (
+          <UnifiedPicker
+            anchorRef={pickerButtonRef}
+            onSelectEmoji={emoji => persistMessage(message + emoji)}
+            onSelectGif={url => {
+              if (stickerSendGuard.current) return;
+              stickerSendGuard.current = true;
+              sendChatMessage(url, undefined, replyTo?.id);
+              onCancelReply();
+              setShowPicker(false);
+              setTimeout(() => { stickerSendGuard.current = false; }, 500);
+            }}
+            onSelectSticker={(url) => {
+              if (stickerSendGuard.current) return;
+              stickerSendGuard.current = true;
+              sendChatMessage(url, undefined, replyTo?.id);
+              onCancelReply();
+              setShowPicker(false);
+              setTimeout(() => { stickerSendGuard.current = false; }, 500);
+            }}
+            onDelayedSend={ms => handleDelayedSend(ms)}
+            canSchedule={canSend}
+            onClose={() => setShowPicker(false)}
+          />
+        )}
+
+        {(hasText || pendingFiles.length > 0) && (
+          <button
+            className="composer-send-circle"
+            onClick={handleSend}
+            title={tr('chat_send')}
+            disabled={uploading || !canSend}
+          >
+            {uploading
+              ? <div style={{ width: 18, height: 18, border: '2px solid currentColor', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} />
+              : <Send size={20} />
+            }
+          </button>
+        )}
+      </div>
+    </div>
+  );
+};
+
+const WelcomeScreen: React.FC = () => {
+  const tr = useTranslation();
+  return (
+    <div className="messages-container">
+      <div className="welcome-screen active">
+        <div className="welcome-screen-inner">
+          <div className="welcome-hero">
+            <div className="welcome-hero-icon">
+              <svg viewBox="0 0 24 24" fill="currentColor">
+                <path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H6l-2 2V4h16v12z"/>
+              </svg>
+            </div>
+            <h2>{tr('welcome_title')}</h2>
+            <p>{tr('welcome_desc')}</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const SettingsView: React.FC = () => {
+  const tr = useTranslation();
+  return (
+    <div className="settings-welcome-screen">
+      <div className="welcome-screen-inner">
+        <div className="welcome-hero">
+          <div className="welcome-hero-icon settings-icon">
+            <svg viewBox="0 0 24 24" fill="currentColor">
+              <path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/>
+            </svg>
+          </div>
+          <h2>{tr('nav_settings')}</h2>
+          <p>{tr('settings_welcome')}</p>
+        </div>
+      </div>
+    </div>
+  );
+};

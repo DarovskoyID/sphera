@@ -1,0 +1,403 @@
+/* ================================
+   MAIN LAYOUT STRUCTURE
+   ================================ */
+
+.app-container {
+  display: grid;
+  grid-template-columns: 72px 260px 1fr;
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+}
+
+/* Full-screen tool (the bot node editor). Its edges are set here rather than
+   inline because the bottom one changes on mobile — see the dock note below. */
+.bot-studio-shell {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+}
+
+
+/* Node-type picker in the bot editor. Same reason as the shell above: the
+   phone variant is a bottom sheet, and a sheet at `bottom: 0` has its last
+   rows hidden behind the dock, with no scrollbar to reach them. */
+.bot-node-palette {
+  position: fixed;
+  z-index: 61;
+  overflow-y: auto;
+}
+
+.bot-node-palette.is-sheet {
+  left: 0;
+  right: 0;
+  bottom: 0;
+  border-radius: 16px 16px 0 0;
+  max-height: 70vh;
+}
+
+
+/* ================================
+   UTILITY CLASSES
+   ================================ */
+
+.hidden {
+  display: none !important;
+}
+
+
+/* ================================
+   RESPONSIVE DESIGN
+   ================================ */
+
+/* Hide mobile-only elements on desktop */
+.mobile-back-btn,
+.mobile-hamburger-btn,
+.mobile-overlay,
+.settings-mobile-header {
+  display: none !important;
+}
+
+
+/* Tablet */
+@media (max-width: 1024px) {
+  .app-container {
+    grid-template-columns: 72px 240px 1fr;
+  }
+
+  .chat-sidebar-header h2 {
+    font-size: 16.1px;
+  }
+}
+
+/* ================================
+   MOBILE — Telegram-like layout
+   ================================ */
+@media (max-width: 768px) {
+
+  /* --- Base: flex column, dock at bottom --- */
+  .app-container {
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    height: 100vh;
+    height: 100svh;
+    overflow: hidden;
+    --safe-bottom: max(env(safe-area-inset-bottom), 24px);
+  }
+
+  /* Server sidebar = bottom dock (macOS-style) */
+  .app-container .server-sidebar {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    height: calc(60px);
+    z-index: 100;
+    flex-direction: row;
+    border-right: none;
+    border-top: 1px solid var(--border-color);
+    padding: 0 var(--spacing-sm);
+    overflow-x: auto;
+    overflow-y: hidden;
+    /* The dock is dragged sideways with a finger: say so, or the browser keeps
+       the gesture for the page and the row feels nailed down. */
+    touch-action: pan-x;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
+    /* align-items: center from the desktop rules would centre the row as a
+       whole and push its first icons out of reach once it overflows. */
+    align-items: stretch;
+    justify-content: flex-start;
+  }
+
+  /*
+   * Full-screen tools have to stop above the dock.
+   *
+   * The dock is fixed at the bottom with z-index 100; a tool at `inset: 0`
+   * sits under it, so its last 60px are covered. Nothing looks clipped —
+   * there is no scrollbar to reach, because the content does fit its box; the
+   * box is simply behind the dock. That is what hid the node inspector's
+   * lower half and its delete button.
+   */
+  .bot-studio-shell {
+    bottom: calc(60px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .bot-node-palette.is-sheet {
+    bottom: calc(60px + env(safe-area-inset-bottom, 0px));
+    /* 70vh of a phone screen still ran past the dock; cap by what is actually
+       left above it, minus a little breathing room at the top. */
+    max-height: calc(100svh - 60px - env(safe-area-inset-bottom, 0px) - 48px);
+  }
+
+  /*
+    * The dock is one scrollable row that always starts at its first icon.
+    *
+    * Centring it (`justify-content: center`, or auto margins) looks right
+    * while everything fits and hides the first icons the moment it does not:
+    * a centred row overflows past both edges, and nothing can scroll back to
+    * the left one. Settings and the home button disappeared exactly that way.
+    * So: packed from the start, as wide as its content, and the sidebar
+    * scrolls it.
+    */
+  .app-container .server-sidebar .server-list {
+    flex-direction: row;
+    align-items: center;
+    gap: var(--spacing-sm);
+    height: 100%;
+    width: max-content;
+    min-width: 100%;
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+    flex: 0 0 auto;
+    padding: 0 var(--spacing-xs);
+  }
+
+  /* Guild icons and the «+» belong in the same row, not stacked inside it. */
+  .app-container .server-sidebar .server-guild-scroll {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: var(--spacing-sm);
+    overflow: visible;
+  }
+
+  .app-container .server-sidebar .server-icon {
+    width: 40px;
+    height: 40px;
+    min-width: 40px;
+  }
+
+  .app-container .server-sidebar .server-divider {
+    width: 1px;
+    height: 28px;
+    margin: 0 var(--spacing-xs);
+  }
+
+  .app-container .server-sidebar .server-icon::after {
+    display: none;
+  }
+
+  /* Panels fill space above the dock */
+  .chat-sidebar {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: calc(100% - 60px);
+    z-index: 10;
+    transition: transform var(--transition-normal);
+    transform: translateX(0);
+  }
+
+  .chat-main {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: calc(100% - 60px);
+    z-index: 20;
+    transition: transform var(--transition-normal);
+    transform: translateX(100%);
+  }
+
+  /* Во время звонка панель серверов (нижний док) скрыта окном звонка, а контент
+     забирает освободившиеся 60px — чтобы из звонка нельзя было уйти в серверы. */
+  .app-container.call-active .server-sidebar {
+    display: none;
+  }
+  .app-container.call-active .chat-sidebar,
+  .app-container.call-active .chat-main {
+    height: 100%;
+  }
+
+  /* Внутри переписки док уходит: экран отдан сообщениям, а назад к списку
+     ведёт стрелка в шапке. */
+  .app-container.mobile-in-chat .server-sidebar {
+    display: none;
+  }
+  .app-container.mobile-in-chat .chat-sidebar,
+  .app-container.mobile-in-chat .chat-main {
+    height: 100%;
+  }
+
+
+  /* --- Panel switching via class on .app-container --- */
+
+  .mobile-panel-chat-list .chat-sidebar {
+    transform: translateX(0);
+  }
+  .mobile-panel-chat-list .chat-main {
+    transform: translateX(100%);
+  }
+
+  .mobile-panel-chat-view .chat-sidebar {
+    transform: translateX(-100%);
+  }
+  .mobile-panel-chat-view .chat-main {
+    transform: translateX(0);
+  }
+
+  /* --- Show mobile-only buttons --- */
+  .mobile-back-btn {
+    display: flex !important;
+  }
+
+  /* Hamburger not needed — dock is always visible */
+  .mobile-hamburger-btn {
+    display: none !important;
+  }
+
+  .mobile-menu-btn {
+    display: none !important;
+  }
+
+  .settings-mobile-header {
+    display: flex !important;
+  }
+
+  /* Show call/video/search buttons on mobile chat header */
+  .chat-header-actions > .icon-btn {
+    display: flex;
+  }
+
+  /* --- Chat header Telegram-style --- */
+  .chat-header {
+    padding: var(--spacing-sm) var(--spacing-md);
+  }
+
+  .chat-header h3 {
+    font-size: 17.2px;
+  }
+
+  .chat-header p {
+    font-size: 13.8px;
+  }
+
+  /* --- Chat sidebar Telegram-style header --- */
+  .chat-sidebar-header {
+    padding: var(--spacing-sm) var(--spacing-md);
+  }
+
+  /* --- Messages --- */
+  .messages-container {
+    padding: var(--spacing-sm) var(--spacing-md);
+  }
+
+  .message-input-container {
+    padding: var(--spacing-sm) var(--spacing-md);
+  }
+
+  .message-item {
+    gap: var(--spacing-sm);
+  }
+
+  .message-avatar {
+    width: 36px;
+    height: 36px;
+  }
+
+  .message-author {
+    font-size: 16.1px;
+  }
+
+  .message-text {
+    font-size: 16.1px;
+  }
+
+  /* --- Compact UI elements --- */
+  .icon-btn {
+    width: 36px;
+    height: 36px;
+  }
+
+  .icon-btn svg {
+    width: 20px;
+    height: 20px;
+  }
+
+  /* --- User profile at bottom of sidebar --- */
+  .user-profile-section {
+    margin: var(--spacing-sm) var(--spacing-xs) var(--spacing-xs);
+  }
+
+  /* --- Profile modal fullscreen on mobile --- */
+  .profile-modal-content {
+    width: 95%;
+    max-width: 100%;
+  }
+
+  .profile-modal-header h2 {
+    font-size: 18.4px;
+  }
+
+  .profile-modal-body {
+    padding: var(--spacing-md);
+  }
+
+  .profile-modal-avatar {
+    width: 80px;
+    height: 80px;
+  }
+
+  /* Overlay not needed — dock is always visible */
+  .mobile-overlay {
+    display: none !important;
+  }
+
+  /* --- CallWindow fullscreen on mobile (above dock) --- */
+  .call-window {
+    position: fixed !important;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: calc(100svh - 60px) !important;
+    z-index: 300;
+    flex-direction: column;
+  }
+
+  .call-window video {
+    height: auto;
+  }
+}
+
+/*
+ * Buttons modules add next to the message box: in the row on a wide screen,
+ * gone on a phone, where the row is narrow and typing matters more. The two
+ * rules live together and in this order on purpose — the plain one used to sit
+ * after the media query and quietly won over it, so nothing was ever hidden.
+ */
+.composer-module-actions {
+  display: contents;
+}
+
+@media (max-width: 768px) {
+  .composer-module-actions {
+    display: none;
+  }
+}
+
+@media (min-width: 769px) {
+  .mobile-menu-btn {
+    display: none;
+  }
+}
+
+/* ================================
+   THEME TRANSITION ANIMATION
+   ================================ */
+
+body,
+.app-container,
+.server-sidebar,
+.chat-sidebar,
+.chat-main,
+.glass-panel,
+.glass-btn {
+  transition: background-color var(--transition-normal),
+              color var(--transition-normal),
+              border-color var(--transition-normal);
+}
