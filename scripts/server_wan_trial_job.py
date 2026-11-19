@@ -152,9 +152,12 @@ def partition(job,folder,config):
 def main():
     os.umask(0o077)
     with zipfile.ZipFile(sys.argv[0]) as archive:job=json.loads(archive.read('job.json'))
-    if job['ownership_model']!='same-owner-simulation' or job['action'] not in ('storage_load','verify_storage','soak_read','point_restart','validator_pause','seed_pause','validator_partition','managed_prepare','managed_enable','managed_data','managed_remove','managed_diagnose','managed_verify'):raise ValueError('explicit_trial_job_required')
+    if job['ownership_model']!='same-owner-simulation' or job['action'] not in ('storage_load','verify_storage','soak_read','consumer_trial','point_restart','validator_pause','seed_pause','validator_partition','managed_prepare','managed_enable','managed_data','managed_remove','managed_diagnose','managed_verify'):raise ValueError('explicit_trial_job_required')
     if not re.fullmatch('[0-9a-f]{16,64}',job['job_id']) or ('dataset_id' in job and not re.fullmatch('[0-9a-f]{16,64}',job['dataset_id'])):raise ValueError('simple_trial_job_identity_required')
-    settings=json.loads((ROOT/'code/preparing.json').read_bytes());version=Path(settings['version']);sys.path[:0]=[str(version/'scripts'),str(version/'django-server/sfera_server')]
+    settings_file=ROOT/'code/preparing.json'
+    ordinary=not settings_file.exists()
+    if ordinary:settings_file=ROOT/'code/pending.json'
+    settings=json.loads(settings_file.read_bytes());version=Path(settings['version']);sys.path[:0]=[str(version/'scripts'),str(version/'django-server/sfera_server')]
     if 'transport_timeout_seconds' in job:
         timeout=job['transport_timeout_seconds']
         if type(timeout) is not int or not 1<=timeout<=10:raise ValueError('bounded_trial_transport_timeout')
@@ -169,7 +172,14 @@ def main():
     from sfera_mesh.public_transport import ConfiguredHttpsTransport
     from server_monitor import check
     import ssl
-    config=json.loads((ROOT/'data/point.json').read_bytes());receipt=json.loads((ROOT/'activation.json').read_bytes());key=load_identity(config['node_key']);own=node_id(key.public_key().public_bytes_raw())
+    config=json.loads((ROOT/'data/point.json').read_bytes())
+    if ordinary:
+        from urllib.parse import urlsplit
+        installed=json.loads((ROOT/'installation.json').read_bytes())
+        if installed.get('domain')!='sphere-point-installation-v1' or installed.get('role')!='point' or installed['network']!=config['network'] or installed['endpoint']!=config['public_endpoint']:raise ValueError('ordinary_trial_installation_context')
+        receipt={'host':urlsplit(installed['endpoint']).hostname,'node_id':installed['node']}
+    else:receipt=json.loads((ROOT/'activation.json').read_bytes())
+    key=load_identity(config['node_key']);own=node_id(key.public_key().public_bytes_raw())
     if job['network']!=config['network'] or own!=receipt['node_id']:raise ValueError('trial_identity_context')
     base=ROOT/'trial-tests';base.mkdir(mode=0o700,exist_ok=True);folder=base/job['job_id'];folder.mkdir(mode=0o700,exist_ok=True)
     os.environ['SSL_CERT_FILE']=config['point_registration']['ca_certificate'];context=ssl.create_default_context(cafile=os.environ['SSL_CERT_FILE'])
@@ -201,19 +211,22 @@ def main():
         if not peers:raise ValueError('trial_other_peer_required')
         data_folder=base/job['dataset_id'];data_folder.mkdir(mode=0o700,exist_ok=True);rows,cipher,aad=dataset(data_folder,job['dataset_id'],own,job['blocks'],job['block_bytes'])
         verifier=EnvelopeVerifier(config['network'],own,roster,str(folder/'replays.sqlite'));transport=ConfiguredHttpsTransport(peers,context=context,**({'timeout_seconds':job['transport_timeout_seconds']} if 'transport_timeout_seconds' in job else {}));started=time.monotonic()
-        rounds=[];samples=[];soak=job['action']=='soak_read'
+        rounds=[];samples=[];soak=job['action'] in ('soak_read','consumer_trial');soak_started=started
         if soak and (type(job.get('soak_seconds')) is not int or not 60<=job['soak_seconds']<=300):raise ValueError('bounded_soak_duration_required')
         try:
             for number in range(12 if soak else 1):
                 samples.append(resource_sample(config))
                 with ThreadPoolExecutor(max_workers=3) as pool:
-                    futures=[pool.submit(exercise_peer,transport,key,verifier,peer,rows,cipher,aad,read_only=job['action'] in ('verify_storage','soak_read'),max_attempts=job.get('max_attempts',1)) for peer in peers];results=[f.result() for f in futures]
+                    futures=[pool.submit(exercise_peer,transport,key,verifier,peer,rows,cipher,aad,read_only=job['action'] in ('verify_storage','soak_read') or (job['action']=='consumer_trial' and number>0),max_attempts=job.get('max_attempts',1)) for peer in peers];results=[f.result() for f in futures]
                 rounds.append(results);samples.append(resource_sample(config))
+                if job['action']=='consumer_trial' and number==0:
+                    if any(not r['passed'] for r in results):break
+                    soak_started=time.monotonic();print('SPHERE_CONSUMER_SEEDED',flush=True);continue
                 if soak:print('SPHERE_SOAK_ROUND='+str(number+1)+' elapsed='+str(round(time.monotonic()-started,1)),flush=True)
-                if not soak or time.monotonic()-started>=job['soak_seconds'] or any(not r['passed'] for r in results):break
+                if not soak or time.monotonic()-soak_started>=job['soak_seconds'] or any(not r['passed'] for r in results):break
         finally:verifier.close()
         result={'action':job['action'],'dataset_id':job['dataset_id'],'origin_node_id':own,'blocks_per_peer':len(rows),'ciphertext_bytes_per_block':len(rows[0]['ciphertext'])//2,'routes':results,'elapsed_seconds':round(time.monotonic()-started,2),'digests':[r['digest'] for r in rows],'placement_managed':False,'passed':all(r['passed'] for group in rounds for r in group)}
-        if soak:result.update(rounds=rounds,resource_samples=samples,writes=0,minimum_duration_seconds=job['soak_seconds'],duration_reached=time.monotonic()-started>=job['soak_seconds'],transport_timeout_seconds=job.get('transport_timeout_seconds',3));result['passed']=result['passed'] and (not soak or result['duration_reached'])
+        if soak:result.update(rounds=rounds,resource_samples=samples,read_only_after_seed=True,initial_write_bytes=sum(r['written_bytes'] for group in rounds for r in group),minimum_duration_seconds=job['soak_seconds'],read_elapsed_seconds=round(time.monotonic()-soak_started,2),duration_reached=time.monotonic()-soak_started>=job['soak_seconds'],transport_timeout_seconds=job.get('transport_timeout_seconds',3));result['passed']=result['passed'] and (not soak or result['duration_reached'])
     result.update(host=receipt['host'],network=config['network'],job_id=job['job_id'],ownership_model=job['ownership_model']);atomic(folder/'result.json',result);print('SPHERE_TRIAL_RESULT='+encoded(result).decode(),flush=True)
     if not result['passed']:raise SystemExit(1)
 
