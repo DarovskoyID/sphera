@@ -1,0 +1,14 @@
+@import url('./src/styles/variables.css');
+@import url('./src/styles/base.css');
+@import url('./src/styles/layout.css');
+@import url('./src/styles/server-sidebar.css');
+@import url('./src/styles/context-menu.css');
+@import url('./src/styles/chat-sidebar.css');
+@import url('./src/styles/chat-main.css');
+@import url('./src/styles/glass.css');
+@import url('./src/styles/call.css');
+@import url('./src/styles/profile.css');
+@import url('./src/styles/scrollbar.css');
+@import url('./src/styles/settings.css');
+@import url('./src/styles/welcome.css');
+@import url('./src/styles/guild.css');
