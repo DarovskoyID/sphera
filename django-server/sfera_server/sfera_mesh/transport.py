@@ -479,9 +479,11 @@ def exchange(endpoint, key, verifier, recipient, operation, payload, *, committe
         validate_directory_certificate(committee, payload['certificate'])
     signed = envelope(key, verifier.network, recipient, operation, payload)
     request = Request(request_url, data=canonical(signed), headers={"Content-Type": "application/json"}, method="POST")
-    deadline = time.monotonic() + 3
+    timeout_seconds=getattr(_secure_transport,'timeout_seconds',3)
+    if type(timeout_seconds) is not int or not 1<=timeout_seconds<=10:raise ValueError('bounded_mesh_timeout_required')
+    deadline = time.monotonic() + timeout_seconds
     chunks, size = [], 0
-    with opener.open(request, timeout=3) as response:
+    with opener.open(request, timeout=timeout_seconds) as response:
         while size <= MAX_BYTES:
             if time.monotonic() >= deadline:
                 raise TimeoutError('mesh_response_deadline')

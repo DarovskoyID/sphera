@@ -26,7 +26,9 @@ def endpoint_url(value):
 
 
 class ConfiguredHttpsTransport:
-    def __init__(self,peers,*,context=None):
+    def __init__(self,peers,*,context=None,timeout_seconds=3):
+        if type(timeout_seconds) is not int or not 1<=timeout_seconds<=10:raise ValueError('bounded_https_timeout_required')
+        self.timeout_seconds=timeout_seconds
         self.peers={identity:endpoint_url(address) for identity,address in peers.items()}
         if any(not isinstance(identity,str) or len(identity)!=64 or any(c not in '0123456789abcdef' for c in identity) for identity in self.peers):raise ValueError('configured_peer_identity_required')
         context=context or ssl.create_default_context()
@@ -44,8 +46,8 @@ class ConfiguredHttpsTransport:
 
 class DiscoveredHttpsTransport(ConfiguredHttpsTransport):
     """Stable configured identities, fresh BFT-authorized addresses, verified TLS."""
-    def __init__(self,peers,directory,roster,*,context=None):
-        super().__init__(peers,context=context);self.directory=directory;self.roster=dict(roster)
+    def __init__(self,peers,directory,roster,*,context=None,timeout_seconds=3):
+        super().__init__(peers,context=context,timeout_seconds=timeout_seconds);self.directory=directory;self.roster=dict(roster)
         if directory.endpoint_policy!='https-v1':raise ValueError('genesis_https_discovery_policy_required')
     def route(self,endpoint,recipient,operation):
         self.validate(endpoint,recipient)
