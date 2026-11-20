@@ -41,6 +41,9 @@ AUTH_USER_MODEL='sfera_auth.User';DEFAULT_AUTO_FIELD='django.db.models.BigAutoFi
 USE_TZ=True;TIME_ZONE='UTC'
 DATABASES={'default':{'ENGINE':'django.db.backends.sqlite3','NAME':str(database),'OPTIONS':{'timeout':20}}}
 SFERA_DEPLOYMENT_MODE='mesh';SFERA_DISTRIBUTED_APPLICATION=True
+# Release directories are immutable, not Git worktrees. List the installed
+# modules; module installation needs a separate operator-controlled runtime.
+SFERA_MODULES_FROM_REPO=False;SFERA_MODULES_ENFORCE=True
 SFERA_MESH_SESSIONS=config['mesh'];SFERA_MESH_GLOBAL_CIPHER_PINS=True
 SFERA_LOCAL_CONSENSUS_RPC=config.get('local_consensus_rpc',config['mesh']['rpc'])
 MESSAGE_ENCRYPTION_KEY=config['message_encryption_key']
@@ -49,6 +52,9 @@ WSGI_APPLICATION='sfera_distribution.wsgi.application'
 MIDDLEWARE=['django.middleware.security.SecurityMiddleware','django.middleware.common.CommonMiddleware']
 SECURE_PROXY_SSL_HEADER=('HTTP_X_FORWARDED_PROTO','https')
 SECURE_CONTENT_TYPE_NOSNIFF=True
+LOGGING={'version':1,'disable_existing_loggers':False,
+         'handlers':{'console':{'class':'logging.StreamHandler'}},
+         'loggers':{'django.request':{'handlers':['console'],'level':'ERROR','propagate':False}}}
 DATA_UPLOAD_MAX_MEMORY_SIZE=262144;FILE_UPLOAD_MAX_MEMORY_SIZE=0
 REST_FRAMEWORK={'DEFAULT_AUTHENTICATION_CLASSES':['sfera_auth.mesh_sessions.MeshJWTAuthentication'],
                 'DEFAULT_PERMISSION_CLASSES':['rest_framework.permissions.IsAuthenticated'],

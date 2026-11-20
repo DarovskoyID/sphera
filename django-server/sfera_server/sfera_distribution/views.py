@@ -39,6 +39,17 @@ def configuration(request):
                       'registration':'signed-public-records-v1','email_registration':False})
 
 
+@api_view(['GET'])
+@authentication_classes([MeshJWTAuthentication])
+@permission_classes([IsAuthenticated])
+def current_user(request):
+    from sfera_auth.serializers import MeSerializer
+    value=dict(MeSerializer(request.user,context={'request':request}).data)
+    value['service_capabilities']={'mode':'distributed','legacy_account_bootstrap':False,
+                                   'module_catalog':True,'module_management':False}
+    return _response(value)
+
+
 @api_view(['POST'])
 @authentication_classes([])
 @permission_classes([AllowAny])

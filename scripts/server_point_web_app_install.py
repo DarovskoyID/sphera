@@ -93,7 +93,9 @@ def main():
   respond "Application WebSocket service is not connected." 503
  }
 '''
-    if 'application_api_not_connected' not in replacement:
+    connected = ('reverse_proxy 127.0.0.1:9091' in current
+                 and 'application_api_not_connected' not in current)
+    if not connected and 'application_api_not_connected' not in replacement:
         replacement = replacement.replace(' handle /web-api/* {', boundary + ' handle /web-api/* {')
     pending = WEB / 'Caddyfile.app.pending'
     pending.write_text(replacement)
@@ -115,7 +117,7 @@ def main():
         raise
     receipt = {'host': host, 'url': 'https://' + host, 'frontend': 'original-src-App.tsx',
                'site_sha256': job['site']['sha256'], 'files': len(seen),
-               'application_api_connected': False, 'mesh_services_unchanged': True}
+               'application_api_connected': connected, 'mesh_services_unchanged': True}
     (WEB / 'original-app.json').write_text(json.dumps(receipt))
     (WEB / 'original-app.json').chmod(0o640)
     os.chown(WEB / 'original-app.json', 0, group)

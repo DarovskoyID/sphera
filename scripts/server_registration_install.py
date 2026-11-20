@@ -233,6 +233,11 @@ WantedBy=multi-user.target
         import server_point_web_app_install
         server_point_web_app_install.main()
         current_caddy=(WEB/'Caddyfile').read_text()
+        if ('application_api_not_connected' not in current_caddy
+                and 'reverse_proxy 127.0.0.1:9091' in current_caddy):
+            print(json.dumps({'host':host,'application_api_connected':True,'site_updated':True,
+                              'configuration':http('/api/distribution/config/')}),flush=True)
+            return
         block=re.compile(r' handle /api/\* \{\n.*?application_api_not_connected.*?\n \}',re.S)
         replacement,count=block.subn(' handle /api/* {\n  reverse_proxy 127.0.0.1:9091\n }',current_caddy)
         if count!=1:raise ValueError('explicit_application_boundary_required')

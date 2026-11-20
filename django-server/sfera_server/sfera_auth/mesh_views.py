@@ -135,7 +135,11 @@ def _login_response(user, backend, claim, request):
     access['exp'] = min(access['exp'], expires)
     from .views import _set_refresh_cookie, audit_event, track_device
     audit_event(request, 'mesh_login_success', user=user)
-    track_device(type('AuthRequest', (), {'user': user, 'GET': request.GET, 'META': request.META})())
+    device_query=request.GET.copy()
+    # The signed session identifies the enrolled device. IP addresses may be
+    # shared by several browser/device rows and are not a unique login key.
+    device_query['device_id']='mesh:'+claim['device']
+    track_device(type('AuthRequest', (), {'user': user, 'GET': device_query, 'META': request.META})())
     response = Response({'access': str(access), 'mesh_session': claim, 'expires_at': refresh['exp']})
     _set_refresh_cookie(response, refresh, request)
     return response

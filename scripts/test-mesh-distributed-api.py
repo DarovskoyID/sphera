@@ -18,10 +18,11 @@ from django.conf import settings
 
 with tempfile.TemporaryDirectory(prefix='distributed-app-api-') as tmp:
     settings.configure(SECRET_KEY='isolated-distributed-api-test-only-long-key',USE_TZ=True,SFERA_DISTRIBUTED_APPLICATION=True,
+        SFERA_MODULES_FROM_REPO=False,SFERA_MODULES_ENFORCE=True,
         INSTALLED_APPS=['django.contrib.auth','django.contrib.contenttypes','sfera_auth','sfera_messages','sfera_modules','sfera_distribution','rest_framework_simplejwt.token_blacklist'],
         AUTH_USER_MODEL='sfera_auth.User',MESSAGE_ENCRYPTION_KEY=Fernet.generate_key().decode(),
         DATABASES={'default':{'ENGINE':'django.db.backends.sqlite3','NAME':str(Path(tmp)/'application.sqlite')}},
-        ROOT_URLCONF='sfera_distribution.urls',REST_FRAMEWORK={'DEFAULT_THROTTLE_RATES':{'anon':'1000/min','user':'1000/min','auth':'1000/min'}},
+        ROOT_URLCONF='sfera_distribution.urls',REST_FRAMEWORK={'DEFAULT_AUTHENTICATION_CLASSES':['sfera_auth.mesh_sessions.MeshJWTAuthentication'],'DEFAULT_THROTTLE_RATES':{'anon':'1000/min','user':'1000/min','auth':'1000/min'}},
         REFRESH_COOKIE_NAME='refresh',REFRESH_COOKIE_PATH='/api/auth/',REFRESH_COOKIE_SECURE=True,REFRESH_COOKIE_SAMESITE='Lax',
         APP_USER_AGENT_TOKEN='SphereIsolatedTest',APP_REFRESH_TOKEN_LIFETIME=timedelta(hours=24),
         SIMPLE_JWT={'ACCESS_TOKEN_LIFETIME':timedelta(minutes=15),'REFRESH_TOKEN_LIFETIME':timedelta(hours=24),
@@ -71,10 +72,31 @@ with tempfile.TemporaryDirectory(prefix='distributed-app-api-') as tmp:
             assert response.status_code==200,response.data
             token=response.data['access'];access=AccessToken(token);assert access['distributed_application'] is True
             assert access['user_id']==application_user_id('lab',fixture['creator'])
+            # Legacy browser rows may share an IP. A mesh login must identify
+            # the signed device, never use get_or_create(user, ip) ambiguously.
+            from sfera_auth.models import UserDevice
+            user=User.objects.get(pk=access['user_id'])
+            for suffix in ('legacy-one','legacy-two'):
+                UserDevice.objects.create(user=user,device_id=suffix,ip_address='127.0.0.1',device_name=suffix,device_type='desktop')
+            again=request(mesh_views.login_challenge,{'owner':fixture['creator'],'device':fixture['device']})
+            second=request(mesh_views.login,{'challenge':again.data['challenge'],'owner_signature':'','device_signature':device.sign(canonical(again.data)).hex()})
+            assert second.status_code==200,second.data
+            assert UserDevice.objects.filter(user=user,device_id='mesh:'+fixture['device']).count()==1
             from sfera_auth import views as auth_views
             with patch.object(auth_views.me.cls,'authentication_classes',[mesh_sessions.MeshJWTAuthentication]):
                 me=request(auth_views.me,token=token,method='get')
                 assert me.status_code==200 and str(me.data['id'])==access['user_id'],me.data
+            from django.urls import resolve
+            current=resolve('/api/auth/me/',urlconf='sfera_distribution.service_urls').func
+            me=request(current,token=token,method='get')
+            assert me.status_code==200 and me.data['service_capabilities']['legacy_account_bootstrap'] is False,me.data
+            modules=resolve('/api/modules/',urlconf='sfera_distribution.service_urls').func
+            assert request(modules,method='get').status_code==401
+            module_response=request(modules,token=token,method='get')
+            assert module_response.status_code==200 and isinstance(module_response.data['modules'],list),module_response.data
+            assert module_response.data['can_manage'] is False
+            public=resolve('/api/modules/public/',urlconf='sfera_distribution.service_urls').func
+            assert request(public,method='get').status_code==200
             catalog=request(views.catalog,method='get');assert catalog.status_code==200 and len(catalog.data['profiles'])==2
             record=json.loads(Path('output/mesh-application-20261119/device-dialog-client-fixture.json').read_text())
             assert request(views.dialog,{'record':record}).status_code==401

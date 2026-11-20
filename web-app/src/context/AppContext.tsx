@@ -501,9 +501,16 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     };
     const load = async () => {
       try {
-        const user: ServerUser = await apiGet(`/api/auth/me/?${deviceQuery()}`, state.authToken, state.currentServerIP);
+        const user: ServerUser & {service_capabilities?: {mode?: string; legacy_account_bootstrap?: boolean}} = await apiGet(`/api/auth/me/?${deviceQuery()}`, state.authToken, state.currentServerIP);
         if (stale()) return;
         commit(prev => ({ ...prev, currentUser: user, userIDonServer: String(user.id) }));
+        // The distributed entry explicitly advertises its implemented routes.
+        // Do not call personal-server contacts/settings APIs it does not host.
+        if (user.service_capabilities?.mode === 'distributed'
+            && user.service_capabilities.legacy_account_bootstrap === false) {
+          commit(prev => ({ ...prev, friends: [], blockedContacts: [], pendingRequests: [], sentRequests: [], friendsLoaded: true }));
+          return;
+        }
       } catch (e) {
         if (!stale() && !(e instanceof DOMException && e.name === 'AbortError')) logout();
         return;
