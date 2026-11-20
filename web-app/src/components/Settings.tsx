@@ -6,6 +6,8 @@ import { replayOnboarding } from './OnboardingTour';
 import { useApp, reportError } from '../context/AppContext';
 import { useSlot } from '../sdk/slots';
 import { useTranslation } from '../i18n/useTranslation';
+import { readResponse } from '../utils/errorManager';
+import { updateDistributedNickname } from '../core/mesh/applicationProfileClient';
 import { languages, type LangCode } from '../i18n';
 import { ListSkeleton } from './Skeleton';
 import { AdminPanel } from './AdminPanel';
@@ -500,6 +502,11 @@ const ProfileSettings: React.FC = () => {
   const { s } = useSettings();
   const streamerHide = s.streamer_mode && s.streamer_hide_info;
   const { currentUser, currentServerIP, authToken, setCurrentUser } = useApp();
+  const distributed=currentUser?.service_capabilities?.mode==='distributed';
+  const profileContext=JSON.stringify([currentServerIP,authToken,currentUser?.id]);
+  const profileContextRef=useRef(profileContext);profileContextRef.current=profileContext;
+  const [ownerPassword,setOwnerPassword]=useState('');
+  useEffect(()=>{setOwnerPassword('');},[authToken,currentServerIP]);
   const [nickname, setNickname] = useState(currentUser?.nickname || '');
   const [bio, setBio] = useState(currentUser?.bio || '');
   const [email, setEmail] = useState(currentUser?.email || '');
@@ -540,7 +547,12 @@ const ProfileSettings: React.FC = () => {
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault(); setSaving(true); setMsg(null);
+    const guard=()=>{if(profileContextRef.current!==profileContext)throw new DOMException('Profile context changed','AbortError');};
     try {
+      if(distributed && currentUser && nickname!==currentUser.nickname){
+        await updateDistributedNickname(currentServerIP,authToken,String(currentUser.id),nickname,ownerPassword,localStorage,fetch,guard);
+      }
+      guard();
       const fd = new FormData(); fd.append('nickname', nickname); fd.append('bio', bio);
       fd.append('email', email); fd.append('phone', phone);
       fd.append('status_text', statusText);
@@ -552,6 +564,7 @@ const ProfileSettings: React.FC = () => {
       const res = await fetch(`${currentServerIP}/api/auth/me/update/`, { method: 'PATCH', headers: { 'Authorization': `Bearer ${authToken}` }, body: fd });
       if (!res.ok) throw new Error(await describeSaveFailure(res, isRu));
       const updatedUser = await res.json();
+      guard();
       const avatarUrl = updatedUser.avatar
         ? (updatedUser.avatar.startsWith('http') ? updatedUser.avatar : `${currentServerIP}${updatedUser.avatar}`)
         : (currentUser?.avatar || '');
@@ -559,10 +572,11 @@ const ProfileSettings: React.FC = () => {
       setMsg({ text: tr('sp_saved'), type: 'ok' });
       setAvatarFile(null); setBannerFile(null);
     } catch (e) { setMsg({ text: (e as Error).message || tr('sp_save_fail'), type: 'err' }); }
-    setSaving(false);
+    setOwnerPassword('');setSaving(false);
   };
 
   const handleChangePassword = async () => {
+    if(distributed)return;
     setPwMsg(null);
     if (!oldPw || !newPw) { setPwMsg({ text: tr('sp_fill_both'), type: 'err' }); return; }
     try {
@@ -630,6 +644,10 @@ const ProfileSettings: React.FC = () => {
           <div className="streamer-sensitive" style={{ marginBottom: 16 }}>
             <div style={fieldLabel}>{tr('sp_display_name')}</div>
             <input style={fieldInput} value={nickname} onChange={e => setNickname(e.target.value)} placeholder="Display name" />
+            {distributed && nickname!==currentUser?.nickname && <label style={{display:'block',marginTop:10}}>
+              {isRu?'Пароль для подписи сетевого имени':'Password to sign the network name'}
+              <input type="password" autoComplete="off" required style={fieldInput} value={ownerPassword} onChange={e=>setOwnerPassword(e.target.value)} />
+            </label>}
           </div>
           <div className="streamer-sensitive" style={{ marginBottom: 16 }}>
             <div style={fieldLabel}>{tr('sp_username')}</div>
@@ -697,7 +715,7 @@ const ProfileSettings: React.FC = () => {
 
       <div style={divider} />
 
-      <div style={card}>
+      {!distributed && <div style={card}>
         <h3 style={sectionH3}><Shield size={16} style={{ verticalAlign: 'middle', marginRight: 8 }} />{tr('sp_change_password')}</h3>
         <form onSubmit={e => { e.preventDefault(); handleChangePassword(); }}>
           <div style={{ marginBottom: 12 }}>
@@ -711,7 +729,7 @@ const ProfileSettings: React.FC = () => {
           <button type="submit" style={btnPrimary}>{tr('sp_change_password')}</button>
         </form>
         {pwMsg && <div style={statusMsg(pwMsg.type)}>{pwMsg.text}</div>}
-      </div>
+      </div>}
 
       <div style={divider} />
 
@@ -723,7 +741,7 @@ const ProfileSettings: React.FC = () => {
       <div style={divider} />
 
       <MeshApplicationAccess bind />
-      <MeshAccountRecovery />
+      <MeshAccountRecovery initialMode={distributed?'password':undefined} />
       <MeshDevices />
       <MeshCrossServerBinding />
       <ClientUpdates />
@@ -737,13 +755,14 @@ const ProfileSettings: React.FC = () => {
 
 const DeleteAccount: React.FC = () => {
   const tr = useTranslation();
-  const { currentServerIP, authToken, setAuthToken } = useApp();
+  const { currentServerIP, authToken, setAuthToken,currentUser,language } = useApp();
   const [show, setShow] = useState(false);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
 
   const handleDelete = async () => {
+    if(currentUser?.service_capabilities?.mode==='distributed')return;
     if (!username || !password) { setError(tr('sp_fill_both')); return; }
     try {
       const res = await fetch(`${currentServerIP}/api/auth/me/delete/`, {
@@ -758,6 +777,9 @@ const DeleteAccount: React.FC = () => {
     } catch { setError('Network error'); }
   };
 
+  if(currentUser?.service_capabilities?.mode==='distributed')return <p style={{fontSize:13,color:'var(--text-secondary)'}}>
+    {language==='ru'?'Удаление сетевого аккаунта пока не реализовано. Управление ключами и устройствами доступно выше.':'Network account withdrawal is not implemented yet. Key and device controls are available above.'}
+  </p>;
   return (
     <>
       <div style={{ ...card, borderColor: '#ef444444' }}>
@@ -985,7 +1007,7 @@ const PrivacySettings: React.FC = () => {
 
 // ==================== Devices Settings ====================
 
-interface DeviceEntry { id: number; device_name: string; device_type: string; ip_address: string; last_login: string; created_at: string; }
+interface DeviceEntry { id: string; device_name: string; device_type: string; ip_address: string; last_login: string; created_at: string; }
 
 const DeviceIcon = ({ type }: { type: string }) => {
   if (type === 'mobile') return <Smartphone size={20} />;
@@ -995,7 +1017,7 @@ const DeviceIcon = ({ type }: { type: string }) => {
 
 const DevicesSettings: React.FC = () => {
   const tr = useTranslation();
-  const { currentServerIP, authToken, setAuthToken } = useApp();
+  const { currentServerIP, authToken, setAuthToken,currentUser,language } = useApp();
   const [devices, setDevices] = useState<DeviceEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [confirmRevoke, setConfirmRevoke] = useState(false);
@@ -1004,12 +1026,13 @@ const DevicesSettings: React.FC = () => {
   const handleRevokeAll = async () => {
     setRevoking(true);
     try {
-      await fetch(`${currentServerIP}/api/auth/me/sessions/revoke/`, {
+      const response=await fetch(`${currentServerIP}/api/auth/me/sessions/revoke/`, {
         method: 'POST',
         credentials: 'include',
         headers: { 'Authorization': `Bearer ${authToken}` },
       });
-    } catch (e) { reportError(e); }
+      await readResponse(response,{serverIP:currentServerIP});
+    } catch (e) { reportError(e);setRevoking(false);return; }
     // Revoking every session includes this one: drop the local token so the
     // app returns to the sign-in screen.
     setAuthToken('');
@@ -1022,8 +1045,8 @@ const DevicesSettings: React.FC = () => {
 
   useEffect(() => { loadDevices(); }, [loadDevices]);
 
-  const handleRemove = async (id: number) => {
-    try { await fetch(`${currentServerIP}/api/auth/devices/${id}/remove/`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${authToken}` } }); setDevices(prev => prev.filter(d => d.id !== id)); } catch (e) { reportError(e); }
+  const handleRemove = async (id: string) => {
+    try { const response=await fetch(`${currentServerIP}/api/auth/devices/${id}/remove/`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${authToken}` } }); await readResponse(response,{serverIP:currentServerIP});setDevices(prev => prev.filter(d => d.id !== id)); } catch (e) { reportError(e); }
   };
 
   const parseBrowser = (ua: string) => { if (ua.includes('Chrome') && !ua.includes('Edg')) return 'Chrome'; if (ua.includes('Firefox')) return 'Firefox'; if (ua.includes('Safari') && !ua.includes('Chrome')) return 'Safari'; if (ua.includes('Edg')) return 'Edge'; return 'Browser'; };
@@ -1065,7 +1088,7 @@ const DevicesSettings: React.FC = () => {
       })}
 
       <div style={{ ...card, marginTop: 24 }}>
-        <div style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: 14 }}>{tr('sdev_revoke_all')}</div>
+        <div style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: 14 }}>{currentUser?.service_capabilities?.mode==='distributed'?(language==='ru'?'Завершить сессии на этом поинте':'End sessions on this point'):tr('sdev_revoke_all')}</div>
         <div style={{ fontSize: 12, color: 'var(--text-secondary)', margin: '4px 0 12px' }}>{tr('sdev_revoke_desc')}</div>
         {confirmRevoke ? (
           <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>

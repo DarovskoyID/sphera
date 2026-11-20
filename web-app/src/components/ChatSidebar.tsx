@@ -596,6 +596,11 @@ export const ChatSidebar: React.FC = () => {
         </button>
       </div>
 
+      {currentView==='home' && currentUser?.service_capabilities?.contacts_scope==='entry' && (
+        <div style={{padding:'0 16px 8px',fontSize:11,color:'var(--text-secondary)'}}>
+          {language==='ru'?'Контакты этого поинта · Поиск по всей сети':'Contacts on this point · Search across the network'}
+        </div>
+      )}
       {currentView === 'home' && (
         <>
           {/* One field for everyone — the people you have, and the people you

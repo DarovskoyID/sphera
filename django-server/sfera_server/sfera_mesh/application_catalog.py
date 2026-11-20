@@ -19,8 +19,10 @@ class ApplicationCatalog:
             state = d.current['state']
             from .application_dialogs import validate_dialogs
             validate_dialogs(state,d.network,d.pin)
+            profiles=public_profiles(state,d.network,d.pin)
+            for profile in profiles:profile['record']=state['application_profiles'][profile['owner']][-1]['record']
             return {'network':d.network,'genesis':d.pin,'height':state['height'],
-                    'profiles':public_profiles(state,d.network,d.pin),
+                    'profiles':profiles,
                     'dialogs':[{'identity':identity,'id':conversation_id(identity),
                                 'members':list(head['record']['body']['members']), 'digest':head['digest']}
                                for identity,head in sorted(state.get('application_dialogs',{}).items())],

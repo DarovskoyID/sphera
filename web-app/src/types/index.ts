@@ -31,6 +31,7 @@ export interface ProfileLink {
 export const MAX_PROFILE_LINKS = 5;
 
 export interface ServerUser {
+  service_capabilities?: {mode?:string;legacy_account_bootstrap?:boolean;contacts_scope?:string;settings_scope?:string;status_scope?:string;websocket?:string};
   id: string;
   username: string;
   nickname: string;

@@ -37,6 +37,8 @@ BASE_DIR=Path(__file__).resolve().parent.parent
 SECRET_KEY=config['secret_key'];DEBUG=False;ALLOWED_HOSTS=config['allowed_hosts']
 INSTALLED_APPS=['django.contrib.auth','django.contrib.contenttypes','sfera_auth','sfera_messages',
                 'sfera_modules','sfera_distribution','rest_framework_simplejwt.token_blacklist']
+from sfera_modules.loader import backend_apps
+INSTALLED_APPS += [app for app in backend_apps() if app not in INSTALLED_APPS]
 AUTH_USER_MODEL='sfera_auth.User';DEFAULT_AUTO_FIELD='django.db.models.BigAutoField'
 USE_TZ=True;TIME_ZONE='UTC'
 DATABASES={'default':{'ENGINE':'django.db.backends.sqlite3','NAME':str(database),'OPTIONS':{'timeout':20}}}
@@ -47,15 +49,30 @@ SFERA_MODULES_FROM_REPO=False;SFERA_MODULES_ENFORCE=True
 SFERA_MESH_SESSIONS=config['mesh'];SFERA_MESH_GLOBAL_CIPHER_PINS=True
 SFERA_LOCAL_CONSENSUS_RPC=config.get('local_consensus_rpc',config['mesh']['rpc'])
 MESSAGE_ENCRYPTION_KEY=config['message_encryption_key']
+MEDIA_ROOT=database.parent/'media';MEDIA_URL='/media/'
+FILE_UPLOAD_TEMP_DIR=str(database.parent/'upload-tmp')
+SFERA_MESH_ACCOUNT_RECOVERY=True;SFERA_MESH_CIPHER_AUTHORITY=True
+SFERA_MESH_CIPHER_PROFILE_GUARD=True
 ROOT_URLCONF='sfera_distribution.service_urls'
 WSGI_APPLICATION='sfera_distribution.wsgi.application'
-MIDDLEWARE=['django.middleware.security.SecurityMiddleware','django.middleware.common.CommonMiddleware']
+ASGI_APPLICATION='sfera_distribution.asgi.application'
+SFERA_DISTRIBUTED_SIGNALING={'node_replays':str(database.parent/'node-replays.sqlite'),
+                            'signal_replays':str(database.parent/'signal-replays.sqlite')}
+turn_path=database.parent/'turn.json'
+SFERA_TURN_SECRET=''
+if turn_path.exists():
+    if turn_path.is_symlink() or (os.name!='nt' and turn_path.stat().st_mode & 0o077):raise ImproperlyConfigured('Private TURN configuration required.')
+    turn=json.loads(turn_path.read_bytes())
+    if set(turn)!={'host','secret','port','ttl'} or turn['host'] not in ALLOWED_HOSTS or len(turn['secret'])!=64:raise ImproperlyConfigured('Invalid TURN configuration.')
+    SFERA_TURN_SECRET=turn['secret'];SFERA_TURN_REALM=turn['host'];SFERA_TURN_PORT=turn['port'];SFERA_TURN_TTL=turn['ttl']
+MIDDLEWARE=['django.middleware.security.SecurityMiddleware','django.middleware.common.CommonMiddleware',
+            'sfera_modules.workspace_access.WorkspaceLicenseMiddleware']
 SECURE_PROXY_SSL_HEADER=('HTTP_X_FORWARDED_PROTO','https')
 SECURE_CONTENT_TYPE_NOSNIFF=True
 LOGGING={'version':1,'disable_existing_loggers':False,
          'handlers':{'console':{'class':'logging.StreamHandler'}},
          'loggers':{'django.request':{'handlers':['console'],'level':'ERROR','propagate':False}}}
-DATA_UPLOAD_MAX_MEMORY_SIZE=262144;FILE_UPLOAD_MAX_MEMORY_SIZE=0
+DATA_UPLOAD_MAX_MEMORY_SIZE=8*1024*1024;FILE_UPLOAD_MAX_MEMORY_SIZE=2*1024*1024
 REST_FRAMEWORK={'DEFAULT_AUTHENTICATION_CLASSES':['sfera_auth.mesh_sessions.MeshJWTAuthentication'],
                 'DEFAULT_PERMISSION_CLASSES':['rest_framework.permissions.IsAuthenticated'],
                 'DEFAULT_THROTTLE_RATES':{'auth':'60/min','anon':'120/min','user':'600/min'}}

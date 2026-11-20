@@ -1,7 +1,7 @@
 import logging
 from django.conf import settings
 from rest_framework.decorators import api_view, authentication_classes, permission_classes, parser_classes, throttle_classes
-from rest_framework.parsers import JSONParser
+from rest_framework.parsers import JSONParser,MultiPartParser,FormParser
 from rest_framework.permissions import AllowAny,IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.throttling import AnonRateThrottle
@@ -9,6 +9,7 @@ from sfera_auth.mesh_sessions import MeshJWTAuthentication,MeshUnavailable,submi
 from sfera_mesh.consensus_directory import ConsensusUnavailable
 from sfera_mesh.application_catalog import ApplicationCatalog
 from .runtime import backend,signal_relay
+from .capabilities import capabilities
 
 
 class PublicApplicationThrottle(AnonRateThrottle):
@@ -36,7 +37,7 @@ def catalog(request):
 def configuration(request):
     b=backend()
     return _response({'mode':'distributed','network':b.directory.network,'genesis':b.directory.pin,'entry':b.entry,
-                      'registration':'signed-public-records-v1','email_registration':False})
+                      'registration':'signed-public-records-v1','email_registration':False,'capabilities':capabilities()})
 
 
 @api_view(['GET'])
@@ -44,9 +45,9 @@ def configuration(request):
 @permission_classes([IsAuthenticated])
 def current_user(request):
     from sfera_auth.serializers import MeSerializer
+    request.user.refresh_from_db()
     value=dict(MeSerializer(request.user,context={'request':request}).data)
-    value['service_capabilities']={'mode':'distributed','legacy_account_bootstrap':False,
-                                   'module_catalog':True,'module_management':False,'status_scope':'entry'}
+    value['service_capabilities']=capabilities()
     return _response(value)
 
 
@@ -69,16 +70,80 @@ def users_list(request):
 @api_view(['PATCH'])
 @authentication_classes([MeshJWTAuthentication])
 @permission_classes([IsAuthenticated])
-@parser_classes([JSONParser])
+@parser_classes([JSONParser,MultiPartParser,FormParser])
 def update_status(request):
-    if (not isinstance(request.data,dict) or set(request.data)!={'status'}
-            or request.data['status'] not in ('online','idle','dnd','offline')):
+    from sfera_auth.serializers import ProfileUpdateSerializer,MeSerializer
+    import json
+    allowed=set(ProfileUpdateSerializer.Meta.fields)
+    request.user.refresh_from_db(fields=['username','nickname'])
+    if not hasattr(request.data,'keys') or not request.data or set(request.data)-allowed:
+        return _response({'error':'invalid_entry_status'},400)
+    if 'nickname' in request.data and request.data['nickname']!=request.user.nickname:
+        return _response({'error':'owner_signed_profile_required'},409)
+    if set(request.data)!={'status'}:
+        data=request.data.copy()
+        data.pop('nickname',None)
+        if isinstance(data.get('links'),str):
+            try:data['links']=json.loads(data['links'])
+            except ValueError:return _response({'error':'invalid_profile_links'},400)
+        serializer=ProfileUpdateSerializer(request.user,data=data,partial=True)
+        if not serializer.is_valid():return _response(serializer.errors,400)
+        for field in ('avatar','banner'):
+            value=serializer.validated_data.get(field)
+            if value:
+                suffix={'PNG':'.png','JPEG':'.jpg','GIF':'.gif','WEBP':'.webp'}.get(getattr(getattr(value,'image',None),'format',None))
+                if suffix is None or value.size>4*1024*1024:return _response({'error':'invalid_profile_image'},400)
+                value.name=field+suffix
+        serializer.save()
+        value=dict(MeSerializer(request.user,context={'request':request}).data);value['service_capabilities']=capabilities()
+        response=_response(value)
+        response['X-Sphere-Data-Scope']='entry';return response
+    if request.data['status'] not in ('online','idle','dnd','offline'):
         return _response({'error':'invalid_entry_status'},400)
     from sfera_auth.models import User
     # Presence belongs to this entry, not to owner-signed account metadata.
     User.objects.filter(pk=request.user.pk).update(status=request.data['status'])
     request.user.status=request.data['status']
     return _response({'status':request.user.status,'scope':'entry'})
+
+
+@api_view(['POST'])
+@authentication_classes([MeshJWTAuthentication])
+@permission_classes([IsAuthenticated])
+@parser_classes([JSONParser])
+def conversation_create(request):
+    from sfera_auth.models import User
+    from .models import AccountProjection,DialogProjection
+    from sfera_mesh.application_dialogs import dialog_id
+    from sfera_messages.serializers import ConversationSerializer
+    import uuid
+    try:
+        if set(request.data)!={'user_id'}:raise ValueError('invalid_dialog_request')
+        peer=uuid.UUID(str(request.data['user_id']))
+        if peer==request.user.pk:raise ValueError('self_dialog_not_supported')
+    except (ValueError,TypeError):return _response({'error':'invalid_dialog_request'},400)
+    other=AccountProjection.objects.filter(user_id=peer).first()
+    if other is None or not User.objects.filter(pk=peer,is_active=True).exists():
+        return _response({'error':'network_user_not_found'},404)
+    b=backend();members=sorted([request.auth[CLAIM]['owner'],other.owner])
+    identity=dialog_id(b.directory.network,members)
+    mapping=DialogProjection.objects.filter(pk=identity,conversation__participants=request.user).select_related('conversation').first()
+    if mapping is None:return _response({'error':'signed_dialog_required','identity':identity},409)
+    value=dict(ConversationSerializer(mapping.conversation,context={'request':request}).data)
+    value.update(blocked_by_other=False,mesh_history=False,distributed_dialog=True)
+    return _response(value)
+
+
+@api_view(['GET'])
+@authentication_classes([MeshJWTAuthentication])
+@permission_classes([IsAuthenticated])
+def conversations(request):
+    from sfera_messages.models import Conversation
+    from sfera_messages.serializers import ConversationSerializer
+    from .models import DialogProjection
+    backend()
+    values=Conversation.objects.filter(pk__in=DialogProjection.objects.values('conversation_id'),participants=request.user,cipher_only=True).order_by('-created_at')
+    return _response(ConversationSerializer(values,many=True,context={'request':request}).data)
 
 
 @api_view(['POST'])

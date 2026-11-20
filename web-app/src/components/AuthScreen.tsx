@@ -13,6 +13,7 @@ import { readResponse, toUserMessage } from '../utils/errorManager';
 import { accessDistributedApplication } from '../core/mesh/applicationRegistration';
 import { loadEntryPointPin, saveEntryPointPin, validateTrustedEntryPoints, entryProbeNonce, verifyEntryProbe } from '../core/mesh/entryPoint';
 import trustedMeshEntries from '../config/trustedMeshEntries.json';
+import { unlockApplicationActions } from '../core/mesh/applicationActions';
 
 export const AuthScreen = () => {
   const { currentServerIP, setAuthToken, setLanguage, language } = useApp();
@@ -79,7 +80,7 @@ export const AuthScreen = () => {
     }
     if(!pin || new URL(currentServerIP).origin!==pin.url)throw new Error('application_trusted_entry_required');
     const token=await accessDistributedApplication({pin,handle:login.trim(),nickname:nickname.trim()||login.trim(),password,
-      register:isRegister,storage:localStorage,guard,post:async(path,body)=>{
+      register:isRegister,storage:localStorage,guard,onAuthenticated:(keys,token)=>unlockApplicationActions(keys,password,token),post:async(path,body)=>{
         guard();const response=await fetch(`${pin.url}${path}`,{method:'POST',credentials:'include',redirect:'error',
           signal:AbortSignal.timeout(20000),headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
         const value=await readResponse(response,{serverIP:currentServerIP});guard();return value;

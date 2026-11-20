@@ -47,6 +47,7 @@ export async function accessDistributedApplication(options: {
   pin: TrustedEntryPoint; password: string; handle: string; nickname: string; register: boolean;
   storage: Pick<Storage,'getItem'|'setItem'>; post: (path:string,body:unknown)=>Promise<unknown>;
   guard: ()=>void; wait?: ()=>Promise<void>;
+  onAuthenticated?: (keys:ApplicationKeys,token:string)=>Promise<void>;
 }) {
   const {pin,post,storage,guard}=options;guard();
   const nonce=entryProbeNonce();
@@ -84,6 +85,7 @@ export async function accessDistributedApplication(options: {
   const proof=await answerApplicationChallenge(prepared.keys,options.password,challenge,'login');guard();
   const result=await post('/api/auth/mesh/login/',proof) as {access?:unknown;mesh_session?:unknown};guard();
   if (typeof result.access!=='string' || !result.mesh_session) throw new Error('application_registration_login_rejected');
+  await options.onAuthenticated?.(prepared.keys,result.access);guard();
   return result.access;
   } finally { await release(); }
 }

@@ -19,11 +19,11 @@ async function read(file: File | null, limit: number) {
   if (!file || file.size > limit) throw new Error('invalid_recovery_file');
   return JSON.parse(await file.text());
 }
-export function MeshAccountRecovery() {
+export function MeshAccountRecovery({initialMode}:{initialMode?:'backup'|'password'}={}) {
   const { currentServerIP, authToken } = useApp();
   const [keysFile, setKeysFile] = useState<File | null>(null), [accountFile, setAccountFile] = useState<File | null>(null);
   const [password, setPassword] = useState(''), [newPassword, setNewPassword] = useState(''), [secret, setSecret] = useState('');
-  const [mode, setMode] = useState<'backup' | 'password' | 'recover' | 'publish' | 'root'>('backup');
+  const [mode, setMode] = useState<'backup' | 'password' | 'recover' | 'publish' | 'root'>(initialMode??'backup');
   const [savedFile, setSavedFile] = useState<File | null>(null), [savedPassword, setSavedPassword] = useState(''), [savedChecked, setSavedChecked] = useState(false);
   const [devicePassword, setDevicePassword] = useState('');
   const [candidate, setCandidate] = useState<Candidate | null>(null), [notice, setNotice] = useState('');

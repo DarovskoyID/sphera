@@ -77,6 +77,12 @@ class UserSerializer(serializers.ModelSerializer):
         return image.url
 
     def get_avatar(self, obj):
+        from django.conf import settings
+        if obj.avatar and getattr(settings,'SFERA_DISTRIBUTED_APPLICATION',False):
+            from hashlib import sha256
+            path=f'/api/auth/users/{obj.pk}/images/avatar/?v='+sha256(obj.avatar.name.encode()).hexdigest()[:16]
+            request=self.context.get('request')
+            return request.build_absolute_uri(path) if request else path
         return self._image(obj.avatar)
 
     def _verification(self, obj):
@@ -105,6 +111,12 @@ class ProfileSerializer(UserSerializer):
     banner = serializers.SerializerMethodField()
 
     def get_banner(self, obj):
+        from django.conf import settings
+        if obj.banner and getattr(settings,'SFERA_DISTRIBUTED_APPLICATION',False):
+            from hashlib import sha256
+            path=f'/api/auth/users/{obj.pk}/images/banner/?v='+sha256(obj.banner.name.encode()).hexdigest()[:16]
+            request=self.context.get('request')
+            return request.build_absolute_uri(path) if request else path
         return self._image(obj.banner)
 
     class Meta(UserSerializer.Meta):
@@ -271,5 +283,8 @@ class CustomEmojiSerializer(serializers.ModelSerializer):
 
     def get_image_url(self, obj):
         if obj.image:
+            from django.conf import settings
+            if getattr(settings,'SFERA_DISTRIBUTED_APPLICATION',False):
+                return f'/api/auth/emojis/{obj.pk}/image/'
             return obj.image.url  # relative path e.g. /media/emojis/...
         return ''

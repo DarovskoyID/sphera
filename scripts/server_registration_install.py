@@ -66,7 +66,7 @@ def http(path):
         return json.loads(response.read(1048576))
 
 
-def main():
+def main(action_override=None):
     os.umask(0o077)
     os.environ['PYTHONDONTWRITEBYTECODE']='1'
     settings=POINT/'code/preparing.json'
@@ -89,7 +89,14 @@ def main():
     binary_dir=POINT/'code/verifiers'/job['verifier']['sha256'];binary_dir.mkdir(mode=0o750,parents=True,exist_ok=True)
     own(binary_dir.parent,0,user.pw_gid,0o750);own(binary_dir,0,user.pw_gid,0o750)
     binary=asset(job['verifier'],binary_dir/'mesh-verifier',128*1048576);own(binary,0,user.pw_gid,0o750)
-    action=job['action']
+    action=action_override or job['action']
+    if action=='complete':
+        for stage in ('turn','prepare','enable','realtime'):main(stage)
+        return
+    if action=='turn':
+        from server_application_turn import install
+        print(json.dumps(install(APP,host,user,run,own,private_json)),flush=True)
+        return
     if action=='prepare':
         wheel_archive=asset(job['wheels'],APP/'assets'/('wheels-'+job['wheels']['sha256']+'.tar.gz'),64*1048576)
         wheels=APP/'assets'/('wheels-'+job['wheels']['sha256']);wheels.mkdir(mode=0o750,exist_ok=True)
@@ -114,6 +121,8 @@ def main():
                 path=Path(parent)/name
                 if not path.is_symlink():own(path,0,user.pw_gid,0o750 if os.access(path,os.X_OK) else 0o640)
         data=APP/'data';data.mkdir(mode=0o700,exist_ok=True);own(data,user.pw_uid,user.pw_gid,0o700)
+        for name in ('media','upload-tmp'):
+            folder=data/name;folder.mkdir(mode=0o700,exist_ok=True);own(folder,user.pw_uid,user.pw_gid,0o700)
         config_path=data/'configuration.json'
         from sfera_mesh.identity import load_identity,node_id
         entry=node_id(load_identity(point['node_key']).public_key().public_bytes_raw())
@@ -135,7 +144,7 @@ def main():
              'PYTHONPATH':str(source/'django-server/sfera_server'),'PYTHONDONTWRITEBYTECODE':'1'}
         for command in ('check','migrate'):
             args=[python,'-B','-m','django',command]
-            if command=='migrate':args+=['--noinput','--verbosity','0']
+            if command=='migrate':args=[python,'-B','-m','sfera_distribution.upgrade']
             run(['runuser','-u','sphere-point','--',*args],env=env)
         unit=f'''[Unit]
 Description=Sphere distributed application registration
@@ -148,7 +157,7 @@ Environment=DJANGO_SETTINGS_MODULE=sfera_distribution.settings
 Environment=SFERA_DISTRIBUTED_CONFIG={config_path}
 Environment=PYTHONDONTWRITEBYTECODE=1
 Environment=SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
-ExecStart={python} -B -m gunicorn sfera_distribution.wsgi:application --bind 127.0.0.1:9091 --workers 1 --threads 4 --timeout 120 --access-logfile - --error-logfile -
+ExecStart={python} -B -m uvicorn sfera_distribution.asgi:application --host 127.0.0.1 --port 9091 --workers 1 --http h11 --ws websockets-sansio --ws-max-size 1048576 --lifespan off --limit-concurrency 256 --timeout-keep-alive 15 --no-proxy-headers
 Restart=on-failure
 RestartSec=3
 UMask=0077
@@ -160,8 +169,22 @@ ReadWritePaths={data}
 [Install]
 WantedBy=multi-user.target
 '''
-        Path('/etc/systemd/system/sphere-application.service').write_text(unit)
-        run(['systemctl','daemon-reload']);run(['systemctl','enable','sphere-application.service']);run(['systemctl','restart','sphere-application.service']);wait_service('sphere-application.service')
+        unit_path=Path('/etc/systemd/system/sphere-application.service')
+        previous_unit=unit_path.read_bytes() if unit_path.exists() else None
+        unit_path.write_text(unit)
+        try:
+            run(['systemctl','daemon-reload']);run(['systemctl','enable','sphere-application.service']);run(['systemctl','restart','sphere-application.service'])
+            deadline=time.monotonic()+60
+            while True:
+                try:
+                    wait_service('sphere-application.service');http('/api/distribution/config/');break
+                except (OSError,ValueError,subprocess.CalledProcessError):
+                    if time.monotonic()>=deadline:raise
+                    time.sleep(1)
+        except BaseException:
+            if previous_unit is not None:
+                unit_path.write_bytes(previous_unit);run(['systemctl','daemon-reload']);run(['systemctl','restart','sphere-application.service'])
+            raise
         prepared={'host':host,'source':str(source),'python':str(python),'config':str(config_path),'verifier':str(binary),'prepared':True}
         private_json(APP/'prepared.json',prepared,(APP/'assets').stat())
         print(json.dumps(prepared),flush=True)
@@ -254,6 +277,21 @@ WantedBy=multi-user.target
         private_json(WEB/'original-app.json',receipt,(WEB/'original-app.json').stat())
         own(WEB/'original-app.json',0,web_user.pw_gid,0o640)
         print(json.dumps({'host':host,'application_api_connected':True,'registration_mode':'distributed','configuration':http('/api/distribution/config/')}),flush=True)
+    elif action=='realtime':
+        before=(WEB/'Caddyfile').read_text()
+        pattern=re.compile(r' handle /ws/\* \{\n  respond "Application WebSocket service is not connected\." 503\n \}')
+        replacement,count=pattern.subn(' handle /ws/* {\n  reverse_proxy 127.0.0.1:9091\n }',before)
+        if count==0:
+            if 'handle /ws/* {\n  reverse_proxy 127.0.0.1:9091' not in before:raise ValueError('known_websocket_route_required')
+        elif count!=1:raise ValueError('one_websocket_route_required')
+        else:
+            pending=WEB/'Caddyfile.realtime.pending';pending.write_text(replacement);own(pending,0,web_user.pw_gid,0o640)
+            run([WEB/'code/caddy','validate','--config',pending,'--adapter','caddyfile'])
+            os.replace(pending,WEB/'Caddyfile')
+            try:run(['systemctl','restart','sphere-web-edge.service']);wait_service('sphere-web-edge.service')
+            except BaseException:
+                (WEB/'Caddyfile').write_text(before);run(['systemctl','restart','sphere-web-edge.service']);raise
+        print(json.dumps({'host':host,'websocket_proxy':True,'configuration':http('/api/distribution/config/')}),flush=True)
     elif action=='bridge-permissions':
         bridge=WEB/'bridge.json'
         if bridge.is_symlink() or not bridge.is_file():raise ValueError('regular_web_configuration_required')

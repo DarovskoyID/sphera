@@ -15,6 +15,7 @@ import { saveCensorConfig, setCensorAudience, scopeFromScanFlags } from '../util
 import { sortByDate, insertByDate } from '../utils/messageOrder';
 import { findOptimisticChatMessage } from '../core/chatDelivery';
 import { legacyMessageCacheKey } from '../core/mesh/messageCacheBoundary';
+import { lockApplicationActions,openDistributedDialog,signedApplicationSignal } from '../core/mesh/applicationActions';
 import { clearMessageCache, readCachedMessages, writeCachedMessages } from '../utils/messageCache';
 import { postNativeTheme, setNativePrefs } from '../utils/nativeBridge';
 import { deviceQuery } from '../utils/device';
@@ -308,6 +309,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
   // Server IP is now user-selected via ServerSelector
 
   const signalingWs = useRef<WebSocket | null>(null);
+  const signalQueue=useRef<Promise<unknown>>(Promise.resolve());
   const callTargetIdRef = useRef<string | null>(null);
   const activeCallPeerRef = useRef<string | null>(null);
   const [signalingPeers, setSignalingPeers] = useState<Array<{ id: string; name: string }>>([]);
@@ -426,6 +428,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
 
   // ==================== Logout helper ====================
   const logout = useCallback(() => {
+    lockApplicationActions();
     authGenerationRef.current++;
     refreshPromiseRef.current = null;
     authTokenRef.current = '';
@@ -853,6 +856,10 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       try {
         // Get or create conversation with this user
         setState(prev => ({ ...prev, chatBlockedByOther: false }));
+        if ((state.currentUser as ServerUser & {service_capabilities?:{mode?:string}})?.service_capabilities?.mode==='distributed') {
+          await openDistributedDialog(state.currentServerIP,state.authToken,state.currentChat,()=>{if(stale())throw new Error('application_context_changed');});
+          if(stale())return;
+        }
         const convoRes = await fetch(`${state.currentServerIP}/api/conversations/create/`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${state.authToken}` },
@@ -1685,12 +1692,12 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
         }
         if (data.type === 'offer' && data.from) {
           if (data.recovery && activeCallPeerRef.current !== String(data.from)) {
-            ws.send(JSON.stringify({ type: 'call-end', to: data.from }));
+            sendSignal({ type: 'call-end', to: data.from });
             return;
           }
           // Reply here even while CallWindow is mounting or changing views.
           if (isBusy() && activeCallPeerRef.current !== String(data.from)) {
-            ws.send(JSON.stringify({ type: 'call-rejected', to: data.from, callStatus: 'busy' }));
+            sendSignal({ type: 'call-rejected', to: data.from, callStatus: 'busy' });
             return;
           }
           setState(prev => {
@@ -1877,7 +1884,13 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
   const sendSignal = (data: any) => {
     const ws = signalingWs.current;
     if (ws?.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify(data));
+      if ((state.currentUser as ServerUser & {service_capabilities?:{mode?:string}})?.service_capabilities?.mode==='distributed') {
+        const token=state.authToken,server=state.currentServerIP,frozen=JSON.parse(JSON.stringify(data));
+        signalQueue.current=signalQueue.current.catch(()=>{}).then(async()=>{
+          const packet=await signedApplicationSignal(server,token,frozen);
+          if(signalingWs.current===ws && authTokenRef.current===token && currentServerIPRef.current===server && ws.readyState===WebSocket.OPEN)ws.send(JSON.stringify({mesh_proof:packet}));
+        }).catch(reportError);
+      }else ws.send(JSON.stringify(data));
     }
   };
 
@@ -1906,7 +1919,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     const handleBeforeUnload = () => {
       if (signalingWs.current?.readyState === WebSocket.OPEN) {
         if (activeCallPeerRef.current) {
-          signalingWs.current.send(JSON.stringify({ type: 'call-end', to: activeCallPeerRef.current }));
+          sendSignal({ type: 'call-end', to: activeCallPeerRef.current });
         }
         signalingWs.current.close();
         signalingWs.current = null;
@@ -2041,6 +2054,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       authTokenRef.current = '';
     }
     if (!token) {
+      lockApplicationActions();
       // Logout — close all sockets, drop the on-device message cache, and
       // reset to a clean state.
       void clearMessageCache();

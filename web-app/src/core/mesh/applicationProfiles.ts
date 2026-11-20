@@ -10,6 +10,22 @@ const hex = (bytes: Uint8Array) => Array.from(bytes, value => value.toString(16)
 const hex32 = /^[0-9a-f]{64}$/;
 const raw = (value: string) => Uint8Array.from(value.match(/../g)!, pair => parseInt(pair, 16));
 
+export async function signApplicationProfile(root:Uint8Array,controller:string,body:ApplicationProfileBody):Promise<ApplicationProfileRecord>{
+  body=JSON.parse(JSON.stringify(body));
+  if(Object.keys(body).sort().join(',')!=='control_epoch,domain,genesis,handle,network,nickname_utf8,owner,previous,version'
+      || body.domain!=='sfera-mesh-application-profile-v1' || !/^[A-Za-z0-9._-]{1,64}$/.test(body.network)
+      || ![body.genesis,body.owner,body.previous,controller].every(value=>hex32.test(value))
+      || !/^[a-z][a-z0-9_]{2,31}$/.test(body.handle) || !Number.isSafeInteger(body.version) || body.version<1 || body.version>64
+      || !Number.isSafeInteger(body.control_epoch) || body.control_epoch<0 || body.control_epoch>16
+      || !/^(?:[0-9a-f]{2}){1,160}$/.test(body.nickname_utf8))throw new Error('invalid_application_profile');
+  const name=new TextDecoder('utf-8',{fatal:true}).decode(raw(body.nickname_utf8));
+  if(Array.from(name).length>50 || /[\u0000-\u001f\u007f-\u009f]/.test(name))throw new Error('invalid_application_nickname');
+  const signature=await signIdentityStatement(root,accountBytes(body));
+  const key=await crypto.subtle.importKey('raw',raw(controller).buffer,'Ed25519',false,['verify']);
+  if(!await crypto.subtle.verify('Ed25519',key,new Uint8Array(signature).buffer,new Uint8Array(accountBytes(body)).buffer))throw new Error('application_owner_key_mismatch');
+  return {body,signature:hex(signature)};
+}
+
 export async function applicationUserId(network: string, owner: string) {
   if (!/^[A-Za-z0-9._-]{1,64}$/.test(network) || !hex32.test(owner)) throw new Error('invalid_application_identity');
   const prefix = new TextEncoder().encode(`sfera-mesh-application-user-v1\0${network}\0`);

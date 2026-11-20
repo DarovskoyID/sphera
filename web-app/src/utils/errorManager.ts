@@ -92,6 +92,12 @@ export interface ErrorContext {
 /** Convert anything into a localised, user-safe message. */
 export function toUserMessage(input: unknown, ctx: ErrorContext = {}): string {
   const raw = rawText(input).trim();
+  if(raw==='application_action_unlock_required')return decorate(_lang==='ru'
+    ? 'Повторно войдите в аккаунт, чтобы разблокировать ключ устройства для нового диалога или звонка.'
+    : 'Sign in again to unlock the device key for a new conversation or call.',ctx);
+  if(raw==='owner_signed_profile_required')return decorate(_lang==='ru'
+    ? 'Изменение сетевого имени требует подписи владельца аккаунта.'
+    : 'Changing the network name requires the account owner’s signature.',ctx);
 
   // 1. Already a translation key thrown by our own code.
   if (raw && KNOWN_KEYS.has(raw)) {

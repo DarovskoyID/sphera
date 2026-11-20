@@ -1,6 +1,7 @@
 // Адрес сайта не зашит в код: сборка получает его из секрета SFERA_DOMAIN
 // (VITE_SFERA_DOMAIN, см. scripts/linux/start-common.sh). Веб-сборка без него
 // ходит на тот хост, с которого открыта.
+import trustedMeshEntries from './trustedMeshEntries.json';
 const PAGE_HOST =
   typeof location !== 'undefined' && /^https?:$/.test(location.protocol) ? location.hostname : '';
 export const APP_HOST: string = import.meta.env.VITE_SFERA_DOMAIN || PAGE_HOST;
@@ -25,6 +26,7 @@ export function wsUrlFor(serverIP: string): string {
   try {
     const u = new URL(serverIP);
     const proto = u.protocol === 'https:' ? 'wss:' : 'ws:';
+    if (trustedMeshEntries.some(entry=>entry.url===u.origin)) return `${proto}//${u.host}`;
     return `${proto}//${u.hostname}:${WS_PORT}`;
   } catch {
     // Фолбэк на случай нестандартного значения: меняем только схему.
