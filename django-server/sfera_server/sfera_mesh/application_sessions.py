@@ -23,10 +23,13 @@ from .storage import canonical
 
 
 class ApplicationSessions:
-    def __init__(self, path, directory, entry, *, entry_key=None):
+    def __init__(self, path, directory, entry, *, entry_key=None, identity_policy='explicit-binding-v1'):
+        if identity_policy not in ('explicit-binding-v1','consensus-profile-v1'):
+            raise ValueError('invalid_application_identity_policy')
         if not digest64(entry):
             raise ValueError('invalid_application_entry')
         self.directory, self.entry = directory, entry
+        self.identity_policy = identity_policy
         from .identity import node_id
         if entry_key is not None and node_id(entry_key.public_key().public_bytes_raw()) != entry:
             raise ValueError('application_entry_signing_key_mismatch')
@@ -45,7 +48,10 @@ class ApplicationSessions:
                 claim TEXT NOT NULL, expires INTEGER NOT NULL);
         ''')
         try:
-            pin = sha256(canonical({'genesis': directory.pin, 'network': directory.network, 'entry': entry})).hexdigest()
+            context = {'genesis': directory.pin, 'network': directory.network, 'entry': entry}
+            if identity_policy != 'explicit-binding-v1':
+                context['identity_policy'] = identity_policy
+            pin = sha256(canonical(context)).hexdigest()
             with self.db:
                 self.db.execute('BEGIN IMMEDIATE')
                 old = self.db.execute('SELECT pin FROM app_session_pin WHERE singleton=1').fetchone()

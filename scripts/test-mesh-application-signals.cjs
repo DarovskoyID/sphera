@@ -1,0 +1,28 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs'), path = require('node:path'), Module = require('node:module');
+const { webcrypto } = require('node:crypto');
+globalThis.crypto = webcrypto;
+const built = require('esbuild').buildSync({ stdin: {contents:"export * from './src/core/mesh/applicationSignals'; export * from './src/core/mesh/applicationDialogs'; export * from './src/core/mesh/applicationProfiles';",resolveDir:process.cwd()},bundle:true,platform:'node',format:'cjs',write:false });
+const loaded = new Module(path.resolve('output/application-signals-test.cjs'),module);
+loaded.filename=path.resolve('output/application-signals-test.cjs');loaded.paths=module.paths;loaded._compile(built.outputFiles[0].text,loaded.filename);
+const api=loaded.exports,fixture=JSON.parse(fs.readFileSync('mesh-consensus/testdata/application-dialog-v1.json','utf8'));
+(async()=>{
+  const bytes=Buffer.concat([Buffer.from('302e020100300506032b657004220420','hex'),Buffer.alloc(32,9)]);
+  const signer=await crypto.subtle.importKey('pkcs8',bytes,'Ed25519',false,['sign']);
+  const identity={network:fixture.network,genesis:fixture.genesis,owner:fixture.creator,device:fixture.device,devicePublic:fixture.device_public};
+  const target=await api.applicationUserId(fixture.network,fixture.recipient);
+  const signal={type:'offer',to:target,sdp:{type:'offer',sdp:'v=0\r\ns=synthetic-local-test\r\n'}};
+  const packet=await api.signApplicationSignal(identity,signer,fixture.recipient,signal,100);
+  assert.equal(signer.extractable,false);assert.equal(packet.body.expires_at,130);
+  assert.deepEqual(JSON.parse(Buffer.from(packet.body.signal_utf8,'hex').toString('utf8')),signal);
+  assert.equal(await api.applicationDialogId(fixture.network,[fixture.creator,fixture.recipient].sort()),fixture.dialog_identity);
+  assert.equal(api.applicationConversationId(fixture.dialog_identity),fixture.conversation_id);
+  await assert.rejects(api.signApplicationSignal(identity,signer,fixture.recipient,{...signal,to:'00000000-0000-0000-0000-000000000000'},100));
+  await assert.rejects(api.signApplicationSignal(identity,signer,fixture.recipient,{...signal,from:target},100));
+  const out='output/mesh-application-20261119';fs.mkdirSync(out,{recursive:true});fs.writeFileSync(path.join(out,'signal-client-fixture.json'),JSON.stringify(packet));
+  const dialog=await api.signDeviceApplicationDialog(identity,signer,fixture.recipient,0,1);
+  assert.deepEqual(dialog,fixture.device_dialog,'device DM proof differs from Python signature vector');
+  fs.writeFileSync(path.join(out,'device-dialog-client-fixture.json'),JSON.stringify(dialog));
+  assert.equal(dialog.body.creator_device,fixture.device);assert.equal(dialog.body.domain,'sfera-mesh-application-dialog-device-v1');
+  console.log('Device-signed offer and cross-language dialog identities passed; public synthetic packet saved for Python verification');
+})().catch(error=>{console.error(error);process.exitCode=1;});

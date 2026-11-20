@@ -4,19 +4,22 @@
 import { accountBytes, accountDigest, signIdentityStatement } from './account';
 import { meshDeviceId } from './devices';
 import { entryProbeNonce, validateTrustedEntryPoints, type TrustedEntryPoint } from './entryPoint';
+import { applicationUserId } from './applicationProfiles';
+import { applicationDialogId, applicationConversationId } from './applicationDialogs';
 import { cipherUserId, cipherMembershipRoom, PairwiseCipher, type CipherMembership, type CipherPeer,
   type GroupEnvelope, type PairwiseEnvelope } from './pairwiseCipher';
 
 export type CipherCertificate = { body: CipherPeer & {
   domain: 'sfera-mesh-cipher-device-v1'; device_public: string;
 }; signature: string };
-export type CipherScopeBody = {
-  domain: 'sfera-mesh-cipher-scope-v1'; network: string; genesis: string; entry: string;
+type CipherScopeBase = {
+  network: string; genesis: string; entry: string;
   source: 'dm' | 'guild'; scope: string; epoch: number; roster: string; members: string[];
   owners: { user: string; owner: string }[];
   certificates: CipherCertificate[]; nonce: string; issued_at: number; expires_at: number;
-  membership_authority: 'selected_application';
 };
+export type CipherScopeBody = CipherScopeBase & ({domain:'sfera-mesh-cipher-scope-v1';membership_authority:'selected_application'}
+  | {domain:'sfera-mesh-cipher-scope-v2';membership_authority:'consensus_dialog';dialog:string;device_versions:{owner:string;version:number}[]});
 export type CipherScopeProof = { body: CipherScopeBody; signature: string };
 const hex = /^[0-9a-f]{64}$/;
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -69,10 +72,12 @@ export async function verifyCipherScope(value: unknown, pin: TrustedEntryPoint, 
   schema(proof, ['body', 'signature']);
   const body = proof.body;
   schema(body, ['domain', 'network', 'genesis', 'entry', 'source', 'scope', 'epoch', 'roster', 'members',
-    'certificates', 'owners', 'nonce', 'issued_at', 'expires_at', 'membership_authority']);
+    'certificates', 'owners', 'nonce', 'issued_at', 'expires_at', 'membership_authority',
+    ...(body.domain==='sfera-mesh-cipher-scope-v2'?['dialog','device_versions']:[])]);
   const { network, nodeId, publicKey, url, label } = pin;
   await validateTrustedEntryPoints([{ network, nodeId, publicKey, url, label }]);
-  if (body.domain !== 'sfera-mesh-cipher-scope-v1' || body.membership_authority !== 'selected_application' ||
+  if (!((body.domain === 'sfera-mesh-cipher-scope-v1' && body.membership_authority === 'selected_application')
+      || (body.domain === 'sfera-mesh-cipher-scope-v2' && body.membership_authority === 'consensus_dialog')) ||
       body.network !== pin.network || body.network !== own.network || body.genesis !== own.genesis ||
       body.entry !== pin.nodeId || !['dm', 'guild'].includes(source) || body.source !== source || !uuid.test(scope) || body.scope !== scope ||
       !hex.test(nonce) || body.nonce !== nonce || !Number.isSafeInteger(body.epoch) || body.epoch < 1 || body.epoch > 2147483647 ||
@@ -100,9 +105,27 @@ export async function verifyCipherScope(value: unknown, pin: TrustedEntryPoint, 
       !peers.some(peer => (['network', 'genesis', 'owner', 'device', 'ed25519', 'curve25519'] as const).every(field => peer[field] === own[field])) ||
       new Set(peers.map(peer => peer.ed25519)).size !== peers.length || new Set(peers.map(peer => peer.curve25519)).size !== peers.length ||
       body.roster !== await accountDigest(accountBytes({ members: body.members, owners: body.owners, certificates: body.certificates }))) throw new Error('cipher_scope_roster_mismatch');
-  // A DM UUID and a Guild UUID, or equal UUIDs on unrelated entries, must not
-  // accidentally share a Megolm room. Federation requires an explicit mapping.
-  const digest = await accountDigest(accountBytes(['sfera-mesh-cipher-scope-id-v1', own.network, own.genesis, pin.nodeId, source, scope]));
+  let identity: unknown = ['sfera-mesh-cipher-scope-id-v1',own.network,own.genesis,pin.nodeId,source,scope];
+  if (body.domain==='sfera-mesh-cipher-scope-v2') {
+    if (source!=='dm' || body.members.length!==2 || !hex.test(body.dialog)
+        || body.scope!==applicationConversationId(body.dialog)
+        || body.dialog!==await applicationDialogId(own.network,body.owners.map(binding=>binding.owner).sort())
+        || !Array.isArray(body.device_versions) || body.device_versions.length!==2) throw new Error('distributed_cipher_dialog_mismatch');
+    for (const binding of body.owners) {
+      if (binding.user!==await applicationUserId(own.network,binding.owner)) throw new Error('distributed_cipher_identity_mismatch');
+    }
+    const orderedOwners=body.owners.map(binding=>binding.owner).sort();let epoch=1;
+    for (let index=0;index<2;index++) {
+      const checkpoint=body.device_versions[index];schema(checkpoint,['owner','version']);
+      if (checkpoint.owner!==orderedOwners[index] || !Number.isSafeInteger(checkpoint.version) || checkpoint.version<1 || checkpoint.version>256) throw new Error('distributed_cipher_history_mismatch');
+      epoch+=checkpoint.version;
+    }
+    if (body.epoch!==epoch) throw new Error('distributed_cipher_epoch_mismatch');
+    identity=['sfera-mesh-distributed-cipher-scope-id-v1',own.network,own.genesis,'dm',body.dialog];
+  }
+  // Legacy rooms remain entry-scoped. Distributed DMs use the explicit shared
+  // descriptor, while the selected entry still signs each fresh authorization.
+  const digest = await accountDigest(accountBytes(identity));
   const id = `${digest.slice(0, 8)}-${digest.slice(8, 12)}-${digest.slice(12, 16)}-${digest.slice(16, 20)}-${digest.slice(20, 32)}`;
   return { membership: { scope: id, epoch: body.epoch, peers } satisfies CipherMembership, body, proof };
 }

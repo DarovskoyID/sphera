@@ -127,6 +127,7 @@ def _login_response(user, backend, claim, request):
         return Response({'error': 'account_access_blocked'}, status=403)
     refresh = RefreshToken.for_user(user)
     refresh[CLAIM] = claim
+    if backend.identity_policy=='consensus-profile-v1':refresh['distributed_application']=True
     with backend.lock:
         expires = backend.db.execute('SELECT expires FROM app_sessions WHERE id=?', (claim['id'],)).fetchone()[0]
     refresh['exp'] = min(refresh['exp'], expires)

@@ -48,9 +48,13 @@ def parse(value, scope, *, identity=None, author=None, source='dm', guild=None):
 
 def room_for(proof):
     peers = [item['body'] for item in proof['certificates']]
-    digest = sha256(canonical(['sfera-mesh-cipher-scope-id-v1', proof['network'], proof['genesis'],
-        proof['entry'], proof['source'], proof['scope']])).hexdigest()
-    scope = '-'.join((digest[:8], digest[8:12], digest[12:16], digest[16:20], digest[20:32]))
+    if proof['domain']=='sfera-mesh-cipher-scope-v2':
+        from sfera_mesh.application_cipher import namespace
+        scope=namespace(proof['network'],proof['genesis'],proof['dialog'])
+    else:
+        digest = sha256(canonical(['sfera-mesh-cipher-scope-id-v1', proof['network'], proof['genesis'],
+            proof['entry'], proof['source'], proof['scope']])).hexdigest()
+        scope = '-'.join((digest[:8], digest[8:12], digest[12:16], digest[16:20], digest[20:32]))
     pins = [[sdk_user(peer), peer['device'], peer['ed25519'], peer['curve25519']] for peer in peers]
     pins.sort(key=lambda item: ':'.join(item))
     return '!' + sha256(canonical(['sfera-mesh-group-context-v1', proof['network'], proof['genesis'],

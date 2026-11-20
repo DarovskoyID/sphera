@@ -111,6 +111,30 @@ class SignalingConsumer(AsyncWebsocketConsumer):
     # ── Signaling messages ────────────────────────────────────────────────────
 
     async def receive(self, text_data):
+        from django.conf import settings
+        if getattr(settings,'SFERA_DISTRIBUTED_APPLICATION',False):
+            from sfera_server.middleware import _token_from_subprotocols
+            from rest_framework_simplejwt.tokens import AccessToken
+            from sfera_distribution.runtime import signal_relay
+            try:
+                if not isinstance(text_data,str) or len(text_data)>300000:raise ValueError('bounded_signal_required')
+                data=json.loads(text_data)
+                if not isinstance(data,dict) or 'mesh_proof' not in data:raise ValueError('signed_signal_required')
+                token=AccessToken(_token_from_subprotocols(self.scope))
+                claim=token['mesh_session']
+                result=await database_sync_to_async(lambda:signal_relay().forward(data['mesh_proof'],self.user_id,claim))()
+                signed=json.loads(bytes.fromhex(data['mesh_proof']['body']['signal_utf8']))
+                me=SignalingConsumer._users.get(self.user_id)
+                if me:
+                    if signed['type'] in ('offer','answer','call-resume','call-resumed'):me['in_call_with']=signed['to']
+                    elif signed['type'] in ('call-end','call-rejected') and me.get('in_call_with')==signed['to']:me['in_call_with']=None
+                if not result['routed'] and signed['type'] in ('offer','call-resume'):
+                    await self.send(text_data=json.dumps({'type':'peer-disconnected','from':signed['to']}))
+            except Exception:
+                # A rejected proof must never fall through to the unsigned
+                # legacy signaling route, including while quorum is down.
+                await self.send(text_data=json.dumps({'type':'signal-rejected'}))
+            return
         data = json.loads(text_data)
         target_id = str(data.get('to', ''))
         target = SignalingConsumer._users.get(target_id)

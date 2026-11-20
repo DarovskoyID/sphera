@@ -114,6 +114,15 @@ func verifyEvidence(genesis *types.GenesisDoc, evidence Evidence, now time.Time,
 	if err := verifyAccountControls(state); err != nil {
 		return nil, err
 	}
+	if err := verifyApplicationProfiles(state); err != nil {
+		return nil, err
+	}
+	if err := verifyApplicationDialogs(state); err != nil {
+		return nil, err
+	}
+	if _, err := replayApplicationKeys(state); err != nil {
+		return nil, err
+	}
 	counts := map[string]int{}
 	policyKeys, err := genesisPolicyKeys(genesis)
 	if err != nil {

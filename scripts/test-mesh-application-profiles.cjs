@@ -1,0 +1,23 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const Module = require('node:module');
+const path = require('node:path');
+globalThis.crypto = require('node:crypto').webcrypto;
+const built = require('esbuild').buildSync({ entryPoints: ['src/core/mesh/applicationProfiles.ts'], bundle: true, platform: 'node', format: 'cjs', write: false });
+const loaded = new Module(path.resolve('output/application-profiles-client.cjs'), module);
+loaded.filename = path.resolve('output/application-profiles-client.cjs'); loaded.paths = module.paths;
+loaded._compile(built.outputFiles[0].text, loaded.filename);
+const api = loaded.exports;
+const fixture = JSON.parse(fs.readFileSync('mesh-consensus/testdata/application-profile-v1.json', 'utf8'));
+(async () => {
+  const root = new Uint8Array(32).fill(1), before = new Uint8Array(root);
+  const record = await api.initialApplicationProfile(root, fixture.public_key, 'lab', 'a'.repeat(64), 'alice', 'Алиса');
+  assert.deepEqual(record, fixture.record, 'browser signatures differ from Python fixture');
+  assert.deepEqual(root, before, 'caller root changed');
+  assert.equal(await api.applicationUserId('lab', record.body.owner), fixture.application_user);
+  assert.notEqual(await api.applicationUserId('other', record.body.owner), fixture.application_user);
+  await assert.rejects(api.initialApplicationProfile(new Uint8Array(32).fill(2), fixture.public_key, 'lab', 'a'.repeat(64), 'alice', 'Алиса'));
+  for (const name of ['Alice', 'аlice', 'a b']) await assert.rejects(api.initialApplicationProfile(root, fixture.public_key, 'lab', 'a'.repeat(64), name, 'Алиса'));
+  for (const name of ['', 'x\nspoof', '\ud800']) await assert.rejects(api.initialApplicationProfile(root, fixture.public_key, 'lab', 'a'.repeat(64), 'alice', name));
+  console.log('Application profile client: cross-language signature/UUID, owner mismatch and invalid input passed');
+})().catch(error => { console.error(error); process.exitCode = 1; });

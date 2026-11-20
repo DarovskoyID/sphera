@@ -13,6 +13,21 @@ export function MeshApplicationAccess({ bind = false }: { bind?: boolean }) {
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState('');
+  const [backups,setBackups]=useState<{handle:string;keys:unknown}[]>([]);
+  useEffect(()=>{
+    const found:{handle:string;keys:unknown}[]=[];
+    for(let index=0;index<localStorage.length;index++) {
+      const name=localStorage.key(index);
+      if(!name?.startsWith('sfera_distributed_credentials_v1:'))continue;
+      try {
+        const raw=localStorage.getItem(name);if(!raw || raw.length>32768)continue;
+        const value=JSON.parse(raw);const keys=applicationKeys(value.keys,currentServerIP);
+        const handle=value.bundle.profile.body.handle;
+        if(typeof handle==='string' && /^[a-z][a-z0-9_]{2,31}$/.test(handle))found.push({handle,keys});
+      } catch { /* Other servers and malformed local records are not exported. */ }
+    }
+    setBackups(found);
+  },[currentServerIP,authToken]);
   const generation = useRef(0);
   useEffect(() => { generation.current++; setFactor(''); setPassword(''); setNotice(''); return () => { generation.current++; }; }, [currentServerIP, authToken]);
   useEffect(() => {
@@ -61,7 +76,15 @@ export function MeshApplicationAccess({ bind = false }: { bind?: boolean }) {
         result = await post('login/2fa/', { challenge: factor, code: code.trim() });
       } else {
         if (!file || file.size > 32768) throw new Error('invalid_file');
-        const keys = applicationKeys(JSON.parse(await file.text()), currentServerIP);
+        let value=JSON.parse(await file.text());
+        if(pin && pinnedGenesis && value.network===pin.network && value.genesis===pinnedGenesis
+            && (value.entry!==pin.nodeId || new URL(value.server).origin!==new URL(currentServerIP).origin)) {
+          const response=await fetch(`${currentServerIP}/api/distribution/config/`,{credentials:'omit',redirect:'error',signal:AbortSignal.timeout(15000)});
+          const mode=response.ok?await response.json():null;
+          if(mode?.mode!=='distributed' || mode.genesis!==pinnedGenesis || mode.entry!==pin.nodeId)throw new Error('application_entry_pin_mismatch');
+          value={...value,entry:pin.nodeId,server:new URL(currentServerIP).origin+'/'};
+        }
+        const keys = applicationKeys(value, currentServerIP);
         if (pin && (keys.entry !== pin.nodeId || keys.network !== pin.network || keys.genesis !== pinnedGenesis)) throw new Error('application_entry_pin_mismatch');
         const challenge = await post(bind ? 'challenge/' : 'login/challenge/', {
           owner: await meshUserId(keys.ownerPublic), device: await meshDeviceId(keys.devicePublic),
@@ -86,6 +109,12 @@ export function MeshApplicationAccess({ bind = false }: { bind?: boolean }) {
     } finally { setBusy(false); }
   };
   return <details style={{ marginBlock: 20 }}><summary>{bind ? 'Привязать mesh-устройство' : 'Войти с mesh-ключами'}</summary>
+    {backups.map(({handle,keys})=><p key={handle}><button type="button" onClick={()=>{
+      const url=URL.createObjectURL(new Blob([JSON.stringify(keys)],{type:'application/json'}));
+      const link=document.createElement('a');link.href=url;link.download=`sphere-${handle}-keys.json`;link.click();
+      setTimeout(()=>URL.revokeObjectURL(url),1000);
+    }}>Скачать зашифрованные ключи «{handle}»</button></p>)}
+    {backups.length>0 && <p>Этот файл и пароль позволяют войти с другого устройства или через другой поинт.</p>}
     <p>{bind ? 'Привяжите уже зарегистрированное в сети устройство к этому аккаунту.' : 'Для аккаунта, к которому ранее привязано mesh-устройство.'} Файл открывается на этом устройстве.</p>
     <form onSubmit={event => { event.preventDefault(); void submit(); }} style={{ display: 'grid', gap: 12 }}>
       {factor ? <label>Код подтверждения<input required autoComplete="one-time-code" value={code} onChange={event => setCode(event.target.value)} /></label> : <>

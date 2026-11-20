@@ -1,0 +1,51 @@
+[
+  {
+    "network": "sphere-wan-sim-20261118",
+    "nodeId": "2723157118e629c45772dbece75e9125b2b64ea5583b47d3b7a1a76ee4096afe",
+    "publicKey": "7b22c8dd0519b5742cb493e4493cdb85b4dc8daf2c85139d2bd86e0497f34b02",
+    "url": "https://38.180.140.174",
+    "label": "Великобритания · 1"
+  },
+  {
+    "network": "sphere-wan-sim-20261118",
+    "nodeId": "6fb6dfbdb630aba28424903a1a09374930ffbd0bb9cd7d996a5f729cdc4849b5",
+    "publicKey": "5660caded4449639d65561cd2e06f336e665403ad929fee08f10da1f526fdb58",
+    "url": "https://38.180.140.161",
+    "label": "Великобритания · 2"
+  },
+  {
+    "network": "sphere-wan-sim-20261118",
+    "nodeId": "2511073d692f6d6da6ba703fa10fd754f445b7bfa41834e2f7a04152e4e08af5",
+    "publicKey": "ccecd9ec1060cb6a08d41c8c6747d1e9c7bbb99ede93421d751a3cc922f23801",
+    "url": "https://38.180.95.155",
+    "label": "Гонконг"
+  },
+  {
+    "network": "sphere-wan-sim-20261118",
+    "nodeId": "189bdb96446478cc6270abd99ae336ac04c16fc484882a915e6d165a00777b82",
+    "publicKey": "c38b40e91ccdf2b100cc17ec17936fbee4ee2bf4b681a6392d43399d4af94495",
+    "url": "https://38.180.2.229",
+    "label": "Болгария"
+  },
+  {
+    "network": "sphere-wan-sim-20261118",
+    "nodeId": "f6b48cbd6d1def20275e8fa50dd2e89ee1e049b295ba244055de1d3efd3f33df",
+    "publicKey": "846a7d124de743cf4308b11ca84e8845b396969dc60c30df8f2fbec920b5bb29",
+    "url": "https://149.33.34.85",
+    "label": "Австралия"
+  },
+  {
+    "network": "sphere-wan-sim-20261118",
+    "nodeId": "e6a52226494618dbc708459f26b80071f02fb6f42f4f955ef3ba9f1c0e73c350",
+    "publicKey": "100ddf8fc00f76e2bfcd5cf90bfa64769a07bd0ba0111b9363910aca3190a072",
+    "url": "https://38.180.162.39",
+    "label": "Швейцария"
+  },
+  {
+    "network": "sphere-wan-sim-20261118",
+    "nodeId": "9189a9f2ab15ff13b0f06886615997429780131530f98ac5de12c3b125746087",
+    "publicKey": "8fd8a6c61da02f95ad55a7e004108658076c60b83e77251efcf7ee4f0eedb5a6",
+    "url": "https://38.244.178.206",
+    "label": "Казахстан"
+  }
+]

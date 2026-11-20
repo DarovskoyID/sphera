@@ -8,6 +8,7 @@ import threading
 import time
 
 from django.conf import settings
+from django.db import DatabaseError
 from rest_framework.exceptions import APIException, AuthenticationFailed
 from rest_framework_simplejwt.authentication import JWTAuthentication
 
@@ -27,9 +28,24 @@ class MeshUnavailable(APIException):
 
 class Runtime:
     def __init__(self, config):
-        if not isinstance(config, dict) or set(config) - {'identity'} != {'state', 'sessions', 'verifier', 'genesis', 'entry', 'rpc'}:
+        if not isinstance(config, dict) or set(config) - {'identity','identity_policy','gateways','gateway_ca'} != {'state', 'sessions', 'verifier', 'genesis', 'entry', 'rpc'}:
             raise ValueError('invalid_application_mesh_configuration')
         validate_address(config['rpc'])
+        gateways = config.get('gateways',[])
+        if not isinstance(gateways,list) or len(gateways)>8 or not all(isinstance(url,str) for url in gateways) or len(set(gateways))!=len(gateways):
+            raise ValueError('invalid_application_consensus_gateways')
+        from sfera_mesh.consensus_gateway import GatewaySource
+        self.sources = [config['rpc']] + [GatewaySource(url,ca_certificate=config.get('gateway_ca')) for url in gateways]
+        policy = config.get('identity_policy','explicit-binding-v1')
+        session_class = ApplicationSessions
+        if policy == 'consensus-profile-v1':
+            from django.apps import apps
+            if not getattr(settings,'SFERA_DISTRIBUTED_APPLICATION',False) or not apps.is_installed('sfera_distribution'):
+                raise ValueError('distributed_application_runtime_not_configured')
+            from sfera_mesh.distributed_sessions import DistributedApplicationSessions
+            session_class = DistributedApplicationSessions
+        elif policy != 'explicit-binding-v1':
+            raise ValueError('invalid_application_identity_policy')
         paths = [os.path.normcase(str(Path(config[key]).resolve())) for key in ('state', 'sessions', 'verifier', 'genesis')]
         if len(set(paths)) != len(paths) or any(config[key] == ':memory:' for key in ('state', 'sessions')):
             raise ValueError('application_mesh_paths_must_be_separate_and_durable')
@@ -42,7 +58,7 @@ class Runtime:
             entry_key = load_identity(config['identity'])
         self.directory = ConsensusDirectory(config['state'], config['verifier'], config['genesis'])
         try:
-            self.sessions = ApplicationSessions(config['sessions'], self.directory, config['entry'], entry_key=entry_key)
+            self.sessions = session_class(config['sessions'], self.directory, config['entry'], entry_key=entry_key)
             self.sessions.require_consensus_cipher_pins = getattr(settings, 'SFERA_MESH_GLOBAL_CIPHER_PINS', False)
             self.sessions.require_cipher_profile_guard = getattr(settings, 'SFERA_MESH_CIPHER_PROFILE_GUARD', False)
         except BaseException:
@@ -54,9 +70,20 @@ class Runtime:
     def fresh(self):
         with self.lock:
             if time.monotonic() - self.updated >= 2:
-                self.directory.refresh(self.address)
+                last = None
+                for source in self.sources:
+                    try:
+                        self.directory.refresh(source)
+                        break
+                    except (OSError,ValueError,KeyError,TypeError,subprocess.SubprocessError) as exc:
+                        last = exc
+                else:
+                    raise ConsensusUnavailable('all_application_consensus_sources_unavailable') from last
                 self.updated = time.monotonic()
             self.directory.anchor()
+            if self.sessions.identity_policy == 'consensus-profile-v1':
+                from sfera_distribution.projection import synchronize
+                synchronize(self.directory)
         return self.sessions
 
     def close(self):
@@ -78,12 +105,14 @@ def sessions(*, fresh=True):
             return _runtime.fresh() if fresh else _runtime.sessions
     except APIException:
         raise
-    except (OSError, ValueError, TimeoutError, subprocess.SubprocessError, sqlite3.Error) as exc:
+    except (OSError, ValueError, TimeoutError, subprocess.SubprocessError, sqlite3.Error, DatabaseError) as exc:
         raise MeshUnavailable() from exc
 
 
 def require_token(token, user):
     if CLAIM not in token:
+        if getattr(settings,'SFERA_DISTRIBUTED_APPLICATION',False):
+            raise AuthenticationFailed('a confirmed mesh device session is required')
         return
     from .models import User
     from . import bans
@@ -107,23 +136,43 @@ class MeshJWTAuthentication(JWTAuthentication):
 
 
 def submit_account_record(record):
-    """Broadcast an already validated record to the configured consensus RPC."""
+    """Broadcast validated data through an available source; never claim commit."""
+    sessions()
+    with _lock:
+        sources = list(_runtime.sources)
+    last = None
+    deadline = time.monotonic()+12
+    for source in sources:
+        if time.monotonic() >= deadline:break
+        try:
+            _broadcast_account_record(record,source,timeout=min(5,max(1,deadline-time.monotonic())))
+            return
+        except OSError as exc:
+            last = exc
+    raise ConsensusUnavailable('all_application_broadcast_sources_unavailable') from last
+
+
+def _broadcast_account_record(record,address,*,timeout=5):
     import base64
     import json
     import urllib.request
     from sfera_mesh.storage import canonical
-    sessions()  # Initializes and checks the pinned runtime before broadcast.
-    with _lock:
-        address = _runtime.address
+    from sfera_mesh.consensus_gateway import GatewaySource,validate_request
     validate_address(address)
-    payload = {'jsonrpc': '2.0', 'id': 'account-update', 'method': 'broadcast_tx_sync',
+    identifier = 1 if isinstance(address,GatewaySource) else 'account-update'
+    payload = {'jsonrpc': '2.0', 'id': identifier, 'method': 'broadcast_tx_sync',
         'params': {'tx': base64.b64encode(canonical(record)).decode('ascii')}}
+    if isinstance(address,GatewaySource):validate_request(payload)
     class NoRedirect(urllib.request.HTTPRedirectHandler):
         def redirect_request(self, *args, **kwargs):
             return None
-    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
-    request = urllib.request.Request(address, data=canonical(payload), headers={'Content-Type': 'application/json'})
-    with opener.open(request, timeout=5) as response:
+    handlers=[urllib.request.ProxyHandler({}),NoRedirect()]
+    context=getattr(address,'context',None)
+    if context is not None:handlers.append(urllib.request.HTTPSHandler(context=context))
+    opener = urllib.request.build_opener(*handlers)
+    target = str(address)+'/mesh/network/v1/rpc' if isinstance(address,GatewaySource) else address
+    request = urllib.request.Request(target, data=canonical(payload), headers={'Content-Type': 'application/json'})
+    with opener.open(request, timeout=timeout) as response:
         raw = response.read(16385)
     if len(raw) > 16384:
         raise ValueError('account_broadcast_response_too_large')
@@ -132,9 +181,9 @@ def submit_account_record(record):
         raise ValueError('account_broadcast_rejected')
     # A byte-identical retry may still be in CometBFT's transaction cache.
     # This is pending, never a commit acknowledgement.
-    if (result.get('id') == 'account-update' and isinstance(result.get('error'), dict)
+    if (result.get('id') == identifier and isinstance(result.get('error'), dict)
             and result['error'].get('code') == -32603
             and result['error'].get('data') == 'tx already exists in cache'):
         return
-    if result.get('id') != 'account-update' or 'error' in result or type(result.get('result', {}).get('code')) is not int or result['result']['code'] != 0:
+    if result.get('id') != identifier or 'error' in result or type(result.get('result', {}).get('code')) is not int or result['result']['code'] != 0:
         raise ValueError('account_broadcast_rejected')

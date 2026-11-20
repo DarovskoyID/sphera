@@ -6,6 +6,7 @@ import type { OlmMachine, Device } from '@matrix-org/matrix-sdk-crypto-wasm';
 import { CipherCheckpoints } from './cipherCheckpoints';
 import { acquireCipherStoreLock } from './cipherStoreLock';
 import { accountBytes, accountDigest } from './account';
+import { validateApplicationKeyBody, type ApplicationKeyBody, type ApplicationKeyRecord } from './applicationKeys';
 import type { CipherProfileGuard } from './cipherProfileGuard';
 
 type SDK = typeof import('@matrix-org/matrix-sdk-crypto-wasm');
@@ -104,6 +105,22 @@ export class PairwiseCipher {
       try { checkpoints?.close(); machine?.close(); } finally { await release?.(); }
       throw error;
     }
+  }
+
+  /** Stateless SDK signature; safe when a relay callback already holds run().
+   * Queuing another run() here would deadlock SDK outgoing requests. */
+  async signApplicationKeyCommand(value: ApplicationKeyBody): Promise<ApplicationKeyRecord> {
+    if (this.closed) throw new Error('cipher_closed');
+    const body = JSON.parse(JSON.stringify(value)) as ApplicationKeyBody;
+    validateApplicationKeyBody(body);
+    if ((['network','genesis','owner','device'] as const).some(field=>body[field]!==this.identity[field])) throw new Error('application_key_actor_mismatch');
+    if (this.closed) throw new Error('cipher_closed');
+    const signatures=await this.machine.sign(new TextDecoder().decode(accountBytes(body)));
+    try {
+      const signature=JSON.parse(signatures.asJSON())[cipherUserId(this.identity)]?.['ed25519:'+this.identity.device];
+      if (this.closed || typeof signature!=='string' || !/^[A-Za-z0-9+/]{86}$/.test(signature)) throw new Error('application_key_sdk_signature_missing');
+      return { body, signature };
+    } finally { signatures.free(); }
   }
 
   publicIdentity(): CipherPeer {

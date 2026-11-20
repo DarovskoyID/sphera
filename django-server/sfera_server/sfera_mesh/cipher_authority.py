@@ -1,7 +1,7 @@
-"""Device-signed SDK pins and short-lived entry attestations of application ACLs.
+"""Device-signed SDK pins and short-lived scope attestations.
 
-Device admission comes from verified consensus; conversation membership remains
-the selected application's authority, not a new consensus fact.
+Legacy scopes use the selected application's ACL. Explicit distributed scopes
+derive membership, device roster and epoch from the confirmed global dialog.
 """
 import base64
 from hashlib import sha256
@@ -108,6 +108,8 @@ class CipherAuthority:
     def attest(self, user, claim, source, scope, members, nonce, *, now=None, revalidate=None):
         """members are current authorized application users, supplied only by server ACL code."""
         backend = self.sessions
+        if getattr(backend,'identity_policy','explicit-binding-v1')=='consensus-profile-v1':
+            return self._attest_distributed(user,claim,source,scope,members,nonce,now=now,revalidate=revalidate)
         current = int(time.time()) if now is None else now
         if (source not in ('dm', 'guild') or not isinstance(scope, str) or
                 str(uuid.UUID(scope)) != scope or not digest64(nonce) or type(current) is not int or current < 0 or
@@ -188,4 +190,37 @@ class CipherAuthority:
                 'membership_authority': 'selected_application'}
             result = {'body': body, 'signature': backend.entry_key.sign(canonical(body)).hex()}
             backend.db.execute('INSERT OR REPLACE INTO cipher_scopes VALUES(?,?,?,?)', (source, scope, epoch, roster))
+            return result
+
+    def _attest_distributed(self,user,claim,source,scope,members,nonce,*,now=None,revalidate=None):
+        backend=self.sessions
+        current=int(time.time()) if now is None else now
+        if (source!='dm' or not isinstance(scope,str) or str(uuid.UUID(scope))!=scope or not digest64(nonce)
+                or not isinstance(members,list) or str(user) not in members or backend.entry_key is None
+                or not self.global_pins or type(current) is not int or current<0):
+            raise ValueError('invalid_distributed_cipher_scope')
+        with backend.directory.lock,backend.lock,backend.db:
+            backend.require(str(user),claim,now=current)
+            from .application_cipher import scope_for
+            shared=scope_for(backend.directory.current['state'],backend.directory.network,backend.directory.pin,scope)
+            if sorted(members)!=shared['members'] or revalidate is not None and sorted(revalidate())!=shared['members']:
+                raise ValueError('distributed_cipher_acl_mismatch')
+            if not any(binding['user']==str(user) and binding['owner']==claim['owner'] for binding in shared['owners']):
+                raise ValueError('distributed_cipher_actor_mismatch')
+            backend.db.execute('BEGIN IMMEDIATE')
+            old=backend.db.execute('SELECT epoch,roster FROM cipher_scopes WHERE source=? AND scope=?',(source,scope)).fetchone()
+            if old is not None and (old[0]>shared['epoch'] or old[0]==shared['epoch'] and old[1]!=shared['roster']):
+                raise ValueError('distributed_cipher_scope_rollback_or_fork')
+            backend.directory.anchor()
+            # Refresh can advance the verified snapshot even while its lock is
+            # held. Never sign a roster computed before a newly observed revoke.
+            if scope_for(backend.directory.current['state'],backend.directory.network,backend.directory.pin,scope)!=shared:
+                raise ValueError('distributed_cipher_scope_changed')
+            if revalidate is not None and sorted(revalidate())!=shared['members']:
+                raise ValueError('distributed_cipher_acl_mismatch')
+            body={'domain':'sfera-mesh-cipher-scope-v2','network':backend.directory.network,'genesis':backend.directory.pin,
+                'entry':backend.entry,'source':source,'scope':scope,**shared,'nonce':nonce,'issued_at':current,'expires_at':current+15,
+                'membership_authority':'consensus_dialog'}
+            result={'body':body,'signature':backend.entry_key.sign(canonical(body)).hex()}
+            backend.db.execute('INSERT OR REPLACE INTO cipher_scopes VALUES(?,?,?,?)',(source,scope,shared['epoch'],shared['roster']))
             return result

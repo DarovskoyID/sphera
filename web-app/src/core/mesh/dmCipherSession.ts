@@ -1,4 +1,6 @@
 import { GuildCipherSession } from './guildCipherSession';
+import { signApplicationSignal } from './applicationSignals';
+import { signDeviceApplicationDialog } from './applicationDialogs';
 import type { GuildCipherMessage } from './guildCipherMessage';
 /** Unlock only the device vault. Identity roots never leave this function. */
 import { applicationKeys, type ApplicationKeys } from './applicationAuth';
@@ -112,6 +114,24 @@ export class DmCipherSession {
     } finally { deviceRoot?.fill(0); sdkKey?.fill(0); outboxRoot?.fill(0); archiveRoot?.fill(0); guildOutboxRoot?.fill(0); }
   }
   async prepare(scope: string) { await this.coordinator.publishKeys(scope); }
+  async signSignal(recipientOwner: string, signal: Record<string, unknown>) {
+    this.current();
+    if (!this.readKey) throw new Error('cipher_session_closed');
+    const context = this.archiveContext;
+    const packet = await signApplicationSignal({ network: context.network, genesis: context.genesis,
+      owner: context.owner, device: context.device, devicePublic: context.device_public }, this.readKey, recipientOwner, signal);
+    this.current();
+    return packet;
+  }
+  async createDialog(peerOwner: string, controlEpoch: number, deviceHistoryVersion: number) {
+    this.current();
+    if (!this.readKey) throw new Error('cipher_session_closed');
+    const context = this.archiveContext;
+    const record = await signDeviceApplicationDialog({network:context.network,genesis:context.genesis,
+      owner:context.owner,device:context.device,devicePublic:context.device_public},this.readKey,peerOwner,controlEpoch,deviceHistoryVersion);
+    this.current();
+    return record;
+  }
   async send(scope: string, payload: DmCipherText) {
     const intent = await this.outbox.create(scope, payload);
     try { await this.prepare(scope); const sent = await this.outbox.send(intent.id); await this.archiveAccepted(sent.id); return sent; }

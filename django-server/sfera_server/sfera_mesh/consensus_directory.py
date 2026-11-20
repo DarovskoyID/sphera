@@ -27,6 +27,10 @@ class ConsensusUnavailable(ValueError):
     pass
 
 
+class ConsensusTransactionPending(ConsensusUnavailable):
+    """The exact transaction is already queued; this is not commit evidence."""
+
+
 class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         return None
@@ -35,11 +39,14 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 _http_state = threading.local()
 
 
-def _http_opener():
+def _http_opener(context=None):
     factory = urllib.request.build_opener
-    if getattr(_http_state, 'factory', None) is not factory:
-        _http_state.opener = factory(urllib.request.ProxyHandler({}), NoRedirect())
+    if getattr(_http_state, 'factory', None) is not factory or getattr(_http_state,'context',None) is not context:
+        handlers=[urllib.request.ProxyHandler({}),NoRedirect()]
+        if context is not None:handlers.append(urllib.request.HTTPSHandler(context=context))
+        _http_state.opener = factory(*handlers)
         _http_state.factory = factory
+        _http_state.context=context
     return _http_state.opener
 
 
@@ -61,7 +68,7 @@ def rpc(address, method, params, *, stop_event=None):
     if isinstance(address,GatewaySource):validate_request(value)
     target=str(address)+'/mesh/network/v1/rpc' if isinstance(address,GatewaySource) else address
     request = urllib.request.Request(target, data=canonical(value), headers={'Content-Type': 'application/json'})
-    opener = _http_opener()
+    opener = _http_opener(getattr(address,'context',None))
     deadline = time.monotonic() + 4
     chunks, length = [], 0
     with opener.open(request, timeout=4) as response:
@@ -77,6 +84,10 @@ def rpc(address, method, params, *, stop_event=None):
     if len(data) > 2 * 1048576:
         raise ValueError('rpc_response_too_large')
     result = json.loads(data)
+    if (isinstance(result,dict) and result.get('id') == 1 and method == 'broadcast_tx_sync'
+            and isinstance(result.get('error'),dict) and result['error'].get('code') == -32603
+            and result['error'].get('data') == 'tx already exists in cache'):
+        raise ConsensusTransactionPending('consensus_transaction_pending')
     if not isinstance(result, dict) or result.get('id') != 1 or 'error' in result:
         raise ConsensusUnavailable('consensus_rpc_error')
     return result['result']
@@ -224,6 +235,12 @@ class ConsensusDirectory:
         validate_cipher_devices(state,self.network,self.pin)
         from .cipher_profiles import validate_profiles
         validate_profiles(state,self.network,self.pin)
+        from .application_profiles import validate_profiles as validate_application_profiles
+        validate_application_profiles(state,self.network,self.pin)
+        from .application_dialogs import validate_dialogs
+        validate_dialogs(state,self.network,self.pin)
+        from .application_keys import replay as validate_application_keys
+        validate_application_keys(state,self.network,self.pin)
         from .discovery import validate_endpoints
         validate_endpoints(state,self.network)
         from .growth import validate_growth_grants
@@ -256,6 +273,12 @@ class ConsensusDirectory:
                 check_cipher_progress(prior_state, verified['state'])
                 from .cipher_profiles import check_progress as check_profile_progress
                 check_profile_progress(prior_state, verified['state'])
+                from .application_profiles import check_progress as check_application_profile_progress
+                check_application_profile_progress(prior_state, verified['state'])
+                from .application_dialogs import check_progress as check_application_dialog_progress
+                check_application_dialog_progress(prior_state, verified['state'])
+                from .application_keys import check_progress as check_application_key_progress
+                check_application_key_progress(prior_state, verified['state'])
                 check_progress(prior_state, verified['state'])
                 from .recovery_tree import check_progress as check_tree_progress
                 check_tree_progress(prior_state, verified['state'])

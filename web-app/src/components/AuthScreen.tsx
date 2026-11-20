@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { MessagesSquare, Server, ShieldCheck } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { useTranslation } from '../i18n/useTranslation';
@@ -10,6 +10,9 @@ import { AuthBackdrop } from './AuthBackdrop';
 import { MeshApplicationAccess } from './MeshApplicationAccess';
 import { AuthServerPicker } from './AuthServerPicker';
 import { readResponse, toUserMessage } from '../utils/errorManager';
+import { accessDistributedApplication } from '../core/mesh/applicationRegistration';
+import { loadEntryPointPin, saveEntryPointPin, validateTrustedEntryPoints, entryProbeNonce, verifyEntryProbe } from '../core/mesh/entryPoint';
+import trustedMeshEntries from '../config/trustedMeshEntries.json';
 
 export const AuthScreen = () => {
   const { currentServerIP, setAuthToken, setLanguage, language } = useApp();
@@ -36,6 +39,53 @@ export const AuthScreen = () => {
   // Choosing another server is the multiserver module (auth.footer slot).
   const serverPickers = useSlot('auth.footer');
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [distributed,setDistributed]=useState<boolean|null>(null);
+  const entryRevision=useRef(0);
+  useEffect(()=>{
+    const revision=++entryRevision.current;setDistributed(null);
+    const controller=new AbortController();
+    const catalogueMesh=trustedMeshEntries.some(entry=>entry.url===new URL(currentServerIP).origin);
+    void (async()=>{
+      const pin=await loadEntryPointPin(localStorage).catch(()=>null);
+      const knownMesh=catalogueMesh || pin?.url===new URL(currentServerIP).origin;
+      try {
+        const response=await fetch(`${currentServerIP}/api/distribution/config/`,{credentials:'omit',redirect:'error',signal:AbortSignal.any([controller.signal,AbortSignal.timeout(10000)])});
+        const value=response.ok?await response.json():null;
+        if(entryRevision.current===revision)setDistributed(knownMesh || value?.mode==='distributed');
+      } catch {
+        // An unavailable mesh must never turn into legacy password transport.
+        if(entryRevision.current===revision)setDistributed(knownMesh);
+      }
+    })();
+    return ()=>{entryRevision.current++;controller.abort();};
+  },[currentServerIP]);
+
+  const handleDistributedAccess=async()=>{
+    const revision=entryRevision.current;
+    const guard=()=>{if(entryRevision.current!==revision)throw new Error('application_context_changed');};
+    let pin=await loadEntryPointPin(localStorage);guard();
+    if(!pin) {
+      // These keys come from the reviewed deployment catalogue bundled with
+      // the application, never from a server advertising its own identity.
+      const known=trustedMeshEntries.find(entry=>entry.url===new URL(currentServerIP).origin);
+      if(known) {
+        [pin]=await validateTrustedEntryPoints([known]);
+        const nonce=entryProbeNonce();
+        const response=await fetch(`${pin.url}/api/auth/mesh/entry/`,{method:'POST',credentials:'omit',redirect:'error',
+          signal:AbortSignal.timeout(15000),headers:{'Content-Type':'application/json'},body:JSON.stringify({nonce})});
+        const value=await readResponse(response,{serverIP:currentServerIP});guard();
+        await verifyEntryProbe(value,pin,nonce);guard();saveEntryPointPin(localStorage,pin);
+      }
+    }
+    if(!pin || new URL(currentServerIP).origin!==pin.url)throw new Error('application_trusted_entry_required');
+    const token=await accessDistributedApplication({pin,handle:login.trim(),nickname:nickname.trim()||login.trim(),password,
+      register:isRegister,storage:localStorage,guard,post:async(path,body)=>{
+        guard();const response=await fetch(`${pin.url}${path}`,{method:'POST',credentials:'include',redirect:'error',
+          signal:AbortSignal.timeout(20000),headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+        const value=await readResponse(response,{serverIP:currentServerIP});guard();return value;
+      }});
+    guard();setPassword('');setAuthToken(token);
+  };
 
   const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -156,7 +206,11 @@ export const AuthScreen = () => {
     setLoading(true);
 
     try {
-      if (challenge) {
+      if (distributed===null) {
+        throw new Error('application_server_check_pending');
+      } else if (distributed && !challenge && !resetStage) {
+        await handleDistributedAccess();
+      } else if (challenge) {
         await handleSecondFactor();
       } else if (resetStage === 'email') {
         await handleResetSendCode();
@@ -170,7 +224,16 @@ export const AuthScreen = () => {
         await handleVerifyAndRegister();
       }
     } catch (e: unknown) {
-      setError(toUserMessage(e, { serverIP: currentServerIP }));
+      const notices:Record<string,string>={
+        application_trusted_entry_required:'Выберите доверенную точку в панели «Серверы».',
+        application_local_keys_missing:'В этом браузере нет ключей аккаунта. Используйте вход с зашифрованным файлом ключей ниже.',
+        application_registration_pending_retry:'Сеть ещё подтверждает регистрацию. Нажмите «Регистрация» повторно — сохранённый аккаунт будет использован снова.',
+        application_context_changed:'Сервер изменился. Повторите вход на выбранном сервере.',
+        application_server_check_pending:'Проверяем выбранный сервер. Подождите немного.',
+        application_registration_fields:'Проверьте логин и пароль: пароль должен содержать от 12 символов.',
+        cipher_store_already_open:'Этот аккаунт уже открыт в другой вкладке. Завершите действие там и повторите попытку.',
+      };
+      setError(e instanceof Error && notices[e.message] ? notices[e.message] : toUserMessage(e, { serverIP: currentServerIP }));
     } finally {
       setLoading(false);
     }
@@ -227,7 +290,7 @@ export const AuthScreen = () => {
   };
 
   const awaitingCode = codeSent || resetStage === 'code';
-  const submitDisabled = loading
+  const submitDisabled = loading || distributed===null
     || (awaitingCode && code.trim().length < CODE_LENGTH)
     || (!!challenge && code.trim().length < CODE_LENGTH);
   const submitLabel = challenge ? tr('auth_2fa_confirm')
@@ -334,7 +397,7 @@ export const AuthScreen = () => {
 
             {!codeSent && !resetStage && !challenge && (
               <>
-                {isRegister && (
+                {isRegister && !distributed && (
                   <>
                     <div
                       className="auth-avatar"
@@ -360,13 +423,15 @@ export const AuthScreen = () => {
                 <div className="auth-field">
                   <input
                     id="auth-login" type="text" placeholder=" " required
+                    pattern={distributed ? '[a-z][a-z0-9_]{2,31}' : undefined}
+                    title={distributed ? 'От 3 до 32 символов: латинские строчные буквы, цифры и знак подчёркивания. Первый символ — буква.' : undefined}
                     autoComplete={isRegister ? 'username' : 'username'}
                     value={login} onChange={e => setLogin(e.target.value)}
                   />
                   <label htmlFor="auth-login">{tr('auth_login')}</label>
                 </div>
 
-                {isRegister && (
+                {isRegister && !distributed && (
                   <div className="auth-field">
                     <input
                       id="auth-email" type="email" placeholder=" " required
@@ -390,7 +455,7 @@ export const AuthScreen = () => {
 
                 <div className="auth-field">
                   <input
-                    id="auth-password" type="password" placeholder=" " required minLength={6}
+                    id="auth-password" type="password" placeholder=" " required minLength={distributed ? 12 : 6}
                     autoComplete={isRegister ? 'new-password' : 'current-password'}
                     value={password} onChange={e => setPassword(e.target.value)}
                   />
@@ -419,7 +484,7 @@ export const AuthScreen = () => {
             </p>
           )}
 
-          {!codeSent && !resetStage && !challenge && !isRegister && (
+          {!distributed && !codeSent && !resetStage && !challenge && !isRegister && (
             <p className="auth-links">
               <button type="button" className="auth-link" onClick={startReset}>
                 {tr('auth_forgot')}

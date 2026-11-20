@@ -37,36 +37,39 @@ type Head struct {
 	Digest string `json:"digest"`
 }
 type State struct {
-	CipherProfiles     map[string]CipherProfileHead     `json:"cipher_profiles,omitempty"`
-	AccountControls    map[string][]AccountControlHead  `json:"account_controls,omitempty"`
-	CipherDevices      map[string]CipherDeviceHead      `json:"cipher_devices,omitempty"`
-	RecoveryTrees      map[string]RecoveryTreeHead      `json:"recovery_trees,omitempty"`
-	RecoveryRoots      map[string]RecoveryRootHead      `json:"recovery_roots,omitempty"`
-	Committees         []CommitteeHead                  `json:"committees,omitempty"`
-	GrowthGrants       map[string]GrowthHead            `json:"growth_grants,omitempty"`
-	Endpoints          map[string]EndpointHead          `json:"endpoints,omitempty"`
-	ManifestLineage    map[string]ManifestLineage       `json:"manifest_lineage,omitempty"`
-	Devices            map[string][]DeviceHead          `json:"devices,omitempty"`
-	Network            string                           `json:"network"`
-	Height             int64                            `json:"height"`
-	Accounts           map[string]Head                  `json:"accounts"`
-	Placements         map[string]PlacementHead         `json:"placements,omitempty"`
-	PlacementHistory   map[string][]PlacementHead       `json:"placement_history,omitempty"`
-	Issuers            map[string]string                `json:"license_issuers,omitempty"`
-	BlockTime          int64                            `json:"block_time,omitempty"`
-	Candidates         map[string]CandidateHead         `json:"candidates,omitempty"`
-	PolicyKeys         map[string]string                `json:"placement_assessors,omitempty"`
-	Resources          map[string]ResourceHead          `json:"resources,omitempty"`
-	Manifests          map[string]ManifestHead          `json:"manifests,omitempty"`
-	InitialBatches     map[string]InitialBatchReceipt   `json:"initial_batches,omitempty"`
-	WriteQueue         map[string]WriteHead             `json:"write_queue,omitempty"`
-	Transfers          map[string]TransferHead          `json:"transfers,omitempty"`
-	GenesisPin         string                           `json:"genesis_pin,omitempty"`
-	StateCommitment    string                           `json:"state_commitment,omitempty"`
-	EndpointPolicy     string                           `json:"endpoint_policy,omitempty"`
-	AdmissionPolicy    string                           `json:"admission_policy,omitempty"`
-	Admissions         map[string][]AdmissionHead       `json:"admissions,omitempty"`
-	AdmissionRotations map[string]AdmissionRotationHead `json:"admission_rotations,omitempty"`
+	ApplicationKeys     []ApplicationKeyReceipt             `json:"application_keys,omitempty"`
+	ApplicationDialogs  map[string]ApplicationDialogHead    `json:"application_dialogs,omitempty"`
+	ApplicationProfiles map[string][]ApplicationProfileHead `json:"application_profiles,omitempty"`
+	CipherProfiles      map[string]CipherProfileHead        `json:"cipher_profiles,omitempty"`
+	AccountControls     map[string][]AccountControlHead     `json:"account_controls,omitempty"`
+	CipherDevices       map[string]CipherDeviceHead         `json:"cipher_devices,omitempty"`
+	RecoveryTrees       map[string]RecoveryTreeHead         `json:"recovery_trees,omitempty"`
+	RecoveryRoots       map[string]RecoveryRootHead         `json:"recovery_roots,omitempty"`
+	Committees          []CommitteeHead                     `json:"committees,omitempty"`
+	GrowthGrants        map[string]GrowthHead               `json:"growth_grants,omitempty"`
+	Endpoints           map[string]EndpointHead             `json:"endpoints,omitempty"`
+	ManifestLineage     map[string]ManifestLineage          `json:"manifest_lineage,omitempty"`
+	Devices             map[string][]DeviceHead             `json:"devices,omitempty"`
+	Network             string                              `json:"network"`
+	Height              int64                               `json:"height"`
+	Accounts            map[string]Head                     `json:"accounts"`
+	Placements          map[string]PlacementHead            `json:"placements,omitempty"`
+	PlacementHistory    map[string][]PlacementHead          `json:"placement_history,omitempty"`
+	Issuers             map[string]string                   `json:"license_issuers,omitempty"`
+	BlockTime           int64                               `json:"block_time,omitempty"`
+	Candidates          map[string]CandidateHead            `json:"candidates,omitempty"`
+	PolicyKeys          map[string]string                   `json:"placement_assessors,omitempty"`
+	Resources           map[string]ResourceHead             `json:"resources,omitempty"`
+	Manifests           map[string]ManifestHead             `json:"manifests,omitempty"`
+	InitialBatches      map[string]InitialBatchReceipt      `json:"initial_batches,omitempty"`
+	WriteQueue          map[string]WriteHead                `json:"write_queue,omitempty"`
+	Transfers           map[string]TransferHead             `json:"transfers,omitempty"`
+	GenesisPin          string                              `json:"genesis_pin,omitempty"`
+	StateCommitment     string                              `json:"state_commitment,omitempty"`
+	EndpointPolicy      string                              `json:"endpoint_policy,omitempty"`
+	AdmissionPolicy     string                              `json:"admission_policy,omitempty"`
+	Admissions          map[string][]AdmissionHead          `json:"admissions,omitempty"`
+	AdmissionRotations  map[string]AdmissionRotationHead    `json:"admission_rotations,omitempty"`
 }
 type Application struct {
 	abci.BaseApplication
@@ -164,6 +167,15 @@ func apply(s *State, tx []byte) error {
 	}
 	if err := json.Unmarshal(tx, &kind); err != nil {
 		return err
+	}
+	if kind.Body.Domain == "sfera-mesh-application-profile-v1" {
+		return applyApplicationProfile(s, tx)
+	}
+	if kind.Body.Domain == "sfera-mesh-application-key-v1" {
+		return applyApplicationKey(s, tx)
+	}
+	if kind.Body.Domain == "sfera-mesh-application-dialog-v1" || kind.Body.Domain == "sfera-mesh-application-dialog-device-v1" {
+		return applyApplicationDialog(s, tx)
 	}
 	if kind.Body.Domain == "sfera-mesh-write-batch-v2" {
 		return applyWriteBatch(s, tx)
@@ -377,7 +389,16 @@ func NewApplicationWithPolicy(db dbm.DB, network string, issuers, policyKeys map
 		if err := verifyAccountControls(a.state); err != nil {
 			return nil, err
 		}
+		if err := verifyApplicationProfiles(a.state); err != nil {
+			return nil, err
+		}
+		if err := verifyApplicationDialogs(a.state); err != nil {
+			return nil, err
+		}
 		if err := verifyCipherDevices(a.state); err != nil {
+			return nil, err
+		}
+		if _, err := replayApplicationKeys(a.state); err != nil {
 			return nil, err
 		}
 		if err := verifyCipherProfiles(a.state); err != nil {
@@ -449,6 +470,16 @@ func (a *Application) CheckTx(_ context.Context, r *abci.RequestCheckTx) (*abci.
 }
 func clone(s State) State {
 	c := s
+	c.ApplicationKeys = append([]ApplicationKeyReceipt(nil), s.ApplicationKeys...)
+	c.ApplicationDialogs = make(map[string]ApplicationDialogHead, len(s.ApplicationDialogs))
+	for key, head := range s.ApplicationDialogs {
+		head.Record.Body.Members = append([]string(nil), head.Record.Body.Members...)
+		c.ApplicationDialogs[key] = head
+	}
+	c.ApplicationProfiles = make(map[string][]ApplicationProfileHead, len(s.ApplicationProfiles))
+	for k, v := range s.ApplicationProfiles {
+		c.ApplicationProfiles[k] = append([]ApplicationProfileHead(nil), v...)
+	}
 	c.RecoveryTrees = make(map[string]RecoveryTreeHead, len(s.RecoveryTrees))
 	for k, v := range s.RecoveryTrees {
 		c.RecoveryTrees[k] = v
