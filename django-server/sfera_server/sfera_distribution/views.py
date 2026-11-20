@@ -46,8 +46,39 @@ def current_user(request):
     from sfera_auth.serializers import MeSerializer
     value=dict(MeSerializer(request.user,context={'request':request}).data)
     value['service_capabilities']={'mode':'distributed','legacy_account_bootstrap':False,
-                                   'module_catalog':True,'module_management':False}
+                                   'module_catalog':True,'module_management':False,'status_scope':'entry'}
     return _response(value)
+
+
+@api_view(['GET'])
+@authentication_classes([MeshJWTAuthentication])
+@permission_classes([IsAuthenticated])
+def users_list(request):
+    from sfera_auth.models import User
+    from sfera_auth.serializers import UserSerializer
+    from sfera_mesh.application_profiles import public_profiles
+    b=backend()
+    with b.directory.lock:
+        b.directory.anchor()
+        profiles=public_profiles(b.directory.current['state'],b.directory.network,b.directory.pin)
+    # Local/legacy SQL rows are never admitted to the network directory.
+    users=User.objects.filter(pk__in=[p['id'] for p in profiles],is_active=True).exclude(pk=request.user.pk).order_by('username')
+    return _response(UserSerializer(users,many=True,context={'request':request}).data)
+
+
+@api_view(['PATCH'])
+@authentication_classes([MeshJWTAuthentication])
+@permission_classes([IsAuthenticated])
+@parser_classes([JSONParser])
+def update_status(request):
+    if (not isinstance(request.data,dict) or set(request.data)!={'status'}
+            or request.data['status'] not in ('online','idle','dnd','offline')):
+        return _response({'error':'invalid_entry_status'},400)
+    from sfera_auth.models import User
+    # Presence belongs to this entry, not to owner-signed account metadata.
+    User.objects.filter(pk=request.user.pk).update(status=request.data['status'])
+    request.user.status=request.data['status']
+    return _response({'status':request.user.status,'scope':'entry'})
 
 
 @api_view(['POST'])

@@ -97,6 +97,20 @@ with tempfile.TemporaryDirectory(prefix='distributed-app-api-') as tmp:
             assert module_response.data['can_manage'] is False
             public=resolve('/api/modules/public/',urlconf='sfera_distribution.service_urls').func
             assert request(public,method='get').status_code==200
+            search=resolve('/api/auth/users/',urlconf='sfera_distribution.service_urls').func
+            assert request(search,method='get').status_code==401
+            legacy=User.objects.create(username='not_a_network_identity')
+            found=request(search,token=token,method='get')
+            assert found.status_code==200 and len(found.data)==1,found.data
+            assert all(str(row['id']) not in (str(legacy.pk),str(user.pk)) for row in found.data)
+            update=resolve('/api/auth/me/update/',urlconf='sfera_distribution.service_urls').func
+            assert request(update,{'status':'online'},method='patch').status_code==401
+            for invalid in ({'status':'invalid'},{'status':'online','nickname':'unauthorized-profile-change'},{'status':['online']}):
+                assert request(update,invalid,token,method='patch').status_code==400
+            changed=request(update,{'status':'online'},token,method='patch')
+            assert changed.status_code==200 and changed.data=={'status':'online','scope':'entry'},changed.data
+            synchronize(directory)
+            assert request(current,token=token,method='get').data['status']=='online'
             catalog=request(views.catalog,method='get');assert catalog.status_code==200 and len(catalog.data['profiles'])==2
             record=json.loads(Path('output/mesh-application-20261119/device-dialog-client-fixture.json').read_text())
             assert request(views.dialog,{'record':record}).status_code==401
