@@ -3,7 +3,7 @@ import { useApp } from '../context/AppContext';
 import { DmCipherSession } from '../core/mesh/dmCipherSession';
 import type { ApplicationKeys } from '../core/mesh/applicationAuth';
 import type { TrustedEntryPoint } from '../core/mesh/entryPoint';
-import {applicationDeviceAccess} from '../core/mesh/applicationActions';
+import {applicationDeviceAccess,restoreApplicationDevice} from '../core/mesh/applicationActions';
 import { ENTRY_PIN_KEY,loadEntryPointPin } from '../core/mesh/entryPoint';
 import type { CipherScopeBody } from '../core/mesh/cipherPolicy';
 
@@ -16,6 +16,8 @@ function useRuntime() {
   const session = useRef<DmCipherSession | null>(null), closing = useRef<Promise<void>>(Promise.resolve());
   const revision = useRef(0), opening = useRef(false), reviewer = useRef<{ owner: object; review: Reviewer } | null>(null);
   const [openedFor, setOpenedFor] = useState('');
+  const [unlockState, setUnlockState] = useState<'opening'|'sign-in'|'retry'>('opening');
+  const [retry, setRetry] = useState(0);
   const lock = () => {
     revision.current++;
     const old = session.current; session.current = null; setOpenedFor('');
@@ -24,7 +26,8 @@ function useRuntime() {
   useEffect(() => {
     lock();
     const storage = (event: StorageEvent) => {
-      if (event.key === null || event.key === ENTRY_PIN_KEY || event.key === 'sfera_selected_server') lock();
+      if (event.key === null || event.key === ENTRY_PIN_KEY || event.key === 'sfera_selected_server' ||
+          event.key === 'authToken' && event.newValue === null) lock();
     };
     window.addEventListener('storage', storage); window.addEventListener('sfera-mesh-entry-change', lock);
     return () => { lock(); window.removeEventListener('storage', storage); window.removeEventListener('sfera-mesh-entry-change', lock); };
@@ -55,15 +58,26 @@ function useRuntime() {
   };
   useEffect(()=>{
     if(currentUser?.service_capabilities?.mode!=='distributed' || !authToken || !userIDonServer)return;
+    setUnlockState('opening');
     let cancelled=false,timer:ReturnType<typeof setTimeout>;let attempts=0;
     const tryOpen=async()=>{if(cancelled || session.current)return;
-      try {const capability=applicationDeviceAccess(currentServerIP,authToken),pin=await loadEntryPointPin(localStorage);
-        if(cancelled || !pin || pin.url!==currentServerIP)return;await open(capability.keys,pin,'',undefined,true,true);
-      } catch {if(!cancelled && ++attempts<5)timer=setTimeout(()=>void tryOpen(),2000);}
+      try {await restoreApplicationDevice(currentServerIP,authToken);}
+      catch {if(!cancelled)setUnlockState('sign-in');return;}
+      if(cancelled)return;
+      try {
+        const capability=applicationDeviceAccess(currentServerIP,authToken),pin=await loadEntryPointPin(localStorage);
+        if(cancelled)return;
+        if(!pin || pin.url!==new URL(currentServerIP).origin)throw new Error('entry_pin_required');
+        await open(capability.keys,pin,'',undefined,true,true);
+      } catch {
+        if(!cancelled && ++attempts<5)timer=setTimeout(()=>void tryOpen(),2000);
+        else if(!cancelled)setUnlockState('retry');
+      }
     };void tryOpen();return()=>{cancelled=true;clearTimeout(timer);};
-  },[identity,currentUser?.service_capabilities?.mode]);
+  },[identity,currentUser?.service_capabilities?.mode,retry]);
   return {
     session, closing, ready: openedFor === identity && !!session.current,
+    unlockState, retryUnlock: () => setRetry(value=>value+1),
     lock,
     attachReviewer(owner: object, review: Reviewer) {
       reviewer.current = { owner, review };

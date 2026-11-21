@@ -5,7 +5,8 @@ from datetime import datetime
 from threading import BoundedSemaphore
 from uuid import UUID
 
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, OperationalError, transaction
+from time import sleep
 from django.db.models import Q
 from rest_framework.decorators import api_view, authentication_classes, permission_classes, throttle_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -122,7 +123,16 @@ def pending(request):
                         for identity, peer in peers.items() if identity != replica.backend.entry]
                 for job in as_completed(jobs):
                     try:
-                        _merge(recipient, job.result())
+                        rows = job.result()
+                        for attempt in range(3):
+                            try:
+                                _merge(recipient, rows)
+                                break
+                            except OperationalError as error:
+                                if 'database is locked' not in str(error):
+                                    raise
+                                if attempt < 2:
+                                    sleep(0.05 * (attempt + 1))
                     except (OSError, ValueError, TypeError, KeyError, ConsensusUnavailable):
                         continue
             finally:

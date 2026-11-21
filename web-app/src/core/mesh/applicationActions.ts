@@ -7,33 +7,80 @@ import { applicationUserId } from './applicationProfiles';
 import { applicationDialogId,applicationConversationId,signDeviceApplicationDialog } from './applicationDialogs';
 import { signApplicationSignal,type ApplicationSignalIdentity } from './applicationSignals';
 
-type Context={user:string;entry:string;server:string;identity:ApplicationSignalIdentity;key:CryptoKey;deriver:CryptoKey;keys:ApplicationKeys;expires:number};
+type Context={user:string;entry:string;server:string;identity:ApplicationSignalIdentity;key:CryptoKey;deriver:CryptoKey;keys:ApplicationKeys;session:string};
 let active:Context|undefined;
+let revision=0;
+let storageQueue=Promise.resolve();
+if(typeof window!=='undefined'){
+  window.addEventListener('storage',event=>{
+    if(event.key===null || event.key==='authToken' && event.newValue===null){
+      revision++;
+      active=undefined;
+    }
+  });
+}
+function storedDevice(mode:'read'|'save'|'clear',value?:Context):Promise<Context|undefined>{
+  if(typeof indexedDB==='undefined')return Promise.resolve(undefined);
+  return new Promise((resolve,reject)=>{
+    const open=indexedDB.open('sphere-device-access-v1',1);
+    open.onupgradeneeded=()=>open.result.createObjectStore('access');
+    open.onerror=()=>reject(open.error);
+    open.onsuccess=()=>{
+      const db=open.result;
+      try{
+        const transaction=db.transaction('access',mode==='read'?'readonly':'readwrite');
+        const store=transaction.objectStore('access');
+        const request=mode==='read'?store.get('device'):mode==='save'?store.put(value,'device'):store.delete('device');
+        transaction.oncomplete=()=>{db.close();resolve(mode==='read'?request.result:undefined);};
+        transaction.onabort=()=>{db.close();reject(transaction.error);};
+      }catch(error){db.close();reject(error);}
+    };
+  });
+}
+function persist(mode:'save'|'clear',value?:Context){
+  storageQueue=storageQueue.then(()=>storedDevice(mode,value)).then(()=>undefined,()=>undefined);
+  return storageQueue;
+}
 const claims=(token:string)=>{
   if(token.length>32768 || token.split('.').length!==3)throw new Error('application_action_login_required');
   return JSON.parse(atob(token.split('.')[1].replace(/-/g,'+').replace(/_/g,'/')));
 };
-export function lockApplicationActions(){active=undefined;}
+export function lockApplicationActions(){revision++;active=undefined;return persist('clear');}
 function context(server:string,token:string){
-  const value=active,jwt=claims(token),claim=jwt.mesh_session;
-  if(!value || value.expires<=Date.now()/1000 || jwt.exp<=Date.now()/1000
+  return checkedContext(active,server,token);
+}
+function checkedContext(value:Context|undefined,server:string,token:string){
+  const jwt=claims(token),claim=jwt.mesh_session;
+  if(!value || !Number.isSafeInteger(jwt.exp) || jwt.exp<=Date.now()/1000
       || value.server!==new URL(server).origin || jwt.user_id!==value.user
-      || !claim || claim.owner!==value.identity.owner || claim.device!==value.identity.device
+      || !claim || typeof claim.id!=='string' || claim.id!==value.session || claim.owner!==value.identity.owner || claim.device!==value.identity.device
       || claim.genesis!==value.identity.genesis || claim.entry!==value.entry)throw new Error('application_action_unlock_required');
   return value;
 }
+export async function restoreApplicationDevice(server:string,token:string){
+  try{return context(server,token);}catch{/* Check the saved capability below. */}
+  const generation=revision;
+  await storageQueue;
+  const saved=checkedContext(await storedDevice('read'),server,token);
+  if(generation!==revision)throw new Error('application_action_context_changed');
+  return active=saved;
+}
 export async function unlockApplicationActions(value:ApplicationKeys,password:string,token:string){
+  const generation=++revision;
   const keys=applicationKeys(value,value.server),jwt=claims(token),claim=jwt.mesh_session;
   const identity={network:keys.network,genesis:keys.genesis,owner:await meshUserId(keys.ownerPublic),
     device:await meshDeviceId(keys.devicePublic),devicePublic:keys.devicePublic};
-  if(jwt.user_id!==keys.applicationUser || !claim || claim.owner!==identity.owner || claim.device!==identity.device
+  if(jwt.user_id!==keys.applicationUser || !claim || typeof claim.id!=='string' || claim.owner!==identity.owner || claim.device!==identity.device
       || claim.entry!==keys.entry || claim.genesis!==keys.genesis || !Number.isSafeInteger(jwt.exp)
       || jwt.exp<=Date.now()/1000)throw new Error('application_action_context_mismatch');
   const root=await unlockVault(keys.deviceVault,await meshUserId(keys.devicePublic),password);
   const encoded=new Uint8Array(48);encoded.set([0x30,0x2e,0x02,0x01,0x00,0x30,0x05,0x06,0x03,0x2b,0x65,0x70,0x04,0x22,0x04,0x20]);encoded.set(root,16);
   try{
     const key=await crypto.subtle.importKey('pkcs8',encoded.buffer,'Ed25519',false,['sign']);
-    active={user:keys.applicationUser,entry:keys.entry,server:new URL(keys.server).origin,identity,key,deriver:await crypto.subtle.importKey('raw',new Uint8Array(root).buffer,'HKDF',false,['deriveBits']),keys,expires:Math.min(jwt.exp,Date.now()/1000+900)};
+    const deriver=await crypto.subtle.importKey('raw',new Uint8Array(root).buffer,'HKDF',false,['deriveBits']);
+    if(generation!==revision)throw new Error('application_action_context_changed');
+    active={user:keys.applicationUser,entry:keys.entry,server:new URL(keys.server).origin,identity,key,deriver,keys,session:claim.id};
+    await persist('save',active);
   }finally{root.fill(0);encoded.fill(0);}
 }
 export function applicationDeviceAccess(server:string,token:string) {
@@ -66,7 +113,7 @@ export async function openDistributedDialog(server:string,token:string,peer:stri
   const members=[own.owner,other.owner].sort(),identity=await applicationDialogId(listing.network,members);
   const existing=listing.dialogs.find(d=>d.identity===identity);
   if(existing){if(existing.id!==applicationConversationId(identity) || JSON.stringify(existing.members)!==JSON.stringify(members))throw new Error('application_dialog_identity');return existing.id;}
-  const actor=context(server,token);
+  const actor=await restoreApplicationDevice(server,token);
   if(actor.identity.network!==listing.network)throw new Error('application_catalog_context');
   const record=await signDeviceApplicationDialog(actor.identity,actor.key,other.owner,own.control_epoch,own.devices_version);guard();
   for(let attempt=0;attempt<30;attempt++){
@@ -83,7 +130,7 @@ export async function openDistributedDialog(server:string,token:string,peer:stri
 }
 export async function signedApplicationSignal(server:string,token:string,signal:Record<string,unknown>,transport:typeof fetch=fetch){
   signal=JSON.parse(JSON.stringify(signal));
-  const actor=context(server,token),listing=await catalog(server,token,transport);
+  const actor=await restoreApplicationDevice(server,token),listing=await catalog(server,token,transport);
   const other=listing.profiles.find(p=>p.id===signal.to);
   if(listing.network!==actor.identity.network || listing.genesis!==actor.identity.genesis || !other
       || await applicationUserId(listing.network,other.owner)!==signal.to)throw new Error('application_signal_peer');

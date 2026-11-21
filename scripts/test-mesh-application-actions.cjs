@@ -1,17 +1,43 @@
 const testRuntime=require('./web-test-runtime.cjs');
+testRuntime.require('fake-indexeddb/auto');
 const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),Module=require('node:module'),esbuild=testRuntime.esbuild,{webcrypto,generateKeyPairSync,createHash,sign}=require('node:crypto');globalThis.crypto=webcrypto;
+
 const built=esbuild.buildSync({stdin:{contents:"export * from './src/core/mesh/applicationActions';export {unlockVault} from './src/core/mesh/vault';export * from './src/core/mesh/applicationRegistration';export * from './src/core/mesh/applicationProfiles';export * from './src/core/mesh/applicationDialogs';export {accountBytes,accountDigest} from './src/core/mesh/account';export * from './src/core/mesh/applicationProfileClient';export {saveEntryPointPin} from './src/core/mesh/entryPoint';",resolveDir:testRuntime.frontend},bundle:true,packages:'external',platform:'node',format:'cjs',write:false});const loaded=new Module(path.join(testRuntime.frontend,'output/action-test.cjs'),module);loaded.filename=path.join(testRuntime.frontend,'output/action-test.cjs');loaded.paths=testRuntime.paths;loaded._compile(built.outputFiles[0].text,loaded.filename);const api=loaded.exports;
-(async()=>{const pair=generateKeyPairSync('ed25519'),publicKey=pair.publicKey.export({format:'der',type:'spki'}).subarray(-32).toString('hex'),nodeId=createHash('sha256').update(Buffer.from('sfera-mesh-node-v1\0')).update(Buffer.from(publicKey,'hex')).digest('hex');const pin={id:'qa',network:'actions-lab',url:'https://actions.invalid',label:'Isolated test',nodeId,publicKey},password='test-local-secret-123456';const prepared=await api.prepareApplicationRegistration(pin,'a'.repeat(64),'alice','Alice',password),owner=prepared.bundle.account.body.user_id,peerOwner='b'.repeat(64),peer=await api.applicationUserId(pin.network,peerOwner);const jwt={user_id:prepared.keys.applicationUser,exp:Math.floor(Date.now()/1000)+60,mesh_session:{owner,device:prepared.bundle.device.body.device_id,entry:nodeId,genesis:'a'.repeat(64)}};const token='e30.'+Buffer.from(JSON.stringify(jwt)).toString('base64url')+'.test-only';
+
+(async()=>{const pair=generateKeyPairSync('ed25519'),publicKey=pair.publicKey.export({format:'der',type:'spki'}).subarray(-32).toString('hex'),nodeId=createHash('sha256').update(Buffer.from('sfera-mesh-node-v1\0')).update(Buffer.from(publicKey,'hex')).digest('hex');const pin={id:'qa',network:'actions-lab',url:'https://actions.invalid',label:'Isolated test',nodeId,publicKey},password='test-local-secret-123456';const prepared=await api.prepareApplicationRegistration(pin,'a'.repeat(64),'alice','Alice',password),owner=prepared.bundle.account.body.user_id,peerOwner='b'.repeat(64),peer=await api.applicationUserId(pin.network,peerOwner);const jwt={user_id:prepared.keys.applicationUser,exp:Math.floor(Date.now()/1000)+60,mesh_session:{id:'d'.repeat(64),owner,device:prepared.bundle.device.body.device_id,entry:nodeId,genesis:'a'.repeat(64)}};const token='e30.'+Buffer.from(JSON.stringify(jwt)).toString('base64url')+'.test-only';
+
  const listing={network:pin.network,genesis:'a'.repeat(64),profiles:[{id:jwt.user_id,owner,control_epoch:0,devices_version:1},{id:peer,owner:peerOwner,control_epoch:0,devices_version:1}],dialogs:[]};const identity=await api.applicationDialogId(pin.network,[owner,peerOwner].sort()),calls=[];let committed=false;
+
  const transport=async(url,options)=>{if(url.endsWith('/catalog/'))return new Response(JSON.stringify(listing));const body=JSON.parse(options.body);calls.push(body.record);assert(!options.body.includes(password));return new Response(JSON.stringify({state:committed?'confirmed':'pending',identity}),{status:committed?200:202});};
+
  api.lockApplicationActions();await assert.rejects(api.openDistributedDialog(pin.url,token,peer,()=>{},transport,async()=>{}),/unlock_required/);assert.equal(calls.length,0);
+
  await api.unlockApplicationActions(prepared.keys,password,token);const capability=api.applicationDeviceAccess(pin.url,token);assert.equal(capability.signer.extractable,false);await assert.rejects(crypto.subtle.exportKey('pkcs8',capability.signer));await assert.rejects(capability.derive({},'unapproved-purpose'));const derived=await capability.derive({network:pin.network,genesis:'a'.repeat(64),owner,device:prepared.bundle.device.body.device_id},'sfera-dm-device-sdk-key-v1');assert.equal(derived.length,32);derived.fill(0);const result=await api.openDistributedDialog(pin.url,token,peer,()=>{},transport,async()=>{committed=true});assert.equal(result,api.applicationConversationId(identity));assert.equal(calls.length,2);assert.deepEqual(calls[0],calls[1]);
+
  const key=await crypto.subtle.importKey('raw',Buffer.from(prepared.keys.devicePublic,'hex'),'Ed25519',false,['verify']);assert(await crypto.subtle.verify('Ed25519',key,Buffer.from(calls[0].signature,'hex'),api.accountBytes(calls[0].body)));
+
  const packet=await api.signedApplicationSignal(pin.url,token,{type:'call-end',to:peer},transport);assert.equal(packet.body.recipient,peerOwner);assert(await crypto.subtle.verify('Ed25519',key,Buffer.from(packet.signature,'hex'),api.accountBytes(packet.body)));
+
  await assert.rejects(api.openDistributedDialog('https://other.invalid',token,peer,()=>{},transport,async()=>{}),/unlock_required/);
 
+
+
  const saved=new Map(),storage={get length(){return saved.size},key:i=>[...saved.keys()][i]??null,getItem:k=>saved.get(k)??null,setItem:(k,v)=>saved.set(k,v),removeItem:k=>saved.delete(k)};api.saveEntryPointPin(storage,pin);storage.setItem('sfera_distributed_credentials_v1:'+pin.network+':'+'a'.repeat(64)+':alice',JSON.stringify(prepared));let renamed;
+
  const profileTransport=async(url,options)=>{const body=options.body?JSON.parse(options.body):undefined;if(options.body)assert(!options.body.includes(password));if(url.endsWith('/entry/')){const now=Math.floor(Date.now()/1000),probe={domain:'sfera-mesh-application-entry-v1',network:pin.network,entry:nodeId,genesis:'a'.repeat(64),nonce:body.nonce,issued_at:now,expires_at:now+15};return new Response(JSON.stringify({body:probe,signature:sign(null,api.accountBytes(probe),pair.privateKey).toString('hex')}));}if(url.endsWith('/catalog/'))return new Response(JSON.stringify({...listing,profiles:[{...listing.profiles[0],record:prepared.bundle.profile,digest:await api.accountDigest(api.accountBytes(prepared.bundle.profile))}]}));assert(url.endsWith('/profiles/'));renamed=body.record;return new Response(JSON.stringify({state:'confirmed',owner,digest:await api.accountDigest(api.accountBytes(renamed))}));};
+
  await api.updateDistributedNickname(pin.url,token,jwt.user_id,'Новое имя',password,storage,profileTransport);assert.equal(renamed.body.version,2);assert.equal(renamed.body.previous,await api.accountDigest(api.accountBytes(prepared.bundle.profile)));const ownerKey=await crypto.subtle.importKey('raw',Buffer.from(prepared.keys.ownerPublic,'hex'),'Ed25519',false,['verify']);assert(await crypto.subtle.verify('Ed25519',ownerKey,Buffer.from(renamed.signature,'hex'),api.accountBytes(renamed.body)));assert.equal(Buffer.from(renamed.body.nickname_utf8,'hex').toString('utf8'),'Новое имя');
- api.lockApplicationActions();await assert.rejects(api.signedApplicationSignal(pin.url,token,{type:'call-end',to:peer},transport),/unlock_required/);console.log('Device actions: real vault unlock, non-exportable signing, exact pending retry, actor/context binding, verified dialog/signal signatures and logout refusal passed. HTTP is an isolated test adapter.');
+
+ const reopened=new Module(loaded.filename,module);reopened.filename=loaded.filename;reopened.paths=testRuntime.paths;
+ reopened._compile(built.outputFiles[0].text,reopened.filename);
+ await reopened.exports.restoreApplicationDevice(pin.url,token);
+ assert.equal(reopened.exports.applicationDeviceAccess(pin.url,token).signer.extractable,false);
+ const other='e30.'+Buffer.from(JSON.stringify({...jwt,mesh_session:{...jwt.mesh_session,id:'e'.repeat(64)}})).toString('base64url')+'.test-only';
+ await assert.rejects(reopened.exports.restoreApplicationDevice(pin.url,other),/unlock_required/);
+ await reopened.exports.lockApplicationActions();
+ const afterLogout=new Module(loaded.filename,module);afterLogout.filename=loaded.filename;afterLogout.paths=testRuntime.paths;
+ afterLogout._compile(built.outputFiles[0].text,afterLogout.filename);
+ await assert.rejects(afterLogout.exports.restoreApplicationDevice(pin.url,token),/unlock_required/);
+ await api.lockApplicationActions();await assert.rejects(api.signedApplicationSignal(pin.url,token,{type:'call-end',to:peer},transport),/unlock_required/);console.log('Device actions: real vault unlock, non-exportable signing, exact pending retry, actor/context binding, verified dialog/signal signatures and logout refusal passed. HTTP is an isolated test adapter.');
+
 })().catch(e=>{console.error(e);process.exitCode=1});
