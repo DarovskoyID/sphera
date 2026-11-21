@@ -1,6 +1,13 @@
 import type { Translations } from './index';
 
 export const zh: Translations = {
+  chat_record_hold_voice: "按住录制语音，轻触录制圆形视频",
+  chat_record_hold_circle: "按住录制圆形视频，轻触录制语音",
+  chat_record_release: "松开发送",
+  chat_record_stop: "停止录制",
+  chat_record_hint: "松开发送，上滑锁定，左滑取消",
+  chat_record_locked: "免手持录制中，轻触停止",
+
   auth_create_account: '创建账户', auth_welcome_back: '欢迎回来', auth_signup_desc: '注册以开始使用', auth_signin_desc: '登录以继续', auth_login: '用户名', auth_register: '注册', auth_password: '密码', auth_nickname: '昵称（显示名称）', auth_photo: '头像', auth_already_have: '已有账户？', auth_dont_have: '没有账户？', auth_signin: '登录', auth_connection_error: '连接错误', auth_email: '电子邮箱', auth_verify_title: '确认您的邮箱', auth_verify_desc: '请输入我们发送至以下邮箱的验证码', auth_code: '验证码', auth_confirm: '确认', auth_code_sent: '验证码已发送至您的邮箱。', auth_resend_code: '重新发送验证码', auth_change_email: '修改信息',
   auth_forgot: '忘记密码？',
   auth_reset_title: '找回密码',

@@ -139,7 +139,7 @@ class CipherRelay:
                     raise ValueError('cipher_relay_byte_capacity')
             return result
 
-    def _perform(self, kind, body, own, peers, source, scope, roster, epoch):
+    def _perform(self, kind, body, own, peers, source, scope, roster, epoch, *, mail_identity=None):
         db = self.backend.db
         identity = (own['owner'], own['device'])
         if kind == 0:
@@ -257,7 +257,8 @@ class CipherRelay:
                         raise ValueError('cipher_relay_packet_capacity')
                     if db.execute('SELECT COUNT(*) FROM cipher_relay_mail WHERE owner=? AND device=?', (peer['owner'], device)).fetchone()[0] >= 64:
                         raise ValueError('cipher_relay_recipient_capacity')
-                    db.execute('INSERT INTO cipher_relay_mail VALUES(?,?,?,?,?,?,?,?,?,?)', (secrets.token_hex(32), source, scope, roster, epoch,
+                    mail_id=mail_identity(peer['owner'],device) if mail_identity else secrets.token_hex(32)
+                    db.execute('INSERT OR IGNORE INTO cipher_relay_mail VALUES(?,?,?,?,?,?,?,?,?,?)', (mail_id, source, scope, roster, epoch,
                         peer['owner'], device, *identity, canonical(value)))
             if db.execute('SELECT COUNT(*) FROM cipher_relay_mail').fetchone()[0] > self.MAX_MAIL:
                 raise ValueError('cipher_relay_mail_capacity')

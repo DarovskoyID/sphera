@@ -1,3 +1,4 @@
+const testRuntime=require('./web-test-runtime.cjs');
 // Real WASM ciphers + Python authority + encrypted IndexedDB. No external services.
 const assert = require('node:assert/strict');
 const { webcrypto, randomUUID, randomBytes, generateKeyPairSync } = require('node:crypto');
@@ -5,8 +6,8 @@ const { spawn } = require('node:child_process');
 const readline = require('node:readline');
 const Module = require('node:module');
 const path = require('node:path');
-const esbuild = require('esbuild');
-require('fake-indexeddb/auto');
+const esbuild = testRuntime.esbuild;
+testRuntime.require('fake-indexeddb/auto');
 globalThis.crypto = webcrypto;
 const locks = new Set();
 Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { locks: {
@@ -26,16 +27,16 @@ export * from './src/core/mesh/applicationProfiles';
 export * from './src/core/mesh/applicationDialogs';
 export * from './src/core/mesh/account';
 export * from './src/core/mesh/devices';
-export * from './src/core/mesh/entryPoint';`, resolveDir: process.cwd() }, bundle: true,
+export * from './src/core/mesh/entryPoint';`, resolveDir: testRuntime.frontend }, bundle: true,
   packages: 'external', platform: 'node', format: 'cjs', target: 'es2022', write: false });
-const loaded = new Module(path.resolve('output/cipher-policy-test.cjs'), module);
-loaded.filename = path.resolve('output/cipher-policy-test.cjs'); loaded.paths = module.paths;
+const loaded = new Module(path.join(testRuntime.frontend,'output/cipher-policy-test.cjs'), module);
+loaded.filename = path.join(testRuntime.frontend,'output/cipher-policy-test.cjs'); loaded.paths = testRuntime.paths;
 loaded._compile(built.outputFiles[0].text, loaded.filename);
 const { PairwiseCipher, AuthorizedCipher, DmCipherMessages, parseDmCipherMessage, CipherArchive, RecoveryClient, assembleArchiveDeletion, signCipherCertificate, verifyCipherCertificate,
   verifyCipherScope, cipherUserId, accountBytes, accountDigest, meshUserId, meshDeviceId,
   applicationUserId, initialApplicationProfile, initialApplicationDialog, applicationDialogId, applicationConversationId, signDeviceEvent, validateTrustedEntryPoints, personalArchiveRoot, signIdentityStatement } = loaded.exports;
 const { relay, transmissions, mailbox } = require('./mesh-e2ee-relay-fixture.cjs')(cipherUserId);
-const python = process.platform === 'win32' ? 'django-server/myenv/Scripts/python.exe' : 'python';
+const python = testRuntime.python;
 function fixture() {
   const child = spawn(python, ['scripts/mesh-cipher-authority-fixture.py'], { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
   const pending = []; let errors = '';
@@ -118,6 +119,23 @@ async function person(persistent = false) {
     assert.equal((await a.decrypt('dm',scope,bob.identity,response)).text,'Обратный ответ');
     await second.rpc({operation:'available',value:false});
     await assert.rejects(b.encrypt('dm',scope,randomUUID(),'Не отправлять без кворума'));
+    // A slow SDK operation may outlive the short authorization. Renewing must
+    // preserve the exact membership, and reject a changed epoch before release.
+    const clockNow=Date.now,cryptoNode=require('node:crypto'),entryPair=generateKeyPairSync('ed25519');
+    const publicKey=entryPair.publicKey.export({format:'der',type:'spki'}).subarray(-32).toString('hex');
+    const nodeId=cryptoNode.createHash('sha256').update(Buffer.from('sfera-mesh-node-v1\0')).update(Buffer.from(publicKey,'hex')).digest('hex');
+    const freshPin={...pinA,nodeId,publicKey};let clock=Math.floor(clockNow()/1000),changed=false;
+    try {
+      Date.now=()=>clock*1000;
+      const provider=async({nonce})=>{const body=structuredClone(proofA.body);body.entry=nodeId;body.nonce=nonce;body.issued_at=clock;body.expires_at=clock+15;
+        if(changed){body.device_versions[0].version++;body.epoch++;}
+        return {body,signature:cryptoNode.sign(null,accountBytes(body),entryPair.privateKey).toString('hex')};};
+      const sdk={publicIdentity:()=>alice.peer,encryptGroup:async()=>{clock+=20;return {message_id:'timing-check'};}};
+      const slow=new AuthorizedCipher(sdk,freshPin,alice.user,provider,()=>{},async()=>true);
+      assert.equal((await slow.encryptAuthorized('dm',scope,randomUUID(),'timing')).envelope.message_id,'timing-check');
+      sdk.encryptGroup=async()=>{clock+=20;changed=true;return {message_id:'must-not-release'};};
+      await assert.rejects(slow.encryptAuthorized('dm',scope,randomUUID(),'timing'),/changed_during_operation/);
+    }finally{Date.now=clockNow;}
     console.log('Distributed scope passed: real SDK consensus-command signatures, frozen command bodies, distinct entry signatures, shared DM room/epoch, real WASM encryption in both directions, wrong-entry and unavailable-authority rejection. SDK relay is a test adapter; WAN delivery not tested.');
   } finally {
     if(alice)await alice.cipher.close();if(bob)await bob.cipher.close();

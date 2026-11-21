@@ -51,10 +51,10 @@ export async function verifyCipherCertificate(value: CipherCertificate, network:
   const { owner, device, ed25519, curve25519 } = body;
   return { network, genesis, owner, device, ed25519, curve25519 };
 }
-export async function signCipherCertificate(peer: CipherPeer, devicePublic: string, deviceRoot: Uint8Array): Promise<CipherCertificate> {
+export async function signCipherCertificate(peer: CipherPeer, devicePublic: string, deviceRoot: Uint8Array | CryptoKey): Promise<CipherCertificate> {
   const { network, genesis, owner, device, ed25519, curve25519 } = peer;
   const body: CipherCertificate['body'] = { domain: 'sfera-mesh-cipher-device-v1', network, genesis, owner, device, ed25519, curve25519, device_public: devicePublic };
-  const signature = Array.from(await signIdentityStatement(deviceRoot, accountBytes(body)), byte => byte.toString(16).padStart(2, '0')).join('');
+  const signature = Array.from(deviceRoot instanceof Uint8Array ? await signIdentityStatement(deviceRoot, accountBytes(body)) : new Uint8Array(await crypto.subtle.sign('Ed25519',deviceRoot,new Uint8Array(accountBytes(body)).buffer)), byte => byte.toString(16).padStart(2, '0')).join('');
   const result = { body, signature };
   await verifyCipherCertificate(result, network, genesis);
   return result;
@@ -159,24 +159,28 @@ export class AuthorizedCipher {
     this.guard();
     if (body.expires_at <= Math.floor(Date.now() / 1000)) throw new Error('cipher_scope_expired');
   }
+  private async refreshAfter(checked:Awaited<ReturnType<AuthorizedCipher['load']>>,source:'dm'|'guild',scope:string) {
+    if(checked.body.expires_at>Math.floor(Date.now()/1000)){this.current(checked.body);return checked;}
+    const fresh=await this.load(source,scope);
+    if(fresh.body.domain!==checked.body.domain || fresh.body.roster!==checked.body.roster ||
+      await accountDigest(accountBytes(fresh.membership))!==await accountDigest(accountBytes(checked.membership)))throw new Error('cipher_scope_changed_during_operation');
+    return fresh;
+  }
   async encrypt(source: 'dm' | 'guild', scope: string, messageId: string, text: string) {
     return (await this.encryptAuthorized(source, scope, messageId, text)).envelope;
   }
   async encryptAuthorized(source: 'dm' | 'guild', scope: string, messageId: string, text: string) {
-    const { membership, body, proof } = await this.load(source, scope);
-    this.current(body);
-    const envelope = await this.cipher.encryptGroup(membership, messageId, text);
-    this.current(body);
-    return { envelope, authorization: proof };
+    let checked=await this.load(source,scope);this.current(checked.body);
+    const envelope=await this.cipher.encryptGroup(checked.membership,messageId,text);
+    checked=await this.refreshAfter(checked,source,scope);
+    return {envelope,authorization:checked.proof};
   }
   async decrypt(source: 'dm' | 'guild', scope: string, sender: { owner: string; device: string }, envelope: GroupEnvelope) {
-    const { membership, body, proof } = await this.load(source, scope);
-    const peer = membership.peers.find(item => item.owner === sender.owner && item.device === sender.device);
-    if (!peer) throw new Error('cipher_sender_not_member');
-    this.current(body);
-    const result = await this.cipher.decryptGroup(peer, membership, envelope);
-    this.current(body);
-    return { ...result, authorization: proof };
+    let checked=await this.load(source,scope);
+    const peer=checked.membership.peers.find(item=>item.owner===sender.owner && item.device===sender.device);
+    if(!peer)throw new Error('cipher_sender_not_member');this.current(checked.body);
+    const result=await this.cipher.decryptGroup(peer,checked.membership,envelope);
+    checked=await this.refreshAfter(checked,source,scope);return {...result,authorization:checked.proof};
   }
   /** Historical read requires the original signed roster and an already held
    * key. Product callers separately gate it with fresh selected-SQL status. */
@@ -190,12 +194,10 @@ export class AuthorizedCipher {
     this.guard(); return { ...result, authorization: checked.proof };
   }
   async receiveKey(source: 'dm' | 'guild', scope: string, sender: { owner: string; device: string }, envelope: PairwiseEnvelope) {
-    const { membership, body } = await this.load(source, scope);
-    const peer = membership.peers.find(item => item.owner === sender.owner && item.device === sender.device);
-    if (!peer) throw new Error('cipher_sender_not_member');
-    this.current(body);
-    await this.cipher.receiveGroupKey(peer, membership, envelope);
-    this.current(body);
+    const checked=await this.load(source,scope);
+    const peer=checked.membership.peers.find(item=>item.owner===sender.owner && item.device===sender.device);
+    if(!peer)throw new Error('cipher_sender_not_member');this.current(checked.body);
+    await this.cipher.receiveGroupKey(peer,checked.membership,envelope);await this.refreshAfter(checked,source,scope);
   }
 
   /** Context for a locally journaled outgoing intent; not a self-decryption proof. */

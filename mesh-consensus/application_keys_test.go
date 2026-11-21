@@ -143,7 +143,13 @@ func TestApplicationKeyExactlyOnceRetryAliasAndClone(t *testing.T) {
 }
 
 func TestApplicationKeyPythonFixture(t *testing.T) {
-	raw, err := os.ReadFile("testdata/application-keys-v1.json")
+	testApplicationKeyPythonFixture(t, "testdata/application-keys-v1.json")
+}
+func TestApplicationFallbackPythonFixture(t *testing.T) {
+	testApplicationKeyPythonFixture(t, "testdata/application-fallback-v1.json")
+}
+func testApplicationKeyPythonFixture(t *testing.T, filename string) {
+	raw, err := os.ReadFile(filename)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -221,5 +227,63 @@ func TestApplicationKeyRevocationAndTargetIsolation(t *testing.T) {
 	next = signApplicationKey(next, keys[0])
 	if err := apply(&s, canonical(next)); err == nil {
 		t.Fatal("revoked device accepted")
+	}
+}
+func TestApplicationFallbackRotationAndNormalPriority(t *testing.T) {
+	s, rs, keys, dialog := keyJournalFixture(t)
+	makeFallback := func(id, request string) ApplicationKeyRecord {
+		curve, _, _ := ed25519.GenerateKey(rand.Reader)
+		r := rs[1]
+		r.Body.Kind = "fallback"
+		r.Body.Request = request
+		body := map[string]any{"key": base64.RawStdEncoding.EncodeToString(curve), "fallback": true}
+		doc := map[string]any{"key": body["key"], "fallback": true, "signatures": map[string]map[string]string{"@" + r.Body.Owner + ":" + s.GenesisPin + ".sphere": {"ed25519:" + r.Body.Device: base64.RawStdEncoding.EncodeToString(ed25519.Sign(keys[1], canonical(body)))}}}
+		r.Body.KeysUTF8 = hex.EncodeToString(canonical(map[string]any{id: doc}))
+		return signApplicationKey(r, keys[1])
+	}
+	first := makeFallback("signed_curve25519:aaa", "fallback-1")
+	if err := apply(&s, canonical(first)); err != nil {
+		t.Fatal(err)
+	}
+	curve, _, _ := ed25519.GenerateKey(rand.Reader)
+	normal := uploadApplicationKey(s, rs[1], keys[1], "signed_curve25519:zzz", curve)
+	if err := apply(&s, canonical(normal)); err != nil {
+		t.Fatal(err)
+	}
+	claim := rs[0]
+	claim.Body.Kind = "claim"
+	claim.Body.Dialog = dialog
+	claim.Body.TargetOwner = rs[1].Body.Owner
+	claim.Body.TargetDevice = rs[1].Body.Device
+	for i, want := range []string{"signed_curve25519:zzz", "signed_curve25519:aaa", "signed_curve25519:aaa"} {
+		claim.Body.Request = string(rune('a' + i))
+		claim = signApplicationKey(claim, keys[0])
+		if err := apply(&s, canonical(claim)); err != nil {
+			t.Fatal(err)
+		}
+		if got := s.ApplicationKeys[len(s.ApplicationKeys)-1].KeyID; got != want {
+			t.Fatalf("got %s want %s", got, want)
+		}
+	}
+	next := makeFallback("signed_curve25519:bbb", "fallback-2")
+	if err := apply(&s, canonical(next)); err != nil {
+		t.Fatal(err)
+	}
+	first.Body.Request = "resurrect"
+	first = signApplicationKey(first, keys[1])
+	before := canonical(s)
+	if err := apply(&s, canonical(first)); err == nil || !bytes.Equal(before, canonical(s)) {
+		t.Fatal("retired fallback resurrected")
+	}
+	claim.Body.Request = "after-rotation"
+	claim = signApplicationKey(claim, keys[0])
+	if err := apply(&s, canonical(claim)); err != nil {
+		t.Fatal(err)
+	}
+	if s.ApplicationKeys[len(s.ApplicationKeys)-1].KeyID != "signed_curve25519:bbb" {
+		t.Fatal("old fallback reused")
+	}
+	if _, err := replayApplicationKeys(s); err != nil {
+		t.Fatal(err)
 	}
 }

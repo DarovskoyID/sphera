@@ -25,6 +25,7 @@ type Options<W extends Wire> = {
   seal: (scope: string, id: string, payload: DmCipherText, guild?: string) => Promise<W>;
   sealAuthorized?: (scope: string, id: string, payload: DmCipherText, guild?: string) => Promise<{ wire: W; authorization: CipherScopeProof }>;
   transport?: typeof fetch;
+  publishDistributed?: (scope:string,cipher:W,queuedAt:number)=>Promise<unknown>;
 };
 type Row = { key: string; sealed: ArchiveMessage };
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -326,10 +327,15 @@ export class DmCipherOutbox<W extends Wire = DmCipherMessage> {
       }
       this.assert();
       if (expires <= Math.floor(Date.now() / 1000)) expires = await this.trustedEntry();
+      if(record.authorization?.body.domain==='sfera-mesh-cipher-scope-v2') {
+        if(!this.options.publishDistributed)throw new Error('distributed_message_publisher_required');
+        await this.options.publishDistributed(record.scope,record.wire!,record.queuedAt);this.assert();
+        if(expires<=Math.floor(Date.now()/1000))expires=await this.trustedEntry();
+      }
       const response = await this.http((this.options.source === 'guild' ? '/api/guilds/' + record.guild + '/channels/' : '/api/conversations/') + record.scope + '/messages/cipher/send/',
         { cipher: record.wire, nonce: record.nonce }, true, 1048576);
       this.assert();
-      if (expires <= Math.floor(Date.now() / 1000)) throw new Error('dm_outbox_entry_expired');
+      if(expires<=Math.floor(Date.now()/1000))expires=await this.trustedEntry();
       if (response.status === 410) {
         schema(response.body, ['error']);
         if (response.body.error !== 'cipher_message_deleted') throw new Error('invalid_dm_outbox_response');

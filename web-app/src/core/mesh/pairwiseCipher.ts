@@ -123,6 +123,14 @@ export class PairwiseCipher {
     } finally { signatures.free(); }
   }
 
+  async signApplicationPayload(body: unknown): Promise<string> {
+    if(this.closed)throw new Error('cipher_closed');
+    const signatures=await this.machine.sign(new TextDecoder().decode(accountBytes(body)));
+    try {const signature=JSON.parse(signatures.asJSON())[cipherUserId(this.identity)]?.['ed25519:'+this.identity.device];
+      if(this.closed || typeof signature!=='string' || !/^[A-Za-z0-9+/]{86}$/.test(signature))throw new Error('application_sdk_signature_missing');return signature;
+    } finally {signatures.free();}
+  }
+
   publicIdentity(): CipherPeer {
     if (this.closed) throw new Error('cipher_closed');
     const keys = this.machine.identityKeys;
@@ -168,6 +176,14 @@ export class PairwiseCipher {
     } finally { request.free(); }
   }
 
+  publishDeviceKeys() {
+    return this.run(async()=>{const requests=await this.machine.outgoingRequests();
+      for(let i=0;i<requests.length;i++) {
+        if(requests[i].type!==0){requests[i].free();continue;}
+        try {await this.request(requests[i]);}catch(error){for(const rest of requests.slice(i+1))rest.free();throw error;}
+      }
+    });
+  }
   publishKeys() {
     return this.run(async () => {
       const requests = await this.machine.outgoingRequests();

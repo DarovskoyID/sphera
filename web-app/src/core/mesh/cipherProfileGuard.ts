@@ -81,11 +81,11 @@ export class CipherProfileGuard {
     const body: Body={domain:'sfera-mesh-cipher-profile-v1',...this.own,version:(this.head?.record.body.version??0)+1,previous:this.head?.digest??ZERO,profile_digest};
     const record={body,signature:hex(new Uint8Array(await crypto.subtle.sign('Ed25519',this.signer,new Uint8Array(accountBytes(body)).buffer)))},digest=await accountDigest(accountBytes(record));
     try { await this.post({record}); } catch { /* A lost response is checked below, never treated as success. */ }
-    for(let attempt=0;attempt<8;attempt++) {
+    for(let attempt=0;attempt<40;attempt++) {
       const fresh=await this.read();
       if(fresh?.digest===digest){this.head=fresh;return;}
       if(fresh?.digest!==this.head?.digest) throw new Error('cipher_profile_checkpoint_conflict');
-      if(attempt<7)await new Promise(resolve=>setTimeout(resolve,500));
+      if(attempt<39)await new Promise(resolve=>setTimeout(resolve,1000));
     }
     throw new Error('cipher_profile_confirmation_pending');
   }

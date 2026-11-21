@@ -1,6 +1,13 @@
 import type { Translations } from './index';
 
 export const pt: Translations = {
+  chat_record_hold_voice: "Mantenha premido para gravar voz; toque para gravar um vídeo circular",
+  chat_record_hold_circle: "Mantenha premido para gravar um vídeo circular; toque para gravar voz",
+  chat_record_release: "Solte para enviar",
+  chat_record_stop: "Parar gravação",
+  chat_record_hint: "Solte para enviar, deslize para cima para bloquear ou para a esquerda para cancelar",
+  chat_record_locked: "Gravação com mãos livres: toque para parar",
+
   auth_create_account: 'Criar conta', auth_welcome_back: 'Bem-vindo de volta', auth_signup_desc: 'Cadastre-se para começar', auth_signin_desc: 'Entre para continuar', auth_login: 'Usuário', auth_register: 'Cadastrar', auth_password: 'Senha', auth_nickname: 'Apelido (nome de exibição)', auth_photo: 'Foto', auth_already_have: 'Já tem uma conta?', auth_dont_have: 'Não tem uma conta?', auth_signin: 'Entrar', auth_connection_error: 'Erro de conexão', auth_email: 'E-mail', auth_verify_title: 'Confirme seu e-mail', auth_verify_desc: 'Digite o código que enviamos para', auth_code: 'Código de confirmação', auth_confirm: 'Confirmar', auth_code_sent: 'Um código de confirmação foi enviado para o seu e-mail.', auth_resend_code: 'Reenviar código', auth_change_email: 'Alterar dados',
   auth_forgot: 'Esqueceu a senha?',
   auth_reset_title: 'Recuperação de senha',

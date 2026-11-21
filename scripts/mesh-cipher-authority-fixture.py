@@ -21,6 +21,7 @@ from sfera_mesh.test_cipher_authority import Directory
 
 def main():
     backend = None
+    replica_entries=[];replica_nodes={};replica_temp=None
     messages = None
     scoped_members = {}
     def get_members(source, scope):
@@ -43,7 +44,7 @@ def main():
                         from sfera_mesh.distributed_sessions import DistributedApplicationSessions
                         from sfera_mesh.application_dialogs import verify_record
                         from sfera_mesh.application_profiles import validate_profiles
-                        state = {'accounts': {}, 'devices': {}, 'application_profiles': {},
+                        state = {'height':1,'accounts': {}, 'devices': {}, 'application_profiles': {},
                                  'cipher_devices': {}, 'application_dialogs': {}}
                         for user in request['users']:
                             owner = user['event']['body']['user_id']
@@ -77,9 +78,54 @@ def main():
                     result = {'network': directory.network, 'nodeId': entry,
                         'publicKey': key.public_key().public_bytes_raw().hex(), 'url': 'https://fixture.sphere.invalid',
                         'label': 'Isolated fixture'}
+                    if request.get('replicas'):
+                        import tempfile
+                        from sfera_distribution.sdk_replica import SdkReplica
+                        replica_temp=tempfile.TemporaryDirectory()
+                        replica_entries=[(backend,authority,claims)]
+                        for index in range(1,7):
+                            k=Ed25519PrivateKey.generate();b=DistributedApplicationSessions(str(Path(replica_temp.name)/(str(index)+'.sqlite')),directory,node_id(k.public_key().public_bytes_raw()),entry_key=k)
+                            b.require_consensus_cipher_pins=True;a=CipherAuthority(b);cs={}
+                            for user in request['users']:
+                                owner=user['event']['body']['user_id'];device=user['event']['body']['device_id']
+                                cs[user['user']]={'id':user['session'],'owner':owner,'device':device,'genesis':directory.pin,'entry':b.entry}
+                                with b.db:
+                                    b.db.execute('INSERT INTO app_identities VALUES(?,?)',(owner,user['user']))
+                                    b.db.execute('INSERT INTO app_sessions VALUES(?,?,?,?,?,0)',(user['session'],user['user'],owner,device,int(time.time())+3600))
+                            replica_entries.append((b,a,cs))
+                        roster={b.entry:{'public_key':b.entry_key.public_key().public_bytes_raw(),'origin':b.entry} for b,_,_ in replica_entries}
+                        for index,(b,a,cs) in enumerate(replica_entries):
+                            replica_nodes[b.entry]=SdkReplica(a,str(Path(replica_temp.name)/('replay-'+str(index)+'.sqlite')),peers=lambda d:roster,transport=lambda origin,message:replica_nodes[origin].receive(message))
+                        result=[{'network':directory.network,'nodeId':b.entry,'publicKey':b.entry_key.public_key().public_bytes_raw().hex(),'url':'https://fixture.sphere.invalid','label':'Replica '+str(i)} for i,(b,_,_) in enumerate(replica_entries)]
                     if request.get('messages'):
                         from mesh_cipher_message_fixture import MessageApiFixture
                         messages = MessageApiFixture(backend, request['users'], guilds=request.get('guilds', False))
+                elif operation == 'replica_entry':
+                    result=replica_entries[request['entry']][0].entry_proof(request['nonce'])
+                elif operation == 'replica_publish':
+                    b,a,cs=replica_entries[request['entry']]
+                    result=a.publish(request['user'],cs[request['user']],request['certificate'])
+                elif operation == 'replica_catalog':
+                    from sfera_mesh.application_profiles import public_profiles
+                    result={'network':directory.network,'genesis':directory.pin,'profiles':public_profiles(state,directory.network,directory.pin)}
+                elif operation == 'replica_scope':
+                    b,a,cs=replica_entries[request['entry']]
+                    result=a.attest(request['user'],cs[request['user']],'dm',request['scope'],members,request['nonce'])
+                elif operation == 'replica_request':
+                    b,a,cs=replica_entries[request['entry']]
+                    result=replica_nodes[b.entry].request(request['record'],request['user'],cs[request['user']])
+                elif operation == 'replica_fixture':
+                    result={'state':state,'network':directory.network,'genesis':directory.pin}
+                elif operation == 'replica_keys':
+                    from sfera_mesh.application_keys import ApplicationKeyCatalog,record as check,perform,replay
+                    value=request['record']
+                    def commit(value):
+                        with directory.lock:
+                            check(value,state,directory.network,directory.pin,current=True)
+                            pool=replay(state,directory.network,directory.pin);kid,doc=perform(value,state,pool,directory.pin)
+                            state.setdefault('application_keys',[]).append({'record':value,'digest':sha256(canonical(value)).hexdigest(),'key_id':kid,'key_utf8':doc})
+                    catalog=ApplicationKeyCatalog(directory,commit)
+                    catalog.publish(value);result=catalog.publish(value)
                 elif operation == 'scope':
                     result = authority.attest(request['user'], claims[request['user']], request['source'],
                         request['scope'], get_members(request['source'], request['scope']), request['nonce'])
@@ -180,6 +226,9 @@ def main():
             except Exception as exc:
                 print(canonical({'error': str(exc)}).decode(), flush=True)
     finally:
+        for replica in replica_nodes.values():replica.close()
+        for b,_,_ in replica_entries[1:]:b.close()
+        if replica_temp:replica_temp.cleanup()
         if messages is not None:
             messages.close()
         if backend is not None:

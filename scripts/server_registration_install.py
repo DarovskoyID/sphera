@@ -130,6 +130,9 @@ def main(action_override=None):
             config=json.loads(config_path.read_bytes())
             if config['mesh']['entry']!=entry or config['mesh']['genesis']!=point['genesis']:
                 raise ValueError('application_existing_identity_changed')
+            if config['mesh'].get('verifier')!=str(binary):
+                config['mesh']['verifier']=str(binary)
+                private_json(config_path,config,user)
         else:
             from cryptography.fernet import Fernet
             import secrets
@@ -224,7 +227,15 @@ WantedBy=multi-user.target
         match=re.search(r'argv\[\]=(.*?)\s*;',raw)
         if not match:raise ValueError('validator_command_unrecognized')
         args=shlex.split(match[1])
-        if len(args)!=3 or args[1]!='--node-config' or args[0] not in (str(POINT/'code/mesh-verifier'),str(binary)):
+        allowed={str(POINT/'code/mesh-verifier'),str(binary)}
+        # Only the exact root-authorized predecessor may be replaced.
+        if 'transition' in job:
+            from server_verifier_transition import contract
+            transition=contract(job['transition'],json.loads((POINT/'code/trust.json').read_bytes()))
+            previous_binary=POINT/'code/verifiers'/transition['from_verifier']/'mesh-verifier'
+            if previous_binary.is_file() and hashlib.sha256(previous_binary.read_bytes()).hexdigest()==transition['from_verifier']:
+                allowed.add(str(previous_binary))
+        if len(args)!=3 or args[1]!='--node-config' or args[0] not in allowed:
             raise ValueError('validator_command_unrecognized')
         config=Path(args[2])
         if (not config.is_relative_to(POINT/'consensus') and config!=POINT/'validator.json') or config.is_symlink():raise ValueError('validator_configuration_path')

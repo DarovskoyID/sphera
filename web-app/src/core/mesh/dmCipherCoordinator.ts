@@ -15,6 +15,7 @@ import { CipherProfileGuard } from './cipherProfileGuard';
 import { confirmArchiveDevice } from './archiveDeviceAdmission';
 
 type Options = {
+  distributed?:boolean;
   guard: () => boolean; token: () => string;
   review: (body: CipherScopeBody) => Promise<boolean>;
   transport?: typeof fetch;
@@ -33,6 +34,7 @@ export class DmCipherCoordinator {
   private user: string;
   private options: Options;
   private profileGuard?: CipherProfileGuard;
+  private probeUntil=0;
   private constructor(pin: TrustedEntryPoint, own: CipherIdentity, user: string, options: Options) {
     this.pin = pin; this.own = own; this.user = user; this.options = options;
   }
@@ -53,7 +55,7 @@ export class DmCipherCoordinator {
       body=>coordinator.post('/api/auth/mesh/cipher/profile/',body),`sphere-e2ee-v1:${own.network}:${own.genesis}:${own.owner}:${own.device}`);
     coordinator.cipher = await PairwiseCipher.open(own, async request => {
       coordinator.assert();
-      if (!coordinator.active) throw new Error('dm_cipher_route_missing');
+      if (!coordinator.active) {if(coordinator.options.distributed && request.type===0)return JSON.stringify(await coordinator.bootstrap(request));throw new Error('dm_cipher_route_missing');}
       return coordinator.active.relay.relay(request);
     }, { mode: 'persistent', passphrase, profileGuard: coordinator.profileGuard });
     try { coordinator.assert(); return coordinator; }
@@ -69,19 +71,43 @@ export class DmCipherCoordinator {
     const own = this.publicIdentity();
     if ((['network', 'genesis', 'owner', 'device', 'ed25519', 'curve25519'] as const).some(field => peer[field] !== own[field])) throw new Error('dm_cipher_certificate_mismatch');
     let response: unknown;
-    for (let attempt = 0; attempt < 4; attempt++) {
+    for (let attempt = 0; attempt < 40; attempt++) {
       try { response = await this.post('/api/auth/mesh/cipher/device/', { certificate }); break; }
       catch (error) {
-        if (!(error instanceof Error) || error.message !== 'dm_cipher_http_503' || attempt === 3) throw error;
+        if (!(error instanceof Error) || error.message !== 'dm_cipher_http_503' || attempt === 39) throw error;
         // The exact persistent SDK certificate may await its consensus commit.
         // Never generate replacement keys or mark an unconfirmed pin ready.
-        await new Promise(resolve => setTimeout(resolve, 2000)); this.assert();
+        await new Promise(resolve => setTimeout(resolve, 1000)); this.assert();
       }
     }
     this.assert();
     if (!response || typeof response !== 'object' || Object.keys(response).join(',') !== 'digest' ||
         (response as { digest: unknown }).digest !== await accountDigest(accountBytes(certificate))) throw new Error('dm_cipher_certificate_response_mismatch');
     await this.profileGuard?.activate();
+    if(this.options.distributed)await this.cipher.publishDeviceKeys();
+  }
+
+  private async bootstrap(request:{id:string;type:number;body:string}) {
+    const catalog=await this.http('/api/distribution/catalog/',undefined,false,1048576) as {network:string;genesis:string;profiles:{id:string;owner:string;devices_version:number}[]};
+    const profile=catalog.profiles.find(p=>p.owner===this.own.owner && p.id===this.user);
+    if(catalog.network!==this.own.network || catalog.genesis!==this.own.genesis || !profile)throw new Error('sdk_bootstrap_profile');
+    const body=JSON.parse(request.body);
+    for(const [field,kind] of [['one_time_keys','upload'],['fallback_keys','fallback']] as const) {
+      if(!Object.keys(body[field]??{}).length)continue;
+      const value=await this.cipher.signApplicationKeyCommand({domain:'sfera-mesh-application-key-v1',...this.own,
+        devices_version:profile.devices_version,request:await accountDigest(accountBytes([request.id,field])),kind,
+        dialog:'',target_owner:'',target_device:'',keys_utf8:Array.from(accountBytes(body[field]),b=>b.toString(16).padStart(2,'0')).join('')});
+      let confirmed=false;
+      for(let i=0;i<40;i++){this.assert();const result=await this.post('/api/distribution/keys/',{record:value}) as {state:string;receipt?:{digest:string;record:unknown}};
+        if(result.state==='confirmed' && result.receipt && result.receipt.digest===await accountDigest(accountBytes(value)) && await accountDigest(accountBytes(result.receipt.record))===result.receipt.digest){confirmed=true;break;}
+        if(result.state!=='pending')throw new Error('sdk_bootstrap_key_receipt');await new Promise(r=>setTimeout(r,1000));}
+      if(!confirmed)throw new Error('application_key_confirmation_pending');delete body[field];
+    }
+    delete body.one_time_keys;delete body.fallback_keys;
+    const now=Math.floor(Date.now()/1000),payload={domain:'sfera-mesh-sdk-relay-v1',...this.own,source:'device',scope:this.user,
+      roster:await accountDigest(accountBytes(['sfera-mesh-sdk-device-scope-v1',this.own.network,this.own.genesis,this.own.owner,this.own.device,profile.devices_version])),
+      epoch:profile.devices_version,request:{...request,body:JSON.stringify(body)},issued_at:now,expires_at:now+60};
+    return this.post('/api/auth/mesh/cipher/relay/',{record:{body:payload,signature:await this.cipher.signApplicationPayload(payload)}});
   }
 
   private async http(path: string, body: unknown, authenticated: boolean, limit: number) {
@@ -90,15 +116,15 @@ export class DmCipherCoordinator {
     if (authenticated && (!token || typeof token !== 'string' || token.length > 32768)) throw new Error('dm_cipher_login_required');
     const controller = new AbortController(), abort = () => controller.abort();
     this.abort.signal.addEventListener('abort', abort, { once: true });
-    const timer = setTimeout(abort, 15000);
+    const timer = setTimeout(abort,path==='/api/auth/mesh/cipher/relay/'?45000:15000);
     try {
       const response = await (this.options.transport ?? fetch)(this.pin.url + path, {
-        method: 'POST', body: JSON.stringify(body), credentials: 'omit', redirect: 'error', cache: 'no-store',
+        method: body===undefined?'GET':'POST', body: body===undefined?undefined:JSON.stringify(body), credentials: 'omit', redirect: 'error', cache: 'no-store',
         signal: controller.signal, headers: { 'Content-Type': 'application/json', 'X-Ionik-Client': '1',
           ...(authenticated ? { Authorization: 'Bearer ' + token } : {}) },
       });
       this.assert();
-      if (response.status !== 200 || response.redirected || (response.url && new URL(response.url).origin !== this.pin.url) ||
+      if ((response.status !== 200 && !(path==='/api/distribution/keys/' && response.status===202)) || response.redirected || (response.url && new URL(response.url).origin !== this.pin.url) ||
           Number(response.headers.get('Content-Length')) > limit) {
         await response.body?.cancel(); throw new Error('dm_cipher_http_' + response.status);
       }
@@ -122,9 +148,12 @@ export class DmCipherCoordinator {
   }
   private post = async (path: string, body: unknown) => {
     this.assert();
-    const nonce = entryProbeNonce();
-    const probe = await this.http('/api/auth/mesh/entry/', { nonce }, false, 65536);
-    if (await verifyEntryProbe(probe, this.pin, nonce) !== this.own.genesis) throw new Error('dm_cipher_entry_changed');
+    if(this.probeUntil<=Date.now()/1000+2) {
+      const nonce = entryProbeNonce();
+      const probe = await this.http('/api/auth/mesh/entry/', { nonce }, false, 65536);
+      if (await verifyEntryProbe(probe, this.pin, nonce) !== this.own.genesis) throw new Error('dm_cipher_entry_changed');
+      this.probeUntil=(probe as {body:{expires_at:number}}).body.expires_at;
+    }
     this.assert();
     return this.http(path, body, true, 1048576);
   };
@@ -134,7 +163,7 @@ export class DmCipherCoordinator {
       this.assert();
       // No permanent per-chat cache: policy and relay always fetch fresh proofs.
       const relay = new CipherRelayClient({ pin: this.pin, user: this.user, scope, source,
-        identity: () => this.publicIdentity(), post: this.post, review: this.options.review, guard: this.assert });
+        identity: () => this.publicIdentity(), post: this.post, signKey:body=>this.cipher.signApplicationKeyCommand(body), signPayload:body=>this.cipher.signApplicationPayload(body), review: this.options.review, guard: this.assert });
       const policy = new AuthorizedCipher(this.cipher, this.pin, this.user,
         request => this.post('/api/auth/mesh/cipher/scope/', request), this.assert, this.options.review);
       const channel = { relay, policy, messages: new DmCipherMessages(policy, this.own, this.user), guildMessages: new GuildCipherMessages(policy, this.own, this.user) };
@@ -145,6 +174,7 @@ export class DmCipherCoordinator {
     this.queue = next.catch(() => undefined);
     return next;
   }
+  publishMessage(scope:string,cipher:unknown,queuedAt:number) { return this.run(scope,channel=>channel.relay.publishMessage(cipher,queuedAt)); }
   publishKeys(scope: string) { return this.run(scope, () => this.cipher.publishKeys()); }
   confirmArchiveDevice(device: string, publicKey: string) {
     this.assert(); return confirmArchiveDevice(this.post, this.pin, this.own, this.user, device, publicKey);

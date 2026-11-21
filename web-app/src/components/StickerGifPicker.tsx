@@ -403,11 +403,11 @@ const EmojiTab: React.FC<{
   onSelect: (e: string) => void;
   showCreate: boolean; setShowCreate: (v: boolean) => void;
   createName: string; setCreateName: (v: string) => void;
-  createPreview: string | null; fileRef: React.RefObject<HTMLInputElement | null>;
+  createPreview: string | null; fileRef: React.RefObject<HTMLInputElement>;
   onFileChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
   onCreate: () => void; creating: boolean; createError: string; setCreateError: (v: string) => void;
   onDelete: (id: string) => void; currentUser: string;
-  tabBarRef: React.RefObject<HTMLDivElement | null>;
+  tabBarRef: React.RefObject<HTMLDivElement>;
 }> = ({ search, emojiCat, setEmojiCat, recent, customEmojis, onSelect, showCreate, setShowCreate, createName, setCreateName, createPreview, fileRef, onFileChange, onCreate, creating, createError, setCreateError, onDelete, currentUser, tabBarRef }) => {
 
   const MERGED: { id: string; icon: string; label: string; sources: string[] }[] = [

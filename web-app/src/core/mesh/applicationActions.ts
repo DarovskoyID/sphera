@@ -1,13 +1,13 @@
 /** Short-lived device signing capability. Seeds/passwords are never retained. */
 import { applicationKeys,type ApplicationKeys } from './applicationAuth';
-import { meshUserId } from './account';
+import { accountBytes,meshUserId } from './account';
 import { unlockVault } from './vault';
 import { meshDeviceId } from './devices';
 import { applicationUserId } from './applicationProfiles';
 import { applicationDialogId,applicationConversationId,signDeviceApplicationDialog } from './applicationDialogs';
 import { signApplicationSignal,type ApplicationSignalIdentity } from './applicationSignals';
 
-type Context={user:string;entry:string;server:string;identity:ApplicationSignalIdentity;key:CryptoKey;expires:number};
+type Context={user:string;entry:string;server:string;identity:ApplicationSignalIdentity;key:CryptoKey;deriver:CryptoKey;keys:ApplicationKeys;expires:number};
 let active:Context|undefined;
 const claims=(token:string)=>{
   if(token.length>32768 || token.split('.').length!==3)throw new Error('application_action_login_required');
@@ -33,9 +33,20 @@ export async function unlockApplicationActions(value:ApplicationKeys,password:st
   const encoded=new Uint8Array(48);encoded.set([0x30,0x2e,0x02,0x01,0x00,0x30,0x05,0x06,0x03,0x2b,0x65,0x70,0x04,0x22,0x04,0x20]);encoded.set(root,16);
   try{
     const key=await crypto.subtle.importKey('pkcs8',encoded.buffer,'Ed25519',false,['sign']);
-    active={user:keys.applicationUser,entry:keys.entry,server:new URL(keys.server).origin,identity,key,expires:Math.min(jwt.exp,Date.now()/1000+900)};
+    active={user:keys.applicationUser,entry:keys.entry,server:new URL(keys.server).origin,identity,key,deriver:await crypto.subtle.importKey('raw',new Uint8Array(root).buffer,'HKDF',false,['deriveBits']),keys,expires:Math.min(jwt.exp,Date.now()/1000+900)};
   }finally{root.fill(0);encoded.fill(0);}
 }
+export function applicationDeviceAccess(server:string,token:string) {
+  const value=context(server,token);
+  return {keys:applicationKeys(value.keys,server),signer:value.key,
+    derive:async(info:unknown,purpose:string)=>{
+      if(context(server,token)!==value)throw new Error('application_action_context_changed');
+      if(!['sfera-dm-device-sdk-key-v1','sfera-dm-device-outbox-key-v1','sfera-dm-device-archive-key-v1','sfera-guild-device-outbox-key-v1'].includes(purpose))throw new Error('application_device_derivation_purpose');
+      const result=new Uint8Array(await crypto.subtle.deriveBits({name:'HKDF',hash:'SHA-256',salt:new TextEncoder().encode(purpose),info:new Uint8Array(accountBytes(info)).buffer},value.deriver,256));
+      if(context(server,token)!==value){result.fill(0);throw new Error('application_action_context_changed');}return result;
+    }};
+}
+
 type Profile={id:string;owner:string;control_epoch:number;devices_version:number};
 type Catalog={network:string;genesis:string;profiles:Profile[];dialogs:{identity:string;id:string;members:string[]}[]};
 async function catalog(server:string,token:string,transport:typeof fetch):Promise<Catalog>{

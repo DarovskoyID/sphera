@@ -1,6 +1,13 @@
 import type { Translations } from './index';
 
 export const de: Translations = {
+  chat_record_hold_voice: "Gedrückt halten für eine Sprachnachricht, tippen für ein Rundvideo",
+  chat_record_hold_circle: "Gedrückt halten für ein Rundvideo, tippen für eine Sprachnachricht",
+  chat_record_release: "Zum Senden loslassen",
+  chat_record_stop: "Aufnahme beenden",
+  chat_record_hint: "Zum Senden loslassen, nach oben zum Einrasten, nach links zum Abbrechen",
+  chat_record_locked: "Freihändige Aufnahme – zum Beenden tippen",
+
   auth_create_account: 'Konto erstellen', auth_welcome_back: 'Willkommen zurück', auth_signup_desc: 'Registrieren Sie sich, um zu starten', auth_signin_desc: 'Melden Sie sich an, um fortzufahren', auth_login: 'Benutzername', auth_register: 'Registrieren', auth_password: 'Passwort', auth_nickname: 'Spitzname (Anzeigename)', auth_photo: 'Foto', auth_already_have: 'Bereits ein Konto?', auth_dont_have: 'Kein Konto?', auth_signin: 'Anmelden', auth_connection_error: 'Verbindungsfehler', auth_email: 'E-Mail', auth_verify_title: 'E-Mail bestätigen', auth_verify_desc: 'Geben Sie den Code ein, den wir gesendet haben an', auth_code: 'Bestätigungscode', auth_confirm: 'Bestätigen', auth_code_sent: 'Ein Bestätigungscode wurde an Ihre E-Mail gesendet.', auth_resend_code: 'Code erneut senden', auth_change_email: 'Daten ändern',
   auth_forgot: 'Passwort vergessen?',
   auth_reset_title: 'Passwort zurücksetzen',

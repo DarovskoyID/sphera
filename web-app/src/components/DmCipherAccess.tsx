@@ -4,7 +4,7 @@ import type { GuildCipherMessage } from '../core/mesh/guildCipherMessage';
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { useApp } from '../context/AppContext';
 import { DmCipherSession, DmCipherQueuedError } from '../core/mesh/dmCipherSession';
-import { applicationKeys } from '../core/mesh/applicationAuth';
+import { applicationKeys,type ApplicationKeys } from '../core/mesh/applicationAuth';
 import { accountBytes, accountDigest } from '../core/mesh/account';
 import { ENTRY_PIN_KEY, loadEntryPointPin } from '../core/mesh/entryPoint';
 import type { CipherScopeBody } from '../core/mesh/cipherPolicy';
@@ -49,6 +49,7 @@ function CipherChatProvider({ children, target }: { children: ReactNode; target?
   const ready = shared.ready;
   const [busy, setBusy] = useState(false);
   const [textScope, setTextScope] = useState<string | null>(null);
+  const [localKeys,setLocalKeys]=useState<ApplicationKeys|null>(null);
   const [file, setFile] = useState<File | null>(null), [password, setPassword] = useState('');
   const [backup, setBackup] = useState<File | null>(null);
   const [sourceArchiveKey, setSourceArchiveKey] = useState<File | null>(null), [sourceArchivePassword, setSourceArchivePassword] = useState('');
@@ -86,6 +87,7 @@ function CipherChatProvider({ children, target }: { children: ReactNode; target?
   const reviewHandler = useRef<(body: CipherScopeBody) => Promise<boolean>>(async () => false);
   reviewHandler.current = body => {
     if (body.source !== source || body.scope !== chatConversationId) return Promise.resolve(false);
+    if(body.domain==='sfera-mesh-cipher-scope-v2' && body.members.length===2 && body.members.includes(userIDonServer))return Promise.resolve(true);
     const captured = routeKey, key = JSON.stringify([body.source, body.scope, body.epoch, body.roster]);
     if (approved.current.has(key)) return Promise.resolve(true);
     return new Promise<boolean>(resolve => {
@@ -128,8 +130,18 @@ function CipherChatProvider({ children, target }: { children: ReactNode; target?
     const opened = session.current;
     if (ready && opened && chatConversationId) void updateRecords(opened, chatConversationId).catch(() => undefined);
   }, [ready, identity, routeKey]);
+  useEffect(()=>{
+    setLocalKeys(null);
+    if(app.currentUser?.service_capabilities?.mode!=='distributed')return;
+    for(let i=0;i<localStorage.length;i++) {
+      const name=localStorage.key(i);if(!name?.startsWith('sfera_distributed_credentials_v1:'))continue;
+      try {const value=JSON.parse(localStorage.getItem(name)??'null'),keys=applicationKeys(value.keys,currentServerIP);
+        if(keys.applicationUser===userIDonServer){setLocalKeys(keys);break;}
+      } catch { /* Other accounts and damaged local files are not selected. */ }
+    }
+  },[identity,app.currentUser?.service_capabilities?.mode]);
   const unlock = async () => {
-    if (busy || !file || file.size > 32768) return;
+    if (busy || (!file && !localKeys) || file && file.size > 32768) return;
     setBusy(true); setNotice('');
     const captured = identity, generation = revision.current, pinText = localStorage.getItem(ENTRY_PIN_KEY);
     const guard = () => current.current === captured && revision.current === generation && localStorage.getItem(ENTRY_PIN_KEY) === pinText;
@@ -138,10 +150,10 @@ function CipherChatProvider({ children, target }: { children: ReactNode; target?
       await closing.current;
       const pin = await loadEntryPointPin(localStorage);
       if (!pin || new URL(currentServerIP).origin !== pin.url) throw new Error('entry_pin_required');
-      const keys = applicationKeys(JSON.parse(await file.text()), currentServerIP);
+      const keys = file?applicationKeys(JSON.parse(await file.text()), currentServerIP):localKeys!;
       if (archiveKeyFile && (archiveKeyFile.size > 8192 || !archivePassword)) throw new Error('invalid_archive_key');
       const archiveKey = archiveKeyFile ? { file: JSON.parse(await archiveKeyFile.text()), password: archivePassword } : undefined;
-      opened = await shared.open(keys, pin, password, archiveKey, profileGuard);
+      opened = await shared.open(keys, pin, password, archiveKey, profileGuard,app.currentUser?.service_capabilities?.mode==='distributed');
       if (!guard()) throw new Error('cancelled'); setNotice('Ключи открыты на этом устройстве.');
       if (chatConversationId) await updateRecords(opened, chatConversationId);
     } catch {
@@ -295,14 +307,14 @@ function CipherChatProvider({ children, target }: { children: ReactNode; target?
   };
   automaticTask.current = () => openMessages(true);
   useEffect(() => {
-    if (!automatic || !readyHere || !chatConversationId || !protectedMode || !checked) return;
-    let cancelled = false, delay = 30000;
+    if ((!automatic && app.currentUser?.service_capabilities?.mode!=='distributed') || !readyHere || !chatConversationId || !protectedMode || !checked) return;
+    let cancelled = false, delay = app.currentUser?.service_capabilities?.mode==='distributed'?5000:30000;
     let timer: ReturnType<typeof setTimeout>;
     const step = async () => {
       if (cancelled) return;
       if (document.visibilityState === 'visible') {
         const succeeded = await automaticTask.current();
-        delay = succeeded ? 30000 : Math.min(300000, delay * 2);
+        delay = succeeded ? (app.currentUser?.service_capabilities?.mode==='distributed'?5000:30000) : Math.min(300000, delay * 2);
       }
       if (!cancelled) timer = setTimeout(() => void step(), delay);
     };
@@ -312,7 +324,7 @@ function CipherChatProvider({ children, target }: { children: ReactNode; target?
   const context: Access = { protected: protectedMode, checked, ready: readyHere, readReceipts: !target, send,
     texts: readyHere && textScope === routeKey ? texts : {}, unavailable: readyHere && textScope === routeKey ? unavailable : {}, confirmRead, verifyRead };
   const decide = (accepted: boolean) => { const pending = review.current; review.current = null; setQuestion(null); pending?.answer(accepted); };
-  const panel = <section aria-label="Защита личного диалога" style={{ padding: 10, borderBottom: '1px solid var(--border-color)', overflowWrap: 'anywhere' }}>
+  const advancedPanel = <section aria-label="Защита личного диалога" style={{ padding: 10, borderBottom: '1px solid var(--border-color)', overflowWrap: 'anywhere' }}>
       {!checked ? <button onClick={() => setRefresh(value => value + 1)}>Проверить защиту диалога</button> : <>
         <strong>{protectedMode ? 'Сквозное шифрование' : 'Обычный диалог'}</strong>
         {!protectedMode && mode.available && <button onClick={() => chatConversationId && setSelected(previous => ({ ...previous, [routeKey]: true }))}>Включить сквозное шифрование</button>}
@@ -367,6 +379,12 @@ function CipherChatProvider({ children, target }: { children: ReactNode; target?
         {['draft', 'ready', 'pending', 'accepted'].includes(record.state) && <button disabled={busy} onClick={() => void retry(record)}>{record.state === 'accepted' ? 'Завершить сохранение' : 'Повторить'}</button>}
       </div>)}
     </section>;
+  const panel=app.currentUser?.service_capabilities?.mode==='distributed' ? <section aria-label="Защита сообщений" style={{padding:8}}>
+    {readyHere?<small>Сообщения защищены сквозным шифрованием.</small>:<form onSubmit={event=>{event.preventDefault();void unlock();}}>
+      <p>{localKeys?'Введите пароль, чтобы открыть сообщения на этом устройстве.':'Войдите в аккаунт заново, чтобы открыть сообщения.'}</p>
+      {localKeys&&<><input aria-label="Пароль аккаунта" type="password" autoComplete="current-password" value={password} onChange={event=>setPassword(event.target.value)} disabled={busy}/><button disabled={busy||!password}>Открыть сообщения</button></>}
+    </form>}{notice&&<p role="status">{notice}</p>}
+  </section>:advancedPanel;
   return <Context.Provider value={{ ...context, panel }}>{children}</Context.Provider>;
 }
 export function DmCipherPanel() { return <>{useDmCipher()?.panel}</>; }

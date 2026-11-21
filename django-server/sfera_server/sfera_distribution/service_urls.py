@@ -1,7 +1,7 @@
 """Mount only implemented distributed routes; legacy registration is not used."""
 from django.urls import include,path
 from sfera_auth import mesh_views,views,account_views,cipher_views
-from .views import consensus_gateway,current_user,users_list,update_status,conversation_create,conversations
+from .views import consensus_gateway,current_user,users_list,update_status,conversation_create,conversations,sdk_request,replicated_message_echo
 from sfera_messages import views as message_views
 from sfera_modules import views as module_views
 from . import compatibility
@@ -56,6 +56,7 @@ urlpatterns=[
     path('api/conversations/create/',conversation_create),
     path('api/conversations/',conversations),
     path('api/conversations/<uuid:conversation_id>/messages/',message_views.message_list),
+    path('api/conversations/<uuid:conversation_id>/messages/cipher/send/',replicated_message_echo),
     path('api/ws/authorize/',message_views.ws_authorize),
     path('api/chat-safety/',message_views.chat_safety),
     path('mesh/network/v1/rpc',consensus_gateway),
@@ -74,7 +75,7 @@ overrides=[
         'password-reset/','password-reset/send-code/')],
     path('api/auth/me/password/',compatibility.unavailable,{'feature':'owner_signed_password_change'}),
     path('api/auth/me/delete/',compatibility.unavailable,{'feature':'network_account_withdrawal'}),
-    path('api/auth/mesh/cipher/relay/',compatibility.unavailable,{'feature':'distributed_cipher_key_transport'}),
+    path('api/auth/mesh/cipher/relay/',sdk_request),
     path('api/conversations/<uuid:conversation_id>/delete/',compatibility.unavailable,{'feature':'distributed_dialog_deletion'}),
     path('api/turn/',compatibility.turn_credentials),
 ]

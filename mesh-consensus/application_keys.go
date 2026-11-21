@@ -42,6 +42,7 @@ type applicationPublicKey struct {
 	Document string
 	Public   string
 	Consumed bool
+	Fallback bool
 }
 type applicationKeyPool map[string]map[string]applicationPublicKey
 
@@ -84,7 +85,7 @@ func decodeApplicationKey(s State, tx []byte, current bool) (ApplicationKeyRecor
 	if err != nil || !ed25519.Verify(pub, canonical(b), sig) {
 		return r, errors.New("application key signature")
 	}
-	if b.Kind == "upload" {
+	if b.Kind == "upload" || b.Kind == "fallback" {
 		if b.Dialog != "" || b.TargetOwner != "" || b.TargetDevice != "" || b.KeysUTF8 == "" {
 			return r, errors.New("application key upload context")
 		}
@@ -120,7 +121,7 @@ func decodeApplicationKey(s State, tx []byte, current bool) (ApplicationKeyRecor
 }
 
 // Matrix signatures exclude unsigned/signatures. This schema deliberately only
-// accepts signed_curve25519 one-time keys; fallback is an explicit future format.
+// accepts signed one-time keys and explicitly marked, reusable fallback keys.
 func applicationKeyDocuments(s State, r ApplicationKeyRecord) (map[string]applicationPublicKey, error) {
 	raw, err := hex.DecodeString(r.Body.KeysUTF8)
 	if err != nil || hex.EncodeToString(raw) != r.Body.KeysUTF8 || len(raw) > 30000 {
@@ -132,7 +133,7 @@ func applicationKeyDocuments(s State, r ApplicationKeyRecord) (map[string]applic
 		}
 	}
 	var docs map[string]json.RawMessage
-	if json.Unmarshal(raw, &docs) != nil || !bytes.Equal(raw, canonical(docs)) || len(docs) < 1 || len(docs) > 128 {
+	if json.Unmarshal(raw, &docs) != nil || !bytes.Equal(raw, canonical(docs)) || len(docs) < 1 || len(docs) > 128 || r.Body.Kind == "fallback" && len(docs) != 1 {
 		return nil, errors.New("application key documents schema")
 	}
 	cert := s.CipherDevices[r.Body.Owner+":"+r.Body.Device].Certificate.Body
@@ -146,18 +147,26 @@ func applicationKeyDocuments(s State, r ApplicationKeyRecord) (map[string]applic
 		var value struct {
 			Key        string                       `json:"key"`
 			Signatures map[string]map[string]string `json:"signatures"`
+			Fallback   *bool                        `json:"fallback,omitempty"`
 		}
 		if json.Unmarshal(doc, &value) != nil || !bytes.Equal(doc, canonical(value)) {
 			return nil, errors.New("application one time key schema")
 		}
+		if (r.Body.Kind == "fallback") != (value.Fallback != nil) || value.Fallback != nil && !*value.Fallback {
+			return nil, errors.New("application fallback schema")
+		}
 		if _, err := sdkPublic(value.Key, 32); err != nil {
 			return nil, err
 		}
+		signedBody := map[string]any{"key": value.Key}
+		if value.Fallback != nil {
+			signedBody["fallback"] = true
+		}
 		sig, err := sdkPublic(value.Signatures[user]["ed25519:"+r.Body.Device], 64)
-		if err != nil || !ed25519.Verify(pub, canonical(map[string]string{"key": value.Key}), sig) {
+		if err != nil || !ed25519.Verify(pub, canonical(signedBody), sig) {
 			return nil, errors.New("application one time key signature")
 		}
-		result[id] = applicationPublicKey{Document: hex.EncodeToString(doc), Public: value.Key}
+		result[id] = applicationPublicKey{Document: hex.EncodeToString(doc), Public: value.Key, Fallback: value.Fallback != nil}
 	}
 	return result, nil
 }
@@ -165,7 +174,7 @@ func applicationKeyDocuments(s State, r ApplicationKeyRecord) (map[string]applic
 func performApplicationKey(s State, pool applicationKeyPool, r ApplicationKeyRecord) (string, string, error) {
 	b := r.Body
 	identity := b.Owner + ":" + b.Device
-	if b.Kind == "upload" {
+	if b.Kind == "upload" || b.Kind == "fallback" {
 		docs, err := applicationKeyDocuments(s, r)
 		if err != nil {
 			return "", "", err
@@ -175,7 +184,7 @@ func performApplicationKey(s State, pool applicationKeyPool, r ApplicationKeyRec
 			current = map[string]applicationPublicKey{}
 		}
 		for id, doc := range docs {
-			if old, ok := current[id]; ok && old.Document != doc.Document {
+			if old, ok := current[id]; ok && (old.Document != doc.Document || doc.Fallback && old.Consumed) {
 				return "", "", errors.New("application key id immutable")
 			}
 			// An SDK signature signs the curve key, not its transport ID. Relabeling a
@@ -200,6 +209,16 @@ func performApplicationKey(s State, pool applicationKeyPool, r ApplicationKeyRec
 		if newCount > 512 {
 			return "", "", errors.New("application device key capacity")
 		}
+		if b.Kind == "fallback" {
+			for id, old := range current {
+				if old.Fallback {
+					if _, same := docs[id]; !same {
+						old.Consumed = true
+						current[id] = old
+					}
+				}
+			}
+		}
 		for id, doc := range docs {
 			if _, exists := current[id]; !exists {
 				current[id] = doc
@@ -215,13 +234,20 @@ func performApplicationKey(s State, pool applicationKeyPool, r ApplicationKeyRec
 			ids = append(ids, id)
 		}
 	}
-	sort.Strings(ids)
+	sort.Slice(ids, func(i, j int) bool {
+		if target[ids[i]].Fallback != target[ids[j]].Fallback {
+			return !target[ids[i]].Fallback
+		}
+		return ids[i] < ids[j]
+	})
 	if len(ids) == 0 {
 		return "", "", nil
 	}
 	id := ids[0]
 	key := target[id]
-	key.Consumed = true
+	if !key.Fallback {
+		key.Consumed = true
+	}
 	target[id] = key
 	return id, key.Document, nil
 }

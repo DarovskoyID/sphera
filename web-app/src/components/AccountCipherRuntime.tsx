@@ -3,12 +3,13 @@ import { useApp } from '../context/AppContext';
 import { DmCipherSession } from '../core/mesh/dmCipherSession';
 import type { ApplicationKeys } from '../core/mesh/applicationAuth';
 import type { TrustedEntryPoint } from '../core/mesh/entryPoint';
-import { ENTRY_PIN_KEY } from '../core/mesh/entryPoint';
+import {applicationDeviceAccess} from '../core/mesh/applicationActions';
+import { ENTRY_PIN_KEY,loadEntryPointPin } from '../core/mesh/entryPoint';
 import type { CipherScopeBody } from '../core/mesh/cipherPolicy';
 
 type Reviewer = (body: CipherScopeBody) => Promise<boolean>;
 function useRuntime() {
-  const { currentServerIP, authToken, userIDonServer } = useApp();
+  const { currentServerIP, authToken, userIDonServer, currentUser } = useApp();
   const identity = JSON.stringify([currentServerIP, authToken, userIDonServer]);
   const actor = useRef(identity); actor.current = identity;
   const token = useRef(authToken); token.current = authToken;
@@ -37,14 +38,7 @@ function useRuntime() {
       return () => clearTimeout(timer);
     } catch { /* Session unlock independently validates the mesh token. */ }
   }, [identity, openedFor]);
-  return {
-    session, closing, ready: openedFor === identity && !!session.current,
-    lock,
-    attachReviewer(owner: object, review: Reviewer) {
-      reviewer.current = { owner, review };
-      return () => { if (reviewer.current?.owner === owner) reviewer.current = null; };
-    },
-    async open(keys: ApplicationKeys, pin: TrustedEntryPoint, password: string, archiveKey?: { file: unknown; password: string }, profileGuard = false) {
+  const open=async (keys: ApplicationKeys, pin: TrustedEntryPoint, password: string, archiveKey?: { file: unknown; password: string }, profileGuard = false,distributed=false) => {
       if (opening.current || session.current) throw new Error('cipher_session_already_open');
       opening.current = true;
       const captured = identity, generation = revision.current, pinText = localStorage.getItem(ENTRY_PIN_KEY);
@@ -53,12 +47,29 @@ function useRuntime() {
       try {
         await closing.current;
         opened = await DmCipherSession.unlock(keys, pin, userIDonServer, password,
-          { guard, archiveKey, profileGuard, token: () => token.current, review: body => guard() && reviewer.current ? reviewer.current.review(body) : Promise.resolve(false) });
+          { distributed,guard, archiveKey, profileGuard, token: () => token.current, review: body => guard() && reviewer.current ? reviewer.current.review(body) : Promise.resolve(false) });
         if (!guard()) throw new Error('cipher_context_changed');
         session.current = opened; setOpenedFor(captured); return opened;
       } catch (error) { await opened?.close(); throw error; }
       finally { opening.current = false; }
+  };
+  useEffect(()=>{
+    if(currentUser?.service_capabilities?.mode!=='distributed' || !authToken || !userIDonServer)return;
+    let cancelled=false,timer:ReturnType<typeof setTimeout>;let attempts=0;
+    const tryOpen=async()=>{if(cancelled || session.current)return;
+      try {const capability=applicationDeviceAccess(currentServerIP,authToken),pin=await loadEntryPointPin(localStorage);
+        if(cancelled || !pin || pin.url!==currentServerIP)return;await open(capability.keys,pin,'',undefined,true,true);
+      } catch {if(!cancelled && ++attempts<5)timer=setTimeout(()=>void tryOpen(),2000);}
+    };void tryOpen();return()=>{cancelled=true;clearTimeout(timer);};
+  },[identity,currentUser?.service_capabilities?.mode]);
+  return {
+    session, closing, ready: openedFor === identity && !!session.current,
+    lock,
+    attachReviewer(owner: object, review: Reviewer) {
+      reviewer.current = { owner, review };
+      return () => { if (reviewer.current?.owner === owner) reviewer.current = null; };
     },
+    open,
   };
 }
 const RuntimeContext = createContext<ReturnType<typeof useRuntime> | null>(null);

@@ -8,7 +8,24 @@ from sfera_auth.mesh_sessions import sessions, MeshUnavailable
 from .signaling import ApplicationSignalRelay
 
 _relay = None
+_sdk = None
 _lock = threading.RLock()
+
+
+def sdk_replica():
+    global _sdk
+    current=backend()
+    with _lock:
+        if _sdk is None:
+            from pathlib import Path
+            from sfera_mesh.cipher_authority import CipherAuthority
+            from .sdk_replica import SdkReplica
+            from .message_projection import project
+            path=Path(settings.DATABASES['default']['NAME']).parent/'sdk-node-replays.sqlite'
+            _sdk=SdkReplica(CipherAuthority(current),str(path),project=lambda record:project(current.directory,record))
+            atexit.register(_sdk.close)
+        if _sdk.backend is not current:raise MeshUnavailable('SDK replica runtime changed; restart is required')
+        return _sdk
 
 
 def backend():

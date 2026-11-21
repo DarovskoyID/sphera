@@ -16,7 +16,7 @@ from sfera_mesh.application_keys import record,perform,replay,check_progress,App
 from sfera_mesh.storage import canonical
 
 
-def fixture():
+def fixture(fallback=False):
     spec=importlib.util.spec_from_file_location('scope_fixture',Path(__file__).with_name('test-mesh-distributed-cipher-scope.py'))
     module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
     test=module.DistributedScope();test.setUp()
@@ -42,6 +42,14 @@ def fixture():
         doc['signatures']={user:{'ed25519:'+actor['did']:base64.b64encode(keys[1].sign(canonical(doc))).decode().rstrip('=')}}
         upload=command(1,'upload-1','upload',{'signed_curve25519:one':doc})
         commands=[upload,command(0,'claim-1','claim'),command(0,'claim-2','claim'),command(1,'upload-2','upload',{'signed_curve25519:one':doc}),command(0,'claim-3','claim')]
+        if fallback:
+            def fallback_doc():
+                value={'key':base64.b64encode(Ed25519PrivateKey.generate().public_key().public_bytes_raw()).decode().rstrip('='),'fallback':True}
+                value['signatures']={user:{'ed25519:'+actor['did']:base64.b64encode(keys[1].sign(canonical(value))).decode().rstrip('=')}}
+                return value
+            first=command(1,'fallback-1','fallback',{'signed_curve25519:aaa':fallback_doc()})
+            second=command(1,'fallback-2','fallback',{'signed_curve25519:bbb':fallback_doc()})
+            commands=[first,upload,command(0,'claim-1','claim'),command(0,'claim-2','claim'),command(0,'claim-3','claim'),second,command(0,'claim-4','claim')]
         initial=copy.deepcopy(state);pool={};state['application_keys']=[]
         for value in commands:
             record(value,state,network,genesis,current=True)
@@ -54,6 +62,11 @@ def fixture():
 
 class Keys(unittest.TestCase):
     def setUp(self):self.f=fixture()
+    def test_fallback_priority_reuse_rotation_and_retirement(self):
+        f=fixture(True);pool=replay(f['state'],f['network'],f['genesis'])
+        self.assertEqual([r['key_id'] for r in f['state']['application_keys']],['','','signed_curve25519:one','signed_curve25519:aaa','signed_curve25519:aaa','','signed_curve25519:bbb'])
+        with self.assertRaisesRegex(ValueError,'immutable'):perform(f['commands'][0],f['state'],pool,f['genesis'])
+
     def test_exactly_once_and_reupload_cannot_resurrect_key(self):
         f=self.f;pool=replay(f['state'],f['network'],f['genesis'])
         receipts=f['state']['application_keys']
@@ -94,5 +107,6 @@ class Keys(unittest.TestCase):
 if __name__=='__main__':
     if '--write-fixture' in sys.argv:
         Path('mesh-consensus/testdata/application-keys-v1.json').write_bytes(canonical(fixture())+b'\n')
+        Path('mesh-consensus/testdata/application-fallback-v1.json').write_bytes(canonical(fixture(True))+b'\n')
         sys.argv.remove('--write-fixture')
     unittest.main()

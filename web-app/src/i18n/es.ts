@@ -1,6 +1,13 @@
 import type { Translations } from './index';
 
 export const es: Translations = {
+  chat_record_hold_voice: "Mantén pulsado para grabar voz; toca para grabar un vídeo circular",
+  chat_record_hold_circle: "Mantén pulsado para grabar un vídeo circular; toca para grabar voz",
+  chat_record_release: "Suelta para enviar",
+  chat_record_stop: "Detener grabación",
+  chat_record_hint: "Suelta para enviar, desliza arriba para bloquear o a la izquierda para cancelar",
+  chat_record_locked: "Grabación con manos libres: toca para detener",
+
   auth_create_account: 'Crear cuenta', auth_welcome_back: 'Bienvenido de nuevo', auth_signup_desc: 'Regístrate para comenzar', auth_signin_desc: 'Inicia sesión para continuar', auth_login: 'Usuario', auth_register: 'Registrarse', auth_password: 'Contraseña', auth_nickname: 'Apodo (nombre visible)', auth_photo: 'Foto', auth_already_have: '¿Ya tienes cuenta?', auth_dont_have: '¿No tienes cuenta?', auth_signin: 'Iniciar sesión', auth_connection_error: 'Error de conexión', auth_email: 'Correo electrónico', auth_verify_title: 'Confirma tu correo', auth_verify_desc: 'Introduce el código que enviamos a', auth_code: 'Código de confirmación', auth_confirm: 'Confirmar', auth_code_sent: 'Se ha enviado un código de confirmación a tu correo.', auth_resend_code: 'Reenviar código', auth_change_email: 'Cambiar datos',
   auth_forgot: '¿Olvidaste la contraseña?',
   auth_reset_title: 'Recuperar contraseña',

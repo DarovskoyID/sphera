@@ -1,3 +1,4 @@
+import {applicationDeviceAccess} from './applicationActions';
 import { GuildCipherSession } from './guildCipherSession';
 import { signApplicationSignal } from './applicationSignals';
 import { signDeviceApplicationDialog } from './applicationDialogs';
@@ -18,7 +19,8 @@ import { entryProbeNonce } from './entryPoint';
 import { verifyDmReadReceipt } from './dmCipherRead';
 import { openDeviceArchiveKey, prepareDeviceArchiveKey, type DeviceArchiveContext, type DeviceArchiveKeyFile } from './deviceArchiveKeys';
 
-type Options = { guard: () => boolean; token: () => string;
+type Options = {
+  distributed?:boolean; guard: () => boolean; token: () => string;
   review: (body: CipherScopeBody) => Promise<boolean>; transport?: typeof fetch;
   archiveKey?: { file: unknown; password: string }; profileGuard?: boolean };
 export { DmCipherQueuedError } from './cipherQueuedError';
@@ -55,7 +57,7 @@ export class DmCipherSession {
     const archiveCredential = options.archiveKey ? { file: JSON.parse(JSON.stringify(options.archiveKey.file)), password: options.archiveKey.password } : undefined;
     // Neither coordinator/outbox options nor their long-lived guards retain
     // the archive password after this unlock operation finishes.
-    options = { guard: options.guard, token: options.token, review: options.review, transport: options.transport, profileGuard: options.profileGuard };
+    options = { distributed:options.distributed,guard: options.guard, token: options.token, review: options.review, transport: options.transport, profileGuard: options.profileGuard };
     keys = applicationKeys(keys, pin.url); pin = { ...pin };
     const own = { network: keys.network, genesis: keys.genesis,
       owner: await meshUserId(keys.ownerPublic), device: await meshDeviceId(keys.devicePublic) };
@@ -77,27 +79,30 @@ export class DmCipherSession {
     const archiveContext: DeviceArchiveContext = { ...own, device_public: keys.devicePublic, entry: pin.nodeId, user };
     let archiveDescriptor: DeviceArchiveKeyFile | undefined;
     try {
-      deviceRoot = await unlockVault(keys.deviceVault, await meshUserId(keys.devicePublic), password);
+      const cached=password?undefined:applicationDeviceAccess(pin.url,options.token());
+      if(!cached)deviceRoot = await unlockVault(keys.deviceVault, await meshUserId(keys.devicePublic), password);
       const encoded = new Uint8Array(48);
-      encoded.set([0x30, 0x2e, 0x02, 0x01, 0x00, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x04, 0x22, 0x04, 0x20]); encoded.set(deviceRoot,16);
+      encoded.set([0x30, 0x2e, 0x02, 0x01, 0x00, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x04, 0x22, 0x04, 0x20]); if(deviceRoot)encoded.set(deviceRoot,16);
       let readKey: CryptoKey;
-      try { readKey=await crypto.subtle.importKey('pkcs8',encoded,'Ed25519',false,['sign']); } finally { encoded.fill(0); }
+      try { readKey=cached?.signer ?? await crypto.subtle.importKey('pkcs8',encoded,'Ed25519',false,['sign']); } finally { encoded.fill(0); }
       current();
-      sdkKey = await derive(deviceRoot, own, 'sfera-dm-device-sdk-key-v1');
-      outboxRoot = await derive(deviceRoot, own, 'sfera-dm-device-outbox-key-v1');
+      const deriveDevice=(purpose:string)=>cached?cached.derive(own,purpose):derive(deviceRoot!,own,purpose);
+      sdkKey = await deriveDevice('sfera-dm-device-sdk-key-v1');
+      outboxRoot = await deriveDevice('sfera-dm-device-outbox-key-v1');
       if (archiveCredential) {
         const openedKey = await openDeviceArchiveKey(archiveCredential.file, archiveCredential.password, archiveContext);
         archiveRoot = openedKey.root; archiveDescriptor = openedKey.file;
-      } else archiveRoot = await derive(deviceRoot, own, 'sfera-dm-device-archive-key-v1');
-      guildOutboxRoot = await derive(deviceRoot, own, 'sfera-guild-device-outbox-key-v1');
+      } else archiveRoot = await deriveDevice('sfera-dm-device-archive-key-v1');
+      guildOutboxRoot = await deriveDevice('sfera-guild-device-outbox-key-v1');
       const guarded = { ...options, guard: current, profile: {signer:readKey,devicePublic:keys.devicePublic,enabled:options.profileGuard===true} };
       coordinator = await DmCipherCoordinator.open(own, pin, user,
         Array.from(sdkKey, byte => byte.toString(16).padStart(2, '0')).join(''), guarded);
-      const certificate = await signCipherCertificate(coordinator.publicIdentity(), keys.devicePublic, deviceRoot);
+      const certificate = await signCipherCertificate(coordinator.publicIdentity(), keys.devicePublic, cached?.signer??deviceRoot!);
       await coordinator.registerDevice(certificate);
       current();
       const opened = coordinator;
       outbox = await DmCipherOutbox.open(own, pin, user, outboxRoot, { ...guarded,
+        publishDistributed:(scope,cipher,queuedAt)=>opened.publishMessage(scope,cipher,queuedAt),
         sealAuthorized: (scope, id, payload) => opened.sealAuthorized(scope, id, payload),
         seal: (scope, id, payload) => opened.seal(scope, id, payload) });
       guildOutbox = await DmCipherOutbox.open<GuildCipherMessage>(own, pin, user, guildOutboxRoot, { ...guarded, source: 'guild',
@@ -167,7 +172,8 @@ export class DmCipherSession {
   }
   async openMessages(scope: string, values: unknown[]) {
     const wires = values.map(value => parseDmCipherMessage(value, scope));
-    const checked = await this.coordinator.messageStatus(scope, wires), statuses = checked.messages;
+    let checked = await this.coordinator.messageStatus(scope, wires);
+    let statuses = checked.messages;
     const results: Array<{ id: string; text: string | null; sender: { user: string }; deleted: boolean }> = [];
     for (let i = 0; i < wires.length; i++) {
       const wire = wires[i], status = statuses[i];
@@ -186,7 +192,11 @@ export class DmCipherSession {
       const opened = await this.coordinator.openArchived(scope, wire, this.archive);
       results.push({ ...opened, deleted: false });
     }
-    if (checked.expiresAt <= Date.now() / 1000) throw new Error('dm_cipher_status_expired');
+    if(checked.expiresAt<=Date.now()/1000){
+      checked=await this.coordinator.messageStatus(scope,wires);
+      for(const result of results){const fresh=checked.messages.find(m=>m.id===result.id);
+        if(!fresh || (result.deleted?fresh.state!=='deleted':fresh.state!=='present'))throw new Error('dm_cipher_status_changed_during_open');}
+    }
     return results;
   }
   async drain(scope: string, limit = 8) {

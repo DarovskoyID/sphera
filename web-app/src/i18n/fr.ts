@@ -1,6 +1,13 @@
 import type { Translations } from './index';
 
 export const fr: Translations = {
+  chat_record_hold_voice: "Maintenir pour enregistrer un message vocal, toucher pour une vidéo ronde",
+  chat_record_hold_circle: "Maintenir pour enregistrer une vidéo ronde, toucher pour un message vocal",
+  chat_record_release: "Relâcher pour envoyer",
+  chat_record_stop: "Arrêter l’enregistrement",
+  chat_record_hint: "Relâcher pour envoyer, glisser vers le haut pour verrouiller ou à gauche pour annuler",
+  chat_record_locked: "Enregistrement mains libres : toucher pour arrêter",
+
   auth_create_account: 'Créer un compte', auth_welcome_back: 'Bon retour', auth_signup_desc: 'Inscrivez-vous pour commencer', auth_signin_desc: 'Connectez-vous pour continuer', auth_login: 'Identifiant', auth_register: "S'inscrire", auth_password: 'Mot de passe', auth_nickname: 'Pseudo (nom affiché)', auth_photo: 'Photo', auth_already_have: 'Vous avez déjà un compte ?', auth_dont_have: "Pas encore de compte ?", auth_signin: 'Se connecter', auth_connection_error: 'Erreur de connexion', auth_email: 'E-mail', auth_verify_title: 'Confirmez votre e-mail', auth_verify_desc: 'Saisissez le code envoyé à', auth_code: 'Code de confirmation', auth_confirm: 'Confirmer', auth_code_sent: 'Un code de confirmation a été envoyé à votre e-mail.', auth_resend_code: 'Renvoyer le code', auth_change_email: 'Modifier les informations',
   auth_forgot: 'Mot de passe oublié ?',
   auth_reset_title: 'Récupération du mot de passe',

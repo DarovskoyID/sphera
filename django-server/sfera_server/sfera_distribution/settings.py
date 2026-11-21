@@ -53,6 +53,7 @@ MEDIA_ROOT=database.parent/'media';MEDIA_URL='/media/'
 FILE_UPLOAD_TEMP_DIR=str(database.parent/'upload-tmp')
 SFERA_MESH_ACCOUNT_RECOVERY=True;SFERA_MESH_CIPHER_AUTHORITY=True
 SFERA_MESH_CIPHER_PROFILE_GUARD=True
+SFERA_MESH_CIPHER_MESSAGES=True
 ROOT_URLCONF='sfera_distribution.service_urls'
 WSGI_APPLICATION='sfera_distribution.wsgi.application'
 ASGI_APPLICATION='sfera_distribution.asgi.application'

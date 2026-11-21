@@ -45,7 +45,7 @@ def record(value,state,network,genesis,*,current=False):
     pin=state.get('cipher_devices',{}).get(body['owner']+':'+body['device'])
     if not active or pin is None:raise ValueError('application_key_device_not_admitted')
     signed(Ed25519PublicKey.from_public_bytes(public(pin['certificate']['body']['ed25519'],32)),value['signature'],body)
-    if body['kind']=='upload':
+    if body['kind'] in ('upload','fallback'):
         if body['dialog']!='' or body['target_owner']!='' or body['target_device']!='' or body['keys_utf8']=='':
             raise ValueError('application_key_upload_context')
     elif body['kind']=='claim':
@@ -73,38 +73,43 @@ def documents(value,state,genesis):
     if raw.hex()!=body['keys_utf8'] or len(raw)>30000 or any(c<32 or c>126 or c in b'<>&' for c in raw):
         raise ValueError('application_key_documents_encoding')
     docs=json.loads(raw)
-    if not isinstance(docs,dict) or not 1<=len(docs)<=128 or raw!=canonical(docs):raise ValueError('application_key_documents_schema')
+    if not isinstance(docs,dict) or not 1<=len(docs)<=128 or raw!=canonical(docs) or body['kind']=='fallback' and len(docs)!=1:raise ValueError('application_key_documents_schema')
     cert=state['cipher_devices'][body['owner']+':'+body['device']]['certificate']['body']
     key=Ed25519PublicKey.from_public_bytes(public(cert['ed25519'],32))
     user='@'+body['owner']+':'+genesis+'.sphere';result={}
     for identity,doc in docs.items():
-        if re.fullmatch(r'signed_curve25519:[A-Za-z0-9+/]{1,128}',identity) is None or not isinstance(doc,dict) or set(doc)!={'key','signatures'}:
+        if re.fullmatch(r'signed_curve25519:[A-Za-z0-9+/]{1,128}',identity) is None or not isinstance(doc,dict) or set(doc)!=({'key','signatures','fallback'} if body['kind']=='fallback' else {'key','signatures'}):
             raise ValueError('application_one_time_key_schema')
         public(doc['key'],32)
+        if body['kind']=='fallback' and doc['fallback'] is not True:raise ValueError('application_fallback_schema')
         signatures=doc['signatures']
         if (not isinstance(signatures,dict) or any(not isinstance(values,dict) or any(not isinstance(value,str) for value in values.values())
                                                  for values in signatures.values())):
             raise ValueError('application_key_signature_schema')
-        signed(key,signatures[user]['ed25519:'+body['device']],{'key':doc['key']})
-        result[identity]={'document':canonical(doc).hex(),'public':doc['key'],'consumed':False}
+        signed(key,signatures[user]['ed25519:'+body['device']],{k:v for k,v in doc.items() if k!='signatures'})
+        result[identity]={'document':canonical(doc).hex(),'public':doc['key'],'consumed':False,'fallback':body['kind']=='fallback'}
     return result
 
 
 def perform(value,state,pool,genesis):
     body=value['body'];identity=body['owner']+':'+body['device']
-    if body['kind']=='upload':
+    if body['kind'] in ('upload','fallback'):
         docs=documents(value,state,genesis);existing=pool.get(identity,{})
         if len(set(existing)|set(docs))>512:raise ValueError('application_device_key_capacity')
         all_docs={**existing,**docs}
         if len({doc['public'] for doc in all_docs.values()})!=len(all_docs):raise ValueError('application_key_alias')
         for name,doc in docs.items():
-            if name in existing and existing[name]['document']!=doc['document']:raise ValueError('application_key_id_immutable')
+            if name in existing and (existing[name]['document']!=doc['document'] or doc['fallback'] and existing[name]['consumed']):raise ValueError('application_key_id_immutable')
+        if body['kind']=='fallback':
+            for name,doc in existing.items():
+                if doc['fallback'] and name not in docs:doc['consumed']=True
         for name,doc in docs.items():existing.setdefault(name,doc)
         pool[identity]=existing;return '',''
     target=pool.get(body['target_owner']+':'+body['target_device'],{})
-    available=sorted(name for name,doc in target.items() if not doc['consumed'])
+    available=sorted((name for name,doc in target.items() if not doc['consumed']),key=lambda name:(target[name]['fallback'],name))
     if not available:return '',''
-    name=available[0];target[name]['consumed']=True
+    name=available[0]
+    if not target[name]['fallback']:target[name]['consumed']=True
     return name,target[name]['document']
 
 

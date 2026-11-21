@@ -10,4 +10,5 @@ urlpatterns=[
     path('keys/',views.keys),
     path('signals/relay/',views.relay_signal),
     path('signals/forward/',views.forward_signal),
+    path('sdk/replica/',views.sdk_replica_receive),
 ]

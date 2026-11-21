@@ -8,13 +8,71 @@ from rest_framework.throttling import AnonRateThrottle
 from sfera_auth.mesh_sessions import MeshJWTAuthentication,MeshUnavailable,submit_account_record,CLAIM
 from sfera_mesh.consensus_directory import ConsensusUnavailable
 from sfera_mesh.application_catalog import ApplicationCatalog
-from .runtime import backend,signal_relay
+from .runtime import backend,signal_relay,sdk_replica
 from .capabilities import capabilities
 
 
 class PublicApplicationThrottle(AnonRateThrottle):
     scope='distributed_application_public'
     rate='120/min'
+
+
+@api_view(['POST'])
+@authentication_classes([MeshJWTAuthentication])
+@permission_classes([IsAuthenticated])
+@parser_classes([JSONParser])
+def sdk_request(request):
+    try:
+        if set(request.data)!={'record'}:raise ValueError('sdk_request_schema')
+        result=sdk_replica().request(request.data['record'],str(request.user.pk),request.auth[CLAIM])
+    except ConsensusUnavailable as exc:raise MeshUnavailable() from exc
+    except (OSError,ValueError,TypeError,KeyError) as exc:
+        if 'quorum_unavailable' in str(exc):raise MeshUnavailable() from exc
+        return _response({'error':'sdk_relay_rejected'},409)
+    return _response(result)
+
+
+@api_view(['POST'])
+@authentication_classes([])
+@permission_classes([AllowAny])
+@parser_classes([JSONParser])
+@throttle_classes([PublicApplicationThrottle])
+def sdk_replica_receive(request):
+    try:result=sdk_replica().receive(request.data)
+    except ConsensusUnavailable as exc:raise MeshUnavailable() from exc
+    except (OSError,ValueError,TypeError,KeyError) as exc:
+        import re
+        reason=str(exc) if isinstance(exc,ValueError) and re.fullmatch('[a-z][a-z0-9_]{0,95}',str(exc)) else type(exc).__name__
+        logging.getLogger(__name__).warning('SDK replica request rejected: %s',reason)
+        return _response({'error':'sdk_replica_rejected'},403)
+    return _response(result)
+
+
+@api_view(['POST'])
+@authentication_classes([MeshJWTAuthentication])
+@permission_classes([IsAuthenticated])
+@parser_classes([JSONParser])
+def replicated_message_echo(request,conversation_id):
+    from hashlib import sha256
+    from sfera_mesh.storage import canonical
+    from sfera_messages.dm_cipher import parse
+    from sfera_messages.models import Message
+    from sfera_messages.serializers import MessageSerializer
+    try:
+        if set(request.data)-{'cipher','nonce'} or 'cipher' not in request.data:raise ValueError('message_schema')
+        value=parse(request.data['cipher'],conversation_id,author=request.user.pk)
+        replica=sdk_replica();b=replica.backend
+        with b.lock:
+            stored=b.db.execute('SELECT m.digest FROM sdk_replica_messages m JOIN sdk_replica_commits c ON c.id=m.operation WHERE m.id=? AND m.scope=? AND m.owner=?',
+                (value['id'],str(conversation_id),request.auth[CLAIM]['owner'])).fetchone()
+        if stored!=(sha256(canonical(value)).hexdigest(),):return _response({'error':'signed_message_replication_required'},409)
+        row=Message.objects.get(pk=value['id'],conversation_id=conversation_id,author=request.user)
+        result=dict(MessageSerializer(row).data)
+        if request.data.get('nonce'):result['nonce']=request.data['nonce']
+        result['replication_state']='quorum'
+        return _response(result)
+    except Message.DoesNotExist:return _response({'error':'message_projection_pending'},503)
+    except (ValueError,TypeError,KeyError):return _response({'error':'replicated_message_rejected'},409)
 
 
 def _response(value,status=200):
