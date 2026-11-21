@@ -1,6 +1,8 @@
 """Recover pending requests from other admitted application points."""
-from concurrent.futures import as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
+from datetime import datetime
+from threading import BoundedSemaphore
 from uuid import UUID
 
 from django.db import IntegrityError, transaction
@@ -17,6 +19,9 @@ from sfera_mesh.consensus_directory import ConsensusUnavailable
 from sfera_mesh.identity import envelope
 from sfera_mesh.storage import canonical
 from .runtime import sdk_replica
+
+inbox_workers = ThreadPoolExecutor(max_workers=12, thread_name_prefix='friend-inbox')
+inbox_slots = BoundedSemaphore(4)
 
 
 class PeerThrottle(AnonRateThrottle):
@@ -38,7 +43,8 @@ def outgoing(request):
             raise ValueError('friend_recipient_schema')
         recipient = UUID(payload['recipient'])
         rows = Friendship.objects.filter(to_user_id=recipient, status='pending').order_by('id')
-        rows = [[str(identity), str(author)] for identity, author in rows.values_list('id', 'from_user_id')[:256]]
+        rows = [[str(identity), str(author), created.isoformat()]
+                for identity, author, created in rows.values_list('id', 'from_user_id', 'created_at')[:256]]
         backend = replica.backend
         return Response(envelope(backend.entry_key, backend.directory.network, sender, 'friend-outgoing-reply-v1',
             {'nonce': request.data['record']['nonce'], 'rows': rows}))
@@ -63,23 +69,35 @@ def _fetch(replica, identity, peer, recipient):
     sender, body = replica.nodes.verify(json.loads(raw), 'friend-outgoing-reply-v1')
     if sender != identity or body['nonce'] != packet['record']['nonce'] or len(body['rows']) > 256:
         raise ValueError('friend_reply_context')
-    return [(UUID(row[0]), UUID(row[1])) for row in body['rows'] if isinstance(row, list) and len(row) == 2]
+    return [(UUID(row[0]), UUID(row[1]), datetime.fromisoformat(row[2]))
+            for row in body['rows'] if isinstance(row, list) and len(row) == 3]
 
 
 def _merge(recipient, rows):
     from .models import AccountProjection
     authors = {entry.user_id for entry in AccountProjection.objects
-               .filter(user_id__in={author for _, author in rows}).select_related('user')
+               .filter(user_id__in={author for _, author, _ in rows}).select_related('user')
                if not is_child(entry.user)}
-    for identity, author in rows:
-        if author == recipient or author not in authors:
+    for identity, author, created in rows:
+        if author == recipient or author not in authors or created.utcoffset() is None:
             continue
         pair = Q(from_user_id=author, to_user_id=recipient) | Q(from_user_id=recipient, to_user_id=author)
         blocked = Q(blocker_id=author, blocked_id=recipient) | Q(blocker_id=recipient, blocked_id=author)
         try:
             with transaction.atomic():
-                if not Friendship.objects.filter(pair).exists() and not BlockedUser.objects.filter(blocked).exists():
-                    Friendship.objects.create(id=identity, from_user_id=author, to_user_id=recipient, status='pending')
+                if BlockedUser.objects.filter(blocked).exists():
+                    continue
+                if Friendship.objects.filter(pair, status__in=['accepted', 'awaiting_parent']).exists():
+                    continue
+                incoming = Friendship.objects.filter(from_user_id=author, to_user_id=recipient).first()
+                if incoming:
+                    if incoming.status != 'rejected' or incoming.pk == identity or created <= incoming.created_at:
+                        continue
+                    # Legacy senders reused a rejected request's primary key.
+                    # A genuinely new attempt has a fresh ID.
+                    incoming.delete()
+                Friendship.objects.create(id=identity, from_user_id=author, to_user_id=recipient, status='pending')
+                Friendship.objects.filter(pk=identity).update(created_at=created)
         except IntegrityError:
             # A concurrent poll or user's local action won the insert.
             continue
@@ -98,9 +116,9 @@ def pending(request):
         replica = sdk_replica()
         peers = replica.roster()
         replica.nodes.roster = {identity: peer['public_key'] for identity, peer in peers.items()}
-        if replica.slots.acquire(blocking=False):
+        if inbox_slots.acquire(blocking=False):
             try:
-                jobs = [replica.pool.submit(_fetch, replica, identity, peer, recipient)
+                jobs = [inbox_workers.submit(_fetch, replica, identity, peer, recipient)
                         for identity, peer in peers.items() if identity != replica.backend.entry]
                 for job in as_completed(jobs):
                     try:
@@ -108,7 +126,7 @@ def pending(request):
                     except (OSError, ValueError, TypeError, KeyError, ConsensusUnavailable):
                         continue
             finally:
-                replica.slots.release()
+                inbox_slots.release()
     except (ConsensusUnavailable, OSError, ValueError):
         pass  # A temporary peer outage must not hide requests already received.
     rows = Friendship.objects.filter(to_user=request.user, status='pending')

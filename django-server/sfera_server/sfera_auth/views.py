@@ -925,6 +925,12 @@ def friend_request_send(request):
             # past the parent if a child is involved — including when it was
             # the parent who refused it the first time.
             waits = is_child(request.user) or is_child(to_user)
+            if getattr(django_settings, 'SFERA_DISTRIBUTED_APPLICATION', False):
+                from django.db import transaction
+                with transaction.atomic():
+                    existing.delete()
+                    existing = Friendship.objects.create(from_user=request.user, to_user=to_user,
+                        status='awaiting_parent' if waits else 'pending')
             existing.status = 'awaiting_parent' if waits else 'pending'
             existing.from_user = request.user
             existing.to_user = to_user

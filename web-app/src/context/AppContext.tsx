@@ -691,6 +691,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       }
     };
     const timer = setInterval(() => void refresh(), 15000);
+    void refresh();
     document.addEventListener('visibilitychange', refresh);
     return () => {
       active = false;
