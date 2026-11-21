@@ -1,5 +1,6 @@
 """Mount only implemented distributed routes; legacy registration is not used."""
 from django.urls import include,path
+from . import friend_delivery
 from sfera_auth import mesh_views,views,account_views,cipher_views
 from .views import consensus_gateway,current_user,users_list,update_status,conversation_create,conversations,sdk_request,replicated_message_echo
 from sfera_messages import views as message_views
@@ -26,7 +27,7 @@ urlpatterns=[
     path('api/auth/friends/request/<uuid:friendship_id>/accept/',views.friend_request_accept),
     path('api/auth/friends/request/<uuid:friendship_id>/reject/',views.friend_request_reject),
     path('api/auth/friends/<uuid:user_id>/remove/',views.friend_remove),
-    path('api/auth/friends/requests/pending/',views.friend_requests_pending),
+    path('api/auth/friends/requests/pending/',friend_delivery.pending),
     path('api/auth/blocked/',views.blocked_list),
     path('api/auth/block/',views.block_user),
     path('api/auth/unblock/<uuid:user_id>/',views.unblock_user),

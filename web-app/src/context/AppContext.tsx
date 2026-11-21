@@ -670,6 +670,35 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     } catch (e) { reportError(e); }
   }, [state.authToken, state.currentServerIP, apiGet]);
 
+  const distributedFriends = state.currentUser?.service_capabilities?.mode === 'distributed';
+  useEffect(() => {
+    if (!distributedFriends || !state.authToken) return;
+    const generation = authGenerationRef.current;
+    let active = true;
+    let busy = false;
+    const refresh = async () => {
+      if (busy || document.visibilityState !== 'visible') return;
+      busy = true;
+      try {
+        const pending: PendingRequest[] = await apiGet('/api/auth/friends/requests/pending/', state.authToken, state.currentServerIP);
+        if (active && generation === authGenerationRef.current) {
+          setState(prev => ({ ...prev, pendingRequests: pending }));
+        }
+      } catch {
+        // The next poll retries without replacing already visible requests.
+      } finally {
+        busy = false;
+      }
+    };
+    const timer = setInterval(() => void refresh(), 15000);
+    document.addEventListener('visibilitychange', refresh);
+    return () => {
+      active = false;
+      clearInterval(timer);
+      document.removeEventListener('visibilitychange', refresh);
+    };
+  }, [apiGet, distributedFriends, state.authToken, state.currentServerIP]);
+
   const loadCustomEmojis = useCallback(async () => {
     if (!state.authToken) return;
     try {
