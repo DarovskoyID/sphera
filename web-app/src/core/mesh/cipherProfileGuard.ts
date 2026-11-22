@@ -82,16 +82,24 @@ export class CipherProfileGuard {
     const record={body,signature:hex(new Uint8Array(await crypto.subtle.sign('Ed25519',this.signer,new Uint8Array(accountBytes(body)).buffer)))},digest=await accountDigest(accountBytes(record));
     try { await this.post({record}); } catch { /* A lost response is checked below, never treated as success. */ }
     for(let attempt=0;attempt<40;attempt++) {
-      const fresh=await this.read();
-      if(fresh?.digest===digest){this.head=fresh;return;}
-      if(fresh?.digest!==this.head?.digest) throw new Error('cipher_profile_checkpoint_conflict');
+      try {
+        const fresh = await this.read();
+        if (fresh?.digest === digest) { this.head = fresh; return; }
+        if (fresh?.digest !== this.head?.digest) throw new Error('cipher_profile_checkpoint_conflict');
+      } catch (error) {
+        // The write may already be committed. Keep polling its signed receipt
+        // on transient failures without starting a second write.
+        const retryable = error instanceof TypeError || error instanceof Error &&
+          (error.name === 'AbortError' || /^dm_cipher_(http_50[234]|request_timed_out)$/.test(error.message));
+        if (!retryable) throw error;
+      }
       if(attempt<39)await new Promise(resolve=>setTimeout(resolve,1000));
     }
     throw new Error('cipher_profile_confirmation_pending');
   }
   async beforeInitialize() {
     this.head=await this.read();
-    if(this.head){this.active=true;await this.begin();}
+    if (this.head) { this.active = true; await this.reserve(this.head); }
   }
   async afterInitialize() { if(this.active)await this.finish(); }
   async activate() {
@@ -102,9 +110,15 @@ export class CipherProfileGuard {
     if(!this.active || this.poisoned)throw new Error('cipher_profile_unavailable');
     try {
       const fresh=await this.read();
-      if(!fresh || fresh.digest!==this.head?.digest || fresh.record.body.version%2!==1 || fresh.record.body.profile_digest!==await cipherProfileDigest(this.store))throw new Error('cipher_profile_rollback_or_interrupted');
-      this.head=fresh;await this.advance(fresh.record.body.profile_digest);
+      if (!fresh || fresh.digest !== this.head?.digest) throw new Error('cipher_profile_checkpoint_conflict');
+      await this.reserve(fresh);
     }catch(error){this.poisoned=true;throw error;}
+  }
+  private async reserve(head: Head) {
+    if (head.record.body.version % 2 !== 1) throw new Error('cipher_profile_interrupted');
+    if (head.record.body.profile_digest !== await cipherProfileDigest(this.store)) throw new Error('cipher_profile_local_mismatch');
+    this.head = head;
+    await this.advance(head.record.body.profile_digest);
   }
   async finish() {
     if(this.poisoned)throw new Error('cipher_profile_unavailable');

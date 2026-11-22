@@ -370,10 +370,12 @@ function CipherChatProvider({ children, target }: { children: ReactNode; target?
         {['draft', 'ready', 'pending', 'accepted'].includes(record.state) && <button disabled={busy} onClick={() => void retry(record)}>{record.state === 'accepted' ? 'Завершить сохранение' : 'Повторить'}</button>}
       </div>)}
     </section>;
+  const actionStyle = { color: 'inherit', border: '1px solid #788490', borderRadius: 6, padding: '4px 8px', cursor: 'pointer' };
   const panel=app.currentUser?.service_capabilities?.mode==='distributed' ? <section aria-label="Защита сообщений" style={{padding:8}}>
     {readyHere?<small>Сообщения защищены сквозным шифрованием.</small>:shared.unlockState==='opening'?<small>Открываем сообщения…</small>:
-    shared.unlockState==='retry'?<button onClick={shared.retryUnlock}>Повторить открытие сообщений</button>:
-    <button onClick={app.logout}>Войти заново, чтобы открыть сообщения</button>}{notice&&<p role="status">{notice}</p>}
+    shared.unlockState==='recovery'?<p role="alert">Профиль ключей устройства требует восстановления. Отправка приостановлена.</p>:
+    shared.unlockState==='retry'?<button style={actionStyle} onClick={shared.retryUnlock}>Повторить открытие сообщений</button>:
+    <button style={actionStyle} onClick={app.logout}>Войти заново, чтобы открыть сообщения</button>}{notice&&<p role="status">{notice}</p>}
     {readyHere && records.filter(record => record.scope === chatConversationId && record.state !== 'rejected').map(record =>
       <button key={record.id} disabled={busy} onClick={() => void retry(record)}>
         {record.state === 'accepted' ? 'Завершить сохранение' : 'Повторить отправку'}

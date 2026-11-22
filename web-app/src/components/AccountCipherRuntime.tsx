@@ -16,7 +16,7 @@ function useRuntime() {
   const session = useRef<DmCipherSession | null>(null), closing = useRef<Promise<void>>(Promise.resolve());
   const revision = useRef(0), opening = useRef(false), reviewer = useRef<{ owner: object; review: Reviewer } | null>(null);
   const [openedFor, setOpenedFor] = useState('');
-  const [unlockState, setUnlockState] = useState<'opening'|'sign-in'|'retry'>('opening');
+  const [unlockState, setUnlockState] = useState<'opening'|'sign-in'|'retry'|'recovery'>('opening');
   const [retry, setRetry] = useState(0);
   const lock = () => {
     revision.current++;
@@ -69,8 +69,10 @@ function useRuntime() {
         if(cancelled)return;
         if(!pin || pin.url!==new URL(currentServerIP).origin)throw new Error('entry_pin_required');
         await open(capability.keys,pin,'',undefined,true,true);
-      } catch {
-        if (!cancelled) setUnlockState('retry');
+      } catch (error) {
+        if (cancelled) return;
+        const code = error instanceof Error ? error.message : '';
+        setUnlockState(code === 'cipher_profile_interrupted' || code === 'cipher_profile_local_mismatch' ? 'recovery' : 'retry');
       }
     };void tryOpen();return()=>{cancelled=true;};
   },[identity,currentUser?.service_capabilities?.mode,retry]);
