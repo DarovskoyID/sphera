@@ -34,8 +34,10 @@ def synchronize(directory, *, using='default'):
         else:
             replica = ApplicationReplica(id=1, network=network, genesis=genesis)
         users = {}
+        account_rows = {row.pk: row for row in AccountProjection.objects.using(using)
+                        .select_for_update().select_related('user')}
         for profile in profiles:
-            mapping = AccountProjection.objects.using(using).select_for_update().filter(pk=profile['owner']).first()
+            mapping = account_rows.get(profile['owner'])
             if mapping is None:
                 # A legacy local account is never adopted merely because its
                 # UUID/name happens to collide with a network identity.
@@ -45,16 +47,19 @@ def synchronize(directory, *, using='default'):
                 user.set_unusable_password()
                 user.save(using=using, force_insert=True)
                 mapping = AccountProjection(owner=profile['owner'], user=user, version=profile['version'], digest=profile['digest'])
+                mapping.save(using=using, force_insert=True)
             else:
                 if (str(mapping.user_id) != profile['id'] or mapping.version > profile['version']
                         or mapping.version == profile['version'] and mapping.digest != profile['digest']):
                     raise ValueError('application_projection_identity_conflict')
-                user = User.objects.using(using).get(pk=mapping.user_id)
+                user = mapping.user
                 # Never overwrite bans, permissions, credentials or staff role.
-                user.username, user.nickname = profile['username'], profile['nickname']
-                user.save(using=using, update_fields=['username','nickname'])
-                mapping.version, mapping.digest = profile['version'], profile['digest']
-            mapping.save(using=using)
+                if (user.username, user.nickname) != (profile['username'], profile['nickname']):
+                    user.username, user.nickname = profile['username'], profile['nickname']
+                    user.save(using=using, update_fields=['username','nickname'])
+                if (mapping.version, mapping.digest) != (profile['version'], profile['digest']):
+                    mapping.version, mapping.digest = profile['version'], profile['digest']
+                    mapping.save(using=using, update_fields=['version','digest'])
             users[profile['owner']] = user.pk
         for identity, head in state.get('application_dialogs', {}).items():
             cid = conversation_id(identity)
@@ -79,6 +84,7 @@ def synchronize(directory, *, using='default'):
             raise ValueError('application_projection_account_disappeared')
         if set(DialogProjection.objects.using(using).values_list('identity',flat=True)) != set(state.get('application_dialogs',{})):
             raise ValueError('application_projection_dialog_disappeared')
-        replica.height, replica.snapshot_digest = height, snapshot_digest
-        replica.save(using=using)
+        if replica.height != height or replica.snapshot_digest != snapshot_digest:
+            replica.height, replica.snapshot_digest = height, snapshot_digest
+            replica.save(using=using)
     return {'height':height, 'accounts':len(users), 'dialogs':len(state.get('application_dialogs',{}))}

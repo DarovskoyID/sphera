@@ -886,15 +886,23 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       try {
         // Get or create conversation with this user
         setState(prev => ({ ...prev, chatBlockedByOther: false }));
-        if ((state.currentUser as ServerUser & {service_capabilities?:{mode?:string}})?.service_capabilities?.mode==='distributed') {
-          await openDistributedDialog(state.currentServerIP,state.authToken,state.currentChat,()=>{if(stale())throw new Error('application_context_changed');});
-          if(stale())return;
-        }
-        const convoRes = await fetch(`${state.currentServerIP}/api/conversations/create/`, {
+        const getConversation = () => fetch(`${state.currentServerIP}/api/conversations/create/`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${state.authToken}` },
           body: JSON.stringify({ user_id: state.currentChat }),
         });
+        let convoRes = await getConversation();
+        if (stale()) return;
+        if (convoRes.status === 409 && state.currentUser?.service_capabilities?.mode === 'distributed') {
+          const conflict = await convoRes.clone().json().catch(() => null);
+          if (conflict?.error === 'signed_dialog_required') {
+            await openDistributedDialog(state.currentServerIP, state.authToken, state.currentChat, () => {
+              if (stale()) throw new Error('application_context_changed');
+            });
+            if (stale()) return;
+            convoRes = await getConversation();
+          }
+        }
         if (stale()) return;
         if (convoRes.status === 401 && state.authToken !== authTokenRef.current) return;
         if (convoRes.status === 403) {

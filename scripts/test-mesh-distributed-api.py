@@ -251,5 +251,10 @@ with tempfile.TemporaryDirectory(prefix='distributed-app-api-') as tmp:
             assert request(current,token=token,method='get').status_code==401
             print('Distributed JWT/DRF/Channels: device-only login, pending vs confirmed DM/profile/SDK keys, cipher-only SQL, command actor binding, unsigned JWT refusal and signed signaling routing passed')
     finally:
+        import atexit
+        from sfera_distribution import runtime
+        if runtime._sdk is not None:
+            atexit.unregister(runtime._sdk.close)
+            runtime._sdk.close()
         backend.close()
         for connection in connections.all():connection.close()
