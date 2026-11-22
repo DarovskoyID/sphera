@@ -930,8 +930,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
         }
 
         const convoId = convo.id;
-        const chatIsDistributedDialog = convo.distributed_dialog === true &&
-          state.currentUser?.service_capabilities?.mode === 'distributed';
+        const chatIsDistributedDialog = convo.distributed_dialog === true;
         setState(prev => ({ ...prev, chatConversationId: convoId, chatIsDistributedDialog }));
         // Start the history request before touching the cache, so the round
         // trip and the disk read overlap. Reading IndexedDB is quick, but it is
@@ -1301,7 +1300,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
         chatWs.current = null;
       }
     };
-  }, [state.currentChat, state.authToken, state.currentServerIP, chatReinitTrigger]);
+  }, [state.currentChat, state.authToken, state.currentServerIP, state.currentUser?.service_capabilities?.mode, chatReinitTrigger]);
 
   const sendChatMessage = useCallback((text: string, attachmentIds?: string[], replyToId?: string) => {
     const payload: Record<string, unknown> = {};
