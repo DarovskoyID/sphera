@@ -160,6 +160,28 @@ function CipherChatProvider({ children, target }: { children: ReactNode; target?
     // even while an automatic inbox check is using the same session.
     sending.current = true;
     if (!distributedDm) setBusy(true);
+    if (distributedDm) {
+      try {
+        const { intent, completion } = await opened.queueSend(scope, { text, replyTo });
+        if (session.current === opened && isCurrentScope(scope)) {
+          setRecords(previous => [...previous.filter(record => record.id !== intent.id), intent]);
+          setNotice('Сообщение в очереди отправки.');
+        }
+        void completion.then(result => {
+          if (session.current === opened && isCurrentScope(scope)) {
+            setNotice(result.state === 'accepted' ? 'Сообщение принято сетью.' : 'Ожидаем подтверждения публикации.');
+          }
+        }, () => {
+          if (session.current === opened && isCurrentScope(scope)) {
+            setNotice('Отправка прервалась. Сообщение сохранено в очереди.');
+          }
+        }).finally(() => updateRecords(opened, scope).catch(() => undefined));
+      } catch (error) {
+        if (session.current === opened && isCurrentScope(scope)) setNotice('Не удалось сохранить сообщение. Текст оставлен в поле ввода.');
+        throw error;
+      } finally { sending.current = false; }
+      return;
+    }
     setNotice('Сохраняю и отправляю…');
     try {
       const result = target ? await opened.guild.send(guild!, scope, { text, replyTo }) : await opened.send(scope, { text, replyTo });
@@ -384,9 +406,12 @@ function CipherChatProvider({ children, target }: { children: ReactNode; target?
     shared.unlockState==='retry'?<button style={actionStyle} onClick={shared.retryUnlock}>Повторить открытие сообщений</button>:
     <button style={actionStyle} onClick={app.logout}>Войти заново, чтобы открыть сообщения</button>}{notice&&<p role="status">{notice}</p>}
     {readyHere && records.filter(record => record.scope === chatConversationId && record.state !== 'rejected').map(record =>
-      <button key={record.id} disabled={busy} onClick={() => void retry(record)}>
-        {record.state === 'accepted' ? 'Завершить сохранение' : 'Повторить отправку'}
-      </button>)}
+      <div key={record.id} style={{ marginTop: 6 }}>
+        {record.state !== 'accepted' && <span style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{record.payload.text} </span>}
+        <button style={actionStyle} disabled={busy} onClick={() => void retry(record)}>
+          {record.state === 'accepted' ? 'Завершить сохранение' : 'Повторить отправку'}
+        </button>
+      </div>)}
   </section>:advancedPanel;
   return <Context.Provider value={{ ...context, panel }}>{children}</Context.Provider>;
 }

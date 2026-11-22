@@ -139,10 +139,27 @@ export class DmCipherSession {
     this.current();
     return record;
   }
-  async send(scope: string, payload: DmCipherText) {
+  private delivery: Promise<unknown> = Promise.resolve();
+
+  async queueSend(scope: string, payload: DmCipherText) {
     const intent = await this.outbox.create(scope, payload);
-    try { await this.prepare(scope); const sent = await this.outbox.send(intent.id); await this.archiveAccepted(sent.id); return sent; }
-    catch (error) { throw new DmCipherQueuedError(intent.id, error); }
+    const completion = this.delivery.then(() => this.deliver(scope, intent.id));
+    this.delivery = completion.catch(() => undefined);
+    return { intent, completion };
+  }
+
+  private async deliver(scope: string, id: string) {
+    try {
+      await this.prepare(scope);
+      const sent = await this.outbox.send(id);
+      if (!this.distributed) await this.archiveAccepted(sent.id);
+      return sent;
+    } catch (error) { throw new DmCipherQueuedError(id, error); }
+  }
+
+  async send(scope: string, payload: DmCipherText) {
+    const { completion } = await this.queueSend(scope, payload);
+    return completion;
   }
   async receive(scope: string) {
     if (!this.distributed) await this.prepare(scope);
