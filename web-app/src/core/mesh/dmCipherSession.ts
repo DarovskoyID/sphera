@@ -48,7 +48,7 @@ export class DmCipherSession {
   private archiveContext!: DeviceArchiveContext;
   private archiveDescriptor?: DeviceArchiveKeyFile;
   private constructor(coordinator: DmCipherCoordinator, outbox: DmCipherOutbox, archive: CipherArchive,
-    guildOutbox: DmCipherOutbox<GuildCipherMessage>, readKey: CryptoKey, pin: TrustedEntryPoint, user: string, current: () => boolean) {
+    guildOutbox: DmCipherOutbox<GuildCipherMessage>, readKey: CryptoKey, pin: TrustedEntryPoint, user: string, current: () => boolean, private readonly distributed: boolean) {
     this.coordinator = coordinator; this.outbox = outbox; this.archive = archive;
     this.guild = new GuildCipherSession(coordinator, guildOutbox, archive);
     this.readKey = readKey; this.pin = pin; this.user = user; this.current = current;
@@ -111,7 +111,7 @@ export class DmCipherSession {
       archive = await CipherArchive.open(own, pin, user, archiveRoot, { deviceLocal: true });
       current();
       current();
-      const session = new DmCipherSession(coordinator, outbox, archive, guildOutbox, readKey, pin, user, current);
+      const session = new DmCipherSession(coordinator, outbox, archive, guildOutbox, readKey, pin, user, current, options.distributed === true);
       session.archiveContext = archiveContext; session.archiveDescriptor = archiveDescriptor;
       return session;
     } catch (error) {
@@ -142,7 +142,12 @@ export class DmCipherSession {
     try { await this.prepare(scope); const sent = await this.outbox.send(intent.id); await this.archiveAccepted(sent.id); return sent; }
     catch (error) { throw new DmCipherQueuedError(intent.id, error); }
   }
-  async receive(scope: string) { await this.prepare(scope); return this.coordinator.receiveKeys(scope); }
+  async receive(scope: string) {
+    if (!this.distributed) await this.prepare(scope);
+    const received = await this.coordinator.receiveKeys(scope);
+    if (this.distributed && received > 0) await this.prepare(scope);
+    return received;
+  }
   async archiveAccepted(id: string) {
     const record = (await this.outbox.list()).find(row => row.id === id);
     if (!record || record.state !== 'accepted' || !record.wire) return;
