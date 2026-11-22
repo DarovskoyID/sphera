@@ -151,10 +151,16 @@ function CipherChatProvider({ children, target }: { children: ReactNode; target?
       if (guard()) setNotice('Не удалось открыть ключи. Нужны mesh-вход, закреплённый сервер и правильные файл и пароль.');
     } finally { setPassword(''); setFile(null); setArchiveKeyFile(null); setArchivePassword(''); setBusy(false); }
   };
+  const sending = useRef(false);
+  const distributedDm = !target && app.chatIsDistributedDialog;
   const send = async (text: string, replyTo: string | null) => {
     const opened = session.current, scope = chatConversationId;
-    if (!opened || !scope || busy) throw new Error('cipher_locked');
-    setBusy(true); setNotice('Сохраняю и отправляю…');
+    if (!opened || !scope || sending.current || (busy && !distributedDm)) throw new Error('cipher_locked');
+    // The coordinator serializes SDK operations. Persist a new outgoing draft
+    // even while an automatic inbox check is using the same session.
+    sending.current = true;
+    if (!distributedDm) setBusy(true);
+    setNotice('Сохраняю и отправляю…');
     try {
       const result = target ? await opened.guild.send(guild!, scope, { text, replyTo }) : await opened.send(scope, { text, replyTo });
       if (session.current === opened && isCurrentScope(scope)) {
@@ -168,7 +174,8 @@ function CipherChatProvider({ children, target }: { children: ReactNode; target?
       throw error;
     } finally {
       try { await updateRecords(opened, scope); } catch { /* A locked session cannot expose its queue. */ }
-      setBusy(false);
+      sending.current = false;
+      if (!distributedDm) setBusy(false);
     }
   };
   const retry = async (record: QueueRecord) => {
@@ -180,7 +187,7 @@ function CipherChatProvider({ children, target }: { children: ReactNode; target?
   };
   const openMessages = async (automaticRun = false): Promise<boolean> => {
     const opened = session.current, scope = chatConversationId;
-    if (!opened || !scope || busy) return true;
+    if (!opened || !scope || busy || sending.current) return true;
     setBusy(true); if (!automaticRun) setNotice('Открываю сообщения…');
     // Hide previously opened text while its selected-server status is checked.
     // A failed/unknown status never leaves stale plaintext on screen.
@@ -211,7 +218,7 @@ function CipherChatProvider({ children, target }: { children: ReactNode; target?
       await updateRecords(opened, scope);
       return true;
     } catch {
-      if (session.current === opened && isCurrentScope(scope)) setNotice('Не удалось проверить сообщения. Текст скрыт; архив и очередь сохранены. Проверьте доступ и получателей.');
+      if (session.current === opened && isCurrentScope(scope) && !sending.current) setNotice('Не удалось проверить сообщения. Текст скрыт; архив и очередь сохранены. Проверьте доступ и получателей.');
       return false;
     }
     finally { setBusy(false); }
