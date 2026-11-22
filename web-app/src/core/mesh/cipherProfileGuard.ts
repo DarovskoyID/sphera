@@ -79,12 +79,23 @@ export class CipherProfileGuard {
   }
   private async advance(profile_digest: string) {
     const body: Body={domain:'sfera-mesh-cipher-profile-v1',...this.own,version:(this.head?.record.body.version??0)+1,previous:this.head?.digest??ZERO,profile_digest};
-    const record={body,signature:hex(new Uint8Array(await crypto.subtle.sign('Ed25519',this.signer,new Uint8Array(accountBytes(body)).buffer)))},digest=await accountDigest(accountBytes(record));
+    const record = { body, signature: hex(new Uint8Array(await crypto.subtle.sign('Ed25519', this.signer, new Uint8Array(accountBytes(body)).buffer))) };
+    if (body.version % 2 === 1) this.journal()?.setItem(this.journalKey, JSON.stringify(record));
+    await this.confirm(record);
+  }
+  private get journalKey() { return 'sphere-cipher-finish:' + this.store; }
+  private journal() { return typeof localStorage === 'undefined' ? undefined : localStorage; }
+  private async confirm(record: Record) {
+    const digest = await accountDigest(accountBytes(record));
     try { await this.post({record}); } catch { /* A lost response is checked below, never treated as success. */ }
     for(let attempt=0;attempt<40;attempt++) {
       try {
         const fresh = await this.read();
-        if (fresh?.digest === digest) { this.head = fresh; return; }
+        if (fresh?.digest === digest) {
+          this.head = fresh;
+          if (record.body.version % 2 === 1) this.journal()?.removeItem(this.journalKey);
+          return;
+        }
         if (fresh?.digest !== this.head?.digest) throw new Error('cipher_profile_checkpoint_conflict');
       } catch (error) {
         // The write may already be committed. Keep polling its signed receipt
@@ -97,8 +108,29 @@ export class CipherProfileGuard {
     }
     throw new Error('cipher_profile_confirmation_pending');
   }
+  private async resumeFinish() {
+    const storage = this.journal(), saved = storage?.getItem(this.journalKey);
+    if (!saved) return;
+    let record: Record;
+    try { record = JSON.parse(saved); }
+    catch { throw new Error('cipher_profile_invalid_recovery_record'); }
+    const body = record?.body;
+    if (this.head && record.signature === this.head.record.signature &&
+        await accountDigest(accountBytes(record)) === this.head.digest) {
+      storage?.removeItem(this.journalKey);
+      return;
+    }
+    if (!body || body.domain !== 'sfera-mesh-cipher-profile-v1' ||
+        (['network', 'genesis', 'owner', 'device'] as const).some(field => body[field] !== this.own[field]) ||
+        body.version !== (this.head?.record.body.version ?? 0) + 1 || body.version % 2 !== 1 ||
+        body.previous !== (this.head?.digest ?? ZERO)) throw new Error('cipher_profile_checkpoint_conflict');
+    await verify(this.devicePublic, record.signature, body);
+    if (body.profile_digest !== await cipherProfileDigest(this.store)) throw new Error('cipher_profile_local_mismatch');
+    await this.confirm(record);
+  }
   async beforeInitialize() {
-    this.head=await this.read();
+    this.head = await this.read();
+    await this.resumeFinish();
     if (this.head) { this.active = true; await this.reserve(this.head); }
   }
   async afterInitialize() { if(this.active)await this.finish(); }
