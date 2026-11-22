@@ -239,6 +239,11 @@ class SdkReplica:
         if not isinstance(payload,dict) or set(payload)!={'mode','record','ids'}:raise ValueError('sdk_replica_payload')
         with self.backend.directory.lock:
             result=self.local(payload['mode'],payload['record'],payload['ids'])
+        operation = payload['record']['body']
+        if self.project is not None and payload['mode'] == 'write' and operation['request']['type'] == 6:
+            # Wake the browser to reconcile through its usual quorum-verified read.
+            from .message_projection import notify_cipher
+            notify_cipher(operation['scope'], {'type': 'mesh_cipher_available', 'scope': operation['scope']})
         return envelope(self.backend.entry_key,self.backend.directory.network,sender,'sdk-replica-reply-v1',
             {'nonce':message['record']['nonce'],'result':result})
 

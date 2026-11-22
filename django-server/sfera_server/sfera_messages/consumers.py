@@ -259,6 +259,12 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 'content': notif_content,
             })
 
+    async def mesh_cipher_update(self, event):
+        if not await self.check_participant(self.scope['user'].id):
+            await self.close()
+            return
+        await self.send(text_data=ujson.dumps(event['frame']))
+
     async def chat_message(self, event):
         from .mesh_delivery import enabled as delivery_enabled
         if delivery_enabled() and not await self.check_participant(self.scope['user'].id):

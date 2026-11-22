@@ -1,3 +1,4 @@
+import { onWs } from '../sdk/wsBus';
 import { AccountCipherProvider, useAccountCipherRuntime } from './AccountCipherRuntime';
 import { ImportedCipherHistory } from './ImportedCipherHistory';
 import type { GuildCipherMessage } from '../core/mesh/guildCipherMessage';
@@ -330,17 +331,34 @@ function CipherChatProvider({ children, target }: { children: ReactNode; target?
     if ((!automatic && app.currentUser?.service_capabilities?.mode!=='distributed') || !readyHere || !chatConversationId || !protectedMode || !checked) return;
     let cancelled = false, delay = app.currentUser?.service_capabilities?.mode==='distributed'?5000:30000;
     let timer: ReturnType<typeof setTimeout>;
+    let running = false, requested = false;
     const step = async () => {
-      if (cancelled) return;
-      if (document.visibilityState === 'visible') {
-        const succeeded = await automaticTask.current();
-        delay = succeeded ? (app.currentUser?.service_capabilities?.mode==='distributed'?5000:30000) : Math.min(300000, delay * 2);
+      if (cancelled || running) return;
+      requested = false;
+      running = true;
+      try {
+        if (document.visibilityState === 'visible') {
+          const succeeded = await automaticTask.current();
+          delay = succeeded ? (app.currentUser?.service_capabilities?.mode==='distributed'?5000:30000) : Math.min(300000, delay * 2);
+        }
+      } finally {
+        running = false;
+        if (!cancelled) timer = setTimeout(() => void step(), requested ? 0 : delay);
       }
-      if (!cancelled) timer = setTimeout(() => void step(), delay);
     };
+    const wake = (frame: { scope?: unknown }) => {
+      if (!meshDialog || frame.scope !== chatConversationId || document.visibilityState !== 'visible') return;
+      requested = true;
+      if (!running) {
+        clearTimeout(timer);
+        timer = setTimeout(() => void step(), 0);
+      }
+    };
+    const stopAvailable = onWs('chat', 'mesh_cipher_available', wake);
+    const stopProjected = onWs('chat', 'mesh_cipher_projected', wake);
     timer = setTimeout(() => void step(), 500);
-    return () => { cancelled = true; clearTimeout(timer); };
-  }, [automatic, readyHere, routeKey, identity, protectedMode, checked]);
+    return () => { cancelled = true; clearTimeout(timer); stopAvailable(); stopProjected(); };
+  }, [automatic, readyHere, routeKey, identity, protectedMode, checked, meshDialog, chatConversationId]);
   const context: Access = { protected: protectedMode, checked, ready: readyHere, readReceipts: !target, send,
     texts: readyHere && textScope === routeKey ? texts : {}, unavailable: readyHere && textScope === routeKey ? unavailable : {}, confirmRead, verifyRead };
   const decide = (accepted: boolean) => { const pending = review.current; review.current = null; setQuestion(null); pending?.answer(accepted); };

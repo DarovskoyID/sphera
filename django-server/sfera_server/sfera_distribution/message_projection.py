@@ -1,7 +1,21 @@
 """Local SQL is a repairable projection of SDK-signed ciphertext operations."""
 from hashlib import sha256
+import logging
+
+from asgiref.sync import async_to_sync
+from channels.layers import get_channel_layer
 from django.db import transaction
 from sfera_mesh.storage import canonical
+
+
+
+def notify_cipher(scope, frame):
+    """A live hint is optional; the durable replica remains authoritative."""
+    try:
+        async_to_sync(get_channel_layer().group_send)(
+            f'chat_{scope}', {'type': 'mesh_cipher_update', 'frame': frame})
+    except Exception:
+        logging.getLogger(__name__).warning('Mesh live notification unavailable')
 
 
 def project(directory,record):
@@ -27,3 +41,7 @@ def project(directory,record):
         CipherMessageIdentity.objects.create(id=value['id'],digest=digest)
         message=Message(id=value['id'],conversation=conversation,author=author,message_type='cipher',encrypted_content=encrypt_text(''))
         message.payload=value;message.save(force_insert=True)
+
+        from sfera_messages.serializers import MessageSerializer
+        frame = {**MessageSerializer(message).data, 'type': 'mesh_cipher_projected', 'scope': str(conversation.pk)}
+        transaction.on_commit(lambda: notify_cipher(conversation.pk, frame))
