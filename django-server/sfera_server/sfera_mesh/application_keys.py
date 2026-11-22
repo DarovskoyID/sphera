@@ -115,7 +115,7 @@ def perform(value,state,pool,genesis):
 
 def replay(state,network,genesis):
     receipts=state.get('application_keys',[]);pool={};seen=set()
-    if not isinstance(receipts,list) or len(receipts)>512 or len(canonical(receipts))>524288:
+    if not isinstance(receipts,list) or len(receipts)>512 or len(canonical(receipts))>768 * 1024:
         raise ValueError('application_key_journal_capacity')
     for receipt in receipts:
         if not isinstance(receipt,dict) or set(receipt)!={'record','digest','key_id','key_utf8'}:raise ValueError('application_key_receipt_schema')
@@ -154,7 +154,7 @@ class ApplicationKeyCatalog:
             identity,document=perform(value,state,pool,directory.pin)
             next_receipt={'record':value,'digest':digest,'key_id':identity,'key_utf8':document}
             journal=[*state.get('application_keys',[]),next_receipt]
-            if len(journal)>512 or len(canonical(journal))>524288 or len(canonical({**state,'application_keys':journal}))>950000:
+            if len(journal)>512 or len(canonical(journal))>768 * 1024 or len(canonical({**state,'application_keys':journal}))>950000:
                 raise ValueError('application_key_journal_capacity')
         self.submit(value)
         return {'state':'pending','digest':digest}

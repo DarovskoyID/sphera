@@ -254,7 +254,7 @@ func performApplicationKey(s State, pool applicationKeyPool, r ApplicationKeyRec
 
 func replayApplicationKeys(s State) (applicationKeyPool, error) {
 	pool := applicationKeyPool{}
-	if len(s.ApplicationKeys) > 512 || len(canonical(s.ApplicationKeys)) > 524288 {
+	if len(s.ApplicationKeys) > 512 || len(canonical(s.ApplicationKeys)) > 768*1024 {
 		return nil, errors.New("application key journal capacity")
 	}
 	seen := map[string]bool{}
@@ -299,7 +299,7 @@ func applyApplicationKey(s *State, tx []byte) error {
 		return err
 	}
 	next := append(append([]ApplicationKeyReceipt(nil), s.ApplicationKeys...), ApplicationKeyReceipt{r, hash, id, doc})
-	if len(next) > 512 || len(canonical(next)) > 524288 {
+	if len(next) > 512 || len(canonical(next)) > 768*1024 {
 		return errors.New("application key journal capacity")
 	}
 	// The existing readers impose a one MiB snapshot bound. Do not admit a new
