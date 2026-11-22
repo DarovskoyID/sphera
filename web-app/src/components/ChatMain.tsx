@@ -1,3 +1,4 @@
+import { DmCipherQueuedError } from '../core/mesh/cipherQueuedError';
 import React, { useState, useEffect, useRef, useCallback, useLayoutEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { Phone, PhoneOff, PhoneIncoming, PhoneMissed, Video, Search, Menu, ArrowLeft, Plus, Send, FileText, FileImage, FileVideo, FileAudio, File, Download, X, MoreHorizontal, Reply, Copy, Trash2, Flag, Pin, Ban, Check, CheckCheck, ChevronUp, ChevronDown, Mic, Circle, Play, Square, Pause, CheckSquare, MapPin, Pencil, Clock, User as UserIcon } from 'lucide-react';
@@ -11,7 +12,7 @@ import { RichMessage } from './RichMessage';
 import { RichComposer } from './RichComposer';
 import { AccountBadge, accountDisplayName, isBot } from './BotBadge';
 import { ComposerActions } from '../core/modules/Slots';
-import { DmCipherProvider, DmCipherPanel, DmCipherComposer, DmCipherMessageView, useDmCipher } from './DmCipherAccess';
+import { DmCipherProvider, DmCipherPanel, DmCipherMessageView, useDmCipher } from './DmCipherAccess';
 import type { RichMessageType, RichPayload } from '../types';
 
 // ── Rich messages (checklist / contact / location). Polls are guild-only. ────
@@ -454,9 +455,7 @@ const ChatViewContent: React.FC = () => {
             <Ban size={16} />
             {tr('chat_cannot_send')}
           </div>
-        : !cipher?.checked ? <div role="status">Проверяю режим диалога…</div>
-        : cipher.protected ? <DmCipherComposer key={chatConversationId} replyTo={replyTo ? String(replyTo.id) : null} onSent={() => setReplyTo(null)} />
-        : <MessageInput replyTo={replyTo} onCancelReply={() => setReplyTo(null)} editing={editingText} onCancelEdit={() => setEditingText(null)} onScheduled={item => setScheduled(prev => [...prev, item])} />
+        : <MessageInput key={currentChat} replyTo={replyTo} onCancelReply={() => setReplyTo(null)} editing={editingText} onCancelEdit={() => setEditingText(null)} onScheduled={item => setScheduled(prev => [...prev, item])} />
       }
     </main>
   );
@@ -1805,6 +1804,10 @@ const RECORD_CANCEL_SLIDE = 80;
 const RECORD_MIN_MS = 600;
 
 const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: () => void; editing?: ChatMessageType | null; onCancelEdit?: () => void; onScheduled: (item: ScheduledItem) => void }> = ({ replyTo, onCancelReply, editing, onCancelEdit, onScheduled }) => {
+  const cipher = useDmCipher();
+  const legacyTools = cipher?.checked === true && !cipher.protected;
+  const sendingCipher = useRef(false);
+  const [cipherBusy, setCipherBusy] = useState(false);
   const { sendChatMessage, chatConversationId, currentServerIP, authToken, scheduleMessage, sendRichMessage, editMessage, friends, currentChat } = useApp();
   const tr = useTranslation();
   const [message, setMessage] = useState('');
@@ -1836,15 +1839,15 @@ const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: (
   // Local draft (text + files) per conversation — survives switching chats.
   // Restored in an effect; saved imperatively via the persist* helpers so the
   // draft isn't clobbered by effects re-running on (re)mount / scope switch.
-  const draftScope = chatConversationId ? `dm_${chatConversationId}` : '';
+  const draftScope = legacyTools && chatConversationId ? `dm_${chatConversationId}` : '';
   useEffect(() => {
     onCancelEdit?.();  // leaving a chat cancels any in-progress edit
-    if (!draftScope) { setMessage(''); setPendingFiles([]); return; }
+    if (!draftScope) { setPendingFiles([]); return; }
     setMessage(getDraftText(draftScope));
     setPendingFiles(getDraftFiles(draftScope).map(f => ({ file: f, preview: f.type.startsWith('image/') ? URL.createObjectURL(f) : undefined })));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draftScope]);
-  const persistMessage = useCallback((v: string) => { setMessage(v); setDraftText(draftScope, v); }, [draftScope]);
+  const persistMessage = useCallback((v: string) => { setMessage(v); if (draftScope) setDraftText(draftScope, v); }, [draftScope]);
 
   // Inline edit: load the message text into the composer on entering edit mode,
   // and restore the saved draft on cancel/save. Uses setMessage (not
@@ -2226,6 +2229,23 @@ const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: (
   }, [uploadFiles, sendChatMessage, chatConversationId, currentServerIP, authToken]);
 
   const handleSend = useCallback(async () => {
+    if (!cipher?.checked) return;
+    if (cipher.protected) {
+      if (!cipher.ready || sendingCipher.current || !message.trim()) return;
+      sendingCipher.current = true;
+      setCipherBusy(true);
+      try {
+        await cipher.send(message, replyTo ? String(replyTo.id) : null);
+        persistMessage('');
+        onCancelReply();
+      } catch (error) {
+        if (error instanceof DmCipherQueuedError) { persistMessage(''); onCancelReply(); }
+      } finally {
+        sendingCipher.current = false;
+        setCipherBusy(false);
+      }
+      return;
+    }
     // Saving an inline edit — content only, no attachments/reply.
     if (editing) {
       const t = message.trim();
@@ -2253,7 +2273,7 @@ const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: (
       const chunk = files.slice(i, i + ATTACHMENTS_PER_MESSAGE);
       await doSend(i === 0 ? text : '', chunk, i === 0 ? replyId : undefined);
     }
-  }, [editing, chatConversationId, editMessage, onCancelEdit, message, pendingFiles, replyTo, doSend, clearFiles, onCancelReply, persistMessage]);
+  }, [cipher, editing, chatConversationId, editMessage, onCancelEdit, message, pendingFiles, replyTo, doSend, clearFiles, onCancelReply, persistMessage]);
 
   const handleDelayedSend = useCallback(async (delayMs: number) => {
     if (!message.trim() && pendingFiles.length === 0) return;
@@ -2340,10 +2360,10 @@ const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: (
     <div
       className="message-input-container glass-panel"
       style={{ flexDirection: 'column', gap: 0, alignItems: 'stretch', position: 'relative' }}
-      onDragEnter={handleDragEnter}
-      onDragOver={handleDragOver}
-      onDragLeave={handleDragLeave}
-      onDrop={handleDrop}
+      onDragEnter={legacyTools ? handleDragEnter : undefined}
+      onDragOver={legacyTools ? handleDragOver : undefined}
+      onDragLeave={legacyTools ? handleDragLeave : undefined}
+      onDrop={legacyTools ? handleDrop : undefined}
     >
       {dragOver && (
         <div style={{
@@ -2496,10 +2516,10 @@ const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: (
       <div style={{ display: 'flex', gap : 8, alignItems: 'flex-end', width: '100%', position: 'relative' }}>
         <input ref={fileInputRef} type="file" multiple style={{ display: 'none' }} onChange={handleFileSelect} />
         <div className="composer-bar">
-          <button className="composer-icon-btn" title={tr('chat_attachment')} onClick={() => setAttachMenu(v => !v)} disabled={uploading}>
+          <button className="composer-icon-btn" title={tr('chat_attachment')} onClick={() => setAttachMenu(v => !v)} disabled={uploading || !legacyTools}>
             <Plus size={20} />
           </button>
-          {attachMenu && (
+          {legacyTools && attachMenu && (
             <>
               <div style={{ position: 'fixed', inset: 0, zIndex: 40 }} onClick={() => setAttachMenu(false)} />
               <div style={{
@@ -2530,7 +2550,7 @@ const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: (
               </div>
             </>
           )}
-          {richType && chatConversationId && (
+          {legacyTools && richType && chatConversationId && (
             <RichComposer
               type={richType}
               contacts={friends}
@@ -2550,8 +2570,8 @@ const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: (
             maxLength={5000}
             onChange={e => { if (editing) { setMessage(e.target.value); autoResizeComposer(); } else persistMessage(e.target.value); }}
             onKeyDown={handleKeyDown}
-            onPaste={handlePaste}
-            disabled={uploading || recordState !== 'idle'}
+            onPaste={legacyTools ? handlePaste : undefined}
+            disabled={cipherBusy || uploading || recordState !== 'idle'}
           />
           {message.length > 4000 && (
             <span style={{
@@ -2562,7 +2582,7 @@ const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: (
               {message.length}/5000
             </span>
           )}
-          {!hasText && pendingFiles.length === 0 && recordState !== 'preview' && (
+          {legacyTools && !hasText && pendingFiles.length === 0 && recordState !== 'preview' && (
             /* Tap switches voice ↔ circle, hold records, release sends; slide
                up locks it hands-free, slide left throws it away. */
             <button
@@ -2624,7 +2644,7 @@ const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: (
             anchorRef={pickerButtonRef}
             onSelectEmoji={emoji => persistMessage(message + emoji)}
             onSelectGif={url => {
-              if (stickerSendGuard.current) return;
+              if (!legacyTools || stickerSendGuard.current) return;
               stickerSendGuard.current = true;
               sendChatMessage(url, undefined, replyTo?.id);
               onCancelReply();
@@ -2632,7 +2652,7 @@ const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: (
               setTimeout(() => { stickerSendGuard.current = false; }, 500);
             }}
             onSelectSticker={(url) => {
-              if (stickerSendGuard.current) return;
+              if (!legacyTools || stickerSendGuard.current) return;
               stickerSendGuard.current = true;
               sendChatMessage(url, undefined, replyTo?.id);
               onCancelReply();
@@ -2640,7 +2660,7 @@ const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: (
               setTimeout(() => { stickerSendGuard.current = false; }, 500);
             }}
             onDelayedSend={ms => handleDelayedSend(ms)}
-            canSchedule={canSend}
+            canSchedule={legacyTools && canSend}
             onClose={() => setShowPicker(false)}
           />
         )}
@@ -2650,7 +2670,7 @@ const MessageInput: React.FC<{ replyTo: ChatMessageType | null; onCancelReply: (
             className="composer-send-circle"
             onClick={handleSend}
             title={tr('chat_send')}
-            disabled={uploading || !canSend}
+            disabled={uploading || cipherBusy || !canSend || !cipher?.checked || (cipher.protected && !cipher.ready)}
           >
             {uploading
               ? <div style={{ width: 18, height: 18, border: '2px solid currentColor', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} />

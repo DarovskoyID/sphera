@@ -372,6 +372,10 @@ function CipherChatProvider({ children, target }: { children: ReactNode; target?
     {readyHere?<small>Сообщения защищены сквозным шифрованием.</small>:shared.unlockState==='opening'?<small>Открываем сообщения…</small>:
     shared.unlockState==='retry'?<button onClick={shared.retryUnlock}>Повторить открытие сообщений</button>:
     <button onClick={app.logout}>Войти заново, чтобы открыть сообщения</button>}{notice&&<p role="status">{notice}</p>}
+    {readyHere && records.filter(record => record.scope === chatConversationId && record.state !== 'rejected').map(record =>
+      <button key={record.id} disabled={busy} onClick={() => void retry(record)}>
+        {record.state === 'accepted' ? 'Завершить сохранение' : 'Повторить отправку'}
+      </button>)}
   </section>:advancedPanel;
   return <Context.Provider value={{ ...context, panel }}>{children}</Context.Provider>;
 }

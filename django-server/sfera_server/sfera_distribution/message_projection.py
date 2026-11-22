@@ -9,9 +9,10 @@ def project(directory,record):
     from sfera_messages.models import Message,CipherMessageIdentity,Conversation
     from sfera_messages.encryption import encrypt_text
     from sfera_auth.models import User
-    synchronize(directory)
     operation=record['body'];body=__import__('json').loads(operation['request']['body'])
     value=body['cipher'];digest=sha256(canonical(value)).hexdigest()
+    if not Conversation.objects.filter(pk=value['scope'],cipher_only=True).exists():
+        synchronize(directory)
     with transaction.atomic():
         old=CipherMessageIdentity.objects.select_for_update().filter(pk=value['id']).first()
         row=Message.objects.select_for_update().filter(pk=value['id']).first()

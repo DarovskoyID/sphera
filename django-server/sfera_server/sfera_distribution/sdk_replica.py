@@ -316,6 +316,7 @@ class SdkReplica:
             for future in as_completed(jobs):
                 try:
                     if future.result()=={'stored':operation_id}:repairs+=1
+                    if repairs>=2*len(peers)//3+1:break
                 except (OSError,ValueError,TypeError,KeyError,InvalidSignature):continue
             if repairs<2*len(peers)//3+1:raise ValueError('sdk_replica_quorum_unavailable')
             with self.backend.lock,self.backend.db:
@@ -323,8 +324,10 @@ class SdkReplica:
         with d.lock,self.backend.lock:
             d.anchor();self.backend.require(user,claim)
             self.verify(record)
-            if self.project is not None:
-                rows=self.backend.db.execute('SELECT body FROM sdk_replica_operations WHERE scope=? AND roster=? AND epoch=? ORDER BY id',
+            if self.project is not None and kind==6:
+                self.project(record)
+            elif self.project is not None and kind==4:
+                rows=self.backend.db.execute('SELECT o.body FROM sdk_replica_operations o JOIN sdk_replica_messages m ON m.operation=o.id WHERE o.scope=? AND o.roster=? AND o.epoch=? ORDER BY o.id',
                     (b['scope'],b['roster'],b['epoch'])).fetchall()
                 for (raw,) in rows:
                     operation=json.loads(raw)
