@@ -3,6 +3,10 @@ import { initialApplicationProfile, applicationUserId } from './applicationProfi
 import { meshDeviceId, signDeviceEvent } from './devices';
 import { answerApplicationChallenge, applicationKeys, type ApplicationKeys } from './applicationAuth';
 import { entryProbeNonce, verifyEntryProbe, validateTrustedEntryPoints, type TrustedEntryPoint } from './entryPoint';
+import { CipherProfileGuard } from './cipherProfileGuard';
+import { applicationDeviceAccess } from './applicationActions';
+import { AccountRecoveryClient } from './accountRecoveryClient';
+import { prepareDeviceEnrollment, verifyEnrollmentFile } from './deviceEnrollment';
 import { acquireCipherStoreLock } from './cipherStoreLock';
 
 export async function prepareApplicationRegistration(pin: TrustedEntryPoint, genesis: string,
@@ -51,7 +55,8 @@ export async function accessDistributedApplication(options: {
 }) {
   const {pin,post,storage,guard}=options;guard();
   const nonce=entryProbeNonce();
-  const genesis=await verifyEntryProbe(await post('/api/auth/mesh/entry/',{nonce}),pin,nonce);guard();
+  const probe = await post('/api/auth/mesh/entry/', { nonce });
+  const genesis = await verifyEntryProbe(probe, pin, nonce); guard();
   const key=`sfera_distributed_credentials_v1:${pin.network}:${genesis}:${options.handle}`;
   const release=await acquireCipherStoreLock('registration:'+key);
   try {
@@ -81,11 +86,72 @@ export async function accessDistributedApplication(options: {
     }
     if (!confirmed) throw new Error('application_registration_pending_retry');
   }
-  const challenge=await post('/api/auth/mesh/login/challenge/',{owner:prepared.bundle.account.body.user_id,device:prepared.bundle.device.body.device_id}) as Record<string,unknown>;guard();
-  const proof=await answerApplicationChallenge(prepared.keys,options.password,challenge,'login');guard();
-  const result=await post('/api/auth/mesh/login/',proof) as {access?:unknown;mesh_session?:unknown};guard();
-  if (typeof result.access!=='string' || !result.mesh_session) throw new Error('application_registration_login_rejected');
-  await options.onAuthenticated?.(prepared.keys,result.access);guard();
-  return result.access;
+  const owner = prepared.bundle.account.body.user_id;
+  const login = async (keys: ApplicationKeys) => {
+    const device = await meshDeviceId(keys.devicePublic);
+    const challenge = await post('/api/auth/mesh/login/challenge/', { owner, device }) as Record<string, unknown>;
+    guard();
+    const proof = await answerApplicationChallenge(keys, options.password, challenge, 'login'); guard();
+    const result = await post('/api/auth/mesh/login/', proof) as { access?: unknown; mesh_session?: unknown };
+    guard();
+    if (typeof result.access !== 'string' || !result.mesh_session) throw new Error('application_registration_login_rejected');
+    return result.access;
+  };
+  let token = await login(prepared.keys);
+  await options.onAuthenticated?.(prepared.keys, token); guard();
+
+  if (!options.register && prepared.keys.ownerVault && options.onAuthenticated &&
+      (probe as { body?: { profile_guard?: boolean } }).body?.profile_guard === true) {
+    const keys = prepared.keys, device = await meshDeviceId(keys.devicePublic);
+    const identity = { network: keys.network, genesis, owner, device };
+    const store = `sphere-e2ee-v1:${keys.network}:${genesis}:${owner}:${device}`;
+    const candidateKey = key + ':replacement:' + device;
+    const releaseStore = await acquireCipherStoreLock(store).catch(error => {
+      if (error instanceof Error && error.message === 'cipher_store_already_open') return null;
+      throw error;
+    });
+    if (!releaseStore) return token;
+    try {
+      const postProfile = async (body: unknown) => {
+        guard();
+        const response = await fetch(pin.url + '/api/auth/mesh/cipher/profile/', {
+          method: 'POST', credentials: 'omit', redirect: 'error', cache: 'no-store',
+          signal: AbortSignal.timeout(15000),
+          headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json', 'X-Ionik-Client': '1' },
+          body: JSON.stringify(body),
+        });
+        if (!response.ok) throw new Error('dm_cipher_http_' + response.status);
+        return response.json();
+      };
+      const profile = new CipherProfileGuard(identity, keys.devicePublic, pin,
+        applicationDeviceAccess(pin.url, token).signer, postProfile, store);
+      const savedCandidate = storage.getItem(candidateKey);
+      if (savedCandidate || await profile.needsReplacement()) {
+        const client = new AccountRecoveryClient({ pin, genesis, owner, device,
+          token: () => token, guard: () => { guard(); return true; } });
+        const candidate = savedCandidate
+          ? await verifyEnrollmentFile(JSON.parse(savedCandidate), options.password, keys)
+          : await prepareDeviceEnrollment(keys, options.password, options.password, await client.deviceHead());
+        guard();
+        // Keep the encrypted old credentials and the exact replacement request
+        // so a failed publish or reload can resume without creating another device.
+        storage.setItem(candidateKey, JSON.stringify(candidate));
+        let confirmed = false;
+        for (let attempt = 0; attempt < 12; attempt++) {
+          guard();
+          if ((await client.publishDevice(candidate.event)).state === 'confirmed') { confirmed = true; break; }
+          await (options.wait ? options.wait() : new Promise<void>(resolve => setTimeout(resolve, 1000)));
+        }
+        if (!confirmed) throw new Error('application_device_replacement_pending');
+        const replacement = applicationKeys({ ...keys, devicePublic: candidate.credentials.devicePublic,
+          deviceVault: candidate.credentials.deviceVault }, pin.url);
+        token = await login(replacement);
+        await options.onAuthenticated(replacement, token); guard();
+        storage.setItem(key + ':previous:' + device, JSON.stringify(keys));
+        storage.setItem(key, JSON.stringify({ ...prepared, keys: replacement }));
+      }
+    } finally { await releaseStore(); }
+  }
+  return token;
   } finally { await release(); }
 }

@@ -47,8 +47,10 @@ export class DmCipherSession {
   private current: () => boolean;
   private archiveContext!: DeviceArchiveContext;
   private archiveDescriptor?: DeviceArchiveKeyFile;
+  private readonly distributed: boolean;
   private constructor(coordinator: DmCipherCoordinator, outbox: DmCipherOutbox, archive: CipherArchive,
-    guildOutbox: DmCipherOutbox<GuildCipherMessage>, readKey: CryptoKey, pin: TrustedEntryPoint, user: string, current: () => boolean, private readonly distributed: boolean) {
+    guildOutbox: DmCipherOutbox<GuildCipherMessage>, readKey: CryptoKey, pin: TrustedEntryPoint, user: string, current: () => boolean, distributed: boolean) {
+    this.distributed = distributed;
     this.coordinator = coordinator; this.outbox = outbox; this.archive = archive;
     this.guild = new GuildCipherSession(coordinator, guildOutbox, archive);
     this.readKey = readKey; this.pin = pin; this.user = user; this.current = current;

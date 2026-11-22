@@ -128,6 +128,12 @@ export class CipherProfileGuard {
     if (body.profile_digest !== await cipherProfileDigest(this.store)) throw new Error('cipher_profile_local_mismatch');
     await this.confirm(record);
   }
+  async needsReplacement() {
+    this.head = await this.read();
+    await this.resumeFinish();
+    return !!this.head && (this.head.record.body.version % 2 === 0 ||
+      this.head.record.body.profile_digest !== await cipherProfileDigest(this.store));
+  }
   async beforeInitialize() {
     this.head = await this.read();
     await this.resumeFinish();
