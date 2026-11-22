@@ -59,7 +59,7 @@ function useRuntime() {
   useEffect(()=>{
     if(currentUser?.service_capabilities?.mode!=='distributed' || !authToken || !userIDonServer)return;
     setUnlockState('opening');
-    let cancelled=false,timer:ReturnType<typeof setTimeout>;let attempts=0;
+    let cancelled = false;
     const tryOpen=async()=>{if(cancelled || session.current)return;
       try {await restoreApplicationDevice(currentServerIP,authToken);}
       catch {if(!cancelled)setUnlockState('sign-in');return;}
@@ -70,10 +70,9 @@ function useRuntime() {
         if(!pin || pin.url!==new URL(currentServerIP).origin)throw new Error('entry_pin_required');
         await open(capability.keys,pin,'',undefined,true,true);
       } catch {
-        if(!cancelled && ++attempts<5)timer=setTimeout(()=>void tryOpen(),2000);
-        else if(!cancelled)setUnlockState('retry');
+        if (!cancelled) setUnlockState('retry');
       }
-    };void tryOpen();return()=>{cancelled=true;clearTimeout(timer);};
+    };void tryOpen();return()=>{cancelled=true;};
   },[identity,currentUser?.service_capabilities?.mode,retry]);
   return {
     session, closing, ready: openedFor === identity && !!session.current,

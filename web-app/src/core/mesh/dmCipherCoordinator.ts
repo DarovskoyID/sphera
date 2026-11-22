@@ -71,10 +71,11 @@ export class DmCipherCoordinator {
     const own = this.publicIdentity();
     if ((['network', 'genesis', 'owner', 'device', 'ed25519', 'curve25519'] as const).some(field => peer[field] !== own[field])) throw new Error('dm_cipher_certificate_mismatch');
     let response: unknown;
-    for (let attempt = 0; attempt < 40; attempt++) {
+    const attempts = this.options.distributed ? 4 : 40;
+    for (let attempt = 0; attempt < attempts; attempt++) {
       try { response = await this.post('/api/auth/mesh/cipher/device/', { certificate }); break; }
       catch (error) {
-        if (!(error instanceof Error) || error.message !== 'dm_cipher_http_503' || attempt === 39) throw error;
+        if (!(error instanceof Error) || error.message !== 'dm_cipher_http_503' || attempt === attempts - 1) throw error;
         // The exact persistent SDK certificate may await its consensus commit.
         // Never generate replacement keys or mark an unconfirmed pin ready.
         await new Promise(resolve => setTimeout(resolve, 1000)); this.assert();

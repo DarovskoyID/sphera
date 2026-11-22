@@ -299,7 +299,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       callTargetId: null,
       incomingOffer: null,
       chatMessages: [],
-      chatConversationId: null,
+      chatConversationId: null, chatIsDistributedDialog: false,
       chatBlockedByOther: false,
       chatLoading: false,
       customEmojis: [],
@@ -861,7 +861,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
 
     if (!state.currentChat || !state.authToken) {
       setState(prev => ({
-        ...prev, chatMessages: [], chatConversationId: null,
+        ...prev, chatMessages: [], chatConversationId: null, chatIsDistributedDialog: false,
         chatBlockedByOther: false, chatLoading: false,
       }));
       return;
@@ -873,7 +873,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     setState(prev => (
       prev.chatConversationId === null && prev.chatMessages.length === 0
         ? (prev.chatLoading ? prev : { ...prev, chatLoading: true })
-        : { ...prev, chatMessages: [], chatConversationId: null, chatBlockedByOther: false, chatLoading: true }
+        : { ...prev, chatMessages: [], chatConversationId: null, chatIsDistributedDialog: false, chatBlockedByOther: false, chatLoading: true }
     ));
 
     let cancelled = false;
@@ -909,7 +909,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
           // No prior conversation exists and we're blocked — nothing to show
           setState(prev => ({
             ...prev, chatBlockedByOther: true, chatMessages: [],
-            chatConversationId: null, chatLoading: false,
+            chatConversationId: null, chatIsDistributedDialog: false, chatLoading: false,
           }));
           return;
         }
@@ -922,6 +922,9 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
         }
 
         const convoId = convo.id;
+        const chatIsDistributedDialog = convo.distributed_dialog === true &&
+          state.currentUser?.service_capabilities?.mode === 'distributed';
+        setState(prev => ({ ...prev, chatConversationId: convoId, chatIsDistributedDialog }));
         // Start the history request before touching the cache, so the round
         // trip and the disk read overlap. Reading IndexedDB is quick, but it is
         // not free, and it would be a poor trade to delay the authoritative
@@ -1011,7 +1014,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
               setState(prev => ({
                 ...prev,
                 chatMessages: [],
-                chatConversationId: null,
+                chatConversationId: null, chatIsDistributedDialog: false,
                 currentChat: '',
                 mobileActivePanel: 'chat-list' as MobilePanel,
                 // Also remove from blocked contacts if this was a blocked DM
@@ -2002,7 +2005,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       return {
         ...next,
         chatMessages: [],
-        chatConversationId: null,
+        chatConversationId: null, chatIsDistributedDialog: false,
         chatBlockedByOther: false,
         chatLoading: true,
       };
@@ -2112,7 +2115,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
         pendingRequests: [],
         sentRequests: [],
         chatMessages: [],
-        chatConversationId: null,
+        chatConversationId: null, chatIsDistributedDialog: false,
         chatBlockedByOther: false,
         customEmojis: [],
         currentView: 'home',

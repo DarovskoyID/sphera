@@ -38,6 +38,7 @@ function CipherChatProvider({ children, target }: { children: ReactNode; target?
   const { currentServerIP, authToken, userIDonServer } = app;
   const chatConversationId = target?.scope ?? app.chatConversationId, chatMessages = target?.messages ?? app.chatMessages;
   const source = target ? 'guild' : 'dm', guild = target?.guild;
+  const meshDialog = !target && !!chatConversationId && app.chatIsDistributedDialog;
   const routeKey = JSON.stringify([source, guild, chatConversationId]);
   const routeRef = useRef(routeKey); routeRef.current = routeKey;
   const identity = JSON.stringify([currentServerIP, authToken, userIDonServer]);
@@ -106,7 +107,7 @@ function CipherChatProvider({ children, target }: { children: ReactNode; target?
     let cancelled = false;
     setMode(null); setTexts({}); setUnavailable({}); setRecords([]); setNotice(''); scanCursor.current = 0;
     review.current?.answer(false); review.current = null; setQuestion(null);
-    if (!chatConversationId || !authToken) return;
+    if (meshDialog || !chatConversationId || !authToken) return;
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 15000);
     void fetch(currentServerIP + '/api/ws/authorize/', { method: 'POST', credentials: 'omit', redirect: 'error',
@@ -119,7 +120,7 @@ function CipherChatProvider({ children, target }: { children: ReactNode; target?
       if (!cancelled) setMode({ scope: chatConversationId, route: routeKey, identity, enabled: value.cipher_only, available: value.cipher_messages });
     }).catch(() => { if (!cancelled) setNotice('Не удалось проверить защиту диалога. Повторите проверку.'); });
     return () => { cancelled = true; clearTimeout(timeout); controller.abort(); };
-  }, [routeKey, identity, refresh]);
+  }, [routeKey, identity, refresh, meshDialog]);
   const isCurrentScope = (scope: string) => scopeRef.current === scope && routeRef.current === routeKey;
   const updateRecords = async (opened: DmCipherSession, scope: string) => {
     const values = target ? await opened.guild.outbox.list() : await opened.outbox.list();
@@ -215,8 +216,9 @@ function CipherChatProvider({ children, target }: { children: ReactNode; target?
     }
     finally { setBusy(false); }
   };
-  const checked = mode?.route === routeKey && mode?.scope === chatConversationId && mode?.identity === identity;
-  const protectedMode = !!(checked && mode.enabled) || !!(chatConversationId && selected[routeKey]) || chatMessages.some(message => message.message_type === 'cipher');
+  const checkedMode = mode?.route === routeKey && mode?.scope === chatConversationId && mode?.identity === identity;
+  const checked = meshDialog || checkedMode;
+  const protectedMode = meshDialog || !!(checkedMode && mode.enabled) || !!(chatConversationId && selected[routeKey]) || chatMessages.some(message => message.message_type === 'cipher');
   const readyHere = ready;
   const confirmRead = async (message: ChatMessage) => {
     const opened = session.current, scope = chatConversationId;
@@ -316,7 +318,7 @@ function CipherChatProvider({ children, target }: { children: ReactNode; target?
   const advancedPanel = <section aria-label="Защита личного диалога" style={{ padding: 10, borderBottom: '1px solid var(--border-color)', overflowWrap: 'anywhere' }}>
       {!checked ? <button onClick={() => setRefresh(value => value + 1)}>Проверить защиту диалога</button> : <>
         <strong>{protectedMode ? 'Сквозное шифрование' : 'Обычный диалог'}</strong>
-        {!protectedMode && mode.available && <button onClick={() => chatConversationId && setSelected(previous => ({ ...previous, [routeKey]: true }))}>Включить сквозное шифрование</button>}
+        {!protectedMode && checkedMode && mode.available && <button onClick={() => chatConversationId && setSelected(previous => ({ ...previous, [routeKey]: true }))}>Включить сквозное шифрование</button>}
         {protectedMode && !readyHere && <form onSubmit={event => { event.preventDefault(); void unlock(); }}>
           <p>Первое отправленное зашифрованное сообщение закрепит этот режим. Откройте файл ключей на этом устройстве.</p>
           <label>Зашифрованный файл ключей<input type="file" accept=".json,application/json" disabled={busy} onChange={event => { setFile(event.target.files?.[0] ?? null); event.target.value = ''; }} /></label>
