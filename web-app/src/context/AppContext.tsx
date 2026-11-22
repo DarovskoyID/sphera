@@ -684,6 +684,14 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
         if (active && generation === authGenerationRef.current) {
           setState(prev => ({ ...prev, pendingRequests: pending }));
         }
+        const friends: ServerUser[] = await apiGet('/api/auth/friends/', state.authToken, state.currentServerIP);
+        if (active && generation === authGenerationRef.current) {
+          const confirmed = new Set(friends.map(friend => String(friend.id)));
+          setState(prev => ({
+            ...prev, friends,
+            sentRequests: prev.sentRequests.filter(user => !confirmed.has(String(user.id))),
+          }));
+        }
       } catch {
         // The next poll retries without replacing already visible requests.
       } finally {

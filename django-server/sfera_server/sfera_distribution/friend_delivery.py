@@ -40,27 +40,38 @@ def outgoing(request):
         peers = replica.roster()
         replica.nodes.roster = {identity: peer['public_key'] for identity, peer in peers.items()}
         sender, payload = replica.nodes.verify(request.data, 'friend-outgoing-v1')
-        if not isinstance(payload, dict) or set(payload) != {'recipient'}:
+        if not isinstance(payload, dict) or set(payload) not in ({'recipient'}, {'recipient', 'sent'}):
             raise ValueError('friend_recipient_schema')
         recipient = UUID(payload['recipient'])
         rows = Friendship.objects.filter(to_user_id=recipient, status='pending').order_by('id')
         rows = [[str(identity), str(author), created.isoformat()]
                 for identity, author, created in rows.values_list('id', 'from_user_id', 'created_at')[:256]]
+        reply = {'nonce': request.data['record']['nonce'], 'rows': rows}
+        if 'sent' in payload:
+            sent = payload['sent']
+            if not isinstance(sent, list) or len(sent) > 256 or any(not isinstance(value, str) for value in sent):
+                raise ValueError('friend_sent_schema')
+            ids = [UUID(value) for value in sent]
+            reply['accepted'] = [[str(identity), str(peer)] for identity, peer in
+                Friendship.objects.filter(pk__in=ids, from_user_id=recipient, status='accepted')
+                    .values_list('id', 'to_user_id')]
         backend = replica.backend
         return Response(envelope(backend.entry_key, backend.directory.network, sender, 'friend-outgoing-reply-v1',
-            {'nonce': request.data['record']['nonce'], 'rows': rows}))
+            reply))
     except (ConsensusUnavailable, OSError, ValueError, TypeError, KeyError):
         return Response({'error': 'friend_peer_request_rejected'}, status=403)
 
 
-def _fetch(replica, identity, peer, recipient):
+def _fetch(replica, identity, peer, recipient, sent):
     from urllib.request import Request, build_opener, ProxyHandler
     from sfera_mesh.consensus_directory import NoRedirect
     from sfera_mesh.public_transport import endpoint_url
 
     backend = replica.backend
-    packet = envelope(backend.entry_key, backend.directory.network, identity, 'friend-outgoing-v1',
-                      {'recipient': str(recipient)})
+    payload = {'recipient': str(recipient)}
+    if sent:
+        payload['sent'] = [str(value) for value in sent]
+    packet = envelope(backend.entry_key, backend.directory.network, identity, 'friend-outgoing-v1', payload)
     url = endpoint_url(peer['origin']) + '/api/distribution/friends/outgoing/'
     request = Request(url, data=canonical(packet), headers={'Content-Type': 'application/json'})
     with build_opener(ProxyHandler({}), NoRedirect()).open(request, timeout=4) as response:
@@ -70,8 +81,13 @@ def _fetch(replica, identity, peer, recipient):
     sender, body = replica.nodes.verify(json.loads(raw), 'friend-outgoing-reply-v1')
     if sender != identity or body['nonce'] != packet['record']['nonce'] or len(body['rows']) > 256:
         raise ValueError('friend_reply_context')
-    return [(UUID(row[0]), UUID(row[1]), datetime.fromisoformat(row[2]))
+    accepted = body.get('accepted', [])
+    if not isinstance(accepted, list) or len(accepted) > len(sent):
+        raise ValueError('friend_accepted_schema')
+    rows = [(UUID(row[0]), UUID(row[1]), datetime.fromisoformat(row[2]))
             for row in body['rows'] if isinstance(row, list) and len(row) == 3]
+    return rows, [(UUID(row[0]), UUID(row[1]))
+                  for row in accepted if isinstance(row, list) and len(row) == 2 and all(isinstance(value, str) for value in row)]
 
 
 def _merge(recipient, rows):
@@ -104,6 +120,17 @@ def _merge(recipient, rows):
             continue
 
 
+def _merge_accepted(author, sent, rows):
+    for identity, recipient in rows:
+        if sent.get(identity) != recipient:
+            continue
+        blocked = Q(blocker_id=author, blocked_id=recipient) | Q(blocker_id=recipient, blocked_id=author)
+        with transaction.atomic():
+            if not BlockedUser.objects.filter(blocked).exists():
+                Friendship.objects.filter(pk=identity, from_user_id=author, to_user_id=recipient,
+                                          status='pending').update(status='accepted')
+
+
 @api_view(['GET'])
 @authentication_classes([MeshJWTAuthentication])
 @permission_classes([IsAuthenticated])
@@ -119,14 +146,17 @@ def pending(request):
         replica.nodes.roster = {identity: peer['public_key'] for identity, peer in peers.items()}
         if inbox_slots.acquire(blocking=False):
             try:
-                jobs = [inbox_workers.submit(_fetch, replica, identity, peer, recipient)
+                sent = dict(Friendship.objects.filter(from_user_id=recipient, status='pending')
+                            .order_by('-created_at').values_list('id', 'to_user_id')[:256])
+                jobs = [inbox_workers.submit(_fetch, replica, identity, peer, recipient, sent)
                         for identity, peer in peers.items() if identity != replica.backend.entry]
                 for job in as_completed(jobs):
                     try:
-                        rows = job.result()
+                        rows, accepted = job.result()
                         for attempt in range(3):
                             try:
                                 _merge(recipient, rows)
+                                _merge_accepted(recipient, sent, accepted)
                                 break
                             except OperationalError as error:
                                 if 'database is locked' not in str(error):
