@@ -1,4 +1,4 @@
-import { onWs } from '../sdk/wsBus';
+import { onWs, type WsFrame } from '../sdk/wsBus';
 import { AccountCipherProvider, useAccountCipherRuntime } from './AccountCipherRuntime';
 import { ImportedCipherHistory } from './ImportedCipherHistory';
 import type { GuildCipherMessage } from '../core/mesh/guildCipherMessage';
@@ -346,7 +346,7 @@ function CipherChatProvider({ children, target }: { children: ReactNode; target?
         if (!cancelled) timer = setTimeout(() => void step(), requested ? 0 : delay);
       }
     };
-    const wake = (frame: { scope?: unknown }) => {
+    const wake = (frame: WsFrame) => {
       if (!meshDialog || frame.scope !== chatConversationId || document.visibilityState !== 'visible') return;
       requested = true;
       if (!running) {
