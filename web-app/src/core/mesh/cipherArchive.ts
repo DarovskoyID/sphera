@@ -189,13 +189,15 @@ export class CipherArchive {
     return this.validate(value, key);
   }
   async receive(cipher: AuthorizedCipher, source: Source, scope: string,
-    sender: { owner: string; device: string }, envelope: GroupEnvelope, authorization?: CipherScopeProof) {
+    sender: { owner: string; device: string }, envelope: GroupEnvelope, authorization?: CipherScopeProof,
+    validatePlaintext?: (result: { id: string; text: string; authorization: CipherScopeProof }) => void) {
     this.active();
     sender = { owner: sender.owner, device: sender.device }; envelope = JSON.parse(JSON.stringify(envelope));
     // Megolm's fixed event ID allows this exact receive to be repeated after
     // decrypt-before-commit failure. Pairwise Olm has no such guarantee here.
     const result = authorization ? await cipher.decryptHistorical(source, scope, sender, envelope, authorization) : await cipher.decrypt(source, scope, sender, envelope);
     this.active();
+    validatePlaintext?.(result);
     const key = await this.key(source, scope, result.id);
     const content_digest = await accountDigest(accountBytes({ sender, envelope, text: result.text }));
     const value: Stored = { domain: 'sfera-mesh-cipher-archive-message-v1', source, scope,

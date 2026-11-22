@@ -222,8 +222,10 @@ export class DmCipherCoordinator {
       let saved = await archive.read('dm', scope, wire.id);
       if (!saved) {
         // Validate all authenticated DM fields before allowing an archive insert.
-        await channel.messages.open(scope, wire);
-        await archive.receive(channel.policy, 'dm', scope, wire.sender, wire.envelope);
+        await archive.receive(channel.policy, 'dm', scope, wire.sender, wire.envelope, undefined, result => {
+          if (result.id !== wire.id) throw new Error('dm_cipher_authenticated_context_mismatch');
+          openDmCipherBody(wire, result.text, result.authorization);
+        });
         saved = await archive.read('dm', scope, wire.id);
       }
       if (!saved || await accountDigest(accountBytes(saved.envelope)) !== await accountDigest(accountBytes(wire.envelope)) ||
