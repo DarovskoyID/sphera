@@ -17,6 +17,9 @@ on:
       - 'output/sdk-replica-20261120/sdk-enable-v32.json'
       - 'output/sdk-replica-20261120/sdk-enable-v32.pyz'
       - 'output/sdk-replica-20261120/sdk-web-v32.tar.gz'
+      - 'output/sdk-replica-20261120/sdk-enable-v33.json'
+      - 'output/sdk-replica-20261120/sdk-enable-v33.pyz'
+      - 'output/sdk-replica-20261120/sdk-web-v33.tar.gz'
       - '.github/workflows/publish-sphere-v29.yml'
 
 permissions:
@@ -55,4 +58,9 @@ jobs:
             output/sdk-replica-20261120/sdk-enable-v32.json \
             output/sdk-replica-20261120/sdk-enable-v32.pyz \
             output/sdk-replica-20261120/sdk-web-v32.tar.gz \
+            --clobber
+          gh release upload "$RELEASE_TAG" \
+            output/sdk-replica-20261120/sdk-enable-v33.json \
+            output/sdk-replica-20261120/sdk-enable-v33.pyz \
+            output/sdk-replica-20261120/sdk-web-v33.tar.gz \
             --clobber
